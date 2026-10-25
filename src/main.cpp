@@ -17,11 +17,8 @@ static void mapMouse(Game& g, int wx, int wy) {
 
 static void pollInput(Game& g) {
     Input& in = g.in;
-    in.lPressed = in.lReleased = false;
-    in.ePressed = in.escPressed = in.tabPressed = in.enterPressed = in.bandage = false;
-    in.mapToggle = in.helpToggle = false;
-    in.selectKey = -1;
-    in.wheel = 0;
+    // Edge flags (pressed/released/toggles) are cleared in main() after update() has
+    // consumed them, so a frame that runs no update step can't swallow an input.
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
         switch (e.type) {
@@ -32,6 +29,7 @@ static void pollInput(Game& g) {
                 if (e.button.button == SDL_BUTTON_LEFT) {
                     in.l = true;
                     in.lPressed = true;
+                    in.uiClick = true;
                 }
                 break;
             case SDL_MOUSEBUTTONUP:
@@ -257,6 +255,7 @@ int main(int argc, char** argv) {
             }
         }
         g.render();
+        g.in.uiClick = false;  // a UI click is only valid for the frame it happened in
         g.present();
     }
     g.shutdown();

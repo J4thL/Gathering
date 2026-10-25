@@ -22,6 +22,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false;
+    bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
 enum AState { AS_WANDER, AS_FLEE, AS_CHASE };

@@ -99,8 +99,9 @@ bool Game::button(int x, int y, int w, int h, const std::string& label, bool ena
     bool down = hov && in.l;
     panel(x, y + (down ? 1 : 0), w, h, !enabled ? UI_BTN_OFF : hov ? UI_BTN_HOV : base);
     textC(x + w / 2, y + (h - 5) / 2 + (down ? 1 : 0), label, enabled ? C_TEXT : HEX(0x6e5f4a));
-    if (hov && in.lPressed) {
-        in.lPressed = false;
+    if (hov && in.uiClick) {
+        in.uiClick = false;   // only one button may react to a click
+        in.lPressed = false;  // don't also start a weapon throw
         audio.play(S_CLICK);
         return true;
     }
