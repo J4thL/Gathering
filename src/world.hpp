@@ -55,7 +55,7 @@ struct World {
     bool solid[MH][MW];
     std::vector<Prop> props;
     std::vector<Decor> decor;
-    V2 village, hut, door, keeper, fire, spawn;
+    V2 village, hut, door, keeper, fire, spawn, questGiver;
     uint32_t seed = 7;
 
     float pixW() const { return MW * TS; }
@@ -132,6 +132,7 @@ struct World {
         keeper = V2(hut.x + 40, hut.y + 8);
         fire = V2(hut.x + 76, hut.y + 40);
         spawn = V2(hut.x, hut.y + 48);
+        questGiver = V2(fire.x - 40, fire.y + 34);  // the elder sits south-west of the campfire, clear of the merchant
         props.push_back({P_FIRE, fire.x, fire.y, 0});
         markSolidAt(fire.x, fire.y - 3);
         props.push_back({P_CRATE, hut.x - 40, hut.y + 4, 0});

@@ -201,6 +201,7 @@ void Game::renderWorld(bool) {
         dl.push_back({pr.y, 0, (int)i});
     }
     dl.push_back({world.keeper.y, 1, 0});
+    dl.push_back({world.questGiver.y, 4, 0});
     dl.push_back({p.pos.y, 2, 0});
     for (size_t i = 0; i < animals.size(); i++)
         if (!animals[i].dead) dl.push_back({animals[i].pos.y, 3, (int)i});
@@ -230,6 +231,9 @@ void Game::renderWorld(bool) {
         } else if (e.t == 1) {
             sprW(A.shadow[0], world.keeper.x, world.keeper.y, false, 0.8f);
             sprW(A.keeper[((int)(timeAcc * 1.6f)) & 1], world.keeper.x, world.keeper.y, p.pos.x < world.keeper.x);
+        } else if (e.t == 4) {
+            sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
+            sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
         } else if (e.t == 2) {
             sprW(A.shadow[0], p.pos.x, p.pos.y);
             int fr = ((int)p.animT) & 3;
@@ -370,6 +374,8 @@ void Game::drawMinimap() {
     // shop
     fillRect(ox + (int)(world.hut.x / TS) - 1, oy + (int)(world.hut.y / TS) - 1, 3, 3, C_GOLD);
     fillRect(ox + (int)(world.hut.x / TS), oy + (int)(world.hut.y / TS), 1, 1, HEX(0x7e2e22));
+    // quest giver
+    fillRect(ox + (int)(world.questGiver.x / TS) - 1, oy + (int)(world.questGiver.y / TS) - 1, 2, 2, C_BLUE);
     // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) fillRect(ox + (int)(a.pos.x / TS) - 1, oy + (int)(a.pos.y / TS) - 1, 2, 2, C_RED);
@@ -380,6 +386,12 @@ void Game::drawMinimap() {
 
 void Game::drawHud() {
     if (state == ST_TITLE) return;
+    // ---- floating marker over the elder: "!" = quest available, "?" = ready to turn in
+    if (!questActive || questReady()) {
+        int qx = (int)world.questGiver.x - camX, qy = (int)world.questGiver.y - camY - 38 + (int)(sinf(timeAcc * 4.f) * 1.5f);
+        if (qx > -10 && qx < LW + 10 && qy > -12 && qy < LH + 12)
+            text(qx - 3, qy, questActive ? "?" : "!", questActive ? C_GREEN : C_GOLD, 2);
+    }
     // ---- context prompts in the world
     if (state == ST_PLAY && !p.dead) {
         Animal* c = nearestCarcass(26);
@@ -406,6 +418,8 @@ void Game::drawHud() {
                 drawPrompt(c->pos.x, c->pos.y - 22, "E", "HOLD TO GATHER");
         } else if (nearShop()) {
             drawPrompt(world.keeper.x, world.keeper.y - 36, "E", "SHOP");
+        } else if (nearQuestGiver()) {
+            drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
         }
     }
 
@@ -445,6 +459,14 @@ void Game::drawHud() {
         }
     }
     if (showMap) drawMinimap();
+
+    // ---- active quest tracker (bottom-left, above the bag meter)
+    if (questActive) {
+        bool ready = questReady();
+        std::string t = ready ? quest.title + "  DONE! SEE ELDER" : quest.title + "  " + S(questProg) + "/" + S(quest.goal);
+        panel(4, LH - 59, textW(t) + 8, 12, HEX(0x33241a));
+        text(8, LH - 56, t, ready ? C_GREEN : C_TEXT, 1, false);
+    }
 
     // ---- materials strip + bag meter
     {
@@ -556,6 +578,68 @@ void Game::drawReticle() {
             fillRect(mx + (int)roundf(cosf(a) * 10) , my + (int)roundf(sinf(a) * 10), 1, 1, p.charge >= 1 ? C_GOLD : HEX(0xffffff));
         }
     }
+}
+
+// ================================================================= quest giver
+void Game::drawQuestPanel() {
+    fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 140));
+    const int X = 60, Y = 36, W = 280, H = 146;
+    panel(X, Y, W, H, HEX(0x4a3524));
+    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    text(X + 8, Y + 7, "ELDER HOLT - HUNTING QUESTS", C_GOLD);
+    std::string qn = "QUEST " + S(questIdx + 1);
+    text(X + W - 8 - textW(qn), Y + 7, qn, C_DIM);
+    // portrait of the elder
+    panel(X + 6, Y + 22, 60, 78, HEX(0x2b1d12));
+    {
+        const Spr& k = A.quester[((int)(timeAcc * 1.3f)) & 1];
+        SDL_Rect d{X + 6 + 30 - k.w, Y + 26, k.w * 2, k.h * 2};
+        SDL_RenderCopy(ren, k.t, nullptr, &d);
+        textC(X + 36, Y + 88, "ELDER HOLT", C_DIM, 1, false);
+    }
+    // the quest itself
+    const int x0 = X + 74;
+    bool ready = questReady();
+    text(x0, Y + 23, quest.title, C_GOLD, 2);
+    text(x0, Y + 38, quest.desc, C_TEXT);
+    float frac = questActive ? (float)questProg / quest.goal : 0.f;
+    bar(x0, Y + 52, 150, 6, frac, ready ? C_GREEN : HEX(0xe0a93a));
+    text(x0 + 156, Y + 52, questActive ? S(questProg) + "/" + S(quest.goal) : "GOAL " + S(quest.goal), ready ? C_GREEN : C_TEXT);
+    // rewards
+    text(x0, Y + 66, "REWARD", C_DIM, 1, false);
+    int cx = x0;
+    std::string cs = S(quest.coins);
+    icon(A.coin, cx + 5, Y + 79, 10);
+    text(cx + 12, Y + 76, cs, C_GOLD);
+    cx += 12 + textW(cs) + 8;
+    if (quest.mat >= 0 && quest.matN > 0) {
+        std::string ms = "X" + S(quest.matN);
+        icon(A.matIcon[quest.mat], cx + 6, Y + 79, 12);
+        text(cx + 14, Y + 76, ms, C_TEXT);
+        cx += 14 + textW(ms) + 8;
+    }
+    if (quest.bandages > 0) {
+        std::string bs = "X" + S(quest.bandages);
+        icon(A.bandage, cx + 6, Y + 79, 12);
+        text(cx + 14, Y + 76, bs, C_TEXT);
+    }
+    // status line + buttons
+    if (!questActive) text(x0, Y + 90, "ACCEPT TO START THIS QUEST", C_DIM, 1, false);
+    else if (ready) text(x0, Y + 90, "WELL DONE, HUNTER!", C_GREEN, 1, false);
+    else text(x0, Y + 90, "KEEP HUNTING - COME BACK WHEN DONE", C_DIM, 1, false);
+    const int by = Y + 106;
+    if (!questActive) {
+        if (button(x0, by, 96, 18, "ACCEPT", true, HEX(0x5d7a2e))) acceptQuest();
+    } else if (ready) {
+        if (button(x0, by, 96, 18, "TURN IN", true, HEX(0x5d7a2e))) turnInQuest();
+    } else {
+        button(x0, by, 96, 18, "IN PROGRESS", false);
+    }
+    if (button(x0 + 102, by, 60, 18, "CLOSE")) {
+        state = ST_PLAY;
+        save();
+    }
+    textC(X + W / 2, Y + H - 12, "ESC OR E: CLOSE", C_DIM, 1, false);
 }
 
 // ================================================================= shop
@@ -748,6 +832,7 @@ void Game::render() {
         case ST_PLAY: drawHud(); break;
         case ST_SHOP: drawHud(); drawShop(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;
+        case ST_QUEST: drawHud(); drawQuestPanel(); break;
     }
     if (state == ST_PLAY && !p.dead) drawReticle();
     else sprS(A.cursor, (int)in.mx, (int)in.my);

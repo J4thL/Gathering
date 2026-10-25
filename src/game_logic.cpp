@@ -79,6 +79,7 @@ void Game::save() {
     f << "\nup";
     for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
     f << "\nbandages " << p.bandages << "\nday " << dayT << "\nkills " << kills << "\n";
+    f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
     hasSave = true;
 }
 
@@ -98,7 +99,13 @@ bool Game::load() {
         else if (k == "bandages") ss >> p.bandages;
         else if (k == "day") ss >> dayT;
         else if (k == "kills") ss >> kills;
+        else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
+            int active = 0;
+            ss >> questIdx >> active >> questProg;
+            questActive = active != 0;
+        }
     }
+    refreshQuest();
     for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(2, std::max(0, p.up[i]));
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
@@ -121,6 +128,10 @@ void Game::newGame() {
     dayT = 30;
     kills = 0;
     sold = 0;
+    questIdx = 0;
+    questProg = 0;
+    questActive = false;
+    refreshQuest();
     helpT = 16;
     respawnT = 5;
     shakeAmt = 0;
@@ -356,6 +367,7 @@ void Game::killAnimal(Animal& a) {
     a.hp = 0;
     a.vel = V2();
     kills++;
+    questEvent(Q_KILL, a.kind, 1);
     const AnimalDef& D = ANIMAL[a.kind];
     int total = 0;
     for (int m = 0; m < M_COUNT; m++) {
@@ -472,6 +484,7 @@ void Game::gatherStep(Animal& c) {
         p.mats[m]++;
         extra = 1;
     }
+    questEvent(Q_GATHER, m, 1 + extra);
     ftext(c.pos + V2(rng.range(-6, 6), -10), "+" + S(1 + extra) + " " + MAT_NAME[m], extra ? C_GOLD : C_GREEN, 1.2f);
     bloodBurst(c.pos + V2(0, -4), V2(rng.range(-1, 1), -0.6f), 4);
     puff(c.pos + V2(0, -2), 3, HEX(0xd8c8a8));
@@ -609,9 +622,14 @@ void Game::updatePlayer(float dt) {
     }
 
     // --- shop / bandage / regen
-    if (in.ePressed && !c && nearShop()) {
-        state = ST_SHOP;
-        audio.play(S_CLICK);
+    if (in.ePressed && !c) {
+        if (nearShop()) {
+            state = ST_SHOP;
+            audio.play(S_CLICK);
+        } else if (nearQuestGiver()) {
+            state = ST_QUEST;
+            audio.play(S_CLICK);
+        }
     }
     if (in.bandage && P.bandages > 0 && P.hp < P.maxhp) {
         P.bandages--;
@@ -833,6 +851,14 @@ void Game::update(float dt) {
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
             break;
+        case ST_QUEST:  // time stands still while talking to the elder
+            updateFx(dt);
+            if (in.escPressed || in.ePressed) {
+                state = ST_PLAY;
+                save();
+                audio.play(S_CLICK);
+            }
+            break;
     }
 }
 
@@ -880,6 +906,7 @@ bool Game::craft(int r) {
     p.wpn[R.out] = std::min(WPN_MAX, p.wpn[R.out] + R.count);
     audio.play(S_CRAFT);
     msg("CRAFTED " + S(R.count) + " " + WPN[R.out].name, C_GOLD);
+    questEvent(Q_CRAFT, R.out, 1);
     return true;
 }
 void Game::sellMat(int m, int n) {
@@ -889,4 +916,63 @@ void Game::sellMat(int m, int n) {
     p.coins += n * MAT_PRICE[m];
     sold += n * MAT_PRICE[m];
     audio.play(S_COIN);
+    questEvent(Q_EARN, 0, n * MAT_PRICE[m]);
+}
+
+// ================================================================= quests
+bool Game::nearQuestGiver() const { return dist(p.pos, world.questGiver) < 34; }
+
+// Re-read the current quest from the data table (call whenever questIdx changes).
+void Game::refreshQuest() {
+    questIdx = std::max(0, questIdx);
+    quest = questAt(questIdx);
+    questProg = questActive ? std::min(std::max(0, questProg), quest.goal) : 0;
+}
+
+// Something happened in the world (a kill, gathered material, a craft, coins earned from selling).
+// If it matches the active quest, count it.
+void Game::questEvent(int type, int id, int n) {
+    if (!questActive || questReady() || quest.type != type) return;
+    if (quest.target >= 0 && quest.target != id) return;
+    questProg = std::min(quest.goal, questProg + n);
+    if (questReady()) {
+        msg("QUEST DONE: " + quest.title + " - SEE THE ELDER", C_GREEN);
+        ftext(p.pos + V2(0, -30), "QUEST DONE!", C_GREEN, 1.6f);
+        audio.play(S_PICKUP);
+    }
+}
+
+void Game::acceptQuest() {
+    if (questActive) return;
+    questActive = true;
+    questProg = 0;
+    msg("QUEST ACCEPTED: " + quest.title, C_GOLD);
+    audio.play(S_PICKUP);
+    save();
+}
+
+void Game::turnInQuest() {
+    if (!questReady()) return;
+    p.coins += quest.coins;
+    std::string reward = S(quest.coins) + " COINS";
+    if (quest.mat >= 0 && quest.matN > 0) {
+        // materials only fit if the bag has room; anything left over is paid in coins instead
+        int room = std::max(0, p.bagCap() - p.bagUsed());
+        int give = std::min(room, quest.matN);
+        p.mats[quest.mat] += give;
+        if (give < quest.matN) p.coins += (quest.matN - give) * MAT_PRICE[quest.mat];
+        reward += " + " + S(quest.matN) + " " + MAT_NAME[quest.mat];
+    }
+    if (quest.bandages > 0) {
+        p.bandages = std::min(BANDAGE_MAX, p.bandages + quest.bandages);
+        reward += " + " + S(quest.bandages) + " BANDAGE";
+    }
+    msg("QUEST COMPLETE! " + reward, C_GOLD);
+    ftext(p.pos + V2(0, -30), "+" + S(quest.coins) + " COINS", C_GOLD, 1.6f);
+    audio.play(S_CRAFT);
+    questIdx++;
+    questActive = false;
+    questProg = 0;
+    refreshQuest();
+    save();
 }
