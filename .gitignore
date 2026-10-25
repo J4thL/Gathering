@@ -1,4 +1,4 @@
-   build/
-   *.exe
-   *.dll
-   save.txt
+build/
+*.exe
+*.dll
+save.txt

@@ -1,3 +1,0 @@
-C:/Users/Admin/Desktop/Gathering/build/CMakeFiles/wildwood.dir
-C:/Users/Admin/Desktop/Gathering/build/CMakeFiles/edit_cache.dir
-C:/Users/Admin/Desktop/Gathering/build/CMakeFiles/rebuild_cache.dir
