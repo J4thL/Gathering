@@ -324,6 +324,54 @@ inline Img mkShopkeeper(int frame) {
     im.outline(OUT);
     return im;
 }
+// the quest giver: a hooded elder hunter with a white beard and a staff
+inline Img mkQuestGiver(int frame) {
+    Img im(18, 26);
+    int bob = frame ? 1 : 0;
+    const u32 skin = HEX(0xe9bd94), robe = HEX(0x3d6b78), robeD = HEX(0x2b4f5a), robeL = HEX(0x5a8d9a),
+              beard = HEX(0xe9e4d6), beardD = HEX(0xc3bda9), wood = HEX(0x6b4423), woodL = HEX(0x8d5e33),
+              gold = HEX(0xf2c94c), rope = HEX(0x3b2616), eye = HEX(0x2a1c1c);
+    // boots
+    im.rect(5, 22, 3, 2, HEX(0x2e2118));
+    im.rect(10, 22, 3, 2, HEX(0x2e2118));
+    // long robe, flaring toward the hem
+    for (int y = 11; y <= 22; y++) {
+        int hw = 4 + (y - 11) * 3 / 11;
+        for (int x = 9 - hw; x < 9 + hw; x++) {
+            u32 c = robe;
+            if (x < 9 - hw + 2) c = robeL;
+            if (x >= 9 + hw - 2) c = robeD;
+            if (y == 22) c = robeD;
+            im.set(x, y, c);
+        }
+    }
+    im.rect(5, 16, 8, 1, rope);
+    im.set(9, 16, gold);
+    // arms: left hangs down, right holds the staff
+    im.rect(3, 12, 2, 5, robeD);
+    im.set(3, 17, skin);
+    im.set(4, 17, skin);
+    im.rect(13, 12, 2, 4, robeD);
+    im.set(14, 16, skin);
+    im.set(15, 16, skin);
+    // staff with a golden knob
+    im.rect(15, 5, 1, 19, wood);
+    im.set(16, 5, woodL);
+    im.ellipse(15.5f, 4, 1.8f, 1.8f, gold);
+    // hood and face
+    im.ellipse(9, 7 - bob, 4.6f, 4.6f, robe);
+    im.ellipse(9, 6 - bob, 3.6f, 2.4f, robeL);
+    im.ellipse(9, 9 - bob, 3.0f, 3.0f, skin);
+    im.set(8, 9 - bob, eye);
+    im.set(10, 9 - bob, eye);
+    // beard over the chest
+    im.rect(7, 11 - bob, 5, 3, beard);
+    im.rect(8, 14 - bob, 3, 1, beard);
+    im.set(8, 14 - bob, beardD);
+    im.set(7, 13 - bob, beardD);
+    im.outline(OUT);
+    return im;
+}
 
 // ================================================================= hunter
 inline Img mkPlayer(int dir, int f) {
@@ -897,7 +945,7 @@ struct Assets {
     Spr grass[4], dirt[2], water[4];
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
     Spr oak[2], pine, rock[2];
-    Spr hut, sign, crate, barrel, fire[3], keeper[2];
+    Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr player[3][4];
     Spr animal[A_COUNT][2][5];  // [kind][variant][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][3], bandage;
@@ -929,6 +977,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.barrel = makeSpr(r, mkBarrel(), 7, 16);
     for (int i = 0; i < 3; i++) a.fire[i] = makeSpr(r, mkFire(i), 9, 17);
     for (int i = 0; i < 2; i++) a.keeper[i] = makeSpr(r, mkShopkeeper(i), 9, 24);
+    for (int i = 0; i < 2; i++) a.quester[i] = makeSpr(r, mkQuestGiver(i), 9, 24);
     for (int d = 0; d < 3; d++)
         for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
     for (int k = 0; k < A_COUNT; k++)

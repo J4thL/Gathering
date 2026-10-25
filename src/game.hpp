@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "audio.hpp"
+#include "quests.hpp"
 #include "sprites.hpp"
 #include "world.hpp"
 
@@ -112,7 +113,7 @@ struct Fly {
     float x, y, ph, sp;
 };
 
-enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE };
+enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST };
 
 struct Game {
     // platform
@@ -149,6 +150,10 @@ struct Game {
     bool hasSave = false;
     int kills = 0, sold = 0;
     float titleT = 0;
+    // quests: questIdx is how many are done (= the current quest's number); only these 3 numbers are saved
+    int questIdx = 0, questProg = 0;
+    bool questActive = false;
+    Quest quest;  // cached questAt(questIdx), refreshed whenever questIdx changes
     // test hooks
     bool botOn = false;
 
@@ -187,6 +192,13 @@ struct Game {
     void puff(V2 p, int n, u32 col);
     void addItem(int m, int n);
     bool nearShop() const;
+    // quest giver
+    bool nearQuestGiver() const;
+    bool questReady() const { return questActive && questProg >= quest.goal; }
+    void refreshQuest();
+    void questEvent(int type, int id, int n);
+    void acceptQuest();
+    void turnInQuest();
     // shop actions
     bool canAfford(int coins, int m1, int n1, int m2, int n2) const;
     void spend(int coins, int m1, int n1, int m2, int n2);
@@ -199,6 +211,7 @@ struct Game {
     void renderWorld(bool showPlayerPrompts);
     void drawHud();
     void drawShop();
+    void drawQuestPanel();
     void drawTitle();
     void drawPause();
     void drawReticle();
