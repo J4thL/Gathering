@@ -84,5 +84,11 @@ static const float BOOT_MUL[3] = {1.0f, 1.12f, 1.25f};
 static const int ARMOR_HP[3] = {100, 120, 145};
 static const float ARMOR_RED[3] = {0.0f, 0.15f, 0.30f};
 
+// Weapon safety net: the cheapest way to get weapons is the shop's "FLINT KNIFE X3" for 21 coins
+// (see drawShop in game_render.cpp). If the hunter can't afford that and has no weapons left,
+// the merchant lends FLINT_LOAN knives so the game can never soft-lock.
+constexpr int FLINT_PACK_PRICE = 21;
+constexpr int FLINT_LOAN = 3;
+
 constexpr int BANDAGE_HEAL = 45;
 constexpr int BANDAGE_MAX = 9;

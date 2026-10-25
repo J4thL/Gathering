@@ -745,6 +745,27 @@ void Game::setCam(float dt, bool snap) {
     camY = (int)roundf(cam.y + sy);
 }
 
+// Safety net against a soft-lock: if the hunter has no weapons, none lying on the ground or in
+// flight, and can't afford a new flint pack even by selling everything, the merchant lends a few
+// knives. Checked about once a second; it never triggers for a player who can still recover.
+void Game::checkWeaponSafetyNet(float dt) {
+    stuckCheckT -= dt;
+    if (stuckCheckT > 0) return;
+    stuckCheckT = 1.f;
+    if (p.dead || p.charging) return;
+    for (int count : p.wpn)
+        if (count > 0) return;                // still holding a weapon
+    if (!projs.empty() || !items.empty()) return;  // a thrown weapon can still be picked up
+    int wealth = p.coins;
+    for (int m = 0; m < M_COUNT; m++) wealth += p.mats[m] * MAT_PRICE[m];
+    if (wealth >= FLINT_PACK_PRICE) return;  // could buy flint at the shop
+    p.wpn[W_FLINT] = FLINT_LOAN;
+    p.sel = W_FLINT;
+    msg("THE MERCHANT LENDS YOU " + S(FLINT_LOAN) + " FLINT KNIVES", C_GOLD);
+    ftext(p.pos + V2(0, -28), "+" + S(FLINT_LOAN) + " FLINT KNIFE", C_BLUE, 1.4f);
+    audio.play(S_PICKUP);
+}
+
 void Game::updatePlay(float dt) {
     dayT += dt;
     if (helpT > 0) helpT -= dt;
@@ -752,6 +773,7 @@ void Game::updatePlay(float dt) {
     updatePlayer(dt);
     updateAnimals(dt);
     updateProjectiles(dt);
+    checkWeaponSafetyNet(dt);
     updateFx(dt);
     setCam(dt);
     // keep the wilds populated

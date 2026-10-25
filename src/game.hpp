@@ -140,6 +140,7 @@ struct Game {
     std::vector<Fly> flies;
     Rng rng{20261024};
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
+    float stuckCheckT = 0;  // timer for the out-of-weapons safety net
     V2 cam;
     float shakeAmt = 0;
     int camX = 0, camY = 0;
@@ -167,6 +168,7 @@ struct Game {
     void updatePlayer(float dt);
     void updateAnimals(float dt);
     void updateProjectiles(float dt);
+    void checkWeaponSafetyNet(float dt);
     void updateFx(float dt);
     void throwWeapon();
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
