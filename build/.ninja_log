@@ -1,0 +1,5 @@
+# ninja log v7
+30	4630	8145975292405440	CMakeFiles/wildwood.dir/src/main.cpp.obj	e6b0991789a7aa76
+45	7686	8145975292565429	CMakeFiles/wildwood.dir/src/game_render.cpp.obj	dedc1c0dc81d7b9e
+37	12645	8145975292475402	CMakeFiles/wildwood.dir/src/game_logic.cpp.obj	24f9996a33214868
+12648	13096	8145975418585421	wildwood.exe	4b2e0cbeaf45dcdb
