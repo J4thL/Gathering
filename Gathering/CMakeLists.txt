@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.10)
+project(WildwoodHunter CXX)
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+
+add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp)
+
+find_package(SDL2 CONFIG QUIET)
+if(TARGET SDL2::SDL2)
+  # modern SDL2 config package (vcpkg, MSYS2, SDL2 dev zip, Linux distro packages)
+  if(TARGET SDL2::SDL2main)
+    target_link_libraries(wildwood PRIVATE SDL2::SDL2main SDL2::SDL2)
+  else()
+    target_link_libraries(wildwood PRIVATE SDL2::SDL2)
+  endif()
+else()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(SDL2 REQUIRED sdl2)
+  target_include_directories(wildwood PRIVATE ${SDL2_INCLUDE_DIRS})
+  target_link_libraries(wildwood PRIVATE ${SDL2_LIBRARIES})
+endif()
+
+if(MSVC)
+  target_compile_options(wildwood PRIVATE /W3 /utf-8)
+  target_compile_definitions(wildwood PRIVATE _CRT_SECURE_NO_WARNINGS NOMINMAX)
+elseif(WIN32)
+  target_link_libraries(wildwood PRIVATE -mwindows)
+else()
+  target_compile_options(wildwood PRIVATE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
+# copy SDL2.dll next to the exe on Windows when available
+if(WIN32 AND TARGET SDL2::SDL2)
+  add_custom_command(TARGET wildwood POST_BUILD
+    COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:wildwood>
+    VERBATIM)
+endif()
