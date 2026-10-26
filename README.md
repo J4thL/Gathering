@@ -33,9 +33,18 @@ stream species in just off-screen (`src/spawns.hpp`: per-biome caps, cooldowns, 
 Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
 recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
 
+## Items and ranged weapons
+`src/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
+thrown weapons, launchers, ammo, consumables and backpacks, built from the tables in `data.hpp`.
+The hunting bow (hold to draw, 0.85 s for a full shot; damage and range scale with the draw) fires arrows; the crossbow fires
+bolts the moment you click and then reloads for 1.6 s. Launchers are not used up; ammo is, though a share of the arrows and bolts that
+hit can be picked up again. Both weapons and their ammo are sold on the shop's BUY tab (second page). Feathers, scales, horns and claws
+drop from the new species (see `fauna.hpp`).
+
 ## Test flags
     wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
     wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
     wildwood --headless --dumpcore FILE   dump of the original home area, for diffing against an older build
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
+    wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip

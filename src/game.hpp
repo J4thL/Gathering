@@ -63,6 +63,7 @@ struct Player {
     int coins = 0;
     int mats[M_COUNT] = {0};
     int wpn[W_COUNT] = {0};
+    int ammo[AM_COUNT] = {0};
     int sel = 0;
     int up[U_COUNT] = {0};
     int bandages = 0;
@@ -86,11 +87,13 @@ struct Proj {
     float speed, travelled, range, angle, spin, dmg;
     int wpn;
     bool crit;
+    int ammo = -1;  // >= 0: an arrow / bolt fired from a launcher
 };
 struct GroundItem {
     V2 pos;
     int wpn;
     float angle, t;
+    int ammo = -1;  // >= 0: a recovered arrow / bolt lying on the ground (wpn is then unused)
 };
 struct Part {
     float x, y, z, vx, vy, vz, life, max;
@@ -150,7 +153,8 @@ struct Game {
     std::vector<Flake> flakes;
     Rng rng{20261024};
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
-    float legCool = 120.f, spawnT = 0.f;
+    float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
+    int shopPage = 0;
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
@@ -200,6 +204,7 @@ struct Game {
     void climateMods(float& drain, float& regen) const;
     int landmarksFound() const;
     void throwWeapon();
+    bool canUse(int w) const;
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a);
     void hurtPlayer(float dmg, V2 from);
