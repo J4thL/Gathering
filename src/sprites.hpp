@@ -476,7 +476,11 @@ struct QuadSpec {
     u32 body, light, belly, dark, hoof, snout, eye;
     float hr, hdx, hdy, snoutLen;
     int ear, tail;
-    bool antlers, tusks, ridge, spots;
+    int antlers;  // 0 none, 1 antlers, 2 big antlers
+    bool tusks, ridge, spots;
+    int horns;    // 0 none, 1 short goat horns, 2 curled ram horns, 3 flat palmate moose antlers
+    int mane;     // 1 = mane around the head (drawn in the 'dark' colour)
+    u32 horn;     // horn colour (0 = default dark)
 };
 
 inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
@@ -513,6 +517,10 @@ inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
         im.line((int)tx + 1, (int)cy - 2, (int)tx - 2, (int)cy - 4, s.dark);
         im.set((int)tx - 3, (int)cy - 5, s.dark);
     }
+    if (s.tail == 5) {  // long thin tail (big cats, lizards)
+        im.line((int)tx + 1, (int)cy - 1, (int)tx - 4, (int)cy + 1, s.body);
+        im.line((int)tx - 4, (int)cy + 1, (int)tx - 6, (int)cy - 2, s.dark);
+    }
     // body
     for (int y = 0; y < s.H; y++)
         for (int x = 0; x < s.W; x++) {
@@ -542,6 +550,10 @@ inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
     // neck + head
     float hx = cx + s.bw / 2 + s.hdx, hy = cy - s.bh / 2 + s.hdy;
     float nx = cx + s.bw / 2 - 1.5f, ny = cy - s.bh * 0.15f;
+    if (s.mane) {
+        im.ellipse(hx - 1.0f, hy + 1.0f, s.hr * 1.5f, s.hr * 1.4f, s.dark);
+        im.ellipse(hx - 2.0f, hy + 2.5f, s.hr * 1.2f, s.hr * 1.2f, shadeC(s.dark, 0.85f));
+    }
     for (int i = 0; i <= 6; i++) {
         float t = i / 6.f;
         im.ellipse(nx + (hx - nx) * t, ny + (hy - ny) * t, s.hr * (0.85f - 0.1f * t), s.hr * (0.85f - 0.1f * t), s.body);
@@ -588,6 +600,10 @@ inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
         case 4:
             im.ellipse(hx - 1.5f, hy - s.hr + 0.8f, 1.7f, 1.5f, s.dark);
             break;
+        case 5:  // lynx: pointed ear with a dark tuft
+            im.ellipse(hx - 1.5f, hy - s.hr - 0.5f, 1.3f, 2.2f, s.body);
+            im.set((int)(hx - 1.5f), (int)(hy - s.hr - 3), s.dark);
+            break;
     }
     if (s.antlers) {
         u32 ac = HEX(0xdcc79a), ad = HEX(0xb89d6a);
@@ -597,6 +613,34 @@ inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
         im.line(bx - 2, by - 6, bx - 5, by - 9, ac);
         im.line(bx + 1, by, bx + 2, by - 7, ad);
         im.line(bx + 2, by - 4, bx + 5, by - 6, ad);
+        if (s.antlers > 1) {  // a bigger rack: extra tines
+            im.line(bx - 5, by - 9, bx - 7, by - 12, ac);
+            im.line(bx - 2, by - 8, bx - 3, by - 12, ac);
+            im.line(bx + 5, by - 6, bx + 7, by - 9, ad);
+            im.line(bx + 2, by - 7, bx + 3, by - 11, ad);
+        }
+    }
+    if (s.horns) {
+        u32 hc = s.horn ? s.horn : HEX(0x2e2a26);
+        int bx = (int)(hx - 1), by = (int)(hy - s.hr);
+        if (s.horns == 1) {  // short, backward-curved goat horns
+            im.line(bx, by, bx - 1, by - 4, hc);
+            im.line(bx - 1, by - 4, bx - 3, by - 6, hc);
+            im.line(bx + 1, by, bx, by - 4, shadeC(hc, 0.8f));
+        } else if (s.horns == 2) {  // heavy curl around the ear
+            static const int arc[10][2] = {{0, 0}, {-1, -1}, {-2, -1}, {-3, 0}, {-4, 1}, {-4, 2}, {-3, 3}, {-2, 3}, {-1, 2}, {0, 1}};
+            for (auto& q : arc) {
+                im.set(bx + q[0], by + q[1], hc);
+                im.set(bx + q[0], by + q[1] - 1, hc);
+            }
+        } else {  // moose: flat palmate blade with points
+            u32 ac = hc;
+            im.line(bx, by + 1, bx - 1, by - 3, ac);  // beam
+            im.line(bx + 1, by + 1, bx, by - 3, ac);
+            im.ellipse((float)(bx - 2), (float)(by - 4), 4.5f, 2.0f, ac);  // palm
+            for (int i = 0; i < 4; i++) im.line(bx - 5 + i * 2, by - 5, bx - 5 + i * 2, by - 7, ac);  // points
+            im.ellipse((float)(bx - 2), (float)(by - 4), 2.5f, 0.9f, shadeC(ac, 0.8f));
+        }
     }
     if (s.tusks) {
         int tx2 = (int)(hx + s.hr * 0.7f + s.snoutLen * 0.5f), ty2 = (int)(hy + s.hr * 0.6f);
@@ -643,6 +687,8 @@ inline QuadSpec specWolf() {
     s.hr = 3.5f; s.hdx = 3; s.hdy = -1.5f; s.snoutLen = 4.5f; s.ear = 3; s.tail = 3;
     return s;
 }
+
+#include "sprites_fauna.hpp"
 
 // ================================================================= icons & UI art
 inline Img mkIconMat(int m) {
@@ -949,7 +995,7 @@ struct Assets {
     Spr oak[2], pine, rock[2];
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr player[3][4];
-    Spr animal[A_COUNT][2][5];  // [kind][variant][walk0..3, dead]
+    Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][3], bandage;
     Spr wpnWorld[W_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
@@ -983,12 +1029,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 2; i++) a.quester[i] = makeSpr(r, mkQuestGiver(i), 9, 24);
     for (int d = 0; d < 3; d++)
         for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
-    for (int k = 0; k < A_COUNT; k++)
-        for (int v = 0; v < 2; v++) {
-            QuadSpec sp = k == A_RABBIT ? specRabbit() : k == A_DEER ? specDeer(v == 1) : k == A_BOAR ? specBoar() : specWolf();
-            for (int f = 0; f < 4; f++) a.animal[k][v][f] = makeSpr(r, drawQuad(sp, f, false), (int)sp.cx, sp.H - 2, true);
-            a.animal[k][v][4] = makeSpr(r, drawQuad(sp, 0, true), (int)sp.cx, 1, true);
-        }
+    buildFauna(r, a);
     for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, mkIconMat(m), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, mkIconWpn(w), 8, 8);
     for (int u = 0; u < U_COUNT; u++)
