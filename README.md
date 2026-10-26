@@ -19,3 +19,16 @@ knife, backpack, boots and armor. Boars and wolves fight back; wolves get bolder
 Elder Holt, by the campfire, hands out one quest at a time (a gold "!" marks him; a green "?" means turn it in).
 Eight story quests (kill, gather, craft, earn) lead into endless scaling bounties. Rewards are coins, materials and
 bandages. The active quest shows bottom-left, and the elder is marked on the minimap. Quest progress is saved.
+
+## World
+The map is 240x168 tiles. The original Wildwood sits unchanged in the centre; each of its four dirt paths now leads through
+a gate in the tree wall to a new biome: SNOWFIELDS (north), DESERT (east), SWAMP (south), MOUNTAINS (west). Each has its own
+terrain, props, weather, landmarks (walk up to one to discover it) and gathering plants/ore. Terrain and climate matter:
+sand, mud and deep snow slow you down, ice makes you slide, heat/cold/thin air change how fast stamina drains
+(the fur coat cancels the cold). The minimap shows discovered landmarks and the biome you are in.
+
+## Test flags
+    wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
+    wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
+    wildwood --headless --dumpcore FILE   dump of the original home area, for diffing against an older build
+    wildwood --headless --shots DIR       the original scripted playthrough

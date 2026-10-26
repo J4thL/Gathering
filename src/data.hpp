@@ -39,6 +39,25 @@ static const AnimalDef ANIMAL[A_COUNT] = {
     {"WOLF", 58, 28, 104, 125, 9, true, 11, 0.85f, 0.55f, {{2, 3}, {0, 0}, {2, 2}, {1, 1}, {2, 3}, {0, 0}, {0, 0}}},
 };
 
+// ---- biomes (the original map is B_HOME; the four new regions surround it)
+enum Biome { B_HOME, B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN, B_COUNT };
+struct BiomeDef {
+    const char* name;
+    const char* climate;  // short HUD tag for the biome's stamina/movement effect ("" = none)
+    u32 col;              // accent colour (banner, minimap markers)
+};
+static const BiomeDef BIOME[B_COUNT] = {
+    {"WILDWOOD", "", HEX(0x86d85e)},
+    {"DESERT", "HEAT", HEX(0xf0c060)},
+    {"SWAMP", "MUD", HEX(0x8cc06a)},
+    {"SNOWFIELDS", "COLD", HEX(0xbfe3ff)},
+    {"MOUNTAINS", "THIN AIR", HEX(0xc4c6d4)},
+};
+
+// ---- resource nodes placed in the new biomes (harvesting arrives with the item system)
+enum NodeKind { RN_CACTUS, RN_DESERT_HERB, RN_REED, RN_BOGWORT, RN_FROSTBLOOM, RN_ALPINE_HERB, RN_ORE, RN_COUNT };
+[[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"CACTUS PULP", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE"};
+
 // ---- crafting
 struct Recipe {
     Wpn out;

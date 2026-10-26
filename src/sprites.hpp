@@ -1,8 +1,10 @@
 // sprites.hpp - every sprite in the game is painted here, procedurally, as pixel art.
 #pragma once
 #include "data.hpp"
+#include <cstring>
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
+#include "sprites_biome.hpp"
 
 // ================================================================= tiles
 inline Img mkGrass(int variant, Rng& r) {
@@ -951,6 +953,7 @@ struct Assets {
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][3], bandage;
     Spr wpnWorld[W_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
+    BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     SDL_Texture* font = nullptr;
 };
 
@@ -995,6 +998,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         Img im = mkWpnWorld(w);
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
+    buildBiomeAssets(r, a.B);
     a.coin = makeSpr(r, mkCoin(), 5, 5);
     a.heart = makeSpr(r, mkHeart(), 5, 5);
     a.bolt = makeSpr(r, mkBolt(), 4, 6);
