@@ -123,13 +123,40 @@ void Game::renderWorld(bool) {
     for (int ty = ty0; ty <= ty1; ty++)
         for (int tx = tx0; tx <= tx1; tx++) {
             int sx = tx * TS - camX, sy = ty * TS - camY;
-            uint32_t h = hash2(tx, ty, 5);
+            uint32_t h = hash2(tx - COX, ty - COY, 5);  // home-relative, so the original area keeps its exact tile variants
             switch (world.tile[ty][tx]) {
                 case T_GRASS: sprS(A.grass[h % 3], sx, sy); break;
                 case T_DARK: sprS(A.grass[3], sx, sy); break;
                 case T_DIRT: sprS(A.dirt[h % 2], sx, sy); break;
+                case T_SAND: sprS(A.B.sand[h % 3], sx, sy); break;
+                case T_DUNE: sprS(A.B.dune[h % 2], sx, sy); break;
+                case T_MUD: sprS(A.B.mud[h % 2], sx, sy); break;
+                case T_MURK: sprS(A.B.murk[(wf + (hash2((tx - COX) / 2, (ty - COY) / 2, 9) & 3)) & 3], sx, sy); break;
+                case T_BOG: {
+                    sprS(A.B.bog[(wf + (hash2((tx - COX) / 2, (ty - COY) / 2, 9) & 3)) & 3], sx, sy);
+                    u32 rim = RGBA(150, 190, 150, 70);
+                    if (!world.water(tx, ty - 1)) fillRect(sx, sy, TS, 1, rim);
+                    if (!world.water(tx, ty + 1)) fillRect(sx, sy + TS - 1, TS, 1, rim);
+                    if (!world.water(tx - 1, ty)) fillRect(sx, sy, 1, TS, rim);
+                    if (!world.water(tx + 1, ty)) fillRect(sx + TS - 1, sy, 1, TS, rim);
+                    break;
+                }
+                case T_SNOW: sprS(A.B.snow[h % 3], sx, sy); break;
+                case T_SNOWP: sprS(A.B.snowp[h % 2], sx, sy); break;
+                case T_ICE: {
+                    sprS(A.B.ice[h % 2], sx, sy);
+                    if (((int)(timeAcc * 1.2f) + (h & 7)) % 9 == 0) fillRect(sx + (h >> 4) % 12 + 2, sy + (h >> 8) % 12 + 2, 2, 1, RGBA(255, 255, 255, 200));  // glints
+                    break;
+                }
+                case T_STONE: sprS(A.B.stone[h % 3], sx, sy); break;
+                case T_CLIFF: {
+                    sprS(A.B.cliff[h % 3], sx, sy);
+                    if (!world.tileIs(tx, ty - 1, T_CLIFF)) fillRect(sx, sy, TS, 2, HEX(0x9b9eb2));
+                    if (!world.tileIs(tx, ty + 1, T_CLIFF)) fillRect(sx, sy + TS - 3, TS, 3, HEX(0x2c2d3a));
+                    break;
+                }
                 case T_WATER: {
-                    sprS(A.water[(wf + (hash2(tx / 2, ty / 2, 9) & 3)) & 3], sx, sy);
+                    sprS(A.water[(wf + (hash2((tx - COX) / 2, (ty - COY) / 2, 9) & 3)) & 3], sx, sy);
                     u32 foam = RGBA(235, 248, 255, 150);
                     if (!world.water(tx, ty - 1)) fillRect(sx, sy, TS, 2, foam);
                     if (!world.water(tx, ty + 1)) fillRect(sx, sy + TS - 2, TS, 2, foam);
@@ -174,19 +201,47 @@ void Game::renderWorld(bool) {
         }
     }
     // decor (swaying grass and flowers)
-    for (auto& d : world.decor) {
-        if (d.x < camX - 20 || d.x > camX + LW + 20 || d.y < camY - 10 || d.y > camY + LH + 30) continue;
+    // decor, props and nodes are sorted by y, so only the rows near the camera are visited
+    auto yLess = [](const auto& e, float y) { return e.y < y; };
+    for (auto it = std::lower_bound(world.decor.begin(), world.decor.end(), camY - 10.f, yLess); it != world.decor.end() && it->y <= camY + LH + 30; ++it) {
+        const Decor& d = *it;
+        if (d.x < camX - 20 || d.x > camX + LW + 20) continue;
         const Spr* s = nullptr;
         bool sway = true;
+        float swayAmt = 6.f, alpha = 1.f;
         switch (d.kind) {
-            case 0: case 1: case 2: s = &A.flower[d.kind]; break;
-            case 3: s = &A.tuft; break;
-            case 4: s = &A.mushroom; sway = false; break;
-            case 5: s = &A.pebbles; sway = false; break;
-            default: s = &A.bush[d.kind - 6]; sway = false; break;
+            case D_FLOWER0: case D_FLOWER1: case D_FLOWER2: s = &A.flower[d.kind]; break;
+            case D_TUFT: s = &A.tuft; break;
+            case D_MUSHROOM: s = &A.mushroom; sway = false; break;
+            case D_PEBBLES: s = &A.pebbles; sway = false; break;
+            case D_BUSH0: case D_BUSH1: s = &A.bush[d.kind - D_BUSH0]; sway = false; break;
+            case D_DRYBUSH: s = &A.B.drybush; swayAmt = 3.f; break;
+            case D_SKULL: s = &A.B.skull; sway = false; break;
+            case D_SANDTUFT: s = &A.B.sandtuft; break;
+            case D_REEDS0: case D_REEDS1: s = &A.B.reeds[d.kind - D_REEDS0]; swayAmt = 4.f; break;
+            case D_LILY: s = &A.B.lily; sway = false; break;
+            case D_BUBBLES: s = &A.B.bubbles; sway = false; alpha = fmaxf(0.f, sinf(timeAcc * 1.3f + d.ph * 3.f)) * 0.9f + 0.1f; break;
+            case D_DRIFT: s = &A.B.drift; sway = false; break;
+            case D_FROSTTUFT: s = &A.B.frosttuft; swayAmt = 3.f; break;
+            case D_ALPINE: s = &A.B.alpine; break;
+            default: s = &A.B.gravel; sway = false; break;
         }
-        float ang = sway ? sinf(timeAcc * 1.9f + d.ph + d.x * 0.02f) * 6.f : 0.f;
-        sprW(*s, d.x, d.y, false, 1.f, ang, true);
+        float ang = sway ? sinf(timeAcc * 1.9f + d.ph + d.x * 0.02f) * swayAmt : 0.f;
+        sprW(*s, d.x, d.y, false, alpha, ang, true);
+    }
+    // resource nodes: a soft shadow, the plant or ore, and a slow glint so they read as "pick me"
+    for (auto it = std::lower_bound(world.nodes.begin(), world.nodes.end(), camY - 10.f, yLess); it != world.nodes.end() && it->y <= camY + LH + 30; ++it) {
+        const ResNode& n = *it;
+        if (n.x < camX - 20 || n.x > camX + LW + 20) continue;
+        sprW(A.shadow[0], n.x, n.y, false, 0.55f);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS;
+        sprW(A.B.node[n.kind], n.x, n.y, false, 1.f, plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
+        if (g < 0.22f) {
+            int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
+            fillRect(gx, gy - 1, 1, 3, RGBA(255, 255, 255, 220));
+            fillRect(gx - 1, gy, 3, 1, RGBA(255, 255, 255, 220));
+        }
     }
 
     // ---- y-sorted layer
@@ -195,10 +250,9 @@ void Game::renderWorld(bool) {
         int t, i;
     };
     std::vector<DL> dl;
-    for (size_t i = 0; i < world.props.size(); i++) {
-        const Prop& pr = world.props[i];
-        if (pr.x < camX - 70 || pr.x > camX + LW + 70 || pr.y < camY - 20 || pr.y > camY + LH + 70) continue;
-        dl.push_back({pr.y, 0, (int)i});
+    for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 20.f, yLess); it != world.props.end() && it->y <= camY + LH + 90; ++it) {
+        if (it->x < camX - 80 || it->x > camX + LW + 80) continue;
+        dl.push_back({it->y, 0, (int)(it - world.props.begin())});
     }
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
@@ -227,6 +281,60 @@ void Game::renderWorld(bool) {
                 case P_CRATE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.crate, pr.x, pr.y); break;
                 case P_BARREL: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.barrel, pr.x, pr.y); break;
                 case P_SIGN: sprW(A.sign, pr.x, pr.y); break;
+                // ---- desert
+                case P_CACTUS0: case P_CACTUS1: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cactus[pr.kind - P_CACTUS0], pr.x, pr.y); break;
+                case P_PALM:
+                    sprW(A.shadow[2], pr.x + 5, pr.y - 1, false, 0.8f);
+                    sprW(A.B.palm, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.9f + pr.ph) * 0.9f, true);
+                    break;
+                case P_SANDROCK0: case P_SANDROCK1: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.sandrock[pr.kind - P_SANDROCK0], pr.x, pr.y); break;
+                case P_COLUMN: sprW(A.shadow[0], pr.x + 3, pr.y, false, 0.7f); sprW(A.B.column, pr.x, pr.y); break;
+                case P_RUINWALL: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.B.ruinwall, pr.x, pr.y); break;
+                case P_ARCH: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.B.arch, pr.x, pr.y); break;
+                // ---- swamp
+                case P_DEADTREE0: case P_DEADTREE1:
+                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.7f);
+                    sprW(A.B.deadtree[pr.kind - P_DEADTREE0], pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.6f + pr.ph) * 0.5f, true);
+                    break;
+                case P_LOG: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.log, pr.x, pr.y); break;
+                case P_STILTHUT: sprW(A.B.stilthut, pr.x, pr.y); break;
+                case P_WITCHTREE: sprW(A.shadow[2], pr.x + 4, pr.y - 1, false, 0.8f); sprW(A.B.witchtree, pr.x, pr.y); break;
+                case P_GRAVE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.grave, pr.x, pr.y); break;
+                // ---- snow
+                case P_SNOWPINE:
+                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.6f);
+                    sprW(A.B.snowpine, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.7f + pr.ph) * 0.7f, true);
+                    break;
+                case P_BARETREE:
+                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.6f);
+                    sprW(A.B.baretree, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.8f + pr.ph) * 0.6f, true);
+                    break;
+                case P_SNOWROCK: {
+                    int v = ((int)pr.x >> 4) & 1;
+                    sprW(A.shadow[1], pr.x, pr.y, false, 0.6f);
+                    sprW(A.B.snowrock[v], pr.x, pr.y);
+                    break;
+                }
+                case P_CRYSTAL: {
+                    sprW(A.shadow[0], pr.x, pr.y, false, 0.6f);
+                    sprW(A.B.crystal, pr.x, pr.y);
+                    float tw = fmodf(timeAcc * 1.1f + pr.ph, 2.6f);
+                    if (tw < 0.2f) fillRect((int)pr.x - camX + 1, (int)pr.y - camY - 18, 1, 3, RGBA(255, 255, 255, 230));
+                    break;
+                }
+                case P_ICEHUT: sprW(A.B.icehut, pr.x, pr.y); break;
+                case P_CAIRN: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cairn, pr.x, pr.y); break;
+                // ---- mountain
+                case P_CAVE: sprW(A.B.cave, pr.x, pr.y); break;
+                case P_BOULDER: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.boulder, pr.x, pr.y); break;
+                case P_STANDING: {
+                    sprW(A.shadow[0], pr.x + 2, pr.y, false, 0.7f);
+                    sprW(A.B.standing, pr.x, pr.y);
+                    float pulse = 0.5f + 0.5f * sinf(timeAcc * 1.8f + pr.ph);
+                    fillRect((int)pr.x - camX - 1, (int)pr.y - camY - 21, 3, 1, RGBA(127, 214, 232, (int)(120 + 120 * pulse)));
+                    break;
+                }
+                case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
             }
         } else if (e.t == 1) {
             sprW(A.shadow[0], world.keeper.x, world.keeper.y, false, 0.8f);
@@ -321,15 +429,27 @@ void Game::renderWorld(bool) {
             SDL_SetTextureAlphaMod(g, (Uint8)(110 * night2));
             if (state != ST_TITLE) SDL_RenderCopy(ren, g, nullptr, &pl);
         }
+        for (auto& lt : world.lanterns) {
+            if (lt.x < camX - 60 || lt.x > camX + LW + 60 || lt.y < camY - 60 || lt.y > camY + LH + 60) continue;
+            float lf = 0.85f + 0.15f * sinf(timeAcc * 9.f + lt.x);
+            SDL_SetTextureAlphaMod(g, (Uint8)(clampf(lt.r * lf * (0.3f + 0.7f * night2), 0, 1) * 255));
+            int sz = (int)(78 * lf);
+            SDL_Rect d{(int)lt.x - camX - sz / 2, (int)lt.y - camY - sz / 2, sz, sz};
+            SDL_RenderCopy(ren, g, nullptr, &d);
+        }
         SDL_SetTextureAlphaMod(g, 255);
     }
+    drawBiomeFx();
     // fireflies at night / pollen by day
+    // (none in the desert or the snow: it is too dry / too cold for them)
+    float flyW = bw[B_HOME] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.4f;
     for (auto& f : flies) {
         if (night2 > 0.25f) {
-            float b = 0.5f + 0.5f * sinf(timeAcc * 3.f * f.sp + f.ph);
+            float b = (0.5f + 0.5f * sinf(timeAcc * 3.f * f.sp + f.ph)) * flyW;
+            if (b < 0.02f) continue;
             sprS(A.glowCool, (int)f.x, (int)f.y, false, b * night2);
             fillRect((int)f.x, (int)f.y, 1, 1, RGBA(255, 255, 200, (int)(255 * b)));
-        } else if (night2 < 0.15f && f.ph < 2.2f) {
+        } else if (night2 < 0.15f && f.ph < 2.2f && flyW > 0.5f) {
             fillRect((int)f.x, (int)f.y, 1, 1, RGBA(255, 255, 255, 120));
         }
     }
@@ -345,6 +465,65 @@ void Game::renderWorld(bool) {
 }
 
 // ================================================================= HUD
+// ================================================================= biome atmosphere
+void Game::drawBiomeFx() {
+    float day = daylight();
+    auto tint = [&](int b, int r, int g, int bl, int a) {
+        if (bw[b] > 0.01f) fillRect(0, 0, LW, LH, RGBA(r, g, bl, (int)(a * bw[b])));
+    };
+    tint(B_DESERT, 255, 196, 90, (int)(30 * (0.35f + 0.65f * day)));  // hot haze, strongest at midday
+    tint(B_SWAMP, 52, 86, 60, 46);                                    // green murk
+    tint(B_SNOW, 200, 225, 255, (int)(30 * (0.5f + 0.5f * day)));     // cold blue light
+    tint(B_MOUNTAIN, 150, 160, 190, 20);                              // thin cool air
+
+    // ground fog / mist: world-anchored puffs so they drift with the map instead of the screen
+    float fogK = bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.30f + bw[B_SNOW] * 0.22f;
+    if (fogK > 0.02f) {
+        float tw = bw[B_SWAMP] + bw[B_MOUNTAIN] + bw[B_SNOW] + 1e-4f;
+        int cr = (int)((170 * bw[B_SWAMP] + 215 * bw[B_MOUNTAIN] + 228 * bw[B_SNOW]) / tw);
+        int cg = (int)((205 * bw[B_SWAMP] + 218 * bw[B_MOUNTAIN] + 238 * bw[B_SNOW]) / tw);
+        int cb = (int)((170 * bw[B_SWAMP] + 232 * bw[B_MOUNTAIN] + 252 * bw[B_SNOW]) / tw);
+        SDL_SetTextureColorMod(A.B.fog.t, (Uint8)cr, (Uint8)cg, (Uint8)cb);
+        const int cell = 88;
+        int gx0 = (camX - 60) / cell - 1, gy0 = (camY - 40) / cell - 1, gx1 = (camX + LW + 60) / cell + 1, gy1 = (camY + LH + 40) / cell + 1;
+        for (int gy = gy0; gy <= gy1; gy++)
+            for (int gx = gx0; gx <= gx1; gx++) {
+                uint32_t h = hash2(gx, gy, 4242);
+                float px = gx * cell + (h & 63) + sinf(timeAcc * 0.11f + (h >> 8 & 255) * 0.05f) * 16.f;
+                float py = gy * cell + ((h >> 6) & 31) + cosf(timeAcc * 0.09f + (h >> 4 & 255) * 0.05f) * 6.f;
+                float pulse = 0.65f + 0.35f * sinf(timeAcc * 0.25f + (h >> 12 & 255) * 0.1f);
+                float a = clampf(fogK * pulse * (0.55f + 0.45f * (1.f - 0.5f * day)), 0, 1);
+                SDL_SetTextureAlphaMod(A.B.fog.t, (Uint8)(a * 255));
+                sprS(A.B.fog, (int)px - camX, (int)py - camY);
+            }
+        SDL_SetTextureAlphaMod(A.B.fog.t, 255);
+    }
+
+    // weather particles
+    for (auto& f : flakes) {
+        int x = (int)f.x, y = (int)f.y;
+        if (bw[B_SNOW] > 0.02f) fillRect(x, y, f.sz > 0.7f ? 2 : 1, f.sz > 0.7f ? 2 : 1, RGBA(255, 255, 255, (int)(235 * bw[B_SNOW])));
+        if (bw[B_DESERT] > 0.02f && f.sz > 0.35f) fillRect(x, y, 2, 1, RGBA(226, 196, 130, (int)(120 * bw[B_DESERT])));
+        if (bw[B_SWAMP] > 0.02f && f.sz > 0.6f) fillRect(x, y, 1, 1, RGBA(46, 50, 30, (int)(190 * bw[B_SWAMP] * (0.4f + 0.6f * day))));
+        if (bw[B_MOUNTAIN] > 0.02f && f.sz > 0.5f) fillRect(x, y, 2, 1, RGBA(225, 228, 238, (int)(100 * bw[B_MOUNTAIN])));
+    }
+}
+
+void Game::drawBiomeBanner() {
+    if (bannerT <= 0 || state != ST_PLAY) return;
+    float k = std::min(1.f, (3.2f - bannerT) * 5.f);  // slide in
+    float out = std::min(1.f, bannerT * 2.f);         // and fade out
+    if (out < 0.35f) return;
+    const BiomeDef& B = BIOME[bannerBiome];
+    std::string name = bannerBiome == B_HOME ? "THE WILDWOOD" : B.name;
+    int w = std::max(textW(name, 2), textW(bannerSub)) + 24, h = bannerSub.empty() ? 22 : 33;
+    int x = LW / 2 - w / 2, y = 14 - (int)((1.f - k) * 40);
+    panel(x, y, w, h, HEX(0x2b1d12));
+    fillRect(x + 2, y + 2, w - 4, 2, B.col);
+    textC(LW / 2, y + 8, name, B.col, 2);
+    if (!bannerSub.empty()) textC(LW / 2, y + 22, bannerSub, C_DIM);
+}
+
 void Game::drawPrompt(float wx, float wy, const std::string& key, const std::string& label) {
     int sx = (int)wx - camX, sy = (int)wy - camY + (int)(sinf(timeAcc * 5.f) * 1.5f);
     int w = 20 + textW(label), h = 13;
@@ -358,30 +537,38 @@ void Game::drawPrompt(float wx, float wy, const std::string& key, const std::str
 }
 
 void Game::drawMinimap() {
-    int x = LW - MW - 10, y = 6;
-    panel(x, y, MW + 4, MH + 4, HEX(0x2b1d12));
-    SDL_Rect d{x + 2, y + 2, MW, MH};
+    int x = LW - MM_W - 10, y = 6;
+    panel(x, y, MM_W + 4, MM_H + 4, HEX(0x2b1d12));
+    SDL_Rect d{x + 2, y + 2, MM_W, MM_H};
     SDL_SetTextureAlphaMod(miniTex, 235);
     SDL_RenderCopy(ren, miniTex, nullptr, &d);
     int ox = x + 2, oy = y + 2;
+    auto mx = [&](float wx) { return ox + (int)(wx / TS / MM_DIV); };
+    auto my = [&](float wy) { return oy + (int)(wy / TS / MM_DIV); };
     // view rectangle
     u32 wc = RGBA(255, 255, 255, 120);
-    int vx = ox + camX / TS, vy = oy + camY / TS, vw = LW / TS, vh = LH / TS;
+    int vx = mx((float)camX), vy = my((float)camY), vw = std::max(2, LW / TS / MM_DIV), vh = std::max(2, LH / TS / MM_DIV);
     fillRect(vx, vy, vw, 1, wc);
     fillRect(vx, vy + vh, vw, 1, wc);
     fillRect(vx, vy, 1, vh, wc);
     fillRect(vx + vw, vy, 1, vh + 1, wc);
-    // shop
-    fillRect(ox + (int)(world.hut.x / TS) - 1, oy + (int)(world.hut.y / TS) - 1, 3, 3, C_GOLD);
-    fillRect(ox + (int)(world.hut.x / TS), oy + (int)(world.hut.y / TS), 1, 1, HEX(0x7e2e22));
-    // quest giver
-    fillRect(ox + (int)(world.questGiver.x / TS) - 1, oy + (int)(world.questGiver.y / TS) - 1, 2, 2, C_BLUE);
+    // shop and elder
+    fillRect(mx(world.hut.x) - 1, my(world.hut.y) - 1, 3, 3, C_GOLD);
+    fillRect(mx(world.questGiver.x), my(world.questGiver.y), 2, 2, C_BLUE);
+    // discovered landmarks, in their biome's colour
+    for (auto& l : world.landmarks)
+        if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
     // carcasses that still hold materials
     for (auto& a : animals)
-        if (a.dead && a.totalRemain > 0) fillRect(ox + (int)(a.pos.x / TS) - 1, oy + (int)(a.pos.y / TS) - 1, 2, 2, C_RED);
+        if (a.dead && a.totalRemain > 0) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
     // player
-    if (((int)(timeAcc * 3)) & 1 || state != ST_PLAY) fillRect(ox + (int)(p.pos.x / TS) - 1, oy + (int)(p.pos.y / TS) - 1, 3, 3, HEX(0xffffff));
-    fillRect(ox + (int)(p.pos.x / TS), oy + (int)(p.pos.y / TS), 1, 1, HEX(0x2d5e35));
+    if (((int)(timeAcc * 3)) & 1 || state != ST_PLAY) fillRect(mx(p.pos.x) - 1, my(p.pos.y) - 1, 3, 3, HEX(0xffffff));
+    fillRect(mx(p.pos.x), my(p.pos.y), 1, 1, HEX(0x2d5e35));
+    // where am I
+    const BiomeDef& B = BIOME[curBiome];
+    text(x + 2, y + MM_H + 8, curBiome == B_HOME ? "WILDWOOD" : B.name, B.col);
+    if (B.climate[0]) text(x + 2, y + MM_H + 15, B.climate, C_DIM);
+    text(x + MM_W - textW(S(landmarksFound()) + "/" + S((int)world.landmarks.size())) + 2, y + MM_H + 8, S(landmarksFound()) + "/" + S((int)world.landmarks.size()), C_DIM);
 }
 
 void Game::drawHud() {
@@ -459,6 +646,7 @@ void Game::drawHud() {
         }
     }
     if (showMap) drawMinimap();
+    drawBiomeBanner();
 
     // ---- active quest tracker (bottom-left, above the bag meter)
     if (questActive) {

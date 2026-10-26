@@ -45,6 +45,7 @@ bool Game::init(bool headless) {
     miniTex = toTex(ren, world.minimap());
     audio.init();
     SDL_ShowCursor(SDL_DISABLE);
+    for (int i = 0; i < 110; i++) flakes.push_back({wrng.range(0, LW), wrng.range(0, LH), 0, 0, wrng.range(0, 6.28f), wrng.range(0.f, 1.f)});
     for (int i = 0; i < 30; i++) flies.push_back({rng.range(0, LW), rng.range(0, LH), rng.range(0, 6.28f), rng.range(0.6f, 1.4f)});
     std::ifstream t(savePath());
     hasSave = t.good();
@@ -80,6 +81,9 @@ void Game::save() {
     for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
     f << "\nbandages " << p.bandages << "\nday " << dayT << "\nkills " << kills << "\n";
     f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
+    f << "disc ";
+    for (auto& l : world.landmarks) f << (l.found ? '1' : '0');
+    f << "\n";
     hasSave = true;
 }
 
@@ -99,6 +103,11 @@ bool Game::load() {
         else if (k == "bandages") ss >> p.bandages;
         else if (k == "day") ss >> dayT;
         else if (k == "kills") ss >> kills;
+        else if (k == "disc") {
+            std::string bits;
+            ss >> bits;
+            for (size_t i = 0; i < bits.size() && i < world.landmarks.size(); i++) world.landmarks[i].found = bits[i] == '1';
+        }
         else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
             int active = 0;
             ss >> questIdx >> active >> questProg;
@@ -134,6 +143,10 @@ void Game::newGame() {
     refreshQuest();
     helpT = 16;
     respawnT = 5;
+    for (auto& l : world.landmarks) l.found = false;
+    curBiome = pendBiome = B_HOME;
+    pendT = bannerT = 0;
+    for (int b = 0; b < B_COUNT; b++) bw[b] = b == B_HOME ? 1.f : 0.f;
     shakeAmt = 0;
     cam = p.pos - V2(LW / 2.f, LH / 2.f);
     populate();
@@ -182,7 +195,8 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
     for (int it = 0; it < 80; it++) {
         float ang = rng.range(0, 6.2832f), rad = rng.range(zr[kind][0], zr[kind][1]);
         V2 pos = world.village + V2(cosf(ang) * rad, sinf(ang) * rad * 0.8f);
-        if (pos.x < 56 || pos.y < 56 || pos.x > world.pixW() - 56 || pos.y > world.pixH() - 56) continue;
+        // the original species still live in the home area only, with the same margins as before the expansion
+        if (pos.x < world.coreX0() + 56 || pos.y < world.coreY0() + 56 || pos.x > world.coreX1() - 56 || pos.y > world.coreY1() - 56) continue;
         if (world.blocked(pos.x, pos.y, 9)) continue;
         if (dist(pos, p.pos) < minDist) continue;
         if (offscreen) {
@@ -191,6 +205,7 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
         }
         Animal a;
         a.kind = kind;
+        a.biome = world.biomeAtPos(pos.x, pos.y);
         a.variant = (kind == A_DEER && rng.chance(0.45f)) ? 1 : 0;
         a.pos = pos;
         a.target = pos;
@@ -224,7 +239,7 @@ bool Game::stepAnimal(Animal& a, V2 dir, float speed, float dt) {
         float ang = base + offs[k] * a.bias;
         V2 d(cosf(ang), sinf(ang));
         V2 np = a.pos + d * (sp * dt);
-        if (!world.blocked(np.x, np.y, r)) {
+        if (!world.blocked(np.x, np.y, r) && world.biomeAtPos(np.x, np.y) == a.biome) {
             if (k > 0 && (k % 2 == 0)) a.bias = -a.bias;
             a.pos = np;
             a.vel = d * sp;
@@ -537,11 +552,15 @@ void Game::updatePlayer(float dt) {
     bool moving = mv.len() > 0.1f;
     if (moving) mv = mv.norm();
     float spd = 70.f * BOOT_MUL[P.up[U_BOOTS]];
+    const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
+    spd *= tileSpeed(groundT);  // sand, mud, deep snow slow you down
+    float drain = 1.f, regen = 1.f;
+    climateMods(drain, regen);
     bool sprinting = false;
     if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather) {
         sprinting = true;
         spd *= 1.55f;
-        P.stamina -= 24 * dt;
+        P.stamina -= 24 * dt * drain;
         P.staDelay = 0.7f;
         if (P.stamina <= 0) {
             P.stamina = 0;
@@ -549,12 +568,18 @@ void Game::updatePlayer(float dt) {
         }
     } else {
         P.staDelay -= dt;
-        if (P.staDelay <= 0) P.stamina = std::min(100.f, P.stamina + (moving ? 16.f : 32.f) * dt);
+        if (P.staDelay <= 0) P.stamina = std::min(100.f, P.stamina + (moving ? 16.f : 32.f) * dt * regen);
         if (P.exhausted && P.stamina > 30) P.exhausted = false;
     }
     if (P.charging) spd *= 0.6f;
     if (wantGather) spd = 0;
-    V2 vel = mv * spd + P.kb;
+    V2 want = mv * spd;
+    if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
+        P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-2.4f * dt));
+        want = P.iceV;
+    } else
+        P.iceV = want;
+    V2 vel = want + P.kb;
     P.kb = P.kb * expf(-9 * dt);
     moveEnt(world, P.pos, vel * dt, 4.f);
     P.pos.x = clampf(P.pos.x, 20, world.pixW() - 20);
@@ -671,7 +696,7 @@ void Game::updateProjectiles(float dt) {
             if (done) break;
             V2 g = pr.pos + V2(0, 9);
             int tx = (int)floorf(g.x / TS), ty = (int)floorf(g.y / TS);
-            bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx];
+            bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF;
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
                 items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0});
@@ -694,6 +719,94 @@ void Game::updateProjectiles(float dt) {
         }
         if (done) projs.erase(projs.begin() + i);
         else i++;
+    }
+}
+
+// ================================================================= biomes
+int Game::landmarksFound() const {
+    int n = 0;
+    for (auto& l : world.landmarks) n += l.found ? 1 : 0;
+    return n;
+}
+
+// Stamina is the only survival stat, so climate works through it (and through terrain speed):
+// heat saps you in daylight, cold bites unless you wear the fur coat, thin air and bog mud tire you out.
+void Game::climateMods(float& drain, float& regen) const {
+    drain = regen = 1.f;
+    switch (curBiome) {
+        case B_DESERT: {
+            float heat = daylight();
+            drain = 1.f + 0.35f * heat;
+            regen = 1.f - 0.35f * heat;
+            break;
+        }
+        case B_SNOW: {
+            float exposed = p.up[U_ARMOR] >= 2 ? 0.f : (p.up[U_ARMOR] == 1 ? 0.5f : 1.f);
+            drain = 1.f + 0.25f * exposed;
+            regen = 1.f - 0.30f * exposed;
+            break;
+        }
+        case B_MOUNTAIN: drain = 1.2f, regen = 0.85f; break;
+        case B_SWAMP: drain = 1.1f; break;
+        default: break;
+    }
+}
+
+void Game::updateBiome(float dt) {
+    int here = world.biomeAtPos(p.pos.x, p.pos.y);
+    // hysteresis: a new biome must hold for half a second before it counts (borders are noisy)
+    if (here != curBiome) {
+        if (here != pendBiome) {
+            pendBiome = here;
+            pendT = 0;
+        }
+        pendT += dt;
+        if (pendT >= 0.5f) {
+            curBiome = here;
+            bannerBiome = here;
+            bannerT = 3.2f;
+            bannerSub = BIOME[here].climate[0] ? std::string("CLIMATE: ") + BIOME[here].climate : std::string("");
+            if (here != B_HOME) audio.play(S_PICKUP, 0.35f);
+        }
+    } else
+        pendBiome = curBiome, pendT = 0;
+    if (bannerT > 0) bannerT -= dt;
+    float k = std::min(1.f, dt * 1.3f);
+    for (int b = 0; b < B_COUNT; b++) bw[b] += ((b == here ? 1.f : 0.f) - bw[b]) * k;
+    // discover landmarks by walking up to them
+    for (auto& l : world.landmarks) {
+        if (l.found || dist(p.pos, V2(l.x, l.y)) > 56) continue;
+        l.found = true;
+        msg(std::string("DISCOVERED: ") + l.name + " (" + S(landmarksFound()) + "/" + S((int)world.landmarks.size()) + ")", BIOME[l.biome].col);
+        ftext(V2(l.x, l.y - 30), l.name, BIOME[l.biome].col, 2.2f);
+        audio.play(S_PICKUP, 0.6f);
+    }
+}
+
+// screen-space weather: each biome has its own particle behaviour; velocities blend by biome weight
+void Game::updateWeather(float dt) {
+    for (auto& f : flakes) {
+        float vx = 0, vy = 0;
+        float t = timeAcc * 0.6f + f.ph;
+        // snow: falls and drifts
+        vx += bw[B_SNOW] * (sinf(t * 1.7f) * 10.f + 9.f);
+        vy += bw[B_SNOW] * (22.f + f.sz * 30.f);
+        // desert: sand blown sideways in gusts
+        float gust = 0.5f + 0.5f * sinf(timeAcc * 0.35f + f.ph * 0.2f);
+        vx += bw[B_DESERT] * (45.f + 90.f * gust * (0.4f + f.sz));
+        vy += bw[B_DESERT] * (sinf(t * 2.3f) * 6.f + 4.f);
+        // swamp: gnats loiter
+        vx += bw[B_SWAMP] * sinf(t * 2.1f) * 8.f;
+        vy += bw[B_SWAMP] * cosf(t * 1.6f) * 7.f;
+        // mountains: gusty wind dust
+        vx += bw[B_MOUNTAIN] * (30.f + 55.f * gust);
+        vy += bw[B_MOUNTAIN] * (sinf(t * 1.1f) * 5.f - 3.f);
+        f.x += vx * dt;
+        f.y += vy * dt;
+        if (f.x > LW + 3) f.x = -3, f.y = wrng.range(0, LH);
+        if (f.x < -3) f.x = LW + 3, f.y = wrng.range(0, LH);
+        if (f.y > LH + 3) f.y = -3, f.x = wrng.range(0, LW);
+        if (f.y < -3) f.y = LH + 3, f.x = wrng.range(0, LW);
     }
 }
 
@@ -788,11 +901,13 @@ void Game::updatePlay(float dt) {
     dayT += dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;
+    updateBiome(dt);
     updatePlayer(dt);
     updateAnimals(dt);
     updateProjectiles(dt);
     checkWeaponSafetyNet(dt);
     updateFx(dt);
+    updateWeather(dt);
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;

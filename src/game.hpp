@@ -29,6 +29,7 @@ struct Input {
 enum AState { AS_WANDER, AS_FLEE, AS_CHASE };
 struct Animal {
     int kind = 0, variant = 0;
+    int biome = 0;  // the biome it lives in; animals don't wander across biome borders
     V2 pos, vel, kb;
     int hp = 1, maxhp = 1;
     bool dead = false;
@@ -45,7 +46,7 @@ struct Animal {
 };
 
 struct Player {
-    V2 pos, kb;
+    V2 pos, kb, iceV;  // iceV: momentum while sliding on ice
     int dir = 0;
     bool flip = false;
     float animT = 0;
@@ -112,6 +113,9 @@ struct Msg {
 struct Fly {
     float x, y, ph, sp;
 };
+struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wind dust)
+    float x, y, vx, vy, ph, sz;
+};
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST };
 
@@ -139,7 +143,9 @@ struct Game {
     std::vector<Decal> decals;
     std::deque<Msg> msgs;
     std::vector<Fly> flies;
+    std::vector<Flake> flakes;
     Rng rng{20261024};
+    Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
     float stuckCheckT = 0;  // timer for the out-of-weapons safety net
     V2 cam;
@@ -154,6 +160,12 @@ struct Game {
     int questIdx = 0, questProg = 0;
     bool questActive = false;
     Quest quest;  // cached questAt(questIdx), refreshed whenever questIdx changes
+    // biomes
+    int curBiome = B_HOME, pendBiome = B_HOME;
+    float pendT = 0, bannerT = 0;
+    int bannerBiome = B_HOME;
+    std::string bannerSub;
+    float bw[B_COUNT] = {1, 0, 0, 0, 0};  // smoothed weight of each biome around the player (drives weather and tint)
     // test hooks
     bool botOn = false;
 
@@ -175,6 +187,10 @@ struct Game {
     void updateProjectiles(float dt);
     void checkWeaponSafetyNet(float dt);
     void updateFx(float dt);
+    void updateBiome(float dt);
+    void updateWeather(float dt);
+    void climateMods(float& drain, float& regen) const;
+    int landmarksFound() const;
     void throwWeapon();
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a);
@@ -216,6 +232,8 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
+    void drawBiomeFx();
+    void drawBiomeBanner();
     void drawPrompt(float wx, float wy, const std::string& key, const std::string& label);
     // 2d primitives on canvas
     void fillRect(int x, int y, int w, int h, u32 c);
