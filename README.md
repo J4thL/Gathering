@@ -27,8 +27,15 @@ terrain, props, weather, landmarks (walk up to one to discover it) and gathering
 sand, mud and deep snow slow you down, ice makes you slide, heat/cold/thin air change how fast stamina drains
 (the fur coat cancels the cold). The minimap shows discovered landmarks and the biome you are in.
 
+## Wildlife
+28 species (`src/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four new biomes
+stream species in just off-screen (`src/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).
+Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
+recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
+
 ## Test flags
     wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
     wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
     wildwood --headless --dumpcore FILE   dump of the original home area, for diffing against an older build
     wildwood --headless --shots DIR       the original scripted playthrough
+    wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome

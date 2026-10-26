@@ -532,15 +532,159 @@ static void tour(Game& g, const std::string& dir) {
     }
 }
 
+
+// ---- wildlife verification (flag: --wildlife DIR): species gallery, spawn simulation, drops, legendary limits
+static void wildlife(Game& g, const std::string& dir) {
+    g.newGame();
+    g.state = ST_PLAY;
+    g.helpT = 0;
+    auto shot = [&](const std::string& name) { g.saveCanvas((dir + "/" + name + ".bmp").c_str()); };
+    // 1) gallery: every species, all four tiers, per biome group (rows = tiers, columns = species)
+    struct Grp { const char* n; std::vector<int> k; } grp[5] = {
+        {"home", {A_RABBIT, A_DEER, A_BOAR, A_WOLF}},
+        {"desert", {A_HARE, A_FENNEC, A_COYOTE, A_RATTLER, A_ROADRUNNER, A_LIZARD, A_DUNELION}},
+        {"swamp", {A_FROG, A_DUCK, A_MARSHDEER, A_MOCCASIN, A_GATOR, A_PANTHER}},
+        {"snow", {A_ARCTICFOX, A_SNOWHARE, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR}},
+        {"mountain", {A_GOAT, A_BIGHORN, A_EAGLE, A_MARMOT, A_MTLION}}};
+    g.dayT = 60;
+    for (auto& gr : grp)
+        for (int form = 0; form < 2; form++) {
+            g.render();
+            g.fillRect(0, 0, LW, LH, HEX(0x6f7d5a));
+            g.camX = g.camY = 0;
+            int n = (int)gr.k.size();
+            for (int t = 0; t < 4; t++) {
+                g.text(2, 14 + t * 52, TIER[t].name, TIER[t].col, 1, true);
+                for (int i = 0; i < n; i++) {
+                    int k = gr.k[i];
+                    int f = ANIMAL[k].forms > 1 ? form : 0;
+                    float px = 58 + i * 48.f, py = 48 + t * 52.f;
+                    g.sprW(g.A.shadow[1], px, py, false, 0.6f);
+                    g.sprW(g.A.animal[k][f + 2 * t][(int)(g.timeAcc) & 3 ? 1 : 0], px, py);
+                    if (t == 0) g.textC((int)px, 4, std::string(animalName(k, 0)).substr(0, 11), C_TEXT, 1, true);
+                }
+            }
+            shot(std::string("gallery_") + gr.n + (form ? "_form1" : "_form0"));
+        }
+    // 2) tier odds over many rolls (no cooldown, nothing alive)
+    {
+        g.animals.clear();
+        int cnt[4] = {0};
+        const int N = 400000;
+        for (int i = 0; i < N; i++) {
+            g.legCool = 0;
+            g.animals.clear();
+            cnt[g.rollTier()]++;
+        }
+        printf("tier odds over %d rolls: common %.2f%%  uncommon %.2f%%  rare %.2f%%  legendary %.3f%%\n", N, 100.0 * cnt[0] / N, 100.0 * cnt[1] / N, 100.0 * cnt[2] / N, 100.0 * cnt[3] / N);
+        // with a live legendary, or on cooldown, no legendary may appear
+        g.animals.clear();
+        g.spawnAnimal(A_DEER, g.p.pos, 0, TR_LEGENDARY);
+        int leg = 0;
+        for (int i = 0; i < N; i++) {
+            g.legCool = 0;
+            leg += g.rollTier() == TR_LEGENDARY;
+        }
+        printf("legendaries rolled while one is alive: %d (must be 0)\n", leg);
+        g.animals.clear();
+        g.legCool = 300;
+        leg = 0;
+        for (int i = 0; i < N; i++) {
+            g.legCool = 300;
+            leg += g.rollTier() == TR_LEGENDARY;
+        }
+        printf("legendaries rolled during cooldown: %d (must be 0)\n", leg);
+    }
+    // 3) kill every species at tier 0 and 3: drops must be non-empty, tiers must pay more
+    {
+        printf("drops (tier0 -> legendary), coins gained at legendary:\n");
+        for (int k = 0; k < A_COUNT; k++) {
+            int tot[2];
+            int coins = 0;
+            for (int ti = 0; ti < 2; ti++) {
+                g.animals.clear();
+                int c0 = g.p.coins;
+                Animal* a = g.spawnAnimal(k, g.p.pos + V2(0, 40), ANIMAL[k].forms > 1 ? 1 : 0, ti ? 3 : 0);
+                g.killAnimal(*a);
+                tot[ti] = g.animals[0].totalRemain;
+                if (ti) coins = g.p.coins - c0;
+            }
+            printf("  %-14s %2d -> %2d  +%dC%s\n", animalName(k, 0).c_str(), tot[0], tot[1], coins, tot[0] <= 0 || tot[1] < tot[0] ? "   <-- PROBLEM" : "");
+        }
+    }
+    // 5) behaviour probes
+    {
+        g.p.pos = g.world.hub[B_DESERT];
+        g.p.maxhp = g.p.hp = 1e6f;
+        const char* stn[5] = {"wander", "flee", "chase", "feed", "rest"};
+        for (int k : {(int)A_COYOTE, (int)A_MTLION, (int)A_BIGHORN}) {
+            for (int night = 0; night < 2; night++) {
+                g.animals.clear();
+                g.dayT = night ? 300.f * 0.6f : 60.f;
+                Animal* a = g.spawnAnimal(k, g.p.pos + V2(60, 0), 0, 0);
+                for (int f = 0; f < 90; f++) g.update(1.f / 60.f), g.p.hp = g.p.maxhp, g.dayT = night ? 300.f * 0.6f : 60.f;
+                printf("probe %-14s %-5s player 60px away for 1.5s -> %s\n", animalName(k, 0).c_str(), night ? "night" : "day", stn[g.animals[0].st]);
+                (void)a;
+            }
+        }
+        g.dayT = 60;
+        int seen[5] = {0};
+        g.animals.clear();
+        g.p.pos = g.world.hub[B_MOUNTAIN];
+        for (int i = 0; i < 6; i++) g.spawnAnimal(A_MARMOT, g.p.pos + V2(300 + i * 5, 40 * i), 0, 0), g.spawnAnimal(A_GOAT, g.p.pos + V2(330, 40 * i - 100), 0, 0);
+        for (int f = 0; f < 60 * 120; f++) {
+            g.update(1.f / 60.f);
+            if (f % 30 == 0) for (auto& a : g.animals) if (!a.dead) seen[a.st]++;
+        }
+        printf("marmot+goat state samples over 2 min: wander %d  feed %d  rest %d\n", seen[0], seen[3], seen[4]);
+    }
+    // 4) spawn simulation: 10 minutes standing in each new biome, day and night
+    for (int b = 1; b < B_COUNT; b++) {
+        g.animals.clear();
+        memset(g.spawnStat, 0, sizeof g.spawnStat);
+        g.p.pos = g.world.hub[b];
+        g.p.maxhp = g.p.hp = 1e6f;
+        for (int x = 0; x < B_COUNT; x++) g.bw[x] = (x == b) ? 1.f : 0.f;
+        g.curBiome = b;
+        g.legCool = 0;
+        int maxLive = 0, maxLeg = 0;
+        double sumLive = 0;
+        int samples = 0;
+        Uint64 t0 = SDL_GetPerformanceCounter();
+        const int FR = 60 * 600;
+        for (int f = 0; f < FR; f++) {
+            g.p.hp = g.p.maxhp;
+            g.update(1.f / 60.f);
+            if (f % 60 == 0) {
+                int live = 0, leg = 0;
+                for (auto& a : g.animals)
+                    if (!a.dead) live++, leg += a.tier == TR_LEGENDARY;
+                maxLive = std::max(maxLive, live);
+                maxLeg = std::max(maxLeg, leg);
+                sumLive += live;
+                samples++;
+            }
+        }
+        double ms = (SDL_GetPerformanceCounter() - t0) * 1000.0 / SDL_GetPerformanceFrequency() / FR;
+        printf("%s: live animals avg %.1f max %d (cap %d), max legendaries alive %d, sim cost %.3f ms/frame\n", BIOME[b].name, sumLive / samples, maxLive, MAX_LIVE_ANIMALS, maxLeg, ms);
+        for (int k = 0; k < A_COUNT; k++) {
+            int s = g.spawnStat[k][0] + g.spawnStat[k][1] + g.spawnStat[k][2] + g.spawnStat[k][3];
+            if (s)
+                printf("    %-12s spawned %3d  (unc %d, rare %d, leg %d)\n", animalName(k, 0).c_str(), s, g.spawnStat[k][1], g.spawnStat[k][2], g.spawnStat[k][3]);
+        }
+    }
+}
+
 int main(int argc, char** argv) {
     bool headless = false;
-    std::string shots, tourDir, dumpFile;
+    std::string shots, tourDir, dumpFile, wildDir;
     bool wcheck = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
         if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
         if (!strcmp(argv[i], "--tour") && i + 1 < argc) tourDir = argv[++i];
         if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
+        if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
         if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
     }
     if (headless) {
@@ -559,6 +703,11 @@ int main(int argc, char** argv) {
         int bad = worldCheck(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
+    }
+    if (!wildDir.empty()) {
+        wildlife(g, wildDir);
+        g.audio.shutdown();
+        return 0;
     }
     if (!tourDir.empty()) {
         tour(g, tourDir);

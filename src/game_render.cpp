@@ -186,7 +186,7 @@ void Game::renderWorld(bool) {
     for (auto& a : animals) {
         if (!a.dead) continue;
         if (a.pos.x < camX - 50 || a.pos.x > camX + LW + 50 || a.pos.y < camY - 50 || a.pos.y > camY + LH + 50) continue;
-        const Spr& s = A.animal[a.kind][a.variant][4];
+        const Spr& s = A.animal[a.kind][a.variant + 2 * a.tier][4];
         sprW(A.shadow[1], a.pos.x, a.pos.y + 2, false, 0.7f * a.fade);
         sprW(s, a.pos.x, a.pos.y - 6, a.face < 0, a.fade);
         if (a.flash > 0) {
@@ -373,20 +373,31 @@ void Game::renderWorld(bool) {
         } else {
             Animal& a = animals[e.i];
             float spd = a.vel.len();
-            int fr = spd > 1 ? ((int)a.animT) & 3 : 0;
-            float hop = (a.kind == A_RABBIT && spd > 1) ? fabsf(sinf(a.animT * 3.14159f * 2)) * 3.f : 0.f;
-            const Spr& s = A.animal[a.kind][a.variant][fr];
-            int shd = (a.kind == A_RABBIT) ? 0 : 1;
-            sprW(A.shadow[shd], a.pos.x, a.pos.y, false, 0.9f);
+            const AnimalDef& D = ANIMAL[a.kind];
+            float hop = (D.hop && spd > 1) ? fabsf(sinf(a.animT * 3.14159f * 2)) * 3.f : 0.f;
+            if (a.st == AS_FEED && !a.dead) hop = fabsf(sinf(timeAcc * 4.f + a.animT)) * 1.2f;  // head-down bob
+            hop += a.air + (a.air > 0 ? sinf(timeAcc * 3.f + a.animT) * 1.5f : 0.f);
+            int fr = (a.st == AS_REST || a.st == AS_FEED) ? 0 : (spd > 1 ? ((int)a.animT) & 3 : 0);
+            const Spr& s = A.animal[a.kind][a.variant + 2 * a.tier][a.dead ? 4 : fr];
+            if (a.tier == TR_LEGENDARY && !a.dead) {  // golden pulse so a legendary is easy to spot
+                float pulse = 0.35f + 0.2f * sinf(timeAcc * 3.f);
+                sprW(A.shadow[2], a.pos.x, a.pos.y - a.bodyH * 0.6f, false, pulse);
+                if (((int)(timeAcc * 6) + e.i) % 5 == 0)
+                    fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
+            }
+            sprW(A.shadow[std::min(2, D.shadow)], a.pos.x, a.pos.y, false, 0.9f);
             sprW(s, a.pos.x, a.pos.y - hop, a.face < 0);
             if (a.flash > 0) {
                 Spr f = s;
                 f.t = s.flash;
                 sprW(f, a.pos.x, a.pos.y - hop, a.face < 0, a.flash / 0.16f * 0.85f);
             }
-            if (a.hpShow > 0) {
-                int bx = (int)a.pos.x - camX - 9, by = (int)a.pos.y - camY - (int)(a.bodyH * 2 + (a.kind == A_DEER ? 14 : 8));
+            if (a.st == AS_REST && !a.dead && ((int)(timeAcc * 1.5f) & 1))
+                text((int)a.pos.x - camX + 4, (int)a.pos.y - camY - (int)(a.bodyH * 2 + 6), "Z", C_DIM, 1, true);
+            if (a.hpShow > 0 && !a.dead) {
+                int bx = (int)a.pos.x - camX - 9, by = (int)a.pos.y - camY - (int)(a.bodyH * 2 + D.hpBarY + a.air);
                 bar(bx, by, 18, 2, (float)a.hp / a.maxhp, HEX(0xd8443f), HEX(0x3a1a18));
+                if (a.tier > 0) textC((int)a.pos.x - camX, by - 7, animalName(a.kind, a.tier), TIER[a.tier].col, 1, true);
             }
         }
     }
@@ -726,7 +737,7 @@ void Game::drawReticle() {
     int mx = (int)in.mx, my = (int)in.my;
     bool over = false;
     for (auto& a : animals)
-        if (!a.dead && dist(V2(in.mx + camX, in.my + camY), a.pos + V2(0, -a.bodyH)) < ANIMAL[a.kind].hitR + 4) over = true;
+        if (!a.dead && dist(V2(in.mx + camX, in.my + camY), a.pos + V2(0, -a.bodyH - a.air)) < ANIMAL[a.kind].hitR * a.scale + 4) over = true;
     u32 col = over ? HEX(0xff6a5a) : HEX(0xffffff);
     u32 sh = HEX(0x140d07);
     // aim line while charging

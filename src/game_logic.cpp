@@ -191,7 +191,6 @@ Animal* Game::nearestCarcass(float maxD) {
 // ================================================================= animals
 bool Game::trySpawn(int kind, float minDist, bool offscreen) {
     static const float zr[A_COUNT][2] = {{140, 520}, {240, 700}, {360, 820}, {460, 900}};
-    static const float bh[A_COUNT] = {4, 12, 7, 9};
     for (int it = 0; it < 80; it++) {
         float ang = rng.range(0, 6.2832f), rad = rng.range(zr[kind][0], zr[kind][1]);
         V2 pos = world.village + V2(cosf(ang) * rad, sinf(ang) * rad * 0.8f);
@@ -209,16 +208,122 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
         a.variant = (kind == A_DEER && rng.chance(0.45f)) ? 1 : 0;
         a.pos = pos;
         a.target = pos;
-        a.maxhp = a.hp = ANIMAL[kind].hp;
+        applyTier(a, rollTier());
         a.face = rng.chance(0.5f) ? 1 : -1;
         a.bias = rng.chance(0.5f) ? 1.f : -1.f;
         a.idleT = rng.range(0, 3);
         a.animT = rng.range(0, 4);
-        a.bodyH = bh[kind];
+        a.bodyH = ANIMAL[kind].bodyH * a.scale;
         animals.push_back(a);
         return true;
     }
     return false;
+}
+
+// ---- rarity tiers. Rolled on frng so the gameplay rng sequence is the same as before the wildlife update.
+int Game::rollTier() {
+    float u = frng.f();
+    float c = TIER[TR_LEGENDARY].chance;
+    if (u < c && liveLegendaries() < LEGEND_MAX_ALIVE && legCool <= 0) {
+        legCool = LEGEND_COOLDOWN;
+        return TR_LEGENDARY;
+    }
+    // a legendary roll that is not allowed (one already alive / cooling down) simply becomes a rare
+    if (u < (c += TIER[TR_RARE].chance)) return TR_RARE;
+    if (u < c + TIER[TR_UNCOMMON].chance) return TR_UNCOMMON;
+    return TR_COMMON;
+}
+void Game::applyTier(Animal& a, int tier) {
+    const TierDef& T = TIER[tier];
+    a.tier = tier;
+    spawnStat[a.kind][tier]++;
+    a.scale = T.scale;
+    a.maxhp = a.hp = std::max(1, (int)roundf(ANIMAL[a.kind].hp * T.hp));
+}
+int Game::liveLegendaries() const {
+    int n = 0;
+    for (auto& a : animals)
+        if (!a.dead && a.tier == TR_LEGENDARY) n++;
+    return n;
+}
+
+Animal* Game::spawnAnimal(int kind, V2 pos, int form, int tier) {
+    Animal a;
+    const AnimalDef& D = ANIMAL[kind];
+    a.kind = kind;
+    a.biome = world.biomeAtPos(pos.x, pos.y);
+    a.variant = form;
+    a.pos = a.target = pos;
+    applyTier(a, tier);
+    a.face = frng.chance(0.5f) ? 1 : -1;
+    a.bias = frng.chance(0.5f) ? 1.f : -1.f;
+    a.idleT = frng.range(0, 3);
+    a.animT = frng.range(0, 4);
+    a.bodyH = D.bodyH * a.scale;
+    if (D.flags & BH_FLIES) a.air = 13.f;
+    animals.push_back(a);
+    return &animals.back();
+}
+
+static bool nearDeepWater(const World& w, int tx, int ty, int r) {
+    for (int y = ty - r; y <= ty + r; y++)
+        for (int x = tx - r; x <= tx + r; x++)
+            if (w.water(x, y)) return true;
+    return false;
+}
+
+// Streaming spawns for the four new biomes: keeps the live population small and local.
+void Game::streamSpawns(float dt) {
+    for (int k = 0; k < A_COUNT; k++)
+        if (spCool[k] > 0) spCool[k] -= dt;
+    if (legCool > 0) legCool -= dt;
+    spawnT -= dt;
+    if (spawnT > 0) return;
+    spawnT = SPAWN_TICK;
+    // despawn: far away living animals (never carcasses - those fade on their own)
+    for (auto& a : animals)
+        if (!a.dead && a.biome != B_HOME && dist(a.pos, p.pos) > DESPAWN_DIST) a.gone = true;
+    int liveN = 0;
+    for (auto& a : animals)
+        if (!a.dead && !a.gone && a.biome != B_HOME) liveN++;  // the home population has its own fixed targets
+    if (liveN >= MAX_LIVE_ANIMALS || p.dead) return;
+    int b = world.biomeAtPos(p.pos.x, p.pos.y);
+    if (b == B_HOME) return;
+    float night = 1.f - daylight();
+    // pick one due species per tick (round-robin start so the table order doesn't bias)
+    const auto& tab = SPAWNS[b];
+    if (tab.empty()) return;
+    int start = frng.irange(0, (int)tab.size() - 1);
+    for (size_t j = 0; j < tab.size(); j++) {
+        const SpawnDef& S = tab[(start + j) % tab.size()];
+        if (spCool[S.kind] > 0) continue;
+        int cnt = 0;
+        for (auto& a : animals)
+            if (!a.dead && !a.gone && a.kind == S.kind && dist(a.pos, p.pos) < SPAWN_AREA) cnt++;
+        int cap = S.cap + (night > 0.5f ? (int)S.capNight : 0);
+        if (cnt >= cap) continue;
+        if (!frng.chance(S.chance)) {
+            spCool[S.kind] = 2.f;  // failed roll: try again soon, not on the next tick
+            continue;
+        }
+        for (int it = 0; it < 30; it++) {
+            float ang = frng.range(0, 6.2832f), rad = frng.range(SPAWN_MIN, SPAWN_MAX);
+            V2 pos = p.pos + V2(cosf(ang) * rad, sinf(ang) * rad * 0.8f);
+            if (world.biomeAtPos(pos.x, pos.y) != b) continue;
+            if (world.blocked(pos.x, pos.y, 9)) continue;
+            int tx = (int)(pos.x / TS), ty = (int)(pos.y / TS);
+            if (S.terrain && !(S.terrain & TM(world.tile[ty][tx]))) continue;
+            if (S.nearWater && !nearDeepWater(world, tx, ty, 3)) continue;
+            float sx = pos.x - cam.x, sy = pos.y - cam.y;
+            if (sx > -50 && sx < LW + 50 && sy > -60 && sy < LH + 60) continue;
+            int form = (ANIMAL[S.kind].forms > 1 && frng.chance(S.form1)) ? 1 : 0;
+            spawnAnimal(S.kind, pos, form, rollTier());
+            spCool[S.kind] = S.cooldown;
+            return;
+        }
+        spCool[S.kind] = 2.f;
+        return;
+    }
 }
 
 void Game::populate() {
@@ -231,10 +336,11 @@ void Game::populate() {
 bool Game::stepAnimal(Animal& a, V2 dir, float speed, float dt) {
     static const float offs[7] = {0, 0.6f, -0.6f, 1.2f, -1.2f, 1.9f, -1.9f};
     float base = atan2f(dir.y, dir.x);
-    float r = a.kind == A_RABBIT ? 3.5f : 5.5f;
+    const AnimalDef& D = ANIMAL[a.kind];
+    float r = D.hop ? 3.5f : 5.5f;
     // rabbits move in hops
     float sp = speed;
-    if (a.kind == A_RABBIT) sp *= 0.35f + 0.9f * std::max(0.f, sinf(a.animT * 1.5708f * 2));
+    if (D.hop) sp *= 0.35f + 0.9f * std::max(0.f, sinf(a.animT * 1.5708f * 2));
     for (int k = 0; k < 7; k++) {
         float ang = base + offs[k] * a.bias;
         V2 d(cosf(ang), sinf(ang));
@@ -271,17 +377,27 @@ void Game::updateAnimals(float dt) {
         const AnimalDef& D = ANIMAL[a.kind];
         V2 dp = p.pos - a.pos;
         float dd = p.dead ? 9999.f : dp.len();
-        float notice = D.notice * (D.aggro ? 1.f + 0.3f * night : 1.f);
+        const TierDef& T = TIER[a.tier];
+        // night hunters (cats, coyotes) are skittish in daylight
+        bool agg = D.aggro && (!(D.flags & BH_NIGHT_AGGRO) || night > 0.45f);
+        float notice = D.notice * T.notice * (D.aggro ? 1.f + 0.3f * night : 1.f);
         a.stT -= dt;
         a.vel = V2();
         switch (a.st) {
-            case AS_WANDER: {
-                bool alert = false;
-                if (!D.aggro) alert = dd < notice;
-                else if (a.kind == A_WOLF) alert = dd < notice;
-                else alert = dd < notice * 0.62f;
+            case AS_WANDER:
+            case AS_FEED:
+            case AS_REST: {
+                bool alert = dd < (D.aggro ? notice * D.alertMul : notice);
+                if (a.st != AS_WANDER) {
+                    if (a.st == AS_REST) a.vel = V2();
+                    if (!alert && a.stT <= 0) {
+                        a.st = AS_WANDER;
+                        a.idleT = frng.range(0.5f, 2.f);
+                    }
+                    if (!alert) break;
+                }
                 if (alert) {
-                    if (D.aggro) {
+                    if (agg) {
                         a.st = AS_CHASE;
                         a.stT = 12;
                         ftext(a.pos + V2(0, -a.bodyH - 12), "!", C_RED, 0.8f);
@@ -294,13 +410,19 @@ void Game::updateAnimals(float dt) {
                 }
                 if (a.idleT > 0) {
                     a.idleT -= dt;
+                    if (a.idleT <= 0 && D.restChance > 0 && frng.chance(D.restChance + D.feedChance)) {
+                        bool rest = frng.chance(D.restChance / (D.restChance + D.feedChance));
+                        a.st = rest ? AS_REST : AS_FEED;
+                        a.stT = frng.range(4.f, 9.f);
+                        a.idleT = 0;
+                    }
                 } else {
                     V2 to = a.target - a.pos;
                     if (to.len() < 5 || a.stT < -7) {
                         a.idleT = rng.range(1.2f, 4.5f);
                         a.target = a.pos + V2(rng.range(-90, 90), rng.range(-70, 70));
                         a.stT = 0;
-                    } else if (!stepAnimal(a, to.norm(), D.wander, dt)) {
+                    } else if (!stepAnimal(a, to.norm(), D.wander * T.speed, dt)) {
                         a.target = a.pos + V2(rng.range(-60, 60), rng.range(-50, 50));
                     }
                 }
@@ -312,7 +434,7 @@ void Game::updateAnimals(float dt) {
                 V2 perp(-away.y, away.x);
                 float j = sinf(timeAcc * 2.3f + a.animT) * 0.35f;
                 V2 dir = (away + perp * j).norm();
-                stepAnimal(a, dir, D.run * (a.hp < a.maxhp ? 1.08f : 1.f), dt);
+                stepAnimal(a, dir, D.run * T.speed * (a.hp < a.maxhp ? 1.08f : 1.f), dt);
                 if (a.stT <= 0 && dd > notice * 1.4f) {
                     a.st = AS_WANDER;
                     a.idleT = 1;
@@ -322,12 +444,12 @@ void Game::updateAnimals(float dt) {
             }
             case AS_CHASE: {
                 V2 toP = dp.norm();
-                if (a.kind == A_WOLF && a.hp < a.maxhp * 0.25f) {
+                if (D.fleeHp > 0 && a.hp < a.maxhp * D.fleeHp) {
                     a.st = AS_FLEE;
                     a.stT = 6;
                     break;
                 }
-                if (dd > (a.kind == A_WOLF ? 300.f : 240.f) || p.dead) {
+                if (dd > D.leash || p.dead || !agg) {
                     a.st = AS_WANDER;
                     a.idleT = 1.5f;
                     a.target = a.pos;
@@ -336,19 +458,19 @@ void Game::updateAnimals(float dt) {
                 a.face = dp.x > 0 ? 1 : -1;
                 if (dd < D.hitR + 9) {
                     if (a.atkCd <= 0) {
-                        hurtPlayer(D.dmg, a.pos);
+                        hurtPlayer(D.dmg * T.dmg, a.pos);
                         a.atkCd = D.atkCd;
                         a.kb = toP * -70;
                     }
                 } else
-                    stepAnimal(a, toP, D.run * (dd < 50 ? 1.12f : 1.f), dt);
+                    stepAnimal(a, toP, D.run * T.speed * (dd < 50 ? 1.12f : 1.f), dt);
                 break;
             }
         }
         if (fabsf(a.vel.x) > 2.f && a.st != AS_CHASE) a.face = a.vel.x > 0 ? 1 : -1;
         else if (fabsf(a.vel.x) > 2.f) a.face = a.vel.x > 0 ? 1 : -1;
         float spd = a.vel.len();
-        if (spd > 1) a.animT += spd * dt * (a.kind == A_RABBIT ? 0.09f : 0.075f);
+        if (spd > 1) a.animT += spd * dt * D.animK;
         a.noticeT += dt;
     }
     animals.erase(std::remove_if(animals.begin(), animals.end(), [](const Animal& a) { return a.gone; }), animals.end());
@@ -366,7 +488,8 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     shakeAmt = std::max(shakeAmt, crit ? 3.f : 1.5f);
     decals.push_back({a.pos + V2(rng.range(-5, 5), rng.range(0, 4)), 0, 0, 40});
     const AnimalDef& D = ANIMAL[a.kind];
-    if (D.aggro) {
+    bool agg = D.aggro && (!(D.flags & BH_NIGHT_AGGRO) || daylight() < 0.55f);
+    if (agg) {
         a.st = AS_CHASE;
         a.stT = 10;
     } else {
@@ -389,18 +512,35 @@ void Game::killAnimal(Animal& a) {
         a.remain[m] = D.drop[m][1] > 0 ? rng.irange(D.drop[m][0], D.drop[m][1]) : 0;
         total += a.remain[m];
     }
-    if (a.kind == A_DEER && a.variant == 1) {
-        int n = rng.irange(1, 2);
-        a.remain[M_ANTLER] = n;
+    if (D.formDrop[0] >= 0 && a.variant == 1) {  // e.g. a buck's antlers
+        int n = rng.irange(D.formDrop[1], D.formDrop[2]);
+        a.remain[D.formDrop[0]] += n;
         total += n;
     }
+    if (a.tier > 0) {  // better specimens carry more
+        total = 0;
+        for (int m = 0; m < M_COUNT; m++) {
+            a.remain[m] = (int)ceilf(a.remain[m] * TIER[a.tier].drops);
+            total += a.remain[m];
+        }
+        if (a.tier == TR_LEGENDARY && D.legendDrop[0] >= 0) {
+            int n = frng.irange(D.legendDrop[1], D.legendDrop[2]);
+            a.remain[D.legendDrop[0]] += n;
+            total += n;
+        }
+        if (TIER[a.tier].bounty > 0) {
+            p.coins += TIER[a.tier].bounty;
+            ftext(a.pos + V2(0, -a.bodyH - 30), "+" + S(TIER[a.tier].bounty) + "C", C_GOLD, 1.6f);
+        }
+        msg(std::string(TIER[a.tier].name) + " " + animalName(a.kind, a.tier) + " HUNTED!", TIER[a.tier].col);
+    }
+    a.air = 0;
     if (total == 0) {
         a.remain[M_MEAT] = 1;
         total = 1;
     }
     a.totalRemain = total;
-    static const int sz[A_COUNT] = {0, 2, 1, 1};
-    decals.push_back({a.pos + V2(0, 3), sz[a.kind], 0, 80});
+    decals.push_back({a.pos + V2(0, 3), D.decal, 0, 80});
     bloodBurst(a.pos + V2(0, -a.bodyH), a.kb.norm(), 16);
     audio.play(S_KILL);
     shakeAmt = std::max(shakeAmt, 4.f);
@@ -678,8 +818,8 @@ void Game::updateProjectiles(float dt) {
             pr.travelled += s;
             for (auto& a : animals) {
                 if (a.dead) continue;
-                V2 c = a.pos + V2(0, -a.bodyH);
-                if (dist(pr.pos, c) < ANIMAL[a.kind].hitR + 3) {
+                V2 c = a.pos + V2(0, -a.bodyH - a.air);
+                if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
                     hitAnimal(a, pr.dmg, pr.dir, pr.crit);
                     if (rng.chance(WPN[pr.wpn].brk)) {
                         for (int q = 0; q < 6; q++)
@@ -911,15 +1051,17 @@ void Game::updatePlay(float dt) {
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;
+    if (respawnT <= 0 && world.biomeAtPos(p.pos.x, p.pos.y) != B_HOME) respawnT = 4.f;  // home herds only refill while you are home
     if (respawnT <= 0) {
         respawnT = 4.f;
         int alive[A_COUNT] = {0};
         for (auto& a : animals)
             if (!a.dead) alive[a.kind]++;
-        int targets[A_COUNT] = {14, 8, 5, 4 + (int)(2 * (1.f - daylight()))};
-        for (int k = 0; k < A_COUNT; k++)
+        int targets[4] = {14, 8, 5, 4 + (int)(2 * (1.f - daylight()))};
+        for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }
+    streamSpawns(dt);
 }
 
 void Game::update(float dt) {

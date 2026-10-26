@@ -7,6 +7,7 @@
 #include "quests.hpp"
 #include "sprites.hpp"
 #include "world.hpp"
+#include "spawns.hpp"
 
 // ----------------------------------------------------------------- palette
 const u32 C_TEXT = HEX(0xf3e9d2), C_DIM = HEX(0xa8977a), C_GOLD = HEX(0xf2c94c), C_RED = HEX(0xe8605a),
@@ -26,7 +27,7 @@ struct Input {
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
-enum AState { AS_WANDER, AS_FLEE, AS_CHASE };
+enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST };
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
@@ -43,6 +44,9 @@ struct Animal {
     float fade = 1;  // carcass fade-out
     float bodyH = 6;
     bool gone = false;
+    int tier = 0;         // 0 common .. 3 legendary (see fauna.hpp)
+    float scale = 1.f;    // body scale (tier)
+    float air = 0.f;      // height above the ground (flyers)
 };
 
 struct Player {
@@ -145,6 +149,10 @@ struct Game {
     std::vector<Fly> flies;
     std::vector<Flake> flakes;
     Rng rng{20261024};
+    Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
+    float legCool = 120.f, spawnT = 0.f;
+    float spCool[A_COUNT] = {0};
+    int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
     float stuckCheckT = 0;  // timer for the out-of-weapons safety net
@@ -199,6 +207,11 @@ struct Game {
     bool stepAnimal(Animal& a, V2 dir, float speed, float dt);
     bool trySpawn(int kind, float minDist, bool offscreen);
     void populate();
+    Animal* spawnAnimal(int kind, V2 pos, int form, int tier);
+    void streamSpawns(float dt);
+    int liveLegendaries() const;
+    int rollTier();
+    void applyTier(Animal& a, int tier);
     Animal* nearestCarcass(float maxD);
     float tod() const;
     float daylight() const;

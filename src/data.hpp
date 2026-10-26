@@ -22,22 +22,8 @@ static const WpnDef WPN[W_COUNT] = {
 };
 constexpr int WPN_MAX = 30;
 
-enum Kind { A_RABBIT, A_DEER, A_BOAR, A_WOLF, A_COUNT };
-struct AnimalDef {
-    const char* name;
-    int hp;
-    float wander, run, notice, hitR;
-    bool aggro;
-    float dmg, atkCd, gatherTime;
-    int drop[M_COUNT][2];
-};
-static const AnimalDef ANIMAL[A_COUNT] = {
-    // name      hp  wander run  notice hitR aggro dmg  cd   gather   MEAT   HIDE   BONE   ORGAN  FUR    TUSK   ANTLER
-    {"RABBIT", 14, 22, 98, 85, 6, false, 0, 0, 0.40f, {{1, 2}, {1, 1}, {1, 1}, {0, 1}, {0, 0}, {0, 0}, {0, 0}}},
-    {"DEER", 46, 24, 90, 115, 9, false, 0, 0, 0.60f, {{3, 4}, {2, 2}, {2, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}}},
-    {"BOAR", 78, 20, 108, 75, 10, true, 15, 1.1f, 0.65f, {{3, 5}, {2, 3}, {2, 2}, {1, 2}, {0, 0}, {1, 2}, {0, 0}}},
-    {"WOLF", 58, 28, 104, 125, 9, true, 11, 0.85f, 0.55f, {{2, 3}, {0, 0}, {2, 2}, {1, 1}, {2, 3}, {0, 0}, {0, 0}}},
-};
+// Animal species, rarity tiers and variant looks live in fauna.hpp (stats are data; behaviour flags drive the AI).
+#include "fauna.hpp"
 
 // ---- biomes (the original map is B_HOME; the four new regions surround it)
 enum Biome { B_HOME, B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN, B_COUNT };
