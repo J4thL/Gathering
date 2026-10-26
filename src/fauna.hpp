@@ -224,6 +224,16 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
         d.looks[0] = LK_DARK; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_FROST; d.legendName = "STORM CAT";
         d.legendDrop[0] = M_FUR; d.legendDrop[1] = 3; d.legendDrop[2] = 5;
     }
+    // ---- new materials (feathers, scales, horns, claws) - set after the table so the original rows stay untouched
+    auto drop = [&](int k, int m, int lo, int hi) { t[k].drop[m][0] = lo; t[k].drop[m][1] = hi; };
+    for (int k : {A_DUCK, A_ROADRUNNER}) drop(k, M_FEATHER, 1, 3);
+    drop(A_EAGLE, M_FEATHER, 2, 4);
+    drop(A_EAGLE, M_CLAW, 0, 1);
+    for (int k : {A_RATTLER, A_LIZARD, A_MOCCASIN}) drop(k, M_SCALE, 1, 2);
+    drop(A_GATOR, M_SCALE, 2, 4);
+    for (int k : {A_GOAT, A_BIGHORN}) drop(k, M_HORN, 1, 2);
+    for (int k : {A_LYNX, A_COYOTE, A_FENNEC}) drop(k, M_CLAW, 0, 1);
+    for (int k : {A_DUNELION, A_PANTHER, A_MTLION, A_POLARBEAR}) drop(k, M_CLAW, 1, 2);
     return t;
 }
 static const std::array<AnimalDef, A_COUNT> ANIMAL = makeAnimals();

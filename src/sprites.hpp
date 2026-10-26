@@ -760,6 +760,41 @@ inline Img mkIconMat(int m) {
             im.line(5, 6, 2, 6, HEX(0xb89d6a));
             im.line(12, 5, 14, 7, HEX(0xb89d6a));
             break;
+        case M_FEATHER:
+            im.ellipse(8.5f, 7.5f, 2.6f, 5.8f, HEX(0xd9b27a));
+            im.ellipse(8.5f, 7.5f, 1.4f, 4.5f, HEX(0xf1d9a8));
+            im.line(5, 14, 11, 2, HEX(0x7a5a3a));
+            im.line(9, 5, 12, 6, HEX(0xb48a56));
+            im.line(8, 8, 11, 9, HEX(0xb48a56));
+            break;
+        case M_HORN:
+            for (int y = 3; y <= 13; y++) {
+                float t = (y - 3) / 10.f;
+                int x = (int)(4 + t * 3 + sinf(t * 2.4f) * 4);
+                im.set(x, y, HEX(0xcdbb94));
+                im.set(x + 1, y, HEX(0xa8946a));
+                if (t < 0.7f) im.set(x + 2, y, HEX(0x7e6c48));
+            }
+            im.rect(3, 12, 6, 2, HEX(0x4a3c28));
+            im.set(5, 3, HEX(0xf3ead0));
+            break;
+        case M_SCALE:
+            for (int r = 0; r < 3; r++)
+                for (int c = 0; c < 3; c++) {
+                    int cx = 4 + c * 4 + (r & 1) * 2, cy = 4 + r * 3;
+                    im.ellipse((float)cx, (float)cy, 2.3f, 2.0f, (r + c) & 1 ? HEX(0x6f9a58) : HEX(0x8fba6e));
+                    im.set(cx - 1, cy - 1, HEX(0xc7e3a4));
+                }
+            break;
+        case M_CLAW:
+            for (int y = 2; y <= 13; y++) {
+                float t = (y - 2) / 11.f;
+                int x = (int)(10 - t * 6 + t * t * 3);
+                int w = t < 0.6f ? 3 : (t < 0.85f ? 2 : 1);
+                for (int k = 0; k < w; k++) im.set(x + k, y, k == 0 ? HEX(0xf3eccb) : HEX(0xcfc59a));
+            }
+            im.rect(8, 1, 4, 2, HEX(0x6b5a44));
+            break;
     }
     im.outline(OUT);
     return im;
@@ -801,6 +836,47 @@ inline Img mkIconWpn(int w) {
             im.set(3, 11, HEX(0xd8443f));
             im.set(4, 13, HEX(0xd8443f));
             break;
+        case W_BOW:
+            for (int y = 1; y <= 14; y++) {  // limb: a curve bulging to the left, string on the right
+                float t = (y - 1) / 13.f;
+                int x = (int)(11 - sinf(t * 3.14159f) * 6);
+                im.set(x, y, HEX(0x8d5e33));
+                im.set(x + 1, y, HEX(0x6b4423));
+            }
+            im.line(11, 1, 11, 14, HEX(0xe8e2d0));
+            im.line(3, 8, 11, 8, HEX(0xc8ccd4));  // nocked arrow
+            im.set(2, 8, HEX(0xd8443f));
+            im.set(11, 8, HEX(0xeef0f4));
+            break;
+        case W_CROSSBOW:
+            im.rect(2, 7, 11, 2, HEX(0x6b4423));  // stock
+            im.rect(2, 6, 11, 1, HEX(0x8d5e33));
+            im.rect(2, 9, 4, 2, HEX(0x4a3017));   // grip
+            im.line(11, 3, 13, 7, HEX(0x8d5e33));  // prod (the bow part)
+            im.line(11, 12, 13, 8, HEX(0x8d5e33));
+            im.line(11, 3, 9, 7, HEX(0xe8e2d0));
+            im.line(11, 12, 9, 8, HEX(0xe8e2d0));
+            im.line(5, 6, 12, 6, HEX(0xc8ccd4));  // bolt on the rail
+            break;
+    }
+    im.outline(OUT);
+    return im;
+}
+inline Img mkIconAmmo(int a) {
+    Img im(16, 16);
+    if (a == AM_ARROW) {
+        im.line(2, 13, 12, 3, HEX(0x8d5e33));
+        im.line(3, 13, 13, 3, HEX(0x6b4423));
+        im.line(11, 4, 14, 1, HEX(0xc8ccd4));
+        im.line(11, 5, 14, 2, HEX(0x9aa0ac));
+        im.line(2, 11, 4, 13, HEX(0xf2ead3));
+        im.line(3, 10, 5, 12, HEX(0xd8443f));
+    } else {
+        im.line(3, 12, 11, 4, HEX(0x6b4423));
+        im.line(4, 12, 12, 4, HEX(0x8d5e33));
+        im.rect(11, 2, 3, 3, HEX(0xc8ccd4));
+        im.rect(12, 1, 2, 2, HEX(0xeef0f4));
+        im.line(3, 11, 3, 14, HEX(0xd8443f));
     }
     im.outline(OUT);
     return im;
@@ -975,6 +1051,31 @@ inline Img mkWpnWorld(int w) {
             im.outline(OUT);
             return im;
         }
+        case W_BOW: {  // held bow, pointing right: limb curves back, string is the vertical line
+            Img im(9, 17);
+            for (int y = 0; y < 17; y++) {
+                float t = y / 16.f;
+                int x = (int)(5 - sinf(t * 3.14159f) * 4);
+                im.set(x, y, HEX(0x8d5e33));
+                im.set(x + 1, y, HEX(0x6b4423));
+            }
+            im.line(5, 0, 5, 16, HEX(0xe8e2d0));
+            im.outline(OUT);
+            return im;
+        }
+        case W_CROSSBOW: {
+            Img im(15, 11);
+            im.rect(1, 5, 11, 2, HEX(0x6b4423));
+            im.rect(1, 4, 11, 1, HEX(0x8d5e33));
+            im.rect(1, 7, 3, 2, HEX(0x4a3017));
+            im.line(10, 0, 12, 5, HEX(0x8d5e33));
+            im.line(10, 10, 12, 5, HEX(0x8d5e33));
+            im.line(10, 0, 8, 5, HEX(0xe8e2d0));
+            im.line(10, 10, 8, 5, HEX(0xe8e2d0));
+            im.line(3, 3, 13, 3, HEX(0xc8ccd4));
+            im.outline(OUT);
+            return im;
+        }
         default: {
             Img im(26, 7);
             im.rect(1, 3, 20, 1, HEX(0x8d5e33));
@@ -988,6 +1089,27 @@ inline Img mkWpnWorld(int w) {
     }
 }
 
+// arrows and bolts in flight / on the ground (pointing right)
+inline Img mkAmmoWorld(int a) {
+    if (a == AM_ARROW) {
+        Img im(20, 5);
+        im.rect(1, 2, 15, 1, HEX(0x8d5e33));
+        im.rect(1, 1, 3, 1, HEX(0xf2ead3));
+        im.rect(1, 3, 3, 1, HEX(0xd8443f));
+        im.rect(15, 1, 3, 3, HEX(0xc8ccd4));
+        im.rect(18, 2, 1, 1, HEX(0xeef0f4));
+        im.outline(OUT);
+        return im;
+    }
+    Img im(14, 5);
+    im.rect(1, 2, 9, 1, HEX(0x6b4423));
+    im.rect(1, 1, 2, 3, HEX(0xd8443f));
+    im.rect(9, 1, 3, 3, HEX(0xc8ccd4));
+    im.rect(12, 2, 1, 1, HEX(0xeef0f4));
+    im.outline(OUT);
+    return im;
+}
+
 // ================================================================= the sprite bank
 struct Assets {
     Spr grass[4], dirt[2], water[4];
@@ -997,7 +1119,7 @@ struct Assets {
     Spr player[3][4];
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][3], bandage;
-    Spr wpnWorld[W_COUNT];
+    Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     SDL_Texture* font = nullptr;
@@ -1038,6 +1160,11 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int w = 0; w < W_COUNT; w++) {
         Img im = mkWpnWorld(w);
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);
+    }
+    for (int k = 0; k < AM_COUNT; k++) {
+        a.ammoIcon[k] = makeSpr(r, mkIconAmmo(k), 8, 8);
+        Img im = mkAmmoWorld(k);
+        a.ammoWorld[k] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
     buildBiomeAssets(r, a.B);
     a.coin = makeSpr(r, mkCoin(), 5, 5);

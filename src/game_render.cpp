@@ -174,7 +174,7 @@ void Game::renderWorld(bool) {
     // thrown weapons lying on the ground
     for (auto& it : items) {
         sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f);
-        sprW(A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
+        sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
         float g = fmodf(timeAcc + it.pos.x * 0.01f, 1.8f);
         if (g < 0.25f) {
             int gx = (int)it.pos.x - camX + 3, gy = (int)it.pos.y - camY - 6;
@@ -406,7 +406,7 @@ void Game::renderWorld(bool) {
     for (auto& pr : projs) {
         sprW(A.shadow[0], pr.pos.x, pr.pos.y + 9, false, 0.45f);
         float ang = (pr.angle + pr.spin * (pr.travelled / pr.speed)) * 57.2958;
-        sprW(A.wpnWorld[pr.wpn], pr.pos.x, pr.pos.y, false, 1.f, ang, true);
+        sprW(pr.ammo >= 0 ? A.ammoWorld[pr.ammo] : A.wpnWorld[pr.wpn], pr.pos.x, pr.pos.y, false, 1.f, ang, true);
         if (pr.crit) fillRect((int)pr.pos.x - camX, (int)pr.pos.y - camY, 1, 1, RGBA(255, 200, 80, 220));
     }
     // particles
@@ -669,14 +669,15 @@ void Game::drawHud() {
 
     // ---- materials strip + bag meter
     {
-        int x = 4, y = LH - 29;
+        const int cols = 6, rows = (M_COUNT + cols - 1) / cols;  // two rows now that there are more materials
+        int x = 4, y = LH - 4 - rows * 25;
         int used = p.bagUsed(), cap = p.bagCap();
-        panel(x, y, M_COUNT * 18 + 6, 25, HEX(0x33241a));
+        panel(x, y, cols * 18 + 6, rows * 25, HEX(0x33241a));
         for (int m = 0; m < M_COUNT; m++) {
-            int cx = x + 4 + m * 18;
-            icon(A.matIcon[m], cx + 8, y + 9, 14, p.mats[m] > 0 ? 1.f : 0.35f);
+            int cx = x + 4 + (m % cols) * 18, cy = y + (m / cols) * 25;
+            icon(A.matIcon[m], cx + 8, cy + 9, 14, p.mats[m] > 0 ? 1.f : 0.35f);
             std::string t = S(p.mats[m]);
-            textC(cx + 8, y + 17, t, p.mats[m] > 0 ? C_TEXT : HEX(0x6e5f4a), 1, false);
+            textC(cx + 8, cy + 17, t, p.mats[m] > 0 ? C_TEXT : HEX(0x6e5f4a), 1, false);
         }
         float f = (float)used / cap;
         text(x + 1, y - 9, "BAG " + S(used) + "/" + S(cap), used >= cap ? C_RED : C_TEXT);
@@ -700,8 +701,11 @@ void Game::drawHud() {
             }
             icon(A.wpnIcon[i], x + sw / 2, yy + sw / 2, 16, p.wpn[i] > 0 ? 1.f : 0.3f);
             text(x + 3, yy + 3, S(i + 1), C_DIM, 1, false);
-            std::string n = S(p.wpn[i]);
-            text(x + sw - 3 - textW(n), yy + sw - 8, n, p.wpn[i] > 0 ? C_TEXT : C_RED);
+            // launchers show how much ammunition is left instead of how many you own
+            int shown = isLauncher(i) ? p.ammo[WPN[i].ammo] : p.wpn[i];
+            bool have = isLauncher(i) ? (p.wpn[i] > 0 && shown > 0) : shown > 0;
+            std::string n = S(shown);
+            text(x + sw - 3 - textW(n), yy + sw - 8, n, have ? C_TEXT : C_RED);
             if (sel && p.cd > 0) bar(x + 3, yy + sw - 3, sw - 6, 1, 1.f - p.cd / WPN[i].cd, C_GOLD);
         }
         int bx = x0 + total + 7;
@@ -715,7 +719,7 @@ void Game::drawHud() {
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-4 OR WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW",
+        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-6 OR WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW OR SHOOT",
                                "WALK OVER THROWN WEAPONS TO PICK THEM UP", "HOLD E AT A CARCASS TO GATHER - E AT THE SHOP TO TRADE",
                                "Q BANDAGE   M MAP   H HELP   ESC PAUSE"};
         int w = 232, h = 52;
@@ -749,7 +753,8 @@ void Game::drawReticle() {
         if (dl > 6) {
             V2 dir = d * (1.f / dl);
             const WpnDef& W = WPN[p.sel];
-            float range = std::min(W.range * (1 + 0.15f * p.charge), dl + 24);
+            float range = isLauncher(p.sel) ? std::min(W.range * (0.5f + 0.5f * (W.draw > 0 ? p.charge : 1.f)), dl + 24)
+                                            : std::min(W.range * (1 + 0.15f * p.charge), dl + 24);
             for (float t = 14; t < range; t += 6) {
                 V2 q = hand + dir * t;
                 fillRect((int)q.x - camX, (int)q.y - camY, 1, 1, RGBA(255, 255, 255, (int)(190 * (1.f - t / (range + 20)))));
@@ -955,27 +960,51 @@ void Game::drawShop() {
             const char* name;
             const char* desc;
             int price;
-            int kind;  // 0 flint x3, 1 bandage x1, 2 bandage x3
-        } goods[3] = {{"FLINT KNIFE X3", "CHEAP THROWING KNIVES", 21, 0}, {"BANDAGE X1", "HEALS 45 HP - PRESS Q", 15, 1}, {"BANDAGE X3", "SAVE A FEW COINS", 40, 2}};
-        for (int i = 0; i < 3; i++) {
-            const Good& g = goods[i];
+            int kind;  // 0 flint x3, 1 bandage x1, 2 bandage x3, 3 bow, 4 crossbow, 5 arrows, 6 bolts
+        };
+        static const Good goods[] = {{"FLINT KNIFE X3", "CHEAP THROWING KNIVES", FLINT_PACK_PRICE, 0},
+                                     {"BANDAGE X1", "HEALS 45 HP - PRESS Q", 15, 1},
+                                     {"BANDAGE X3", "SAVE A FEW COINS", 40, 2},
+                                     {"HUNTING BOW", "HOLD TO DRAW - NEEDS ARROWS", BOW_PRICE, 3},
+                                     {"CROSSBOW", "SLOW RELOAD, HITS HARD - NEEDS BOLTS", CROSSBOW_PRICE, 4},
+                                     {"ARROW X10", "FOR THE HUNTING BOW", AMMO[AM_ARROW].price * AMMO[AM_ARROW].pack, 5},
+                                     {"BOLT X6", "FOR THE CROSSBOW", AMMO[AM_BOLT].price * AMMO[AM_BOLT].pack, 6}};
+        constexpr int NG = sizeof(goods) / sizeof(goods[0]), PER = 3, PAGES = (NG + PER - 1) / PER;
+        for (int i = 0; i < PER; i++) {
+            int gi = shopPage * PER + i;
+            if (gi >= NG) break;
+            const Good& g = goods[gi];
             int y = Y + 22 + i * 42;
             panel(x0, y, cw, 38, HEX(0x3a2a1a));
-            icon(g.kind == 0 ? A.wpnIcon[W_FLINT] : A.bandage, x0 + 18, y + 19, 28);
+            const Spr& ic = g.kind == 0 ? A.wpnIcon[W_FLINT] : g.kind == 3 ? A.wpnIcon[W_BOW] : g.kind == 4 ? A.wpnIcon[W_CROSSBOW] : g.kind == 5 ? A.ammoIcon[AM_ARROW] : g.kind == 6 ? A.ammoIcon[AM_BOLT] : A.bandage;
+            icon(ic, x0 + 18, y + 19, 28);
             text(x0 + 36, y + 6, g.name, C_GOLD);
             text(x0 + 36, y + 15, g.desc, C_DIM);
-            int owned = g.kind == 0 ? p.wpn[W_FLINT] : p.bandages;
+            int owned = g.kind == 0 ? p.wpn[W_FLINT] : g.kind == 3 ? p.wpn[W_BOW] : g.kind == 4 ? p.wpn[W_CROSSBOW] : g.kind == 5 ? p.ammo[AM_ARROW] : g.kind == 6 ? p.ammo[AM_BOLT] : p.bandages;
             text(x0 + 36, y + 24, "OWNED " + S(owned), C_TEXT);
             chip(x0 + 90, y + 21, A.coin, p.coins, g.price);
-            bool full = g.kind == 0 ? p.wpn[W_FLINT] + 3 > WPN_MAX : p.bandages + (g.kind == 1 ? 1 : 3) > BANDAGE_MAX;
+            bool full = g.kind == 0   ? p.wpn[W_FLINT] + 3 > WPN_MAX
+                        : g.kind == 3 ? p.wpn[W_BOW] >= 1
+                        : g.kind == 4 ? p.wpn[W_CROSSBOW] >= 1
+                        : g.kind == 5 ? p.ammo[AM_ARROW] + AMMO[AM_ARROW].pack > AMMO_MAX
+                        : g.kind == 6 ? p.ammo[AM_BOLT] + AMMO[AM_BOLT].pack > AMMO_MAX
+                                      : p.bandages + (g.kind == 1 ? 1 : 3) > BANDAGE_MAX;
             bool ok = p.coins >= g.price && !full;
-            if (button(x0 + 186, y + 11, 48, 16, full ? "FULL" : "BUY", ok, HEX(0x5d7a2e))) {
+            const char* lab = (g.kind == 3 || g.kind == 4) && full ? "OWNED" : full ? "FULL" : "BUY";
+            if (button(x0 + 186, y + 11, 48, 16, lab, ok, HEX(0x5d7a2e))) {
                 p.coins -= g.price;
                 if (g.kind == 0) p.wpn[W_FLINT] += 3;
+                else if (g.kind == 3) p.wpn[W_BOW] = 1;
+                else if (g.kind == 4) p.wpn[W_CROSSBOW] = 1;
+                else if (g.kind == 5) p.ammo[AM_ARROW] += AMMO[AM_ARROW].pack;
+                else if (g.kind == 6) p.ammo[AM_BOLT] += AMMO[AM_BOLT].pack;
                 else p.bandages += g.kind == 1 ? 1 : 3;
                 audio.play(S_COIN);
+                save();
             }
         }
+        if (button(x0, Y + 22 + PER * 42 - 2, 70, 12, shopPage + 1 < PAGES ? "MORE GOODS >" : "< BACK TO START", true, HEX(0x4a3a5e))) shopPage = (shopPage + 1) % PAGES;
+        text(x0 + 76, Y + 22 + PER * 42 + 1, "PAGE " + S(shopPage + 1) + "/" + S(PAGES), C_DIM, 1, false);
     }
     textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-4: SWITCH TAB     BAG " + S(p.bagUsed()) + "/" + S(p.bagCap()), C_DIM, 1, false);
 }

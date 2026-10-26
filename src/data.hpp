@@ -2,25 +2,42 @@
 #pragma once
 #include "gfx.hpp"
 
-enum Mat { M_MEAT, M_HIDE, M_BONE, M_ORGAN, M_FUR, M_TUSK, M_ANTLER, M_COUNT };
-[[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {"RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER"};
-static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18};
+// Materials come from carcasses. The first seven are the original ones; the rest drop from the new species.
+enum Mat { M_MEAT, M_HIDE, M_BONE, M_ORGAN, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_HORN, M_SCALE, M_CLAW, M_COUNT };
+[[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {"RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER", "FEATHER", "HORN", "SCALE", "CLAW"};
+static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24};
 // order in which a carcass gives up its materials while gathering
-static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER};
+static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW};
 
-enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_COUNT };
+// Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
+enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_COUNT };
+enum Ammo { AM_ARROW, AM_BOLT, AM_COUNT };
 struct WpnDef {
     const char* name;
     float dmg, speed, range, cd, brk;
     const char* blurb;
+    int ammo = -1;       // -1: thrown weapon; otherwise the ammo type a launcher fires
+    float draw = 0.f;    // seconds to draw a full shot (0 = fires on click; cd is then the reload time)
 };
 static const WpnDef WPN[W_COUNT] = {
     {"FLINT KNIFE", 10, 250, 150, 0.30f, 0.12f, "CHEAP AND LIGHT"},
     {"BONE KNIFE", 15, 275, 175, 0.28f, 0.08f, "FASTER, SHARPER"},
     {"HAND AXE", 24, 225, 135, 0.50f, 0.06f, "HEAVY HITTER"},
     {"JAVELIN", 34, 320, 235, 0.70f, 0.08f, "LONG RANGE KILLER"},
+    {"HUNTING BOW", 30, 430, 330, 0.45f, 0.f, "HOLD TO DRAW - USES ARROWS", AM_ARROW, 0.85f},
+    {"CROSSBOW", 46, 560, 360, 1.60f, 0.f, "SLOW RELOAD, HITS HARD - USES BOLTS", AM_BOLT, 0.f},
 };
+struct AmmoDef {
+    const char* name;
+    int price;       // coins per piece at the shop
+    int pack;        // pieces per shop pack
+    float lost;      // chance that a shot that hit is broken instead of dropping to the ground
+};
+static const AmmoDef AMMO[AM_COUNT] = {{"ARROW", 2, 10, 0.35f}, {"BOLT", 3, 6, 0.30f}};
 constexpr int WPN_MAX = 30;
+constexpr int AMMO_MAX = 60;
+constexpr int BOW_PRICE = 90, CROSSBOW_PRICE = 220;
+inline bool isLauncher(int w) { return WPN[w].ammo >= 0; }
 
 // Animal species, rarity tiers and variant looks live in fauna.hpp (stats are data; behaviour flags drive the AI).
 #include "fauna.hpp"
@@ -97,3 +114,5 @@ constexpr int FLINT_LOAN = 3;
 
 constexpr int BANDAGE_HEAL = 45;
 constexpr int BANDAGE_MAX = 9;
+
+#include "items.hpp"

@@ -77,6 +77,8 @@ void Game::save() {
     for (int i = 0; i < M_COUNT; i++) f << ' ' << p.mats[i];
     f << "\nwpn";
     for (int i = 0; i < W_COUNT; i++) f << ' ' << p.wpn[i];
+    f << "\nammo";
+    for (int i = 0; i < AM_COUNT; i++) f << ' ' << p.ammo[i];
     f << "\nup";
     for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
     f << "\nbandages " << p.bandages << "\nday " << dayT << "\nkills " << kills << "\n";
@@ -99,6 +101,7 @@ bool Game::load() {
         if (k == "coins") ss >> p.coins;
         else if (k == "mats") for (int i = 0; i < M_COUNT; i++) ss >> p.mats[i];
         else if (k == "wpn") for (int i = 0; i < W_COUNT; i++) ss >> p.wpn[i];
+        else if (k == "ammo") for (int i = 0; i < AM_COUNT; i++) ss >> p.ammo[i];
         else if (k == "up") for (int i = 0; i < U_COUNT; i++) ss >> p.up[i];
         else if (k == "bandages") ss >> p.bandages;
         else if (k == "day") ss >> dayT;
@@ -571,11 +574,16 @@ void Game::hurtPlayer(float dmg, V2 from) {
     }
 }
 
+// A weapon can be used when you own it and (for the bow and crossbow) have ammo for it.
+bool Game::canUse(int w) const { return p.wpn[w] > 0 && (!isLauncher(w) || p.ammo[WPN[w].ammo] > 0); }
+
 void Game::throwWeapon() {
     int w = p.sel;
-    if (p.wpn[w] <= 0) return;
-    p.wpn[w]--;
+    if (!canUse(w)) return;
     const WpnDef& D = WPN[w];
+    const bool launcher = isLauncher(w);
+    if (launcher) p.ammo[D.ammo]--;  // launchers are not used up, their ammunition is
+    else p.wpn[w]--;
     V2 hand = p.pos + V2(0, -10);
     V2 mw(in.mx + camX, in.my + camY);
     V2 d = mw - hand;
@@ -591,16 +599,24 @@ void Game::throwWeapon() {
     pr.travelled = 0;
     pr.wpn = w;
     pr.angle = atan2f(dir.y, dir.x);
-    pr.spin = (w == W_JAVELIN) ? 0.f : (w == W_AXE ? 17.f : 26.f);
+    pr.spin = (w == W_JAVELIN || launcher) ? 0.f : (w == W_AXE ? 17.f : 26.f);
     pr.crit = rng.chance(0.10f);
     pr.dmg = D.dmg * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
+    if (launcher) {
+        // a bow shot is only as good as the draw; the crossbow is always fully loaded when it fires
+        float draw = D.draw > 0 ? c : 1.f;
+        pr.speed = D.speed * (0.55f + 0.45f * draw);
+        pr.range = std::min(D.range * (0.5f + 0.5f * draw), dl + 24);
+        pr.dmg = D.dmg * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
+        pr.ammo = D.ammo;
+    }
     projs.push_back(pr);
     p.cd = D.cd;
     p.throwAnim = 0.3f;
     audio.play(S_THROW, 0.6f);
-    if (p.wpn[w] <= 0) {
+    if (!canUse(w) && !launcher) {  // ran out of thrown weapons: switch to another one you can use
         for (int i = 0; i < W_COUNT; i++)
-            if (p.wpn[i] > 0) {
+            if (canUse(i)) {
                 p.sel = i;
                 break;
             }
@@ -739,14 +755,29 @@ void Game::updatePlayer(float dt) {
     if (sprinting && rng.chance(0.25f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
 
     // --- throwing
-    if (in.lPressed && !wantGather && P.wpn[P.sel] > 0 && P.cd <= 0) {
-        P.charging = true;
-        P.charge = 0;
+    if (in.lPressed && !wantGather && P.cd <= 0) {
+        if (canUse(P.sel)) {
+            const WpnDef& SW = WPN[P.sel];
+            if (isLauncher(P.sel) && SW.draw <= 0.f) {  // crossbow: loaded, so it fires at once and then needs reloading
+                P.charge = 1.f;
+                throwWeapon();
+                P.charge = 0;
+            } else {
+                P.charging = true;
+                P.charge = 0;
+            }
+        } else if (P.wpn[P.sel] > 0 && isLauncher(P.sel) && noAmmoT <= 0) {
+            ftext(P.pos + V2(0, -24), std::string("NO ") + AMMO[WPN[P.sel].ammo].name + "S", C_RED, 1.0f);
+            audio.play(S_ERROR, 0.5f);
+            noAmmoT = 0.8f;
+        }
     }
+    if (noAmmoT > 0) noAmmoT -= dt;
     if (P.charging) {
-        if (P.wpn[P.sel] <= 0) P.charging = false;
+        if (!canUse(P.sel)) P.charging = false;
         else {
-            P.charge = std::min(1.f, P.charge + dt / 0.5f);
+            const float drawT = WPN[P.sel].draw > 0 ? WPN[P.sel].draw : 0.5f;
+            P.charge = std::min(1.f, P.charge + dt / drawT);
             if (in.lReleased || !in.l) {
                 throwWeapon();
                 P.charging = false;
@@ -758,6 +789,16 @@ void Game::updatePlayer(float dt) {
     // --- pick thrown weapons back up
     for (size_t i = 0; i < items.size();) {
         GroundItem& it = items[i];
+        if (it.ammo >= 0) {
+            if (dist(P.pos, it.pos) < 13 && P.ammo[it.ammo] < AMMO_MAX) {
+                P.ammo[it.ammo]++;
+                ftext(P.pos + V2(0, -24), std::string("+1 ") + AMMO[it.ammo].name, C_BLUE, 0.9f);
+                audio.play(S_PICKUP, 0.4f);
+                items.erase(items.begin() + i);
+            } else
+                i++;
+            continue;
+        }
         if (dist(P.pos, it.pos) < 13 && P.wpn[it.wpn] < WPN_MAX) {
             P.wpn[it.wpn]++;
             ftext(P.pos + V2(0, -24), std::string("+") + WPN[it.wpn].name, C_BLUE, 1.0f);
@@ -821,13 +862,13 @@ void Game::updateProjectiles(float dt) {
                 V2 c = a.pos + V2(0, -a.bodyH - a.air);
                 if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
                     hitAnimal(a, pr.dmg, pr.dir, pr.crit);
-                    if (rng.chance(WPN[pr.wpn].brk)) {
+                    if (rng.chance(pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
                         ftext(a.pos + V2(0, -a.bodyH - 22), "SNAP", C_DIM, 0.7f);
                     } else {
-                        items.push_back({a.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0});
+                        items.push_back({a.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo});
                     }
                     done = true;
                     break;
@@ -839,7 +880,7 @@ void Game::updateProjectiles(float dt) {
             bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF;
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
-                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0});
+                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo});
                 for (int q = 0; q < 4; q++)
                     parts.push_back({pr.pos.x, pr.pos.y, 3, rng.range(-40, 40), rng.range(-20, 20), rng.range(20, 60), 0.4f, 0.4f, HEX(0xffe9a8), 1, true});
                 audio.play(S_CLICK, 0.5f);
@@ -851,7 +892,7 @@ void Game::updateProjectiles(float dt) {
                     ftext(g + V2(0, -8), "SPLASH", C_BLUE, 0.8f);
                 } else {
                     float ang = pr.angle + pr.spin * (pr.travelled / pr.speed);
-                    items.push_back({g, pr.wpn, ang, 0});
+                    items.push_back({g, pr.wpn, ang, 0, pr.ammo});
                     puff(g, 3, HEX(0xcdb98f));
                 }
                 done = true;
@@ -1024,8 +1065,8 @@ void Game::checkWeaponSafetyNet(float dt) {
     if (stuckCheckT > 0) return;
     stuckCheckT = 1.f;
     if (p.dead || p.charging) return;
-    for (int count : p.wpn)
-        if (count > 0) return;                // still holding a weapon
+    for (int w = 0; w < W_COUNT; w++)
+        if (canUse(w)) return;                // still holding a weapon (a bow with no arrows doesn't count)
     if (!projs.empty() || !items.empty()) return;  // a thrown weapon can still be picked up
     int wealth = p.coins;
     for (int m = 0; m < M_COUNT; m++) wealth += p.mats[m] * MAT_PRICE[m];
