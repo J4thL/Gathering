@@ -47,6 +47,11 @@ bandages to 9, launchers never stack. The backpack upgrade only adds slots: 20 -
 crafting and purchases that do not fit an existing stack or a free slot. Saves are version 2 (`slot <item name> <count>` lines, written
 to a temp file and renamed); version 1 saves are migrated on load and the original is kept as `save.v1.bak`.
 
+## Pack screen and crafting
+`I` opens the pack (ESC or `I` closes; the world is paused). BACKPACK tab: a grid of your slots with counts, details of the selected or
+hovered item, EQUIP / USE (ENTER) and SORT (merges split stacks). Move with the arrow keys / WASD or click a slot; `TAB` switches tabs.
+CRAFTING tab: weapons (bone knife, hand axe, javelin) only at the shop; arrows, bolts and bandages anywhere.
+
 ## Test flags
     wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
     wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
@@ -54,4 +59,4 @@ to a temp file and renamed); version 1 saves are migrated on load and the origin
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
     wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip
-    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, save v2 and v1 migration
+    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, save v2 and v1 migration

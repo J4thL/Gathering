@@ -24,7 +24,7 @@ struct Input {
     bool up = false, down = false, left = false, right = false, sprint = false, e = false;
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
-    bool mapToggle = false, helpToggle = false;
+    bool mapToggle = false, helpToggle = false, invToggle = false;
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -124,7 +124,7 @@ struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wi
     float x, y, vx, vy, ph, sz;
 };
 
-enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST };
+enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY };
 
 struct Game {
     // platform
@@ -155,6 +155,8 @@ struct Game {
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
     int shopPage = 0;
+    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting; selected slot
+    bool navPrev[4] = {false, false, false, false};
     struct LoadReport {
         int version = 0;       // save format that was read (0 = nothing recognisable)
         bool migrated = false;  // true when a version 1 save was converted
@@ -211,6 +213,8 @@ struct Game {
     int landmarksFound() const;
     void throwWeapon();
     bool canUse(int w) const;
+    bool useSlot(int slot);  // inventory screen: equip a weapon / use a bandage
+    void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a);
     void hurtPlayer(float dmg, V2 from);
@@ -252,6 +256,7 @@ struct Game {
     void drawHud();
     void drawShop();
     void drawQuestPanel();
+    void drawInventory();
     void drawTitle();
     void drawPause();
     void drawReticle();
