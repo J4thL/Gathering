@@ -19,7 +19,7 @@ constexpr int ITEM_WPN0 = ITEM_MAT0 + M_COUNT;
 constexpr int ITEM_AMMO0 = ITEM_WPN0 + W_COUNT;
 enum ConsumableId { C_BANDAGE, C_COUNT };
 constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
-enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_COUNT };
+enum PackId { PK_BASIC, PK_SATCHEL, PK_TRAPPER, PK_COUNT };  // = the three levels of the BACKPACK upgrade
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
 constexpr int ITEM_COUNT = ITEM_PACK0 + PK_COUNT;
 
@@ -38,7 +38,7 @@ struct ItemDef {
     int slots;        // backpacks: inventory slots they provide
 };
 
-constexpr int STACK_MAT = 99, STACK_AMMO = 99, STACK_CONS = 20, STACK_WPN = 99;
+constexpr int STACK_MAT = 99, STACK_AMMO = 99, STACK_CONS = 9, STACK_WPN = 30;  // bandages / thrown weapons keep their old carry limits
 // backpacks only add slots; they never change how many fit in a stack
 constexpr int PACK_SLOTS[PK_COUNT] = {20, 30, 40};
 
@@ -50,7 +50,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? 1 : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "SPENT WHEN FIRED, SOME CAN BE RECOVERED", a, 0};
         t[ITEM_CONS0 + C_BANDAGE] = {"BANDAGE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 45 HP", C_BANDAGE, 0};
-        static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK"};
+        static const char* pn[PK_COUNT] = {"BASIC PACK", "HIDE SATCHEL", "TRAPPER PACK"};
         for (int k = 0; k < PK_COUNT; k++) t[ITEM_PACK0 + k] = {pn[k], IK_BACKPACK, 1, 0, k, "MORE INVENTORY SLOTS", k, PACK_SLOTS[k]};
         return t;
     }();

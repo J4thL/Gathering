@@ -91,8 +91,8 @@ static const UpDef UPS[U_COUNT] = {
      {{"BONE SKINNER", "GATHER 1.6X FASTER +25% BONUS", 60, M_BONE, 4, M_HIDE, 2},
       {"STEEL CLEAVER", "GATHER 2.4X FASTER +50% BONUS", 200, M_BONE, 6, M_TUSK, 2}}},
     {"BACKPACK",
-     {{"HIDE SATCHEL", "CARRY 26 MATERIALS", 70, M_HIDE, 4, -1, 0},
-      {"TRAPPER PACK", "CARRY 40 MATERIALS", 220, M_HIDE, 6, M_FUR, 3}}},
+     {{"HIDE SATCHEL", "30 INVENTORY SLOTS", 70, M_HIDE, 4, -1, 0},
+      {"TRAPPER PACK", "40 INVENTORY SLOTS", 220, M_HIDE, 6, M_FUR, 3}}},
     {"BOOTS",
      {{"HIDE BOOTS", "MOVE 12% FASTER", 60, M_HIDE, 3, -1, 0}, {"FUR BOOTS", "MOVE 25% FASTER", 160, M_FUR, 2, M_HIDE, 3}}},
     {"ARMOR",
@@ -101,7 +101,6 @@ static const UpDef UPS[U_COUNT] = {
 };
 static const float TOOL_SPEED[3] = {1.0f, 1.6f, 2.4f};
 static const float TOOL_BONUS[3] = {0.0f, 0.25f, 0.5f};
-static const int BAG_CAP[3] = {16, 26, 40};
 static const float BOOT_MUL[3] = {1.0f, 1.12f, 1.25f};
 static const int ARMOR_HP[3] = {100, 120, 145};
 static const float ARMOR_RED[3] = {0.0f, 0.15f, 0.30f};

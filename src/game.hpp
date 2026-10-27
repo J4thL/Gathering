@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 #include "audio.hpp"
+#include "inventory.hpp"
 #include "quests.hpp"
 #include "sprites.hpp"
 #include "world.hpp"
@@ -61,12 +62,9 @@ struct Player {
     bool charging = false;
     float cd = 0, invuln = 0, sinceHurt = 99;
     int coins = 0;
-    int mats[M_COUNT] = {0};
-    int wpn[W_COUNT] = {0};
-    int ammo[AM_COUNT] = {0};
+    Inventory inv{PACK_SLOTS[0]};  // everything the hunter carries (materials, weapons, ammo, bandages)
     int sel = 0;
     int up[U_COUNT] = {0};
-    int bandages = 0;
     float gatherT = 0;
     bool gathering = false;
     float gatherSfx = 0;
@@ -74,12 +72,14 @@ struct Player {
     float deadT = 0;
     float throwAnim = 0;
     V2 aim = V2(1, 0);
-    int bagUsed() const {
-        int n = 0;
-        for (int m : mats) n += m;
-        return n;
-    }
-    int bagCap() const { return BAG_CAP[up[U_BAG]]; }
+    // read-only views of what is in the inventory
+    int mat(int m) const { return inv.count(itemMat(m)); }
+    int wpn(int w) const { return inv.count(itemWpn(w)); }
+    int ammo(int a) const { return inv.count(itemAmmo(a)); }
+    int bandages() const { return inv.count(ITEM_CONS0 + C_BANDAGE); }
+    int bagUsed() const { return inv.usedSlots(); }  // slots in use
+    int bagCap() const { return inv.capacity(); }   // slots the backpack provides
+    void syncPack() { inv.setCapacity(PACK_SLOTS[up[U_BAG]]); }
 };
 
 struct Proj {
@@ -155,6 +155,12 @@ struct Game {
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
     int shopPage = 0;
+    struct LoadReport {
+        int version = 0;       // save format that was read (0 = nothing recognisable)
+        bool migrated = false;  // true when a version 1 save was converted
+        int unknown = 0;       // items in the file this game does not know (skipped)
+        int dropped = 0;       // items that did not fit in the inventory (should stay 0)
+    } loadReport;
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence

@@ -1,6 +1,7 @@
 // main.cpp - entry point, input and fixed-timestep loop.
 // Test flags:  --headless (dummy video/audio)  --shots DIR (write screenshots then exit)
 //              --worldcheck (reachability + walking test)  --tour DIR (biome screenshots)  --dumpcore FILE (home-area dump)
+#include <map>
 #include <set>
 #include <cstdio>
 #include <cstring>
@@ -101,11 +102,11 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.newGame();
     g.state = ST_PLAY;
     g.p.coins = 250;
-    for (int m = 0; m < M_COUNT; m++) g.p.mats[m] = 4 + m;
+    for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), 4 + m);
     frames(30);
     shot("02_village.bmp");
     g.helpT = 0;
-    for (int m = 0; m < M_COUNT; m++) g.p.mats[m] = 0;
+    for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), 0);
 
     // stalk and kill the nearest deer, throwing from range
     Animal* tgt = nullptr;
@@ -119,7 +120,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
         tgt->pos = g.p.pos + V2(90, -40);
         tgt->st = AS_WANDER;
         tgt->idleT = 99;
-        g.p.wpn[W_JAVELIN] = 6;
+        g.p.inv.set(itemWpn(W_JAVELIN), 6);
         g.p.sel = W_JAVELIN;
         frames(5);
         int throws = 0;
@@ -151,7 +152,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
         // walk to the carcass and gather
         if (tgt && tgt->dead) {
             g.p.pos = tgt->pos + V2(-12, 6);
-            g.p.mats[M_MEAT] = 0;
+            g.p.inv.set(itemMat(M_MEAT), 0);
             g.in.mx = 200;
             g.in.my = 112;
             g.in.e = true;
@@ -188,18 +189,18 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.sellMat(M_MEAT, 99);
     g.sellMat(M_HIDE, 99);
     printf("sold: coins %d -> %d\n", before, g.p.coins);
-    g.p.mats[M_BONE] = 10;
-    g.p.mats[M_HIDE] = 10;
-    g.p.mats[M_TUSK] = 5;
-    g.p.mats[M_FUR] = 5;
-    g.p.mats[M_ANTLER] = 5;
+    g.p.inv.set(itemMat(M_BONE), 10);
+    g.p.inv.set(itemMat(M_HIDE), 10);
+    g.p.inv.set(itemMat(M_TUSK), 5);
+    g.p.inv.set(itemMat(M_FUR), 5);
+    g.p.inv.set(itemMat(M_ANTLER), 5);
     bool c1 = g.craft(0), c2 = g.craft(1), c3 = g.craft(2);
     printf("crafted bone/axe/javelin: %d %d %d\n", c1, c2, c3);
     g.p.coins = 1000;
-    g.p.mats[M_BONE] = 20;
-    g.p.mats[M_HIDE] = 20;
-    g.p.mats[M_TUSK] = 20;
-    g.p.mats[M_FUR] = 20;
+    g.p.inv.set(itemMat(M_BONE), 20);
+    g.p.inv.set(itemMat(M_HIDE), 20);
+    g.p.inv.set(itemMat(M_TUSK), 20);
+    g.p.inv.set(itemMat(M_FUR), 20);
     bool u = g.buyUpgrade(U_TOOL);
     printf("upgrade tool: %d (lvl %d)\n", u, g.p.up[U_TOOL]);
     g.shopTab = 2;
@@ -777,11 +778,11 @@ static int weaponTest(Game& g) {
     g.p.cd = 0;
     // --- bow (set WEAPON_SHOTS=dir to also write two screenshots: bow mid-draw and an arrow in flight)
     if (const char* sd = getenv("WEAPON_SHOTS")) {
-        g.p.wpn[W_BOW] = 1;
+        g.p.inv.set(itemWpn(W_BOW), 1);
         g.p.sel = W_BOW;
-        g.p.ammo[AM_ARROW] = 12;
-        g.p.wpn[W_CROSSBOW] = 1;
-        g.p.ammo[AM_BOLT] = 6;
+        g.p.inv.set(itemAmmo(AM_ARROW), 12);
+        g.p.inv.set(itemWpn(W_CROSSBOW), 1);
+        g.p.inv.set(itemAmmo(AM_BOLT), 6);
         Animal* a = target();
         (void)a;
         g.p.cd = 0;
@@ -799,20 +800,20 @@ static int weaponTest(Game& g) {
         g.saveCanvas((std::string(sd) + "/crossbow_flight.bmp").c_str());
         g.items.clear();
     }
-    g.p.wpn[W_BOW] = 1;
+    g.p.inv.set(itemWpn(W_BOW), 1);
     g.p.sel = W_BOW;
-    g.p.ammo[AM_ARROW] = 200;
+    g.p.inv.set(itemAmmo(AM_ARROW), 200);
     long full = 0, tap = 0;
     int fullHits = 0, tapHits = 0;
     const int N = 40;
     for (int i = 0; i < N; i++) {
-        g.p.ammo[AM_ARROW] = 50;
+        g.p.inv.set(itemAmmo(AM_ARROW), 50);
         g.p.cd = 0;
         int d = shoot(1.0f);
         full += d;
         fullHits += d > 0;
         g.p.cd = 0;
-        g.p.ammo[AM_ARROW] = 50;
+        g.p.inv.set(itemAmmo(AM_ARROW), 50);
         d = shoot(0.1f);
         tap += d;
         tapHits += d > 0;
@@ -821,56 +822,56 @@ static int weaponTest(Game& g) {
     check(fullHits == N, "a full draw reaches and hits a target 150px away every time");
     check((double)full / N > (double)tap / N * 1.4, "a full draw hits clearly harder than a quick tap");
     // ammo use
-    g.p.ammo[AM_ARROW] = 5;
+    g.p.inv.set(itemAmmo(AM_ARROW), 5);
     g.p.cd = 0;
     shoot(1.0f);
-    check(g.p.ammo[AM_ARROW] == 4, "one shot costs exactly one arrow");
-    check(g.p.wpn[W_BOW] == 1, "the bow itself is not used up");
+    check(g.p.ammo(AM_ARROW) == 4, "one shot costs exactly one arrow");
+    check(g.p.wpn(W_BOW) == 1, "the bow itself is not used up");
     // recovery: arrows that hit either break or drop; walking over a dropped one gives it back
-    g.p.ammo[AM_ARROW] = 20;
+    g.p.inv.set(itemAmmo(AM_ARROW), 20);
     int fired = 0, recovered = 0;
     for (int i = 0; i < 30; i++) {
         g.items.clear();
         g.p.cd = 0;
-        int before = g.p.ammo[AM_ARROW];
+        int before = g.p.ammo(AM_ARROW);
         shoot(1.0f);
         fired++;
         if (!g.items.empty()) {
             g.p.pos = g.items[0].pos;
             step(2);
-            if (g.p.ammo[AM_ARROW] == before) recovered++;
+            if (g.p.ammo(AM_ARROW) == before) recovered++;
         }
     }
     printf("arrows: %d fired at a target, %d recovered by walking over them (expected about 65%%)\n", fired, recovered);
     check(recovered > 8 && recovered < fired, "some arrows are recovered and some break");
     // no ammo
-    g.p.ammo[AM_ARROW] = 0;
+    g.p.inv.set(itemAmmo(AM_ARROW), 0);
     g.p.cd = 0;
     int dmg0 = shoot(1.0f);
-    check(dmg0 == 0 && g.p.ammo[AM_ARROW] == 0 && g.projs.empty(), "no arrows: the bow does not fire");
+    check(dmg0 == 0 && g.p.ammo(AM_ARROW) == 0 && g.projs.empty(), "no arrows: the bow does not fire");
     // --- crossbow
-    g.p.wpn[W_CROSSBOW] = 1;
+    g.p.inv.set(itemWpn(W_CROSSBOW), 1);
     g.p.sel = W_CROSSBOW;
-    g.p.ammo[AM_BOLT] = 10;
+    g.p.inv.set(itemAmmo(AM_BOLT), 10);
     g.p.cd = 0;
     int cd1 = shoot(0.05f);
-    check(cd1 > 0 && g.p.ammo[AM_BOLT] == 9, "the crossbow fires at once on click and uses one bolt");
+    check(cd1 > 0 && g.p.ammo(AM_BOLT) == 9, "the crossbow fires at once on click and uses one bolt");
     {
         Animal* a = target();
         (void)a;
         g.p.cd = 0;
         g.in.l = true; g.in.lPressed = true; step(1); g.in.l = false; g.in.lReleased = true; step(1);
-        int afterFirst = g.p.ammo[AM_BOLT];
+        int afterFirst = g.p.ammo(AM_BOLT);
         step(30);  // 0.5 s later: still reloading
         g.in.l = true; g.in.lPressed = true; step(1); g.in.l = false; g.in.lReleased = true; step(1);
-        check(g.p.ammo[AM_BOLT] == afterFirst, "no second shot while the crossbow reloads (0.5 s)");
+        check(g.p.ammo(AM_BOLT) == afterFirst, "no second shot while the crossbow reloads (0.5 s)");
         step(75);  // past the 1.6 s reload
         g.in.l = true; g.in.lPressed = true; step(1); g.in.l = false; g.in.lReleased = true; step(1);
-        check(g.p.ammo[AM_BOLT] == afterFirst - 1, "it fires again once reloaded (about 1.6 s)");
+        check(g.p.ammo(AM_BOLT) == afterFirst - 1, "it fires again once reloaded (about 1.6 s)");
     }
     long cb = 0;
     for (int i = 0; i < 20; i++) {
-        g.p.ammo[AM_BOLT] = 10;
+        g.p.inv.set(itemAmmo(AM_BOLT), 10);
         g.p.cd = 0;
         cb += shoot(0.05f);
     }
@@ -878,22 +879,22 @@ static int weaponTest(Game& g) {
     check((double)cb / 20 > (double)full / N, "a crossbow bolt hits harder than a full-draw arrow");
     // --- thrown weapons are unchanged
     g.p.sel = W_JAVELIN;
-    g.p.wpn[W_JAVELIN] = 3;
+    g.p.inv.set(itemWpn(W_JAVELIN), 3);
     g.p.cd = 0;
     int jd = shoot(0.5f);
-    check(jd > 0 && g.p.wpn[W_JAVELIN] == 2, "a javelin is still thrown, hits, and is used up (to be picked up again)");
+    check(jd > 0 && g.p.wpn(W_JAVELIN) == 2, "a javelin is still thrown, hits, and is used up (to be picked up again)");
     // --- safety net: only a bow with no arrows counts as having no weapon
-    for (int w = 0; w < W_COUNT; w++) g.p.wpn[w] = 0;
-    g.p.wpn[W_BOW] = 1;
-    g.p.ammo[AM_ARROW] = 0;
-    g.p.ammo[AM_BOLT] = 0;
+    for (int w = 0; w < W_COUNT; w++) g.p.inv.set(itemWpn(w), 0);
+    g.p.inv.set(itemWpn(W_BOW), 1);
+    g.p.inv.set(itemAmmo(AM_ARROW), 0);
+    g.p.inv.set(itemAmmo(AM_BOLT), 0);
     g.p.coins = 0;
-    for (int m = 0; m < M_COUNT; m++) g.p.mats[m] = 0;
+    for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), 0);
     g.projs.clear();
     g.items.clear();
     g.stuckCheckT = 0;
     step(70);
-    check(g.p.wpn[W_FLINT] == FLINT_LOAN, "stranded with a bow, no arrows and no money: the merchant lends flint knives");
+    check(g.p.wpn(W_FLINT) == FLINT_LOAN, "stranded with a bow, no arrows and no money: the merchant lends flint knives");
     // --- new materials drop from the new species
     {
         struct E { int kind, mat; } ex[] = {{A_DUCK, M_FEATHER}, {A_EAGLE, M_FEATHER}, {A_RATTLER, M_SCALE}, {A_GATOR, M_SCALE},
@@ -921,20 +922,20 @@ static int weaponTest(Game& g) {
     // --- save round trip
     {
         g.p.coins = 123;
-        for (int m = 0; m < M_COUNT; m++) g.p.mats[m] = m + 1;
-        for (int w = 0; w < W_COUNT; w++) g.p.wpn[w] = w + 2;
-        g.p.ammo[AM_ARROW] = 37;
-        g.p.ammo[AM_BOLT] = 11;
+        for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), m + 1);
+        for (int w = 0; w < W_COUNT; w++) g.p.inv.set(itemWpn(w), isLauncher(w) ? 1 : w + 2);
+        g.p.inv.set(itemAmmo(AM_ARROW), 37);
+        g.p.inv.set(itemAmmo(AM_BOLT), 11);
         g.save();
         Player keep = g.p;
         g.p.coins = 0;
-        for (int m = 0; m < M_COUNT; m++) g.p.mats[m] = 0;
-        for (int w = 0; w < W_COUNT; w++) g.p.wpn[w] = 0;
-        g.p.ammo[0] = g.p.ammo[1] = 0;
+        for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), 0);
+        for (int w = 0; w < W_COUNT; w++) g.p.inv.set(itemWpn(w), 0);
+        g.p.inv.clear();
         bool ld = g.load();
-        bool same = ld && g.p.coins == keep.coins && g.p.ammo[AM_ARROW] == 37 && g.p.ammo[AM_BOLT] == 11;
-        for (int m = 0; m < M_COUNT; m++) same = same && g.p.mats[m] == keep.mats[m];
-        for (int w = 0; w < W_COUNT; w++) same = same && g.p.wpn[w] == keep.wpn[w];
+        bool same = ld && g.p.coins == keep.coins && g.p.ammo(AM_ARROW) == 37 && g.p.ammo(AM_BOLT) == 11;
+        for (int m = 0; m < M_COUNT; m++) same = same && g.p.mat(m) == keep.mat(m);
+        for (int w = 0; w < W_COUNT; w++) same = same && g.p.wpn(w) == keep.wpn(w);
         check(same, "save / load round trip keeps coins, all 11 materials, all 6 weapons and both ammo types");
     }
     if (hadSave) {
@@ -946,10 +947,290 @@ static int weaponTest(Game& g) {
     return bad;
 }
 
+// ---- inventory verification (flag: --selftest): the Inventory class, the game rules built on it, and save v2 / migration
+static int selfTest(Game& g) {
+    int bad = 0;
+    auto check = [&](bool ok, const char* what) {
+        printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
+        if (!ok) bad++;
+    };
+    const int MEAT = itemMat(M_MEAT), HIDE = itemMat(M_HIDE), BONE = itemMat(M_BONE);
+    printf("inventory class\n");
+    {
+        Inventory inv(10);
+        check(inv.add(MEAT, 250) == 250 && inv.usedSlots() == 3 && inv.count(MEAT) == 250, "250 meat = stacks of 99, 99, 52 (3 slots)");
+        check(inv.slots[0].n == 99 && inv.slots[1].n == 99 && inv.slots[2].n == 52, "stacks fill up to exactly 99");
+        check(inv.remove(MEAT, 60) == 60 && inv.count(MEAT) == 190 && inv.usedSlots() == 2, "removing 60 empties the 52-stack first, then 8 from another");
+        check(inv.remove(MEAT, 9999) == 190 && inv.usedSlots() == 0, "removing more than owned removes only what exists");
+        Inventory tiny(2);
+        check(tiny.add(MEAT, 300) == 198 && tiny.room(MEAT) == 0 && !tiny.canAdd(HIDE, 1), "a full bag takes a partial stack and then refuses");
+        check(tiny.add(MEAT, 1) == 0, "adding to a full bag adds nothing");
+        Inventory bag(5);
+        check(bag.add(itemWpn(W_BOW), 3) == 3 && bag.usedSlots() == 3, "launchers never stack: 3 bows use 3 slots");
+        check(bag.add(itemWpn(W_FLINT), 31) == 31 && bag.usedSlots() == 5, "thrown weapons stack to 30: 31 knives use 2 slots");
+        check(bag.add(MEAT, 1) == 0, "no slot left for anything new");
+        Inventory c(3);
+        c.add(MEAT, 40);
+        c.add(HIDE, 5);
+        c.add(MEAT, 70);  // tops up the first stack to 99, remainder into a new slot -> all 3 slots in use
+        check(c.usedSlots() == 3 && c.count(MEAT) == 110, "an existing partial stack is topped up before a new slot is used");
+        c.remove(MEAT, 100);
+        c.compact();
+        check(c.usedSlots() == 2 && c.count(MEAT) == 10 && c.count(HIDE) == 5, "compact merges partial stacks");
+        // growth / shrink
+        Inventory gr(20);
+        for (int m = 0; m < M_COUNT; m++) gr.add(itemMat(m), 5);
+        check(gr.setCapacity(30) && gr.capacity() == 30 && gr.usedSlots() == M_COUNT, "growing the bag keeps every item");
+        check(!gr.setCapacity(5) && gr.capacity() == 30 && gr.usedSlots() == M_COUNT, "shrinking below what is stored is refused (nothing is lost)");
+        check(gr.setCapacity(M_COUNT) && gr.capacity() == M_COUNT, "shrinking to exactly what fits works");
+        // random operations against a reference model
+        Inventory z(20);
+        std::map<int, long> ref;
+        Rng r(12345);
+        bool okInv = true;
+        for (int i = 0; i < 40000 && okInv; i++) {
+            int it = r.irange(0, ITEM_COUNT - 1);
+            if (r.chance(0.55f)) {
+                int n = r.irange(1, 120), got = z.add(it, n);
+                ref[it] += got;
+                if (got < n && z.room(it) != 0) okInv = false;  // a short add must mean the item really has no room left
+            } else {
+                int n = r.irange(1, 130), got = z.remove(it, n);
+                if (got != std::min<long>(n, ref[it])) okInv = false;
+                ref[it] -= got;
+            }
+            long total = 0;
+            for (auto& sl : z.slots) {
+                if (sl.item >= 0 && (sl.n <= 0 || sl.n > item(sl.item).stack)) okInv = false;
+                if (sl.item < 0 && sl.n != 0) okInv = false;
+                total += sl.n;
+            }
+            if (z.count(it) != ref[it]) okInv = false;
+            if (z.usedSlots() > z.capacity()) okInv = false;
+        }
+        check(okInv, "40000 random adds/removes: counts match a reference model, no stack over its limit, no phantom slots");
+        // keys
+        bool keys = true;
+        std::set<std::string> ks;
+        for (int i = 0; i < ITEM_COUNT; i++) {
+            keys = keys && itemFromKey(itemKey(i)) == i;
+            ks.insert(itemKey(i));
+        }
+        check(keys && (int)ks.size() == ITEM_COUNT && itemFromKey("no_such_item") == -1, "every item has a unique stable save key that maps back to it");
+        check(item(MEAT).stack == 99 && item(itemMat(M_CLAW)).stack == 99, "materials stack to 99");
+        check(PACK_SLOTS[0] == 20 && PACK_SLOTS[1] == 30 && PACK_SLOTS[2] == 40, "backpack levels give 20 / 30 / 40 slots");
+    }
+    // ---- game rules
+    std::string savedBytes;
+    bool hadSave = false;
+    {
+        std::ifstream in(g.savePath(), std::ios::binary);
+        if (in) {
+            hadSave = true;
+            savedBytes.assign(std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>());
+        }
+    }
+    printf("game rules\n");
+    g.newGame();
+    g.state = ST_PLAY;
+    g.helpT = 0;
+    check(g.p.bagCap() == 20 && g.p.bagUsed() == 2 && g.p.wpn(W_FLINT) == 8 && g.p.bandages() == 1, "a new hunter has a 20-slot pack with 8 flint knives and 1 bandage (2 slots)");
+    // fill every slot with something other than meat/bone/hide
+    auto fillWithJunk = [&]() {
+        g.p.inv.clear();
+        int slotsLeft = g.p.bagCap();
+        for (int m = M_TUSK; m < M_COUNT && slotsLeft > 0; m++, slotsLeft--) g.p.inv.add(itemMat(m), 50);
+        for (int w = 0; w < W_COUNT && slotsLeft > 0; w++, slotsLeft--) g.p.inv.add(itemWpn(w), 1);
+        for (int a = 0; a < AM_COUNT && slotsLeft > 0; a++, slotsLeft--) g.p.inv.add(itemAmmo(a), 10);
+        g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 2);
+        slotsLeft--;
+        // anything left: extra bows (each its own slot) to take the last slots
+        while (slotsLeft-- > 0) g.p.inv.add(itemWpn(W_BOW), 1);
+    };
+    fillWithJunk();
+    check(g.p.bagUsed() == g.p.bagCap(), "test setup: every slot is in use");
+    {
+        g.animals.clear();
+        Animal* a = g.spawnAnimal(A_DEER, g.p.pos + V2(10, 0), 0, 0);
+        g.killAnimal(*a);
+        Animal& c = g.animals[0];
+        int before = g.p.mat(M_MEAT);
+        c.remain[M_MEAT] = 5;
+        c.totalRemain += 5;
+        int remBefore = c.remain[M_MEAT];
+        g.bagWarn = 0;
+        g.gatherStep(c);
+        check(g.p.mat(M_MEAT) == before && c.remain[M_MEAT] == remBefore, "gathering is refused when the bag is full and no stack can take it");
+        g.p.inv.remove(itemMat(M_TUSK), 50);  // frees one slot
+        g.gatherStep(c);
+        check(g.p.mat(M_MEAT) >= before + 1, "after freeing a slot, gathering works again");
+        // a partly filled meat stack can still take more in a full bag
+        g.p.inv.clear();
+        fillWithJunk();
+        g.p.inv.remove(itemMat(M_TUSK), 50);
+        g.p.inv.add(MEAT, 10);
+        int free0 = g.p.inv.freeSlots();
+        c.remain[M_MEAT] = 3;
+        g.gatherStep(c);
+        check(free0 == 0 && g.p.mat(M_MEAT) > 10, "a full bag still accepts items that fit an existing stack");
+    }
+    {   // crafting in a full bag
+        g.p.inv.clear();
+        fillWithJunk();
+        g.p.inv.remove(itemMat(M_TUSK), 50);
+        g.p.inv.remove(itemMat(M_ANTLER), 50);
+        g.p.inv.remove(itemWpn(W_BONE), 1);  // three free slots: bone, hide and a bit of meat fill them, so the bag is full again
+        g.p.inv.add(BONE, 3);
+        g.p.inv.add(HIDE, 1);
+        g.p.inv.add(MEAT, 1);
+        int bonesBefore = g.p.mat(M_BONE);
+        bool ok = g.craft(0);  // BONE KNIFE x4: needs 3 bone + 1 hide, the two ingredient stacks vanish, the knives take a slot
+        check(ok && g.p.wpn(W_BONE) == 4 && g.p.mat(M_BONE) == bonesBefore - 3, "crafting in a full bag works when the ingredients free up the slot it needs");
+        g.p.inv.clear();
+        fillWithJunk();
+        g.p.inv.remove(itemMat(M_TUSK), 50);
+        g.p.inv.remove(itemMat(M_ANTLER), 50);
+        g.p.inv.remove(itemWpn(W_BONE), 1);
+        g.p.inv.add(BONE, 10);  // the free slots go to bone, hide and meat; the recipe uses only part of the bone and hide stacks,
+        g.p.inv.add(HIDE, 5);   // so nothing is freed and the finished knives have nowhere to go
+        g.p.inv.add(MEAT, 1);
+        int free1 = g.p.inv.freeSlots();
+        int b0 = g.p.mat(M_BONE), h0 = g.p.mat(M_HIDE);
+        bool ok2 = g.craft(0);
+        check(free1 == 0 && !ok2 && g.p.mat(M_BONE) == b0 && g.p.mat(M_HIDE) == h0 && g.p.wpn(W_BONE) == 0, "crafting with no room is refused and the ingredients are returned untouched");
+    }
+    {   // picking up thrown weapons
+        g.p.inv.clear();
+        fillWithJunk();
+        g.p.inv.remove(itemWpn(W_JAVELIN), 1);  // free exactly one slot, then take it with another item
+        g.p.inv.add(MEAT, 1);
+        g.items.clear();
+        g.items.push_back({g.p.pos, W_JAVELIN, 0.f, 0, -1});
+        for (int i = 0; i < 5; i++) g.update(1.f / 60.f);
+        check(g.items.size() == 1 && g.p.wpn(W_JAVELIN) == 0, "a thrown weapon stays on the ground while the bag is full");
+        g.p.inv.remove(MEAT, 1);
+        for (int i = 0; i < 5; i++) g.update(1.f / 60.f);
+        check(g.items.empty() && g.p.wpn(W_JAVELIN) == 1, "and is picked up as soon as there is room");
+    }
+    {   // backpack upgrades only add slots
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.coins = 5000;
+        g.p.inv.add(HIDE, 50);
+        g.p.inv.add(itemMat(M_FUR), 50);
+        g.p.inv.add(BONE, 50);
+        g.p.inv.add(itemMat(M_TUSK), 50);
+        int used0 = g.p.bagUsed(), meat0 = g.p.mat(M_HIDE);
+        bool u1 = g.buyUpgrade(U_BAG);
+        check(u1 && g.p.bagCap() == 30 && item(HIDE).stack == 99, "backpack level 1: 30 slots, stack size unchanged");
+        bool u2 = g.buyUpgrade(U_BAG);
+        check(u2 && g.p.bagCap() == 40, "backpack level 2: 40 slots");
+        check(g.p.bagUsed() >= used0 - 1 && g.p.mat(M_HIDE) <= meat0, "the upgrade kept the items (minus its own material cost)");
+        check(!g.buyUpgrade(U_BAG), "no third backpack level");
+    }
+    // ---- saving
+    printf("saving and migration\n");
+    auto writeFile = [&](const std::string& text) {
+        std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
+        out << text;
+    };
+    auto removeAll = [&]() {
+        std::remove(g.savePath().c_str());
+        std::remove((g.savePath() + ".v1.bak").c_str());
+        std::remove((g.savePath() + ".tmp").c_str());
+    };
+    removeAll();
+    {   // v2 round trip, including a non-default backpack, partial stacks and several stacks of one item
+        g.newGame();
+        g.p.up[U_BAG] = 1;
+        g.p.syncPack();
+        g.p.inv.clear();
+        g.p.inv.add(MEAT, 250);
+        g.p.inv.add(itemAmmo(AM_ARROW), 37);
+        g.p.inv.add(itemWpn(W_BOW), 1);
+        g.p.inv.add(itemWpn(W_FLINT), 31);
+        g.p.coins = 777;
+        g.save();
+        Player keep = g.p;
+        g.newGame();
+        bool ld = g.load();
+        bool same = ld && g.loadReport.version == 2 && !g.loadReport.migrated && g.loadReport.dropped == 0 && g.p.coins == 777 && g.p.bagCap() == 30;
+        for (int i = 0; i < ITEM_COUNT; i++) same = same && g.p.inv.count(i) == keep.inv.count(i);
+        same = same && g.p.bagUsed() == keep.bagUsed();
+        check(same, "v2 save / load round trip: coins, 30-slot pack and every item count identical");
+        std::ifstream f(g.savePath());
+        std::string all((std::istreambuf_iterator<char>(f)), std::istreambuf_iterator<char>());
+        check(all.find("version 2") != std::string::npos && all.find("slot raw_meat 99") != std::string::npos && all.find("slot hunting_bow 1") != std::string::npos, "the file is readable text: version line and \"slot <name> <count>\" lines");
+        check(!std::ifstream(g.savePath() + ".tmp"), "no temporary file left behind by the write-then-rename save");
+    }
+    {   // v1 (current layout) migration
+        removeAll();
+        std::string v1 = "coins 321\nmats 1 2 3 4 5 6 7 8 9 10 11\nwpn 8 3 2 4 1 1\nammo 25 9\nup 2 1 0 1\nbandages 4\nday 99.5\nkills 17\nquest 2 1 3\ndisc 10100000000000\n";
+        writeFile(v1);
+        bool ld = g.load();
+        bool same = ld && g.loadReport.migrated && g.loadReport.version == 1 && g.loadReport.dropped == 0 && g.p.coins == 321 && g.p.up[U_BAG] == 1 && g.p.bagCap() == 30 && g.p.up[U_TOOL] == 2 && g.kills == 17;
+        const int exMat[M_COUNT] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
+        for (int m = 0; m < M_COUNT; m++) same = same && g.p.mat(m) == exMat[m];
+        const int exW[W_COUNT] = {8, 3, 2, 4, 1, 1};
+        for (int w = 0; w < W_COUNT; w++) same = same && g.p.wpn(w) == exW[w];
+        same = same && g.p.ammo(AM_ARROW) == 25 && g.p.ammo(AM_BOLT) == 9 && g.p.bandages() == 4;
+        check(same, "a v1 save migrates: every material, weapon, ammo type, bandage, coin and upgrade preserved");
+        std::ifstream b(g.savePath() + ".v1.bak");
+        std::string bak((std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
+        check(bak == v1, "the original v1 file was backed up byte-for-byte as save.v1.bak");
+        g.save();
+        removeAll();
+        check(true, "(cleanup)");
+    }
+    {   // oldest layout: 7 materials, 4 weapons, no ammo / quest / disc lines
+        std::string old = "coins 50\nmats 3 2 1 0 0 0 0\nwpn 5 0 0 2\nup 0 0 0 0\nbandages 1\nday 10\nkills 2\n";
+        writeFile(old);
+        bool ld = g.load();
+        bool ok = ld && g.p.mat(M_MEAT) == 3 && g.p.mat(M_HIDE) == 2 && g.p.mat(M_BONE) == 1 && g.p.wpn(W_FLINT) == 5 && g.p.wpn(W_JAVELIN) == 2 &&
+                  g.p.wpn(W_BOW) == 0 && g.p.mat(M_FEATHER) == 0 && g.p.ammo(AM_ARROW) == 0 && g.p.bandages() == 1 && g.p.coins == 50;
+        check(ok, "an early v1 save (7 materials, 4 weapons, no ammo line) migrates; the new items start at zero");
+        removeAll();
+    }
+    {   // damaged v1: garbage, negative and enormous numbers
+        writeFile("coins -5\nmats 4 abc 9 -7 999999999 1\nwpn 1000000 2\nammo\nbandages zz\nkills 3\n");
+        bool ld = g.load();
+        bool sane = ld && g.p.coins >= 0 && g.p.bagUsed() <= g.p.bagCap();
+        for (int m = 0; m < M_COUNT; m++) sane = sane && g.p.mat(m) >= 0;
+        sane = sane && g.p.mat(M_MEAT) == 4 && g.p.mat(M_BONE) == 0 && g.p.mat(M_ORGAN) == 0;  // "abc" stops that line; the rest stay zero
+        check(sane, "a damaged v1 save loads without crashing, no negative counts, and never overfills the bag");
+        check(g.loadReport.dropped > 0, "items that cannot fit (absurd counts) are reported as dropped instead of lost silently");
+        removeAll();
+    }
+    {   // v2 with an item from the future, and more slots than the pack has
+        std::string s2 = "version 2\ncoins 10\nup 0 0 0 0\nslot raw_meat 12\nslot unicorn_horn 3\nslot hide 4\n";
+        for (int i = 0; i < 25; i++) s2 += std::string("slot hunting_bow 1\n");
+        writeFile(s2);
+        bool ld = g.load();
+        check(ld && g.loadReport.unknown == 1 && g.p.mat(M_MEAT) == 12 && g.p.mat(M_HIDE) == 4, "an unknown item in a v2 file is skipped; the rest of the save loads");
+        check(g.loadReport.dropped == 25 - (20 - 2) && g.p.bagUsed() == 20, "more stacks than the pack holds: what fits is kept, the rest is counted as dropped");
+        removeAll();
+    }
+    {   // not a save at all
+        writeFile("hello world\nthis is not a save\n");
+        g.p.coins = 4242;
+        bool ld = g.load();
+        check(!ld && g.loadReport.version == 0, "a file that is not a save is rejected (load returns false)");
+        removeAll();
+        check(!g.load(), "no file: load returns false");
+    }
+    if (hadSave) {
+        std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
+        out << savedBytes;
+    } else
+        removeAll();
+    printf("SELFTEST: %s (%d failed)\n", bad ? "FAILED" : "ok", bad);
+    return bad;
+}
+
 int main(int argc, char** argv) {
     bool headless = false;
     std::string shots, tourDir, dumpFile, wildDir;
-    bool wtest = false;
+    bool wtest = false, stest = false;
     bool wcheck = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
@@ -958,6 +1239,7 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
         if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
         if (!strcmp(argv[i], "--weapons")) wtest = true;
+        if (!strcmp(argv[i], "--selftest")) stest = true;
         if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
     }
     if (headless) {
@@ -974,6 +1256,11 @@ int main(int argc, char** argv) {
     }
     if (wcheck) {
         int bad = worldCheck(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
+    }
+    if (stest) {
+        int bad = selfTest(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
     }
