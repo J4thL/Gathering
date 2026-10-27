@@ -62,17 +62,24 @@ enum NodeKind { RN_CACTUS, RN_DESERT_HERB, RN_REED, RN_BOGWORT, RN_FROSTBLOOM, R
 [[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"CACTUS PULP", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE"};
 
 // ---- crafting
+enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE };
 struct Recipe {
-    Wpn out;
+    int kind;   // what `out` indexes: a Wpn, an Ammo, or (RK_BANDAGE) nothing
+    int out;
     int count;
     int mat[3], n[3];
 };
+// Weapons come first (the shop's CRAFT tab shows exactly these), then the field recipes that can be made anywhere.
 static const Recipe RECIPES[] = {
-    {W_BONE, 4, {M_BONE, M_HIDE, -1}, {3, 1, 0}},
-    {W_AXE, 3, {M_BONE, M_HIDE, M_TUSK}, {4, 2, 1}},
-    {W_JAVELIN, 3, {M_BONE, M_ANTLER, M_FUR}, {3, 1, 1}},
+    {RK_WEAPON, W_BONE, 4, {M_BONE, M_HIDE, -1}, {3, 1, 0}},
+    {RK_WEAPON, W_AXE, 3, {M_BONE, M_HIDE, M_TUSK}, {4, 2, 1}},
+    {RK_WEAPON, W_JAVELIN, 3, {M_BONE, M_ANTLER, M_FUR}, {3, 1, 1}},
+    {RK_AMMO, AM_ARROW, 6, {M_BONE, M_FEATHER, -1}, {1, 2, 0}},
+    {RK_AMMO, AM_BOLT, 4, {M_BONE, M_HORN, -1}, {2, 1, 0}},
+    {RK_BANDAGE, 0, 2, {M_HIDE, M_ORGAN, -1}, {2, 1, 0}},
 };
 constexpr int RECIPE_N = sizeof(RECIPES) / sizeof(RECIPES[0]);
+constexpr int RECIPE_WEAPONS = 3;  // the first three recipes are weapons (made at the shop)
 
 // ---- gear upgrades (two tiers each)
 enum Up { U_TOOL, U_BAG, U_BOOTS, U_ARMOR, U_COUNT };

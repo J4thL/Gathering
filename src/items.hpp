@@ -58,3 +58,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
 }
 inline const ItemDef& item(int id) { return itemTable()[id]; }
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
+
+// ---- recipes in terms of items
+inline int recipeItem(const Recipe& R) {
+    return R.kind == RK_WEAPON ? itemWpn(R.out) : R.kind == RK_AMMO ? itemAmmo(R.out) : ITEM_CONS0 + C_BANDAGE;
+}

@@ -56,6 +56,7 @@ static void pollInput(Game& g) {
                     case SDLK_q: in.bandage = true; break;
                     case SDLK_m: in.mapToggle = true; break;
                     case SDLK_h: in.helpToggle = true; break;
+                    case SDLK_i: in.invToggle = true; break;
                     case SDLK_1: in.selectKey = 0; break;
                     case SDLK_2: in.selectKey = 1; break;
                     case SDLK_3: in.selectKey = 2; break;
@@ -90,7 +91,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.update(dt);
             g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.enterPressed = g.in.tabPressed = false;
             g.in.selectKey = -1;
-            g.in.mapToggle = g.in.helpToggle = false;
+            g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
         }
         g.render();
     };
@@ -1128,6 +1129,239 @@ static int selfTest(Game& g) {
         check(g.p.bagUsed() >= used0 - 1 && g.p.mat(M_HIDE) <= meat0, "the upgrade kept the items (minus its own material cost)");
         check(!g.buyUpgrade(U_BAG), "no third backpack level");
     }
+    // ---- inventory screen (key I) and crafting
+    printf("inventory screen and crafting\n");
+    {
+        auto frame = [&](int n = 1) {
+            for (int i = 0; i < n; i++) {
+                g.update(1.f / 60.f);
+                g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.enterPressed = g.in.tabPressed = false;
+                g.in.invToggle = false;
+                g.in.selectKey = -1;
+            }
+        };
+        auto shotDir = getenv("INV_SHOTS");
+        auto snap = [&](const char* name) {
+            g.render();
+            if (shotDir) g.saveCanvas((std::string(shotDir) + "/" + name + ".bmp").c_str());
+        };
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.animals.clear();
+        g.items.clear();
+        g.p.pos = g.world.spawn;
+        // ---- open / close
+        g.in.invToggle = true;
+        frame();
+        check(g.state == ST_INVENTORY, "pressing I opens the inventory screen");
+        g.in.invToggle = true;
+        frame();
+        check(g.state == ST_PLAY, "pressing I again closes it");
+        g.in.invToggle = true;
+        frame();
+        g.in.escPressed = true;
+        frame();
+        check(g.state == ST_PLAY, "ESC also closes it (and does not open the pause menu)");
+        // can't open while charging a throw
+        g.p.charging = true;
+        g.in.invToggle = true;
+        frame();
+        check(g.state == ST_PLAY, "it does not open in the middle of a throw");
+        g.p.charging = false;
+        // ---- time stands still
+        g.animals.clear();
+        Animal* w = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+        w->st = AS_WANDER;
+        w->idleT = 0;
+        w->target = w->pos + V2(80, 0);
+        g.in.invToggle = true;
+        frame();
+        float day0 = g.dayT;
+        V2 apos = g.animals[0].pos;
+        frame(120);
+        check(g.dayT == day0 && g.animals[0].pos.x == apos.x && g.animals[0].pos.y == apos.y, "the world is paused while the pack is open (clock and animals do not move)");
+        // ---- cursor movement
+        g.p.inv.clear();
+        g.p.inv.add(itemWpn(W_FLINT), 8);
+        g.p.inv.add(itemWpn(W_BONE), 3);
+        g.p.inv.add(itemWpn(W_BOW), 1);
+        g.p.inv.add(itemAmmo(AM_ARROW), 12);
+        g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 2);
+        g.invSel = 0;
+        auto press = [&](bool* key) {
+            *key = true;
+            frame();
+            *key = false;
+            frame();
+        };
+        press(&g.in.right);
+        press(&g.in.right);
+        check(g.invSel == 2, "right arrow moves the cursor one slot per key press");
+        g.in.right = true;
+        frame(30);
+        g.in.right = false;
+        check(g.invSel == 3, "holding a key does not make the cursor run away (one step, not repeating)");
+        press(&g.in.down);
+        check(g.invSel == 11, "down moves one row (8 columns)");
+        for (int i = 0; i < 12; i++) press(&g.in.left);
+        check(g.invSel % 8 == 0, "the cursor stops at the left edge");
+        for (int i = 0; i < 12; i++) press(&g.in.down);
+        check(g.invSel / 8 == 2 && g.invSel < 20, "the cursor stops at the last row of a 20-slot pack");
+        // ---- equip / use with Enter
+        g.invSel = 1;  // bone knives
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.sel == W_BONE, "ENTER on a weapon equips it");
+        g.invSel = 2;
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.sel == W_BOW, "ENTER on the bow equips it");
+        g.p.sel = W_FLINT;
+        g.invSel = 3;
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.sel == W_BOW, "ENTER on arrows equips the bow that fires them");
+        g.p.inv.remove(itemWpn(W_BOW), 1);
+        g.p.sel = W_FLINT;
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.sel == W_FLINT, "arrows with no bow do nothing");
+        g.p.hp = g.p.maxhp;
+        g.invSel = 4;
+        int b0 = g.p.bandages();
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.bandages() == b0 && g.p.hp == g.p.maxhp, "a bandage is not wasted at full health");
+        g.p.hp = 30;
+        g.in.enterPressed = true;
+        frame();
+        check(g.p.bandages() == b0 - 1 && g.p.hp == 30 + BANDAGE_HEAL, "ENTER on a bandage heals 45 HP and uses one");
+        // ---- mouse: click a slot
+        g.in.mx = 24 + 8 + 5 * 21 + 8;  // slot 5, as laid out by drawInventory
+        g.in.my = 12 + 38 + 2 + 8;
+        g.in.uiClick = true;
+        g.render();
+        check(g.invSel == 5, "clicking a slot selects it");
+        g.in.uiClick = false;
+        // ---- sort
+        g.p.inv.clear();
+        g.p.inv.slots[0] = {MEAT, 30};  // partial stacks as they can appear in an old or edited save
+        g.p.inv.slots[1] = {HIDE, 5};
+        g.p.inv.slots[3] = {MEAT, 20};
+        int usedBefore = g.p.bagUsed();
+        g.p.inv.compact();
+        check(usedBefore == 3 && g.p.bagUsed() == 2 && g.p.mat(M_MEAT) == 50 && g.p.mat(M_HIDE) == 5 && g.p.inv.slots[2].empty(), "SORT merges split stacks to the front without losing anything");
+        // ---- screenshots of the screens (only written when INV_SHOTS is set)
+        g.p.inv.clear();
+        g.p.inv.add(itemWpn(W_FLINT), 8);
+        g.p.inv.add(itemWpn(W_JAVELIN), 4);
+        g.p.inv.add(itemWpn(W_BOW), 1);
+        g.p.inv.add(itemWpn(W_CROSSBOW), 1);
+        g.p.inv.add(itemAmmo(AM_ARROW), 24);
+        g.p.inv.add(itemAmmo(AM_BOLT), 6);
+        g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 3);
+        for (int m = 0; m < M_COUNT; m++) g.p.inv.add(itemMat(m), 3 + m * 9);
+        g.p.sel = W_BOW;
+        g.invTab = 0;
+        g.invSel = 2;
+        g.in.mx = 24 + 8 + 4 * 21 + 8;
+        g.in.my = 12 + 38 + 2 + 8;
+        snap("inv_backpack");
+        g.invTab = 1;
+        g.in.mx = 5;
+        g.in.my = 5;
+        snap("inv_crafting");
+        g.invTab = 0;
+        g.p.up[U_BAG] = 2;
+        g.p.syncPack();
+        g.invSel = 30;
+        snap("inv_backpack_40");
+        g.p.up[U_BAG] = 0;
+        g.p.syncPack();
+        // ---- crafting from the screen
+        g.invTab = 1;
+        g.p.inv.clear();
+        g.p.inv.add(BONE, 5);
+        g.p.inv.add(itemMat(M_FEATHER), 4);
+        g.p.inv.add(itemMat(M_HORN), 1);
+        g.p.inv.add(HIDE, 4);
+        g.p.inv.add(itemMat(M_ORGAN), 2);
+        g.p.inv.add(itemMat(M_TUSK), 1);
+        g.p.inv.add(itemMat(M_ANTLER), 1);
+        g.p.inv.add(itemMat(M_FUR), 1);
+        auto clickRecipe = [&](int r) {
+            g.in.mx = 24 + 8 + 336 - 56 + 20;
+            g.in.my = 12 + 38 + r * 24 + 4 + 7;
+            g.in.uiClick = true;
+            g.render();
+            g.in.uiClick = false;
+        };
+        g.p.pos = g.world.spawn + V2(300, 300);  // far from the shop
+        check(!g.nearShop(), "test setup: the hunter is away from the shop");
+        clickRecipe(0);
+        check(g.p.wpn(W_BONE) == 0 && g.p.mat(M_BONE) == 5, "weapon recipes are refused away from the shop");
+        clickRecipe(3);
+        check(g.p.ammo(AM_ARROW) == 6 && g.p.mat(M_BONE) == 4 && g.p.mat(M_FEATHER) == 2, "ARROWS x6 can be crafted anywhere: 1 bone + 2 feathers");
+        clickRecipe(4);
+        check(g.p.ammo(AM_BOLT) == 4 && g.p.mat(M_HORN) == 0 && g.p.mat(M_BONE) == 2, "BOLTS x4: 2 bone + 1 horn");
+        clickRecipe(4);
+        check(g.p.ammo(AM_BOLT) == 4 && g.p.mat(M_BONE) == 2, "a recipe without its ingredients does nothing");
+        clickRecipe(5);
+        check(g.p.bandages() == 2 && g.p.mat(M_HIDE) == 2 && g.p.mat(M_ORGAN) == 1, "BANDAGE x2: 2 hide + 1 organs");
+        // bandages stack to 9: with a free slot the extra ones start a second stack; with a full bag only 1 more fits, so the recipe is refused
+        g.p.inv.set(ITEM_CONS0 + C_BANDAGE, 8);
+        g.p.inv.add(HIDE, 4);
+        g.p.inv.add(itemMat(M_ORGAN), 2);
+        bool cr = g.craft(5);
+        check(cr && g.p.bandages() == 10, "with a free slot, bandages beyond a full stack of 9 go into a second stack");
+        g.p.inv.clear();
+        for (int i = 0; i < g.p.bagCap() - 3; i++) g.p.inv.add(itemWpn(W_BOW), 1);  // one slot per bow: nearly full
+        g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 8);
+        g.p.inv.add(HIDE, 5);
+        g.p.inv.add(itemMat(M_ORGAN), 3);
+        int hide0 = g.p.mat(M_HIDE), org0 = g.p.mat(M_ORGAN), fs = g.p.inv.freeSlots();
+        bool cr2 = g.craft(5);
+        check(fs == 0 && !cr2 && g.p.bandages() == 8 && g.p.mat(M_HIDE) == hide0 && g.p.mat(M_ORGAN) == org0, "in a full bag the bandage recipe is refused and the ingredients are returned");
+        // near the shop: weapons allowed
+        g.p.pos = g.world.keeper + V2(-8, 14);
+        g.p.inv.clear();
+        g.p.inv.add(HIDE, 2);
+        g.p.inv.add(BONE, 4);
+        check(g.nearShop(), "test setup: the hunter is at the shop");
+        clickRecipe(0);
+        check(g.p.wpn(W_BONE) == 4, "at the shop the same screen crafts weapons");
+        // ---- the quest about crafting a weapon only counts weapons
+        g.questIdx = 4;
+        g.refreshQuest();
+        g.questActive = true;
+        g.questProg = 0;
+        g.p.inv.add(BONE, 6);
+        g.p.inv.add(itemMat(M_FEATHER), 4);
+        g.craft(3);
+        check(g.questProg == 0, "crafting arrows does not count for 'craft a weapon'");
+        g.p.inv.add(HIDE, 2);
+        g.craft(0);
+        check(g.questProg == 1, "crafting a weapon does");
+        // ---- every screen renders in every state without trouble
+        bool rendered = true;
+        for (int lvl = 0; lvl < 3; lvl++)
+            for (int tab = 0; tab < 2; tab++)
+                for (int fill = 0; fill < 2; fill++) {
+                    g.p.up[U_BAG] = lvl;
+                    g.p.syncPack();
+                    g.p.inv.clear();
+                    if (fill)
+                        for (int i = 0; i < g.p.bagCap(); i++) g.p.inv.add(i < ITEM_COUNT ? i : itemWpn(W_BOW), 1);
+                    g.invTab = tab;
+                    g.invSel = g.p.bagCap() - 1;
+                    g.state = ST_INVENTORY;
+                    g.render();
+                    rendered = rendered && g.state == ST_INVENTORY;
+                }
+        check(rendered, "all tabs render with 20 / 30 / 40 slots, empty and completely full");
+        g.state = ST_PLAY;
+    }
     // ---- saving
     printf("saving and migration\n");
     auto writeFile = [&](const std::string& text) {
@@ -1301,7 +1535,7 @@ int main(int argc, char** argv) {
             acc -= step;
             if (first) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
-                g.in.bandage = g.in.mapToggle = g.in.helpToggle = false;
+                g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
                 first = false;

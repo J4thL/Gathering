@@ -1223,7 +1223,17 @@ void Game::update(float dt) {
             }
             if (in.mapToggle) showMap = !showMap;
             if (in.helpToggle) helpT = helpT > 0 ? 0 : 14;
+            if (in.invToggle && !p.dead && !p.charging) {
+                state = ST_INVENTORY;
+                invSel = std::max(0, std::min(invSel, p.bagCap() - 1));
+                for (int i = 0; i < 4; i++) navPrev[i] = true;  // keys held while opening must not move the cursor
+                audio.play(S_CLICK);
+                break;
+            }
             updatePlay(dt);
+            break;
+        case ST_INVENTORY:
+            updateInventory(dt);
             break;
         case ST_SHOP:
             dayT += 0;  // time stands still while trading
@@ -1248,6 +1258,79 @@ void Game::update(float dt) {
             }
             break;
     }
+}
+
+// ================================================================= inventory screen
+constexpr int INV_COLS = 8;
+
+// Equip a weapon or use a consumable from the pack. Returns true when something happened.
+bool Game::useSlot(int slot) {
+    if (slot < 0 || slot >= p.bagCap() || p.inv.slots[slot].empty()) return false;
+    const int id = p.inv.slots[slot].item;
+    const ItemDef& D = item(id);
+    switch (D.kind) {
+        case IK_THROWN:
+        case IK_LAUNCHER:
+            p.sel = D.ref;
+            p.charging = false;
+            msg("EQUIPPED " + D.name, C_GOLD);
+            audio.play(S_CLICK);
+            return true;
+        case IK_AMMO:
+            for (int w = 0; w < W_COUNT; w++)  // ammunition equips the launcher that fires it
+                if (WPN[w].ammo == D.ref && p.wpn(w) > 0) {
+                    p.sel = w;
+                    msg("EQUIPPED " + std::string(WPN[w].name), C_GOLD);
+                    audio.play(S_CLICK);
+                    return true;
+                }
+            msg("YOU HAVE NOTHING THAT FIRES " + D.name + "S", C_RED);
+            audio.play(S_ERROR);
+            return false;
+        case IK_CONSUMABLE:
+            if (D.ref == C_BANDAGE) {
+                if (p.hp >= p.maxhp) {
+                    msg("YOU ARE AT FULL HEALTH", C_DIM);
+                    audio.play(S_ERROR);
+                    return false;
+                }
+                p.inv.remove(id, 1);
+                p.hp = std::min(p.maxhp, p.hp + BANDAGE_HEAL);
+                ftext(p.pos + V2(0, -24), "+" + S(BANDAGE_HEAL) + " HP", C_GREEN, 1.1f);
+                audio.play(S_PICKUP);
+                return true;
+            }
+            return false;
+        default:
+            msg(D.name + " - SELL IT AT THE SHOP", C_DIM);
+            return false;
+    }
+}
+
+void Game::updateInventory(float dt) {
+    updateFx(dt);  // time stands still while the pack is open
+    if (in.escPressed || in.invToggle) {
+        state = ST_PLAY;
+        save();
+        audio.play(S_CLICK);
+        return;
+    }
+    if (in.tabPressed) invTab = (invTab + 1) % 2;
+    // cursor: arrow keys / WASD, one step per key press
+    const bool now[4] = {in.up, in.down, in.left, in.right};
+    const int cap = p.bagCap();
+    if (invTab == 0) {
+        int dx = (now[3] && !navPrev[3]) - (now[2] && !navPrev[2]), dy = (now[1] && !navPrev[1]) - (now[0] && !navPrev[0]);
+        if (dx || dy) {
+            int c = invSel % INV_COLS + dx, r = invSel / INV_COLS + dy;
+            int rows = (cap + INV_COLS - 1) / INV_COLS;
+            c = std::max(0, std::min(INV_COLS - 1, c));
+            r = std::max(0, std::min(rows - 1, r));
+            invSel = std::min(cap - 1, r * INV_COLS + c);
+        }
+        if (in.enterPressed) useSlot(invSel);
+    }
+    for (int i = 0; i < 4; i++) navPrev[i] = now[i];
 }
 
 // ================================================================= economy
@@ -1285,20 +1368,22 @@ bool Game::craft(int r) {
             audio.play(S_ERROR);
             return false;
         }
+    const int outItem = recipeItem(R);
+    const std::string outName = item(outItem).name;
     // the ingredients are used up first, so a recipe that frees a slot can still be crafted in a full bag
     for (int i = 0; i < 3; i++)
         if (R.mat[i] >= 0) p.inv.remove(itemMat(R.mat[i]), R.n[i]);
-    if (!p.inv.canAdd(itemWpn(R.out), R.count)) {
+    if (!p.inv.canAdd(outItem, R.count)) {
         for (int i = 0; i < 3; i++)  // no room for the result: give the ingredients back (there is always room, we just took them)
             if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
-        msg("NO ROOM FOR " + std::string(WPN[R.out].name) + " - BAG FULL", C_RED);
+        msg("NO ROOM FOR " + outName + " - BAG FULL", C_RED);
         audio.play(S_ERROR);
         return false;
     }
-    p.inv.add(itemWpn(R.out), R.count);
+    p.inv.add(outItem, R.count);
     audio.play(S_CRAFT);
-    msg("CRAFTED " + S(R.count) + " " + WPN[R.out].name, C_GOLD);
-    questEvent(Q_CRAFT, R.out, 1);
+    msg("CRAFTED " + S(R.count) + " " + outName, C_GOLD);
+    if (R.kind == RK_WEAPON) questEvent(Q_CRAFT, R.out, 1);  // the elder's quest is about weapons
     return true;
 }
 void Game::sellMat(int m, int n) {
