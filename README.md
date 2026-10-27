@@ -41,6 +41,12 @@ bolts the moment you click and then reloads for 1.6 s. Launchers are not used up
 hit can be picked up again. Both weapons and their ammo are sold on the shop's BUY tab (second page). Feathers, scales, horns and claws
 drop from the new species (see `fauna.hpp`).
 
+## Inventory
+The pack is slot-based (`src/inventory.hpp`): every item stack takes one slot, materials / ammo stack to 99, thrown weapons to 30,
+bandages to 9, launchers never stack. The backpack upgrade only adds slots: 20 -> 30 -> 40. A full bag refuses gathering, pickups,
+crafting and purchases that do not fit an existing stack or a free slot. Saves are version 2 (`slot <item name> <count>` lines, written
+to a temp file and renamed); version 1 saves are migrated on load and the original is kept as `save.v1.bak`.
+
 ## Test flags
     wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
     wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
@@ -48,3 +54,4 @@ drop from the new species (see `fauna.hpp`).
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
     wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip
+    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, save v2 and v1 migration

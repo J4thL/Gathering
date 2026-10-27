@@ -357,7 +357,7 @@ void Game::renderWorld(bool) {
                     sprW(f, p.pos.x, p.pos.y, fl, 0.55f);
                 }
                 // weapon in hand while winding up
-                if (p.charging && p.wpn[p.sel] > 0) {
+                if (p.charging && p.wpn(p.sel) > 0) {
                     float back = p.charge * 3.f;
                     V2 hp = p.pos + V2(0, -10) + p.aim * (7.f - back);
                     sprW(A.wpnWorld[p.sel], hp.x, hp.y, false, 1.f, atan2f(p.aim.y, p.aim.x) * 57.2958, true);
@@ -675,9 +675,9 @@ void Game::drawHud() {
         panel(x, y, cols * 18 + 6, rows * 25, HEX(0x33241a));
         for (int m = 0; m < M_COUNT; m++) {
             int cx = x + 4 + (m % cols) * 18, cy = y + (m / cols) * 25;
-            icon(A.matIcon[m], cx + 8, cy + 9, 14, p.mats[m] > 0 ? 1.f : 0.35f);
-            std::string t = S(p.mats[m]);
-            textC(cx + 8, cy + 17, t, p.mats[m] > 0 ? C_TEXT : HEX(0x6e5f4a), 1, false);
+            icon(A.matIcon[m], cx + 8, cy + 9, 14, p.mat(m) > 0 ? 1.f : 0.35f);
+            std::string t = S(p.mat(m));
+            textC(cx + 8, cy + 17, t, p.mat(m) > 0 ? C_TEXT : HEX(0x6e5f4a), 1, false);
         }
         float f = (float)used / cap;
         text(x + 1, y - 9, "BAG " + S(used) + "/" + S(cap), used >= cap ? C_RED : C_TEXT);
@@ -699,21 +699,21 @@ void Game::drawHud() {
                 fillRect(x + 1, yy, sw - 2, 1, g);
                 fillRect(x + 1, yy + sw - 1, sw - 2, 1, g);
             }
-            icon(A.wpnIcon[i], x + sw / 2, yy + sw / 2, 16, p.wpn[i] > 0 ? 1.f : 0.3f);
+            icon(A.wpnIcon[i], x + sw / 2, yy + sw / 2, 16, p.wpn(i) > 0 ? 1.f : 0.3f);
             text(x + 3, yy + 3, S(i + 1), C_DIM, 1, false);
             // launchers show how much ammunition is left instead of how many you own
-            int shown = isLauncher(i) ? p.ammo[WPN[i].ammo] : p.wpn[i];
-            bool have = isLauncher(i) ? (p.wpn[i] > 0 && shown > 0) : shown > 0;
+            int shown = isLauncher(i) ? p.ammo(WPN[i].ammo) : p.wpn(i);
+            bool have = isLauncher(i) ? (p.wpn(i) > 0 && shown > 0) : shown > 0;
             std::string n = S(shown);
             text(x + sw - 3 - textW(n), yy + sw - 8, n, have ? C_TEXT : C_RED);
             if (sel && p.cd > 0) bar(x + 3, yy + sw - 3, sw - 6, 1, 1.f - p.cd / WPN[i].cd, C_GOLD);
         }
         int bx = x0 + total + 7;
         panel(bx, y, sw, sw, HEX(0x33241a));
-        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, p.bandages > 0 ? 1.f : 0.3f);
+        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, p.bandages() > 0 ? 1.f : 0.3f);
         text(bx + 3, y + 3, "Q", C_DIM, 1, false);
-        std::string n = S(p.bandages);
-        text(bx + sw - 3 - textW(n), y + sw - 8, n, p.bandages > 0 ? C_TEXT : C_RED);
+        std::string n = S(p.bandages());
+        text(bx + sw - 3 - textW(n), y + sw - 8, n, p.bandages() > 0 ? C_TEXT : C_RED);
         // selected weapon name
         textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
     }
@@ -885,22 +885,22 @@ void Game::drawShop() {
         text(x0 + 82, Y + 22, "HAVE", C_DIM, 1, false);
         text(x0 + 112, Y + 22, "EACH", C_DIM, 1, false);
         int total = 0;
-        for (int m = 0; m < M_COUNT; m++) total += p.mats[m] * MAT_PRICE[m];
+        for (int m = 0; m < M_COUNT; m++) total += p.mat(m) * MAT_PRICE[m];
         for (int m = 0; m < M_COUNT; m++) {
             int y = Y + 30 + m * 17;
-            bool has = p.mats[m] > 0;
+            bool has = p.mat(m) > 0;
             fillRect(x0, y, cw, 16, (m & 1) ? RGBA(0, 0, 0, 40) : RGBA(0, 0, 0, 80));
             icon(A.matIcon[m], x0 + 10, y + 8, 14, has ? 1.f : 0.4f);
             text(x0 + 21, y + 5, MAT_NAME[m], has ? C_TEXT : HEX(0x7a6a52));
-            text(x0 + 84, y + 5, S(p.mats[m]), has ? C_TEXT : HEX(0x7a6a52));
+            text(x0 + 84, y + 5, S(p.mat(m)), has ? C_TEXT : HEX(0x7a6a52));
             icon(A.coin, x0 + 114, y + 8, 8);
             text(x0 + 120, y + 5, S(MAT_PRICE[m]), C_GOLD);
             if (button(x0 + 138, y + 1, 46, 14, "SELL 1", has)) sellMat(m, 1);
-            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", has)) sellMat(m, p.mats[m]);
+            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", has)) sellMat(m, p.mat(m));
         }
         std::string lab = total > 0 ? "SELL EVERYTHING  +" + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
         if (button(x0, Y + 30 + 7 * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
-            for (int m = 0; m < M_COUNT; m++) sellMat(m, p.mats[m]);
+            for (int m = 0; m < M_COUNT; m++) sellMat(m, p.mat(m));
             msg("SOLD EVERYTHING FOR " + S(total) + " COINS", C_GOLD);
             save();
         }
@@ -914,13 +914,13 @@ void Game::drawShop() {
             icon(A.wpnIcon[R.out], x0 + 20, y + 20, 32);
             text(x0 + 42, y + 5, std::string(WPN[R.out].name) + "  X" + S(R.count), C_GOLD);
             text(x0 + 42, y + 14, WPN[R.out].blurb, C_DIM);
-            text(x0 + 42, y + 22, "DMG " + S((int)WPN[R.out].dmg) + "  RANGE " + S((int)WPN[R.out].range) + "  OWNED " + S(p.wpn[R.out]), C_TEXT);
+            text(x0 + 42, y + 22, "DMG " + S((int)WPN[R.out].dmg) + "  RANGE " + S((int)WPN[R.out].range) + "  OWNED " + S(p.wpn(R.out)), C_TEXT);
             int cx = x0 + 42;
             bool ok = true;
             for (int i = 0; i < 3; i++)
                 if (R.mat[i] >= 0) {
-                    cx = chip(cx, y + 33, A.matIcon[R.mat[i]], p.mats[R.mat[i]], R.n[i]);
-                    if (p.mats[R.mat[i]] < R.n[i]) ok = false;
+                    cx = chip(cx, y + 33, A.matIcon[R.mat[i]], p.mat(R.mat[i]), R.n[i]);
+                    if (p.mat(R.mat[i]) < R.n[i]) ok = false;
                 }
             if (button(x0 + 186, y + 29, 50, 16, "CRAFT", ok, HEX(0x5d7a2e))) craft(r);
         }
@@ -948,8 +948,8 @@ void Game::drawShop() {
             text(x0 + 36, y + 21, L.desc, C_TEXT);
             int cx = x0 + 36;
             cx = chip(cx, y + 27, A.coin, p.coins, L.coins);
-            if (L.m1 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m1], p.mats[L.m1], L.n1);
-            if (L.m2 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m2], p.mats[L.m2], L.n2);
+            if (L.m1 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m1], p.mat(L.m1), L.n1);
+            if (L.m2 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m2], p.mat(L.m2), L.n2);
             bool ok = canAfford(L.coins, L.m1, L.n1, L.m2, L.n2);
             if (button(x0 + 188, y + 17, 46, 16, "BUY", ok, HEX(0x5d7a2e))) buyUpgrade(u);
         }
@@ -980,25 +980,21 @@ void Game::drawShop() {
             icon(ic, x0 + 18, y + 19, 28);
             text(x0 + 36, y + 6, g.name, C_GOLD);
             text(x0 + 36, y + 15, g.desc, C_DIM);
-            int owned = g.kind == 0 ? p.wpn[W_FLINT] : g.kind == 3 ? p.wpn[W_BOW] : g.kind == 4 ? p.wpn[W_CROSSBOW] : g.kind == 5 ? p.ammo[AM_ARROW] : g.kind == 6 ? p.ammo[AM_BOLT] : p.bandages;
+            // what the item is, and how many a purchase adds
+            static const int goodItem[7] = {ITEM_WPN0 + W_FLINT, ITEM_CONS0 + C_BANDAGE, ITEM_CONS0 + C_BANDAGE, ITEM_WPN0 + W_BOW,
+                                            ITEM_WPN0 + W_CROSSBOW, ITEM_AMMO0 + AM_ARROW, ITEM_AMMO0 + AM_BOLT};
+            const int goodQty[7] = {3, 1, 3, 1, 1, AMMO[AM_ARROW].pack, AMMO[AM_BOLT].pack};
+            const int gItem = goodItem[g.kind], gQty = goodQty[g.kind];
+            int owned = p.inv.count(gItem);
             text(x0 + 36, y + 24, "OWNED " + S(owned), C_TEXT);
             chip(x0 + 90, y + 21, A.coin, p.coins, g.price);
-            bool full = g.kind == 0   ? p.wpn[W_FLINT] + 3 > WPN_MAX
-                        : g.kind == 3 ? p.wpn[W_BOW] >= 1
-                        : g.kind == 4 ? p.wpn[W_CROSSBOW] >= 1
-                        : g.kind == 5 ? p.ammo[AM_ARROW] + AMMO[AM_ARROW].pack > AMMO_MAX
-                        : g.kind == 6 ? p.ammo[AM_BOLT] + AMMO[AM_BOLT].pack > AMMO_MAX
-                                      : p.bandages + (g.kind == 1 ? 1 : 3) > BANDAGE_MAX;
+            const bool launcherOwned = (g.kind == 3 || g.kind == 4) && owned >= 1;
+            const bool full = launcherOwned || !p.inv.canAdd(gItem, gQty);
             bool ok = p.coins >= g.price && !full;
-            const char* lab = (g.kind == 3 || g.kind == 4) && full ? "OWNED" : full ? "FULL" : "BUY";
+            const char* lab = launcherOwned ? "OWNED" : full ? "FULL" : "BUY";
             if (button(x0 + 186, y + 11, 48, 16, lab, ok, HEX(0x5d7a2e))) {
                 p.coins -= g.price;
-                if (g.kind == 0) p.wpn[W_FLINT] += 3;
-                else if (g.kind == 3) p.wpn[W_BOW] = 1;
-                else if (g.kind == 4) p.wpn[W_CROSSBOW] = 1;
-                else if (g.kind == 5) p.ammo[AM_ARROW] += AMMO[AM_ARROW].pack;
-                else if (g.kind == 6) p.ammo[AM_BOLT] += AMMO[AM_BOLT].pack;
-                else p.bandages += g.kind == 1 ? 1 : 3;
+                p.inv.add(gItem, gQty);
                 audio.play(S_COIN);
                 save();
             }

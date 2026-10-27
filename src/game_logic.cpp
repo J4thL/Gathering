@@ -70,22 +70,33 @@ std::string Game::savePath() {
     return s;
 }
 
+// ---- saving. Format version 2 stores the inventory as "slot <item key> <count>" lines, one per used slot, using the item's
+// stable name (see itemKey). Version 1 saves (no "version" line) had separate mats / wpn / ammo / bandages lines; they are
+// migrated on load, and the original file is copied to save.v1.bak the first time that happens.
+constexpr int SAVE_VERSION = 2;
+
 void Game::save() {
-    std::ofstream f(savePath());
-    if (!f) return;
-    f << "coins " << p.coins << "\nmats";
-    for (int i = 0; i < M_COUNT; i++) f << ' ' << p.mats[i];
-    f << "\nwpn";
-    for (int i = 0; i < W_COUNT; i++) f << ' ' << p.wpn[i];
-    f << "\nammo";
-    for (int i = 0; i < AM_COUNT; i++) f << ' ' << p.ammo[i];
-    f << "\nup";
-    for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
-    f << "\nbandages " << p.bandages << "\nday " << dayT << "\nkills " << kills << "\n";
-    f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
-    f << "disc ";
-    for (auto& l : world.landmarks) f << (l.found ? '1' : '0');
-    f << "\n";
+    const std::string path = savePath(), tmp = path + ".tmp";
+    {
+        std::ofstream f(tmp);
+        if (!f) return;
+        f << "version " << SAVE_VERSION << "\ncoins " << p.coins << "\nup";
+        for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
+        f << "\nday " << dayT << "\nkills " << kills << "\n";
+        f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
+        f << "disc ";
+        for (auto& l : world.landmarks) f << (l.found ? '1' : '0');
+        f << "\n";
+        for (auto& sl : p.inv.slots)
+            if (!sl.empty()) f << "slot " << itemKey(sl.item) << ' ' << sl.n << "\n";
+        f.flush();
+        if (!f) {
+            std::remove(tmp.c_str());
+            return;
+        }
+    }
+    std::remove(path.c_str());
+    std::rename(tmp.c_str(), path.c_str());  // write-then-rename: a crash mid-save cannot leave a half-written file
     hasSave = true;
 }
 
@@ -93,34 +104,102 @@ bool Game::load() {
     std::ifstream f(savePath());
     if (!f) return false;
     newGame();
+    loadReport = LoadReport();
+    auto readCount = [](std::istringstream& ss, long lim = 99999) {
+        long v = 0;
+        if (!(ss >> v)) return 0L;
+        return std::max(0L, std::min(lim, v));
+    };
+    std::vector<std::pair<std::string, int>> slotLines;  // v2
+    int legacyMats[M_COUNT] = {0}, legacyWpn[W_COUNT] = {0}, legacyAmmo[AM_COUNT] = {0}, legacyBandages = 0;
+    int nMats = 0, nWpn = 0, nAmmo = 0;
+    bool sawVersion = false, sawLegacy = false;
     std::string line;
     while (std::getline(f, line)) {
         std::istringstream ss(line);
         std::string k;
         ss >> k;
-        if (k == "coins") ss >> p.coins;
-        else if (k == "mats") for (int i = 0; i < M_COUNT; i++) ss >> p.mats[i];
-        else if (k == "wpn") for (int i = 0; i < W_COUNT; i++) ss >> p.wpn[i];
-        else if (k == "ammo") for (int i = 0; i < AM_COUNT; i++) ss >> p.ammo[i];
-        else if (k == "up") for (int i = 0; i < U_COUNT; i++) ss >> p.up[i];
-        else if (k == "bandages") ss >> p.bandages;
+        if (k == "version") {
+            ss >> loadReport.version;
+            sawVersion = true;
+        } else if (k == "coins") p.coins = (int)readCount(ss, 100000000);
+        else if (k == "slot") {
+            std::string key;
+            ss >> key;
+            slotLines.push_back({key, (int)readCount(ss)});
+        } else if (k == "mats") {
+            sawLegacy = true;
+            for (; nMats < M_COUNT && !ss.eof(); nMats++) legacyMats[nMats] = (int)readCount(ss);
+        } else if (k == "wpn") {
+            sawLegacy = true;
+            for (; nWpn < W_COUNT && !ss.eof(); nWpn++) legacyWpn[nWpn] = (int)readCount(ss);
+        } else if (k == "ammo") {
+            sawLegacy = true;
+            for (; nAmmo < AM_COUNT && !ss.eof(); nAmmo++) legacyAmmo[nAmmo] = (int)readCount(ss);
+        } else if (k == "bandages") {
+            sawLegacy = true;
+            legacyBandages = (int)readCount(ss);
+        } else if (k == "up") for (int i = 0; i < U_COUNT; i++) ss >> p.up[i];
         else if (k == "day") ss >> dayT;
         else if (k == "kills") ss >> kills;
         else if (k == "disc") {
             std::string bits;
             ss >> bits;
             for (size_t i = 0; i < bits.size() && i < world.landmarks.size(); i++) world.landmarks[i].found = bits[i] == '1';
-        }
-        else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
+        } else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
             int active = 0;
             ss >> questIdx >> active >> questProg;
             questActive = active != 0;
         }
     }
-    refreshQuest();
+    if (!sawVersion && !sawLegacy) {  // not a save file we understand: say so instead of wiping the hunter's kit
+        loadReport.version = 0;
+        newGame();
+        return false;
+    }
     for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(2, std::max(0, p.up[i]));
+    p.syncPack();  // the backpack level decides how many slots there are, so it must be known before items go in
+    p.inv.clear();
+    auto give = [&](int item, int n) {
+        if (n <= 0) return;
+        int got = p.inv.add(item, n);
+        loadReport.dropped += n - got;
+    };
+    if (sawVersion) {
+        for (auto& sl : slotLines) {
+            int id = itemFromKey(sl.first);
+            if (id < 0) {
+                loadReport.unknown++;  // an item from a newer game version: skipped, the rest still loads
+                continue;
+            }
+            give(id, sl.second);
+        }
+    } else {
+        // version 1: counters per category. Old saves may hold fewer materials / weapons than exist now; the missing ones are zero.
+        loadReport.version = 1;
+        loadReport.migrated = true;
+        for (int m = 0; m < M_COUNT; m++) give(itemMat(m), legacyMats[m]);
+        for (int w = 0; w < W_COUNT; w++) give(itemWpn(w), legacyWpn[w]);
+        for (int a = 0; a < AM_COUNT; a++) give(itemAmmo(a), legacyAmmo[a]);
+        give(ITEM_CONS0 + C_BANDAGE, legacyBandages);
+        const std::string bak = savePath() + ".v1.bak";
+        std::ifstream have(bak);
+        if (!have) {
+            std::ifstream src(savePath(), std::ios::binary);
+            std::ofstream dst(bak, std::ios::binary);
+            dst << src.rdbuf();
+        }
+    }
+    refreshQuest();
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
+    // keep a usable weapon selected
+    if (!canUse(p.sel))
+        for (int w = 0; w < W_COUNT; w++)
+            if (canUse(w)) {
+                p.sel = w;
+                break;
+            }
     return true;
 }
 
@@ -128,8 +207,9 @@ bool Game::load() {
 void Game::newGame() {
     p = Player();
     p.pos = world.spawn;
-    p.wpn[W_FLINT] = 8;
-    p.bandages = 1;
+    p.syncPack();
+    p.inv.add(itemWpn(W_FLINT), 8);
+    p.inv.add(ITEM_CONS0 + C_BANDAGE, 1);
     animals.clear();
     items.clear();
     projs.clear();
@@ -575,15 +655,15 @@ void Game::hurtPlayer(float dmg, V2 from) {
 }
 
 // A weapon can be used when you own it and (for the bow and crossbow) have ammo for it.
-bool Game::canUse(int w) const { return p.wpn[w] > 0 && (!isLauncher(w) || p.ammo[WPN[w].ammo] > 0); }
+bool Game::canUse(int w) const { return p.wpn(w) > 0 && (!isLauncher(w) || p.ammo(WPN[w].ammo) > 0); }
 
 void Game::throwWeapon() {
     int w = p.sel;
     if (!canUse(w)) return;
     const WpnDef& D = WPN[w];
     const bool launcher = isLauncher(w);
-    if (launcher) p.ammo[D.ammo]--;  // launchers are not used up, their ammunition is
-    else p.wpn[w]--;
+    if (launcher) p.inv.remove(itemAmmo(D.ammo), 1);  // launchers are not used up, their ammunition is
+    else p.inv.remove(itemWpn(w), 1);
     V2 hand = p.pos + V2(0, -10);
     V2 mw(in.mx + camX, in.my + camY);
     V2 d = mw - hand;
@@ -623,7 +703,7 @@ void Game::throwWeapon() {
     }
 }
 
-void Game::addItem(int m, int n) { p.mats[m] += n; }
+void Game::addItem(int m, int n) { p.inv.add(itemMat(m), n); }
 
 void Game::gatherStep(Animal& c) {
     int m = -1;
@@ -638,7 +718,7 @@ void Game::gatherStep(Animal& c) {
         c.totalRemain = 0;
         return;
     }
-    if (p.bagUsed() >= p.bagCap()) {
+    if (!p.inv.canAdd(itemMat(m), 1)) {
         if (bagWarn <= 0) {
             ftext(p.pos + V2(0, -28), "BAG FULL!", C_RED, 1.2f);
             msg("BAG FULL - SELL AT THE SHOP", C_RED);
@@ -649,10 +729,10 @@ void Game::gatherStep(Animal& c) {
     }
     c.remain[m]--;
     c.totalRemain--;
-    p.mats[m]++;
+    p.inv.add(itemMat(m), 1);
     int extra = 0;
-    if (rng.chance(TOOL_BONUS[p.up[U_TOOL]]) && p.bagUsed() < p.bagCap()) {
-        p.mats[m]++;
+    if (rng.chance(TOOL_BONUS[p.up[U_TOOL]]) && p.inv.canAdd(itemMat(m), 1)) {
+        p.inv.add(itemMat(m), 1);
         extra = 1;
     }
     questEvent(Q_GATHER, m, 1 + extra);
@@ -766,7 +846,7 @@ void Game::updatePlayer(float dt) {
                 P.charging = true;
                 P.charge = 0;
             }
-        } else if (P.wpn[P.sel] > 0 && isLauncher(P.sel) && noAmmoT <= 0) {
+        } else if (P.wpn(P.sel) > 0 && isLauncher(P.sel) && noAmmoT <= 0) {
             ftext(P.pos + V2(0, -24), std::string("NO ") + AMMO[WPN[P.sel].ammo].name + "S", C_RED, 1.0f);
             audio.play(S_ERROR, 0.5f);
             noAmmoT = 0.8f;
@@ -790,8 +870,8 @@ void Game::updatePlayer(float dt) {
     for (size_t i = 0; i < items.size();) {
         GroundItem& it = items[i];
         if (it.ammo >= 0) {
-            if (dist(P.pos, it.pos) < 13 && P.ammo[it.ammo] < AMMO_MAX) {
-                P.ammo[it.ammo]++;
+            if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemAmmo(it.ammo), 1)) {
+                P.inv.add(itemAmmo(it.ammo), 1);
                 ftext(P.pos + V2(0, -24), std::string("+1 ") + AMMO[it.ammo].name, C_BLUE, 0.9f);
                 audio.play(S_PICKUP, 0.4f);
                 items.erase(items.begin() + i);
@@ -799,8 +879,12 @@ void Game::updatePlayer(float dt) {
                 i++;
             continue;
         }
-        if (dist(P.pos, it.pos) < 13 && P.wpn[it.wpn] < WPN_MAX) {
-            P.wpn[it.wpn]++;
+        if (dist(P.pos, it.pos) < 13 && !P.inv.canAdd(itemWpn(it.wpn), 1) && bagWarn <= 0) {
+            ftext(P.pos + V2(0, -24), "BAG FULL!", C_RED, 1.0f);
+            bagWarn = 1.6f;
+        }
+        if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemWpn(it.wpn), 1)) {
+            P.inv.add(itemWpn(it.wpn), 1);
             ftext(P.pos + V2(0, -24), std::string("+") + WPN[it.wpn].name, C_BLUE, 1.0f);
             audio.play(S_PICKUP, 0.5f);
             items.erase(items.begin() + i);
@@ -837,8 +921,8 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
-    if (in.bandage && P.bandages > 0 && P.hp < P.maxhp) {
-        P.bandages--;
+    if (in.bandage && P.bandages() > 0 && P.hp < P.maxhp) {
+        P.inv.remove(ITEM_CONS0 + C_BANDAGE, 1);
         P.hp = std::min(P.maxhp, P.hp + BANDAGE_HEAL);
         ftext(P.pos + V2(0, -24), "+" + S(BANDAGE_HEAL) + " HP", C_GREEN, 1.1f);
         audio.play(S_PICKUP);
@@ -1069,9 +1153,15 @@ void Game::checkWeaponSafetyNet(float dt) {
         if (canUse(w)) return;                // still holding a weapon (a bow with no arrows doesn't count)
     if (!projs.empty() || !items.empty()) return;  // a thrown weapon can still be picked up
     int wealth = p.coins;
-    for (int m = 0; m < M_COUNT; m++) wealth += p.mats[m] * MAT_PRICE[m];
+    for (int m = 0; m < M_COUNT; m++) wealth += p.mat(m) * MAT_PRICE[m];
     if (wealth >= FLINT_PACK_PRICE) return;  // could buy flint at the shop
-    p.wpn[W_FLINT] = FLINT_LOAN;
+    if (!p.inv.canAdd(itemWpn(W_FLINT), FLINT_LOAN)) {  // bag stuffed with junk: make room by dropping the cheapest material stack
+        int cheapest = -1;
+        for (int m = 0; m < M_COUNT; m++)
+            if (p.mat(m) > 0 && (cheapest < 0 || MAT_PRICE[m] < MAT_PRICE[cheapest])) cheapest = m;
+        if (cheapest >= 0) p.inv.remove(itemMat(cheapest), p.mat(cheapest));
+    }
+    p.inv.add(itemWpn(W_FLINT), FLINT_LOAN);
     p.sel = W_FLINT;
     msg("THE MERCHANT LENDS YOU " + S(FLINT_LOAN) + " FLINT KNIVES", C_GOLD);
     ftext(p.pos + V2(0, -28), "+" + S(FLINT_LOAN) + " FLINT KNIFE", C_BLUE, 1.4f);
@@ -1163,14 +1253,14 @@ void Game::update(float dt) {
 // ================================================================= economy
 bool Game::canAfford(int coins, int m1, int n1, int m2, int n2) const {
     if (p.coins < coins) return false;
-    if (m1 >= 0 && p.mats[m1] < n1) return false;
-    if (m2 >= 0 && p.mats[m2] < n2) return false;
+    if (m1 >= 0 && p.mat(m1) < n1) return false;
+    if (m2 >= 0 && p.mat(m2) < n2) return false;
     return true;
 }
 void Game::spend(int coins, int m1, int n1, int m2, int n2) {
     p.coins -= coins;
-    if (m1 >= 0) p.mats[m1] -= n1;
-    if (m2 >= 0) p.mats[m2] -= n2;
+    if (m1 >= 0) p.inv.remove(itemMat(m1), n1);
+    if (m2 >= 0) p.inv.remove(itemMat(m2), n2);
 }
 bool Game::buyUpgrade(int u) {
     int lv = p.up[u];
@@ -1182,6 +1272,7 @@ bool Game::buyUpgrade(int u) {
     }
     spend(L.coins, L.m1, L.n1, L.m2, L.n2);
     p.up[u]++;
+    if (u == U_BAG) p.syncPack();  // a bigger backpack only adds slots
     audio.play(S_CRAFT);
     msg(std::string("UPGRADED: ") + L.name, C_GOLD);
     save();
@@ -1190,27 +1281,30 @@ bool Game::buyUpgrade(int u) {
 bool Game::craft(int r) {
     const Recipe& R = RECIPES[r];
     for (int i = 0; i < 3; i++)
-        if (R.mat[i] >= 0 && p.mats[R.mat[i]] < R.n[i]) {
+        if (R.mat[i] >= 0 && p.mat(R.mat[i]) < R.n[i]) {
             audio.play(S_ERROR);
             return false;
         }
-    if (p.wpn[R.out] >= WPN_MAX) {
-        msg("YOU CAN'T CARRY ANY MORE " + std::string(WPN[R.out].name), C_RED);
+    // the ingredients are used up first, so a recipe that frees a slot can still be crafted in a full bag
+    for (int i = 0; i < 3; i++)
+        if (R.mat[i] >= 0) p.inv.remove(itemMat(R.mat[i]), R.n[i]);
+    if (!p.inv.canAdd(itemWpn(R.out), R.count)) {
+        for (int i = 0; i < 3; i++)  // no room for the result: give the ingredients back (there is always room, we just took them)
+            if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
+        msg("NO ROOM FOR " + std::string(WPN[R.out].name) + " - BAG FULL", C_RED);
         audio.play(S_ERROR);
         return false;
     }
-    for (int i = 0; i < 3; i++)
-        if (R.mat[i] >= 0) p.mats[R.mat[i]] -= R.n[i];
-    p.wpn[R.out] = std::min(WPN_MAX, p.wpn[R.out] + R.count);
+    p.inv.add(itemWpn(R.out), R.count);
     audio.play(S_CRAFT);
     msg("CRAFTED " + S(R.count) + " " + WPN[R.out].name, C_GOLD);
     questEvent(Q_CRAFT, R.out, 1);
     return true;
 }
 void Game::sellMat(int m, int n) {
-    n = std::min(n, p.mats[m]);
+    n = std::min(n, p.mat(m));
     if (n <= 0) return;
-    p.mats[m] -= n;
+    p.inv.remove(itemMat(m), n);
     p.coins += n * MAT_PRICE[m];
     sold += n * MAT_PRICE[m];
     audio.play(S_COIN);
@@ -1255,14 +1349,12 @@ void Game::turnInQuest() {
     std::string reward = S(quest.coins) + " COINS";
     if (quest.mat >= 0 && quest.matN > 0) {
         // materials only fit if the bag has room; anything left over is paid in coins instead
-        int room = std::max(0, p.bagCap() - p.bagUsed());
-        int give = std::min(room, quest.matN);
-        p.mats[quest.mat] += give;
+        int give = p.inv.add(itemMat(quest.mat), quest.matN);
         if (give < quest.matN) p.coins += (quest.matN - give) * MAT_PRICE[quest.mat];
         reward += " + " + S(quest.matN) + " " + MAT_NAME[quest.mat];
     }
     if (quest.bandages > 0) {
-        p.bandages = std::min(BANDAGE_MAX, p.bandages + quest.bandages);
+        p.inv.add(ITEM_CONS0 + C_BANDAGE, quest.bandages);
         reward += " + " + S(quest.bandages) + " BANDAGE";
     }
     msg("QUEST COMPLETE! " + reward, C_GOLD);
