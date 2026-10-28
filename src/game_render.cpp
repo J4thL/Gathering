@@ -233,11 +233,18 @@ void Game::renderWorld(bool) {
     for (auto it = std::lower_bound(world.nodes.begin(), world.nodes.end(), camY - 10.f, yLess); it != world.nodes.end() && it->y <= camY + LH + 30; ++it) {
         const ResNode& n = *it;
         if (n.x < camX - 20 || n.x > camX + LW + 20) continue;
-        sprW(A.shadow[0], n.x, n.y, false, 0.55f);
-        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS;
-        sprW(A.B.node[n.kind], n.x, n.y, false, 1.f, plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        const HState& hs = nodeSt[it - world.nodes.begin()];
+        if (hs.gone) {  // finished: a stub of the plant, or the broken-up rock, until it grows back
+            sprW(A.R.stub.t && RES[nodeRes(n.kind)].cls == RCL_PLANT ? A.R.stub : A.R.rubble, n.x, n.y);
+            continue;
+        }
+        const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
+        const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
+        sprW(A.shadow[0], n.x + shk, n.y, false, 0.55f * grow);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD;
+        sprW(A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
-        if (g < 0.22f) {
+        if (hs.fade <= 0 && g < 0.22f) {
             int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
             fillRect(gx, gy - 1, 1, 3, RGBA(255, 255, 255, 220));
             fillRect(gx - 1, gy, 3, 1, RGBA(255, 255, 255, 220));
@@ -254,6 +261,7 @@ void Game::renderWorld(bool) {
         if (it->x < camX - 80 || it->x > camX + LW + 80) continue;
         dl.push_back({it->y, 0, (int)(it - world.props.begin())});
     }
+    for (size_t i = 0; i < structs.size(); i++) dl.push_back({structs[i].pos().y, 5, (int)i});
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
     dl.push_back({p.pos.y, 2, 0});
@@ -265,6 +273,19 @@ void Game::renderWorld(bool) {
     for (auto& e : dl) {
         if (e.t == 0) {
             const Prop& pr = world.props[e.i];
+            const int camSave = camX;
+            const int rs = propRsId[e.i];
+            if (rs >= 0) {
+                const HState& hs = propSt[e.i];
+                if (hs.gone || hs.fade > 0) {  // felled tree / broken rock, then a sprout while it grows back
+                    const bool tree = RES[rs].cls == RCL_TREE;
+                    sprW(A.shadow[0], pr.x, pr.y, false, 0.5f);
+                    sprW(tree ? A.R.stump : A.R.rubble, pr.x, pr.y);
+                    if (!hs.gone && tree) sprW(A.R.sprout, pr.x, pr.y - 2, false, 0.4f + 0.6f * (1.f - hs.fade / REGROW_FADE));
+                    continue;
+                }
+                if (hs.shake > 0) camX -= (int)(sinf(timeAcc * 70.f) * hs.shake * 9.f);  // the tree shudders / the rock rattles when struck
+            }
             switch (pr.kind) {
                 case P_OAK0: case P_OAK1:
                     sprW(A.shadow[2], pr.x + 4, pr.y - 1, false, 0.8f);
@@ -336,6 +357,13 @@ void Game::renderWorld(bool) {
                 }
                 case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
             }
+            camX = camSave;
+        } else if (e.t == 5) {
+            const Structure& st = structs[e.i];
+            const V2 c = st.pos();
+            sprW(A.shadow[0], c.x, c.y, false, 0.7f);
+            if (st.kind == PL_CAMPFIRE) sprW(A.R.campfire[(int)(timeAcc * 9 + e.i) % 3], c.x, c.y);
+            else sprW(A.R.chest, c.x, c.y);
         } else if (e.t == 1) {
             sprW(A.shadow[0], world.keeper.x, world.keeper.y, false, 0.8f);
             sprW(A.keeper[((int)(timeAcc * 1.6f)) & 1], world.keeper.x, world.keeper.y, p.pos.x < world.keeper.x);
@@ -367,6 +395,19 @@ void Game::renderWorld(bool) {
                     if (c) {
                         float a = -50.f + sinf(timeAcc * 22.f) * 45.f;
                         sprW(A.wpnWorld[W_FLINT], c->pos.x + (p.pos.x < c->pos.x ? -5 : 5), c->pos.y - 9, false, 1.f, a + (p.pos.x < c->pos.x ? 0 : 180), true);
+                    } else {
+                        // swinging the axe / pickaxe at a tree, rock or ore: the tool arcs back and down once per swing
+                        HTarget ht;
+                        if (findHarvest(ht) && RES[ht.res].tool >= 0) {
+                            int ti = -1;
+                            if (bestTool(RES[ht.res].tool, &ti) > 0) {
+                                const float f = clampf(p.gatherT / RES[ht.res].swing, 0.f, 1.f);
+                                const float ease = f < 0.7f ? f / 0.7f * 0.35f : 0.35f + (f - 0.7f) / 0.3f * 0.65f;  // slow wind-up, fast strike
+                                const bool left = ht.pos.x < p.pos.x;
+                                float ang = -75.f + 125.f * ease;
+                                sprW(A.R.toolSwing[ti], p.pos.x + (left ? -3 : 3), p.pos.y - 9, left, 1.f, left ? -ang : ang, true);
+                            }
+                        }
                     }
                 }
             }
@@ -446,6 +487,16 @@ void Game::renderWorld(bool) {
             SDL_SetTextureAlphaMod(g, (Uint8)(clampf(lt.r * lf * (0.3f + 0.7f * night2), 0, 1) * 255));
             int sz = (int)(78 * lf);
             SDL_Rect d{(int)lt.x - camX - sz / 2, (int)lt.y - camY - sz / 2, sz, sz};
+            SDL_RenderCopy(ren, g, nullptr, &d);
+        }
+        for (auto& st : structs) {  // placed campfires light the night
+            if (st.kind != PL_CAMPFIRE) continue;
+            const V2 c = st.pos();
+            if (c.x < camX - 70 || c.x > camX + LW + 70 || c.y < camY - 70 || c.y > camY + LH + 70) continue;
+            float lf = 0.85f + 0.15f * sinf(timeAcc * 10.f + c.x) + 0.05f * sinf(timeAcc * 23.f);
+            SDL_SetTextureAlphaMod(g, (Uint8)(clampf((0.4f + 0.6f * night2) * lf, 0, 1) * 255));
+            int sz = (int)(120 * lf);
+            SDL_Rect d{(int)c.x - camX - sz / 2, (int)c.y - 8 - camY - sz / 2, sz, sz};
             SDL_RenderCopy(ren, g, nullptr, &d);
         }
         SDL_SetTextureAlphaMod(g, 255);
@@ -614,10 +665,13 @@ void Game::drawHud() {
                 bar(sx - 14, sy - 22, 28, 4, f, C_GREEN);
             } else
                 drawPrompt(c->pos.x, c->pos.y - 22, "E", "HOLD TO GATHER");
-        } else if (nearShop()) {
-            drawPrompt(world.keeper.x, world.keeper.y - 36, "E", "SHOP");
-        } else if (nearQuestGiver()) {
-            drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
+        } else if (structNear(24.f)) {
+            drawStructPrompt();
+        } else {
+            HTarget ht;
+            if (findHarvest(ht)) drawHarvestPrompt();
+            else if (nearShop()) drawPrompt(world.keeper.x, world.keeper.y - 36, "E", "SHOP");
+            else if (nearQuestGiver()) drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
         }
     }
 
@@ -659,33 +713,46 @@ void Game::drawHud() {
     if (showMap) drawMinimap();
     drawBiomeBanner();
 
+    // ---- timed effects under the vitals
+    {
+        int ty = 46;
+        if (p.warmT > 0) text(6, ty, "WARM BREW " + S((int)p.warmT) + "S", C_ORANGE), ty += 8;
+        if (p.coolT > 0) text(6, ty, "REFRESHED " + S((int)p.coolT) + "S", C_BLUE), ty += 8;
+        if (warmthAt(p.pos) > 0.35f) text(6, ty, "BY THE FIRE", C_ORANGE), ty += 8;
+    }
+    // ---- materials strip (only what you carry) + bag meter
+    std::vector<int> ownedMats;
+    for (int m = 0; m < M_COUNT; m++)
+        if (p.mat(m) > 0) ownedMats.push_back(m);
+    const int stripCols = 5, stripRowsMax = 4;
+    const int shownMats = std::min((int)ownedMats.size(), stripCols * stripRowsMax);
+    const int stripRows = (shownMats + stripCols - 1) / stripCols;
+    const int stripY = LH - 4 - stripRows * 25;
     // ---- active quest tracker (bottom-left, above the bag meter)
     if (questActive) {
         bool ready = questReady();
         std::string t = ready ? quest.title + "  DONE! SEE ELDER" : quest.title + "  " + S(questProg) + "/" + S(quest.goal);
-        panel(4, LH - 59, textW(t) + 8, 12, HEX(0x33241a));
-        text(8, LH - 56, t, ready ? C_GREEN : C_TEXT, 1, false);
+        panel(4, stripY - 22, textW(t) + 8, 12, HEX(0x33241a));
+        text(8, stripY - 19, t, ready ? C_GREEN : C_TEXT, 1, false);
     }
-
-    // ---- materials strip + bag meter
     {
-        const int cols = 6, rows = (M_COUNT + cols - 1) / cols;  // two rows now that there are more materials
-        int x = 4, y = LH - 4 - rows * 25;
         int used = p.bagUsed(), cap = p.bagCap();
-        panel(x, y, cols * 18 + 6, rows * 25, HEX(0x33241a));
-        for (int m = 0; m < M_COUNT; m++) {
-            int cx = x + 4 + (m % cols) * 18, cy = y + (m / cols) * 25;
-            icon(A.matIcon[m], cx + 8, cy + 9, 14, p.mat(m) > 0 ? 1.f : 0.35f);
-            std::string t = S(p.mat(m));
-            textC(cx + 8, cy + 17, t, p.mat(m) > 0 ? C_TEXT : HEX(0x6e5f4a), 1, false);
+        if (stripRows > 0) {
+            panel(4, stripY, stripCols * 18 + 6, stripRows * 25, HEX(0x33241a));
+            for (int k = 0; k < shownMats; k++) {
+                const int m = ownedMats[k];
+                int cx = 4 + 4 + (k % stripCols) * 18, cy = stripY + (k / stripCols) * 25;
+                icon(A.matIcon[m], cx + 8, cy + 9, 14);
+                textC(cx + 8, cy + 17, S(p.mat(m)), C_TEXT, 1, false);
+            }
         }
-        float f = (float)used / cap;
-        text(x + 1, y - 9, "BAG " + S(used) + "/" + S(cap), used >= cap ? C_RED : C_TEXT);
-        bar(x + 52, y - 8, 40, 3, f, used >= cap ? HEX(0xd8443f) : HEX(0x8ec2f0));
+        if ((int)ownedMats.size() > shownMats) text(4 + stripCols * 18 + 8, stripY + stripRows * 25 - 8, "+" + S((int)ownedMats.size() - shownMats), C_DIM, 1, false);
+        text(5, stripY - 9, "BAG " + S(used) + "/" + S(cap), used >= cap ? C_RED : C_TEXT);
+        bar(56, stripY - 8, 40, 3, (float)used / cap, used >= cap ? HEX(0xd8443f) : HEX(0x8ec2f0));
     }
     // ---- hotbar
     {
-        int sw = 24, gap = 3, total = W_COUNT * sw + (W_COUNT - 1) * gap;
+        int sw = W_COUNT > 6 ? 22 : 24, gap = W_COUNT > 6 ? 2 : 3, total = W_COUNT * sw + (W_COUNT - 1) * gap;
         int x0 = (LW - total) / 2 + 14, y = LH - sw - 5;
         for (int i = 0; i < W_COUNT; i++) {
             int x = x0 + i * (sw + gap);
@@ -710,18 +777,19 @@ void Game::drawHud() {
         }
         int bx = x0 + total + 7;
         panel(bx, y, sw, sw, HEX(0x33241a));
-        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, p.bandages() > 0 ? 1.f : 0.3f);
+        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, (p.bandages() + p.inv.count(itemCons(C_SALVE)) + p.inv.count(itemCons(C_COOKED)) + p.inv.count(itemCons(C_TONIC))) > 0 ? 1.f : 0.3f);
         text(bx + 3, y + 3, "Q", C_DIM, 1, false);
-        std::string n = S(p.bandages());
-        text(bx + sw - 3 - textW(n), y + sw - 8, n, p.bandages() > 0 ? C_TEXT : C_RED);
+        const int heals = p.bandages() + p.inv.count(itemCons(C_SALVE)) + p.inv.count(itemCons(C_COOKED)) + p.inv.count(itemCons(C_TONIC));
+        std::string n = S(heals);
+        text(bx + sw - 3 - textW(n), y + sw - 8, n, heals > 0 ? C_TEXT : C_RED);
         // selected weapon name
         textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-6 OR WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW OR SHOOT",
-                               "WALK OVER THROWN WEAPONS TO PICK THEM UP", "HOLD E AT A CARCASS TO GATHER - E AT THE SHOP TO TRADE",
-                               "Q BANDAGE   I PACK   M MAP   H HELP   ESC PAUSE"};
+        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-9 OR WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW OR SHOOT",
+                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT TO GATHER", "AXE FOR TREES, PICKAXE FOR ORE - CRAFT THEM IN THE PACK (I)",
+                               "Q HEAL   I PACK + CRAFTING   M MAP   H HELP   ESC PAUSE"};
         int w = 232, h = 52;
         int x = LW / 2 - w / 2, y = 52;
         panel(x, y, w, h, HEX(0x33241a));
@@ -879,28 +947,44 @@ void Game::drawShop() {
         textC(X + 39, Y + 176, lines[((int)(titleT + timeAcc * 0.15f)) % 4], C_TEXT, 1, false);
     }
     const int x0 = X + 80, cw = 240;
-    // ---------------- SELL
+    // ---------------- SELL: only what you carry, scrollable (there are 32 materials now)
     if (shopTab == 0) {
         text(x0 + 20, Y + 22, "ITEM", C_DIM, 1, false);
         text(x0 + 82, Y + 22, "HAVE", C_DIM, 1, false);
         text(x0 + 112, Y + 22, "EACH", C_DIM, 1, false);
+        std::vector<int> owned;
         int total = 0;
-        for (int m = 0; m < M_COUNT; m++) total += p.mat(m) * MAT_PRICE[m];
-        for (int m = 0; m < M_COUNT; m++) {
-            int y = Y + 30 + m * 17;
-            bool has = p.mat(m) > 0;
-            fillRect(x0, y, cw, 16, (m & 1) ? RGBA(0, 0, 0, 40) : RGBA(0, 0, 0, 80));
-            icon(A.matIcon[m], x0 + 10, y + 8, 14, has ? 1.f : 0.4f);
-            text(x0 + 21, y + 5, MAT_NAME[m], has ? C_TEXT : HEX(0x7a6a52));
-            text(x0 + 84, y + 5, S(p.mat(m)), has ? C_TEXT : HEX(0x7a6a52));
+        bool partsHeld = false;
+        auto isPart = [](int m) { return m == M_ROPE || m == M_COPPERBAR || m == M_IRONBAR || m == M_GOLDBAR; };  // crafting components: kept by SELL EVERYTHING
+        for (int m = 0; m < M_COUNT; m++)
+            if (p.mat(m) > 0) {
+                owned.push_back(m);
+                if (isPart(m)) partsHeld = true;
+                else total += p.mat(m) * MAT_PRICE[m];
+            }
+        const int ROWS = 8, maxScroll = std::max(0, (int)owned.size() - ROWS);
+        sellScroll = std::max(0, std::min(maxScroll, sellScroll));
+        if (maxScroll > 0) text(x0 + 150, Y + 22, "WHEEL: MORE (" + S(sellScroll + 1) + "-" + S(std::min((int)owned.size(), sellScroll + ROWS)) + "/" + S((int)owned.size()) + ")", C_DIM, 1, false);
+        if (owned.empty()) {
+            textC(x0 + cw / 2, Y + 70, "NOTHING TO SELL YET", C_DIM);
+            textC(x0 + cw / 2, Y + 82, "HUNT ANIMALS OR GATHER FROM THE LAND", C_DIM, 1, false);
+        }
+        for (int i = 0; i < ROWS && sellScroll + i < (int)owned.size(); i++) {
+            const int m = owned[sellScroll + i];
+            int y = Y + 30 + i * 17;
+            fillRect(x0, y, cw, 16, (i & 1) ? RGBA(0, 0, 0, 40) : RGBA(0, 0, 0, 80));
+            icon(A.matIcon[m], x0 + 10, y + 8, 14);
+            text(x0 + 21, y + 5, MAT_NAME[m], C_TEXT);
+            text(x0 + 84, y + 5, S(p.mat(m)), C_TEXT);
             icon(A.coin, x0 + 114, y + 8, 8);
             text(x0 + 120, y + 5, S(MAT_PRICE[m]), C_GOLD);
-            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", has)) sellMat(m, 1);
-            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", has)) sellMat(m, p.mat(m));
+            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", true)) sellMat(m, 1);
+            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", true)) sellMat(m, p.mat(m));
         }
-        std::string lab = total > 0 ? "SELL EVERYTHING  +" + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
-        if (button(x0, Y + 30 + 7 * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
-            for (int m = 0; m < M_COUNT; m++) sellMat(m, p.mat(m));
+        std::string lab = total > 0 ? std::string(partsHeld ? "SELL ALL BUT PARTS  +" : "SELL EVERYTHING  +") + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
+        if (button(x0, Y + 30 + ROWS * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
+            for (int m = 0; m < M_COUNT; m++)
+                if (!isPart(m)) sellMat(m, p.mat(m));
             msg("SOLD EVERYTHING FOR " + S(total) + " COINS", C_GOLD);
             save();
         }
@@ -1022,18 +1106,26 @@ void Game::drawInventory() {
     }
     if (button(X + 8, Y + 20, 64, 13, "BACKPACK", true, invTab == 0 ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = 0;
     if (button(X + 76, Y + 20, 64, 13, "CRAFTING", true, invTab == 1 ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = 1;
-    const int cy = Y + 38;
-    auto iconOf = [&](int id) -> const Spr& {
-        const ItemDef& D = item(id);
-        switch (D.kind) {
-            case IK_MATERIAL: return A.matIcon[D.ref];
-            case IK_THROWN:
-            case IK_LAUNCHER: return A.wpnIcon[D.ref];
-            case IK_AMMO: return A.ammoIcon[D.ref];
-            case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(2, D.ref)];
-            default: return A.bandage;
+    // category filter for the grid: items outside the chosen category are dimmed (the grid itself never moves)
+    auto filterOf = [](int id) {
+        switch (item(id).kind) {
+            case IK_MATERIAL: return 1;
+            case IK_THROWN: case IK_LAUNCHER: case IK_AMMO: return 2;
+            case IK_TOOL: return 3;
+            default: return 4;
         }
     };
+    if (invTab == 0) {
+        static const char* fl[5] = {"ALL", "MATERIALS", "WEAPONS", "TOOLS", "SUPPLIES"};
+        int fx = X + 146;
+        for (int i = 0; i < 5; i++) {
+            int w = textW(fl[i]) + 10;
+            if (button(fx, Y + 20, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
+            fx += w + 2;
+        }
+    }
+    const int cy = Y + 38;
+    auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
 
     if (invTab == 0) {
         const int gx = X + 8, gy = cy + 2;
@@ -1060,7 +1152,7 @@ void Game::drawInventory() {
                 fillRect(x + 1, y + CELL - 2, CELL - 3, 1, C_GOLD);
             }
             if (!sl.empty()) {
-                icon(iconOf(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 14);
+                icon(iconOf(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 14, (invFilter == 0 || filterOf(sl.item) == invFilter) ? 1.f : 0.25f);
                 if (sl.n > 1) {
                     std::string n = S(sl.n);
                     text(x + CELL - 2 - textW(n), y + CELL - 8, n, C_TEXT);
@@ -1109,14 +1201,60 @@ void Game::drawInventory() {
             } else if (D.kind == IK_AMMO) {
                 for (int w = 0; w < W_COUNT; w++)
                     if (WPN[w].ammo == D.ref) text(dx + 6, ty, std::string("FIRED BY THE ") + WPN[w].name, C_TEXT, 1, false);
-            } else
-                text(dx + 6, ty, D.blurb, C_DIM, 1, false);
+            } else {
+                // word-wrapped description, then what a tool does / where a material comes from and what it is used for
+                auto wrap = [&](const std::string& txt, u32 col) {
+                    const size_t maxc = (size_t)std::max(8, (dw - 10) / 4);
+                    size_t pos = 0;
+                    while (pos < txt.size()) {
+                        size_t len = std::min(maxc, txt.size() - pos);
+                        if (pos + len < txt.size()) {
+                            size_t sp = txt.rfind(' ', pos + len);
+                            if (sp != std::string::npos && sp > pos) len = sp - pos;
+                        }
+                        text(dx + 6, ty, txt.substr(pos, len), col, 1, false);
+                        ty += 9;
+                        pos += len;
+                        while (pos < txt.size() && txt[pos] == ' ') pos++;
+                    }
+                };
+                wrap(D.blurb, C_DIM);
+                if (D.kind == IK_TOOL) {
+                    const ToolDef& T = TOOLDEF[D.ref];
+                    wrap(std::string(T.type == TT_AXE ? "CHOPS TREES" : "BREAKS ROCK AND ORE") + " - TIER " + S(T.tier), C_TEXT);
+                    wrap("SPEED X" + S((int)lroundf(T.speed * 10) / 10) + "." + S((int)lroundf(T.speed * 10) % 10) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%", C_TEXT);
+                } else if (D.kind == IK_MATERIAL) {
+                    std::string from;
+                    int nf = 0;
+                    for (int r = 0; r < RS_COUNT && nf < 3; r++)
+                        for (int k = 0; k < 3; k++)
+                            if (RES[r].y[k].mat == D.ref) {
+                                if (nf > 0 && from.find(RES[r].name) != std::string::npos) break;
+                                from += (nf ? ", " : "") + std::string(RES[r].name);
+                                nf++;
+                                break;
+                            }
+                    if (D.ref < M_CARCASS_N) from = "HUNTING";
+                    else if (from.empty()) from = "SMELTING / CRAFTING";
+                    wrap("FROM: " + from, C_GREEN);
+                    std::string used;
+                    int nu = 0;
+                    for (int r = 0; r < RECIPE_N && nu < 3; r++)
+                        for (int k = 0; k < 3; k++)
+                            if (RECIPES[r].mat[k] == D.ref) {
+                                used += (nu ? ", " : "") + recipeName(RECIPES[r]);
+                                nu++;
+                                break;
+                            }
+                    if (nu > 0) wrap("USED: " + used, C_BLUE);
+                }
+            }
         }
         // action buttons (act on the selected slot)
         const Slot& cur = p.inv.slots[std::max(0, std::min(cap - 1, invSel))];
         const ItemDef* cd = cur.empty() ? nullptr : &item(cur.item);
-        bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE);
-        const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : "EQUIP";
+        bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE);
+        const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : cd->kind == IK_PLACEABLE ? "PLACE" : "EQUIP";
         int by = cy + panelH - 17;
         if (button(dx + 6, by, 56, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);
         if (button(dx + 66, by, 40, 13, "SORT", true, HEX(0x4a3a5e))) {
@@ -1125,27 +1263,7 @@ void Game::drawInventory() {
         }
         textC(X + W / 2, Y + H - 12, "I / ESC CLOSE   TAB CRAFTING   ARROWS MOVE   ENTER EQUIP OR USE", C_DIM, 1, false);
     } else {
-        // ---- crafting
-        const bool atShop = nearShop();
-        for (int r = 0; r < RECIPE_N; r++) {
-            const Recipe& R = RECIPES[r];
-            int y = cy + r * 24, x = X + 8, w = W - 16;
-            panel(x, y, w, 22, HEX(0x3a2a1a));
-            int outId = recipeItem(R);
-            icon(iconOf(outId), x + 12, y + 11, 16);
-            text(x + 24, y + 3, item(outId).name + "  X" + S(R.count), C_GOLD);
-            text(x + 160, y + 3, "OWNED " + S(p.inv.count(outId)), C_DIM, 1, false);
-            int cx = x + 24;
-            bool ok = true;
-            for (int i = 0; i < 3; i++)
-                if (R.mat[i] >= 0) {
-                    cx = chip(cx, y + 10, A.matIcon[R.mat[i]], p.mat(R.mat[i]), R.n[i]);
-                    if (p.mat(R.mat[i]) < R.n[i]) ok = false;
-                }
-            const bool needShop = R.kind == RK_WEAPON && !atShop;
-            if (button(x + w - 56, y + 4, 52, 14, needShop ? "AT SHOP" : "CRAFT", ok && !needShop, HEX(0x5d7a2e))) craft(r);
-        }
-        textC(X + W / 2, Y + H - 12, "WEAPONS ARE MADE AT THE SHOP - ARROWS, BOLTS AND BANDAGES ANYWHERE   TAB BACK", C_DIM, 1, false);
+        drawCraftTab(X, Y, W, H);
     }
 }
 
@@ -1202,6 +1320,7 @@ void Game::render() {
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
         case ST_INVENTORY: drawHud(); drawInventory(); break;
+        case ST_CHEST: drawHud(); drawChest(); break;
     }
     if (state == ST_PLAY && !p.dead) drawReticle();
     else sprS(A.cursor, (int)in.mx, (int)in.my);

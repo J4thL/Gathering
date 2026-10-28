@@ -63,6 +63,9 @@ static void pollInput(Game& g) {
                     case SDLK_4: in.selectKey = 3; break;
                     case SDLK_5: in.selectKey = 4; break;
                     case SDLK_6: in.selectKey = 5; break;
+                    case SDLK_7: in.selectKey = 6; break;
+                    case SDLK_8: in.selectKey = 7; break;
+                    case SDLK_9: in.selectKey = 8; break;
                     case SDLK_F11:
                         g.fullscreen = !g.fullscreen;
                         SDL_SetWindowFullscreen(g.win, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
@@ -103,7 +106,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.newGame();
     g.state = ST_PLAY;
     g.p.coins = 250;
-    for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), 4 + m);
+    for (int m = 0; m < M_CARCASS_N; m++) g.p.inv.set(itemMat(m), 4 + m);
     frames(30);
     shot("02_village.bmp");
     g.helpT = 0;
@@ -208,6 +211,44 @@ static void scriptedRun(Game& g, const std::string& dir) {
     frames(2);
     shot("08_upgrades.bmp");
     g.state = ST_PLAY;
+
+    // gathering and crafting screens
+    {
+        g.p.up[U_BAG] = 2;
+        g.p.syncPack();
+        for (int m = M_WOOD; m <= M_GOLDBAR; m++) g.p.inv.set(itemMat(m), 3 + m % 5);
+        g.p.inv.add(itemTool(TL_AXE2), 1);
+        g.p.inv.add(itemTool(TL_PICK1), 1);
+        g.p.inv.add(itemPlace(PL_CAMPFIRE), 1);
+        g.p.inv.add(itemCons(C_SALVE), 2);
+        g.p.coins = 250;
+        g.state = ST_INVENTORY;
+        g.invTab = 0;
+        frames(3);
+        shot("20_pack.bmp");
+        g.invTab = 1;
+        g.craftCat = -1;
+        frames(3);
+        shot("21_craft_all.bmp");
+        g.craftOnly = true;
+        frames(3);
+        shot("22_craft_canmake.bmp");
+        g.craftOnly = false;
+        g.state = ST_PLAY;
+        // standing at an oak with an axe, mid-swing
+        for (size_t i = 0; i < g.world.props.size(); i++)
+            if (g.propRsId[i] == RS_OAK && dist(V2(g.world.props[i].x, g.world.props[i].y), g.world.spawn) > 150) {
+                g.p.pos = V2(g.world.props[i].x, g.world.props[i].y + 12);
+                break;
+            }
+        g.camX = (int)g.p.pos.x - LW / 2;
+        g.in.e = true;
+        frames(40);
+        shot("23_chopping.bmp");
+        frames(400);
+        g.in.e = false;
+        shot("24_felled.bmp");
+    }
 
     // night + wolf + hud
     g.p.pos = g.world.village + V2(0, 70);
@@ -324,7 +365,10 @@ static int worldCheck(Game& g) {
     int nodeBad = 0, nodeCnt[RN_COUNT] = {0};
     for (auto& n : w.nodes) {
         nodeCnt[n.kind]++;
-        if (!rc.nearReach(n.x, n.y, 2)) nodeBad++;
+        if (!rc.nearReach(n.x, n.y, 2)) {
+            nodeBad++;
+            printf("    unreachable %s at tile (%d,%d) biome %s\n", NODE_NAME[n.kind], (int)(n.x / 16.f), (int)(n.y / 16.f), BIOME[w.biomeAtPos(n.x, n.y)].name);
+        }
     }
     printf("  resource nodes:");
     for (int k = 0; k < RN_COUNT; k++) printf(" %s=%d", NODE_NAME[k], nodeCnt[k]);
@@ -917,13 +961,15 @@ static int weaponTest(Game& g) {
         check(all, "feathers, scales, horns and claws drop from the species they were assigned to");
         int orig = 0;
         for (int k : {A_RABBIT, A_DEER, A_BOAR, A_WOLF})
-            for (int m = M_FEATHER; m < M_COUNT; m++) orig += ANIMAL[k].drop[m][1];
+            for (int m = M_FEATHER; m < M_CARCASS_N; m++) orig += ANIMAL[k].drop[m][1];
         check(orig == 0, "the original four animals drop no new materials");
     }
     // --- save round trip
     {
         g.p.coins = 123;
-        for (int m = 0; m < M_COUNT; m++) g.p.inv.set(itemMat(m), m + 1);
+        g.p.up[U_BAG] = 2;  // the test stores 11 materials + 9 weapons + 2 ammo types: more than the starting 20 slots
+        g.p.syncPack();
+        for (int m = 0; m < M_CARCASS_N; m++) g.p.inv.set(itemMat(m), m + 1);
         for (int w = 0; w < W_COUNT; w++) g.p.inv.set(itemWpn(w), isLauncher(w) ? 1 : w + 2);
         g.p.inv.set(itemAmmo(AM_ARROW), 37);
         g.p.inv.set(itemAmmo(AM_BOLT), 11);
@@ -935,9 +981,9 @@ static int weaponTest(Game& g) {
         g.p.inv.clear();
         bool ld = g.load();
         bool same = ld && g.p.coins == keep.coins && g.p.ammo(AM_ARROW) == 37 && g.p.ammo(AM_BOLT) == 11;
-        for (int m = 0; m < M_COUNT; m++) same = same && g.p.mat(m) == keep.mat(m);
+        for (int m = 0; m < M_CARCASS_N; m++) same = same && g.p.mat(m) == keep.mat(m);
         for (int w = 0; w < W_COUNT; w++) same = same && g.p.wpn(w) == keep.wpn(w);
-        check(same, "save / load round trip keeps coins, all 11 materials, all 6 weapons and both ammo types");
+        check(same, "save / load round trip keeps coins, all 11 animal materials, all 9 weapons and both ammo types");
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
@@ -980,10 +1026,10 @@ static int selfTest(Game& g) {
         check(c.usedSlots() == 2 && c.count(MEAT) == 10 && c.count(HIDE) == 5, "compact merges partial stacks");
         // growth / shrink
         Inventory gr(20);
-        for (int m = 0; m < M_COUNT; m++) gr.add(itemMat(m), 5);
-        check(gr.setCapacity(30) && gr.capacity() == 30 && gr.usedSlots() == M_COUNT, "growing the bag keeps every item");
-        check(!gr.setCapacity(5) && gr.capacity() == 30 && gr.usedSlots() == M_COUNT, "shrinking below what is stored is refused (nothing is lost)");
-        check(gr.setCapacity(M_COUNT) && gr.capacity() == M_COUNT, "shrinking to exactly what fits works");
+        for (int m = 0; m < M_CARCASS_N; m++) gr.add(itemMat(m), 5);
+        check(gr.setCapacity(30) && gr.capacity() == 30 && gr.usedSlots() == M_CARCASS_N, "growing the bag keeps every item");
+        check(!gr.setCapacity(5) && gr.capacity() == 30 && gr.usedSlots() == M_CARCASS_N, "shrinking below what is stored is refused (nothing is lost)");
+        check(gr.setCapacity(M_CARCASS_N) && gr.capacity() == M_CARCASS_N, "shrinking to exactly what fits works");
         // random operations against a reference model
         Inventory z(20);
         std::map<int, long> ref;
@@ -1040,7 +1086,7 @@ static int selfTest(Game& g) {
     auto fillWithJunk = [&]() {
         g.p.inv.clear();
         int slotsLeft = g.p.bagCap();
-        for (int m = M_TUSK; m < M_COUNT && slotsLeft > 0; m++, slotsLeft--) g.p.inv.add(itemMat(m), 50);
+        for (int m = M_TUSK; m < M_CARCASS_N && slotsLeft > 0; m++, slotsLeft--) g.p.inv.add(itemMat(m), 50);
         for (int w = 0; w < W_COUNT && slotsLeft > 0; w++, slotsLeft--) g.p.inv.add(itemWpn(w), 1);
         for (int a = 0; a < AM_COUNT && slotsLeft > 0; a++, slotsLeft--) g.p.inv.add(itemAmmo(a), 10);
         g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 2);
@@ -1075,7 +1121,17 @@ static int selfTest(Game& g) {
         g.gatherStep(c);
         check(free0 == 0 && g.p.mat(M_MEAT) > 10, "a full bag still accepts items that fit an existing stack");
     }
+    // the recipe table grew: find the original recipes by what they make instead of by position
+    auto findRecipe = [&](int kind, int out, int firstMat) {
+        for (int r = 0; r < RECIPE_N; r++)
+            if (RECIPES[r].kind == kind && RECIPES[r].out == out && RECIPES[r].mat[0] == firstMat) return r;
+        return -1;
+    };
+    const int R_BONE = findRecipe(RK_WEAPON, W_BONE, M_BONE), R_ARROW = findRecipe(RK_AMMO, AM_ARROW, M_BONE),
+              R_BOLT = findRecipe(RK_AMMO, AM_BOLT, M_BONE), R_BANDAGE = findRecipe(RK_BANDAGE, 0, M_HIDE);
+    check(R_BONE == 0 && R_ARROW > 0 && R_BOLT > 0 && R_BANDAGE > 0, "the original recipes are all still in the table");
     {   // crafting in a full bag
+        g.p.pos = g.world.keeper + V2(-8, 14);  // bone knives are made at the shop
         g.p.inv.clear();
         fillWithJunk();
         g.p.inv.remove(itemMat(M_TUSK), 50);
@@ -1085,7 +1141,7 @@ static int selfTest(Game& g) {
         g.p.inv.add(HIDE, 1);
         g.p.inv.add(MEAT, 1);
         int bonesBefore = g.p.mat(M_BONE);
-        bool ok = g.craft(0);  // BONE KNIFE x4: needs 3 bone + 1 hide, the two ingredient stacks vanish, the knives take a slot
+        bool ok = g.craft(R_BONE);  // BONE KNIFE x4: needs 3 bone + 1 hide, the two ingredient stacks vanish, the knives take a slot
         check(ok && g.p.wpn(W_BONE) == 4 && g.p.mat(M_BONE) == bonesBefore - 3, "crafting in a full bag works when the ingredients free up the slot it needs");
         g.p.inv.clear();
         fillWithJunk();
@@ -1097,7 +1153,7 @@ static int selfTest(Game& g) {
         g.p.inv.add(MEAT, 1);
         int free1 = g.p.inv.freeSlots();
         int b0 = g.p.mat(M_BONE), h0 = g.p.mat(M_HIDE);
-        bool ok2 = g.craft(0);
+        bool ok2 = g.craft(R_BONE);
         check(free1 == 0 && !ok2 && g.p.mat(M_BONE) == b0 && g.p.mat(M_HIDE) == h0 && g.p.wpn(W_BONE) == 0, "crafting with no room is refused and the ingredients are returned untouched");
     }
     {   // picking up thrown weapons
@@ -1261,7 +1317,7 @@ static int selfTest(Game& g) {
         g.p.inv.add(itemAmmo(AM_ARROW), 24);
         g.p.inv.add(itemAmmo(AM_BOLT), 6);
         g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 3);
-        for (int m = 0; m < M_COUNT; m++) g.p.inv.add(itemMat(m), 3 + m * 9);
+        for (int m = 0; m < M_CARCASS_N; m++) g.p.inv.add(itemMat(m), 3 + m * 9);
         g.p.sel = W_BOW;
         g.invTab = 0;
         g.invSel = 2;
@@ -1290,30 +1346,36 @@ static int selfTest(Game& g) {
         g.p.inv.add(itemMat(M_TUSK), 1);
         g.p.inv.add(itemMat(M_ANTLER), 1);
         g.p.inv.add(itemMat(M_FUR), 1);
-        auto clickRecipe = [&](int r) {
-            g.in.mx = 24 + 8 + 336 - 56 + 20;
-            g.in.my = 12 + 38 + r * 24 + 4 + 7;
+        auto clickRecipe = [&](int r) {  // click the CRAFT button of recipe r: pick its category filter, then its row in that list
+            g.craftCat = RECIPES[r].cat;
+            g.craftScroll = 0;
+            g.craftOnly = false;
+            int row = 0;
+            for (int q = 0; q < r; q++)
+                if (RECIPES[q].cat == RECIPES[r].cat) row++;
+            g.in.mx = 24 + 8 + (352 - 16 - 5) - 54 + 25;
+            g.in.my = 12 + 38 + 14 + row * 22 + 4 + 6;
             g.in.uiClick = true;
             g.render();
             g.in.uiClick = false;
         };
         g.p.pos = g.world.spawn + V2(300, 300);  // far from the shop
         check(!g.nearShop(), "test setup: the hunter is away from the shop");
-        clickRecipe(0);
+        clickRecipe(R_BONE);
         check(g.p.wpn(W_BONE) == 0 && g.p.mat(M_BONE) == 5, "weapon recipes are refused away from the shop");
-        clickRecipe(3);
+        clickRecipe(R_ARROW);
         check(g.p.ammo(AM_ARROW) == 6 && g.p.mat(M_BONE) == 4 && g.p.mat(M_FEATHER) == 2, "ARROWS x6 can be crafted anywhere: 1 bone + 2 feathers");
-        clickRecipe(4);
+        clickRecipe(R_BOLT);
         check(g.p.ammo(AM_BOLT) == 4 && g.p.mat(M_HORN) == 0 && g.p.mat(M_BONE) == 2, "BOLTS x4: 2 bone + 1 horn");
-        clickRecipe(4);
+        clickRecipe(R_BOLT);
         check(g.p.ammo(AM_BOLT) == 4 && g.p.mat(M_BONE) == 2, "a recipe without its ingredients does nothing");
-        clickRecipe(5);
+        clickRecipe(R_BANDAGE);
         check(g.p.bandages() == 2 && g.p.mat(M_HIDE) == 2 && g.p.mat(M_ORGAN) == 1, "BANDAGE x2: 2 hide + 1 organs");
         // bandages stack to 9: with a free slot the extra ones start a second stack; with a full bag only 1 more fits, so the recipe is refused
         g.p.inv.set(ITEM_CONS0 + C_BANDAGE, 8);
         g.p.inv.add(HIDE, 4);
         g.p.inv.add(itemMat(M_ORGAN), 2);
-        bool cr = g.craft(5);
+        bool cr = g.craft(R_BANDAGE);
         check(cr && g.p.bandages() == 10, "with a free slot, bandages beyond a full stack of 9 go into a second stack");
         g.p.inv.clear();
         for (int i = 0; i < g.p.bagCap() - 3; i++) g.p.inv.add(itemWpn(W_BOW), 1);  // one slot per bow: nearly full
@@ -1321,7 +1383,7 @@ static int selfTest(Game& g) {
         g.p.inv.add(HIDE, 5);
         g.p.inv.add(itemMat(M_ORGAN), 3);
         int hide0 = g.p.mat(M_HIDE), org0 = g.p.mat(M_ORGAN), fs = g.p.inv.freeSlots();
-        bool cr2 = g.craft(5);
+        bool cr2 = g.craft(R_BANDAGE);
         check(fs == 0 && !cr2 && g.p.bandages() == 8 && g.p.mat(M_HIDE) == hide0 && g.p.mat(M_ORGAN) == org0, "in a full bag the bandage recipe is refused and the ingredients are returned");
         // near the shop: weapons allowed
         g.p.pos = g.world.keeper + V2(-8, 14);
@@ -1329,7 +1391,7 @@ static int selfTest(Game& g) {
         g.p.inv.add(HIDE, 2);
         g.p.inv.add(BONE, 4);
         check(g.nearShop(), "test setup: the hunter is at the shop");
-        clickRecipe(0);
+        clickRecipe(R_BONE);
         check(g.p.wpn(W_BONE) == 4, "at the shop the same screen crafts weapons");
         // ---- the quest about crafting a weapon only counts weapons
         g.questIdx = 4;
@@ -1338,10 +1400,10 @@ static int selfTest(Game& g) {
         g.questProg = 0;
         g.p.inv.add(BONE, 6);
         g.p.inv.add(itemMat(M_FEATHER), 4);
-        g.craft(3);
+        g.craft(R_ARROW);
         check(g.questProg == 0, "crafting arrows does not count for 'craft a weapon'");
         g.p.inv.add(HIDE, 2);
-        g.craft(0);
+        g.craft(R_BONE);
         check(g.questProg == 1, "crafting a weapon does");
         // ---- every screen renders in every state without trouble
         bool rendered = true;
@@ -1451,6 +1513,277 @@ static int selfTest(Game& g) {
         check(!ld && g.loadReport.version == 0, "a file that is not a save is rejected (load returns false)");
         removeAll();
         check(!g.load(), "no file: load returns false");
+    }
+    // ======================================================== gathering, crafting, structures
+    printf("gathering, crafting and structures\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.p.inv.clear();
+        auto recipeFor = [&](int kind, int out, int firstMat, int count = -1) {
+            for (int r = 0; r < RECIPE_N; r++)
+                if (RECIPES[r].kind == kind && RECIPES[r].out == out && RECIPES[r].mat[0] == firstMat && (count < 0 || RECIPES[r].count == count)) return r;
+            return -1;
+        };
+        // stand beside resource `rs` such that findHarvest picks exactly it
+        auto standAt = [&](int rs, bool& node, int& idx, int skip = 0) {
+            for (int pass = 0; pass < 2; pass++) {
+                const bool wantNode = pass == 0;
+                const size_t n = wantNode ? g.world.nodes.size() : g.world.props.size();
+                for (size_t i = 0; i < n; i++) {
+                    const int res = wantNode ? nodeRes(g.world.nodes[i].kind) : g.propRsId[i];
+                    if (res != rs) continue;
+                    const float x = wantNode ? g.world.nodes[i].x : g.world.props[i].x, y = wantNode ? g.world.nodes[i].y : g.world.props[i].y;
+                    g.p.pos = V2(x, y + 12);
+                    HTarget t;
+                    if (g.findHarvest(t) && t.node == wantNode && t.idx == (int)i && skip-- <= 0) {
+                        node = wantNode;
+                        idx = (int)i;
+                        return true;
+                    }
+                }
+            }
+            return false;
+        };
+        auto swingUntilGone = [&](bool node, int idx, int& steps) {
+            steps = 0;
+            while (!g.hstate(node, idx).gone && steps < 4000) {
+                HTarget t;
+                if (!g.findHarvest(t) || t.idx != idx || t.node != node) return false;
+                g.harvestStep(t, 0.05f);
+                steps++;
+            }
+            return g.hstate(node, idx).gone;
+        };
+        auto canHarvest = [&](int rs) {
+            const ResDef& RD = RES[rs];
+            return RD.tool < 0 || g.bestTool(RD.tool) >= RD.minTier;
+        };
+        bool node = false;
+        int idx = -1, steps = 0;
+
+        // ---- tool tiers gate ore
+        check(standAt(RS_IRON, node, idx), "an iron vein exists and can be reached by line of sight");
+        check(!canHarvest(RS_IRON), "iron cannot be mined with bare hands");
+        g.p.inv.add(itemTool(TL_PICK1), 1);
+        check(!canHarvest(RS_IRON), "a stone pickaxe (tier 1) is not enough for iron");
+        g.p.inv.add(itemTool(TL_PICK2), 1);
+        check(canHarvest(RS_IRON) && !canHarvest(RS_GOLD), "a copper pickaxe mines iron but not gold");
+        check(g.bestTool(TT_PICK) == 2 && g.bestTool(TT_AXE) == 0, "bestTool picks the highest tier of the right type");
+        // ---- swing, finish, reward, depletion
+        const int ironBefore = g.p.mat(M_IRON);
+        const bool done = swingUntilGone(node, idx, steps);
+        check(done, "holding the swing finishes the vein");
+        check(g.p.mat(M_IRON) > ironBefore, "finishing the vein pays out iron ore");
+        const float minSecs = (RES[RS_IRON].hits - 1) * RES[RS_IRON].swing / TOOLDEF[TL_PICK2].speed;
+        check(steps * 0.05f >= minSecs, "a vein takes at least hits x swing time (no free rewards)");
+        {
+            HTarget t;
+            const bool still = g.findHarvest(t) && t.node == node && t.idx == idx;
+            check(!still, "a depleted vein cannot be harvested again (no duplicate rewards)");
+            const int had = g.p.mat(M_IRON);
+            HTarget fake;
+            fake.valid = true; fake.node = node; fake.idx = idx; fake.res = RS_IRON; fake.pos = g.p.pos;
+            for (int i = 0; i < 200; i++) g.harvestStep(fake, 0.05f);
+            check(g.p.mat(M_IRON) == had, "forcing swings at a depleted vein gives nothing");
+        }
+        // ---- respawn timing
+        {
+            for (float t = 0; t < RES[RS_IRON].respawn * 0.5f; t += 1.f) g.updateHarvest(1.f);
+            check(g.hstate(node, idx).gone, "it is still depleted halfway through the respawn time");
+            for (float t = 0; t < RES[RS_IRON].respawn * 0.7f + REGROW_FADE + 2.f; t += 1.f) g.updateHarvest(1.f);
+            check(g.harvestUp(node, idx), "it has grown back after the respawn time");
+            HTarget t;
+            check(g.findHarvest(t) && t.idx == idx, "and can be harvested again");
+        }
+        // ---- trees: solid tile cleared while felled, restored when regrown, border trees stay
+        {
+            g.p.inv.add(itemTool(TL_AXE1), 1);
+            check(standAt(RS_OAK, node, idx, 5), "an oak is reachable");
+            const Prop& pr = g.world.props[idx];
+            const int tx = (int)(pr.x / TS), ty = (int)(pr.y / TS);
+            check(g.world.solid[ty][tx], "a standing oak is a solid tile");
+            const int woodBefore = g.p.mat(M_WOOD);
+            check(swingUntilGone(node, idx, steps), "an oak can be chopped down");
+            check(g.p.mat(M_WOOD) > woodBefore, "felling an oak gives wood");
+            check(!g.world.solid[ty][tx], "a felled tree no longer blocks the way");
+            g.p.pos = V2(pr.x + 120, pr.y + 120);  // walk away: nobody blocks the regrowth
+            for (float t = 0; t < RES[RS_OAK].respawn * 1.3f + REGROW_FADE + 5.f; t += 1.f) g.updateHarvest(1.f);
+            check(g.harvestUp(node, idx) && g.world.solid[ty][tx], "the oak regrows and is solid again");
+        }
+        {
+            int bad = 0, harvestable = 0;
+            for (size_t i = 0; i < g.world.props.size(); i++) {
+                const int tx = (int)(g.world.props[i].x / TS), ty = (int)(g.world.props[i].y / TS);
+                if (g.propRsId[i] >= 0) {
+                    harvestable++;
+                    if (protectedTile(tx, ty)) bad++;
+                }
+            }
+            check(harvestable > 0 && bad == 0, "trees on the map border and around the home core are never harvestable");
+        }
+        // ---- no gathering through obstacles
+        {
+            check(standAt(RS_HERB, node, idx), "a wild herb is reachable");
+            const V2 target(g.world.nodes[idx].x, g.world.nodes[idx].y - 4);
+            // put a solid wall tile between the hunter and the plant
+            const int wx = (int)((g.p.pos.x + target.x) / 2 / TS), wy = (int)((g.p.pos.y + target.y) / 2 / TS);
+            const bool had = g.world.solid[wy][wx];
+            const int ptx = (int)(target.x / TS), pty = (int)(target.y / TS);
+            if ((wx != ptx || wy != pty)) {
+                g.world.solid[wy][wx] = true;
+                g.p.pos = target + V2(0, 24);
+                g.world.solid[(int)((g.p.pos.y + target.y) / 2 / TS)][(int)(target.x / TS)] = true;
+                HTarget t;
+                const bool seen = g.findHarvest(t) && t.node && t.idx == idx;
+                check(!seen, "a solid tile between the hunter and the plant blocks gathering");
+                g.world.solid[(int)((g.p.pos.y + target.y) / 2 / TS)][(int)(target.x / TS)] = had;
+            }
+            g.world.solid[wy][wx] = had;
+        }
+        // ---- a full bag never swallows a resource
+        {
+            check(standAt(RS_HERB, node, idx, 1), "another herb is reachable");
+            g.p.inv.clear();
+            for (int i = 0; i < g.p.bagCap(); i++) g.p.inv.add(itemWpn(W_BOW), 1);
+            check(g.p.bagUsed() == g.p.bagCap(), "test setup: the bag is full");
+            for (int i = 0; i < 200; i++) {
+                HTarget t;
+                if (!g.findHarvest(t)) break;
+                g.harvestStep(t, 0.05f);
+            }
+            check(!g.hstate(node, idx).gone && g.p.mat(M_HERB) == 0, "with a full bag the plant stays and nothing is lost");
+            g.p.inv.clear();
+            check(swingUntilGone(node, idx, steps) && g.p.mat(M_HERB) > 0, "with room again the same plant gives its reward");
+        }
+        // ---- crafting rules
+        g.p.inv.clear();
+        g.structs.clear();
+        {
+            // a spot well away from the village: nothing is "near" a fire or the shop there
+            bool found = false;
+            for (int ty = 20; ty < MH - 20 && !found; ty += 5)
+                for (int tx = 20; tx < MW - 20 && !found; tx += 5) {
+                    g.p.pos = V2(tx * TS + 8.f, ty * TS + 8.f - 18.f);
+                    g.p.dir = 0;
+                    if (dist(g.p.pos, g.world.fire) > 150 && dist(g.p.pos, g.world.keeper) > 150 && g.canPlaceAt(tx, ty) && !g.world.solidTile(tx, ty - 2)) found = true;
+                }
+            check(found, "test setup: an open spot far from the village");
+            const int rCamp = recipeFor(RK_ITEM, itemPlace(PL_CAMPFIRE), M_WOOD);
+            const int rCopperBar = recipeFor(RK_ITEM, itemMat(M_COPPERBAR), M_COPPER);
+            const int rRope = recipeFor(RK_ITEM, itemMat(M_ROPE), M_FIBER);
+            const int rCuAxe = recipeFor(RK_ITEM, itemTool(TL_AXE2), M_WOOD);
+            const int rArmor1 = recipeFor(RK_GEAR, U_ARMOR, M_HIDE, 1), rArmor2 = recipeFor(RK_GEAR, U_ARMOR, M_FUR, 2);
+            const int rIronAxe = recipeFor(RK_ITEM, itemTool(TL_AXE3), M_WOOD);
+            check(rCamp >= 0 && rCopperBar >= 0 && rRope >= 0 && rCuAxe >= 0 && rArmor1 >= 0 && rArmor2 >= 0 && rIronAxe >= 0, "the key recipes are all in the table");
+            check(g.craftBlock(rCamp) == "MISSING MATERIALS", "a recipe without its materials says so");
+            // every recipe in the table produces something real and names real ingredients
+            int badRecipes = 0;
+            for (int r = 0; r < RECIPE_N; r++) {
+                const Recipe& R = RECIPES[r];
+                bool ok = R.count > 0 && !recipeName(R).empty();
+                int ing = 0;
+                for (int k = 0; k < 3; k++)
+                    if (R.mat[k] >= 0) {
+                        ing++;
+                        ok = ok && R.mat[k] < M_COUNT && R.n[k] > 0;
+                    }
+                ok = ok && ing > 0;
+                if (R.kind != RK_GEAR && R.kind != RK_BANDAGE) ok = ok && recipeItem(R) > 0 && recipeItem(R) < ITEM_COUNT;
+                if (!ok) {
+                    badRecipes++;
+                    printf("    bad recipe #%d\n", r);
+                }
+            }
+            check(badRecipes == 0, "every recipe has valid ingredients and a real output");
+            // each raw material that a recipe needs can be gathered, dropped or made
+            bool producible[M_COUNT] = {false};
+            for (int rs = 0; rs < RS_COUNT; rs++)
+                for (int k = 0; k < 3; k++)
+                    if (RES[rs].y[k].mat >= 0) producible[RES[rs].y[k].mat] = true;
+            for (int a = 0; a < A_COUNT; a++)
+                for (int m = 0; m < M_CARCASS_N; m++)
+                    if (ANIMAL[a].drop[m][1] > 0) producible[m] = true;
+            for (int r = 0; r < RECIPE_N; r++)
+                if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
+            int unmakeable = 0;
+            for (int r = 0; r < RECIPE_N; r++)
+                for (int k = 0; k < 3; k++)
+                    if (RECIPES[r].mat[k] >= 0 && !producible[RECIPES[r].mat[k]]) {
+                        unmakeable++;
+                        printf("    recipe #%d needs %s, which nothing provides\n", r, MAT_NAME[RECIPES[r].mat[k]]);
+                    }
+            check(unmakeable == 0, "every ingredient of every recipe can actually be obtained");
+
+            g.p.inv.add(itemMat(M_COPPER), 2);
+            g.p.inv.add(itemMat(M_WOOD), 12);
+            g.p.inv.add(itemMat(M_STONE), 6);
+            check(g.craftBlock(rCopperBar) == "STAND BY A CAMPFIRE", "smelting away from a fire is refused");
+            check(!g.craft(rCopperBar) && g.p.mat(M_COPPER) == 2, "...and consumes nothing");
+            check(g.craft(rCamp) && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 1 && g.p.mat(M_STONE) == 3, "a campfire is crafted from wood and stone");
+            check(g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1 && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 0, "the campfire is placed");
+            check(g.nearFire(), "standing by the placed campfire counts as a fire");
+            check(g.craft(rCopperBar) && g.p.mat(M_COPPERBAR) == 1 && g.p.mat(M_COPPER) == 0, "copper smelts into a bar at the fire");
+            // rope, then the copper axe
+            g.p.inv.add(itemMat(M_FIBER), 3);
+            check(g.craft(rRope) && g.p.mat(M_ROPE) == 1 && g.p.mat(M_FIBER) == 0, "fibre twists into rope");
+            check(g.p.mat(M_COPPERBAR) == 1, "(bar still in the bag)");
+            g.p.inv.add(itemMat(M_COPPERBAR), 1);
+            check(g.craft(rCuAxe) && g.p.inv.count(itemTool(TL_AXE2)) == 1, "a copper axe is crafted from wood, a copper bar and rope");
+            g.p.inv.add(itemMat(M_COPPERBAR), 2);
+            g.p.inv.add(itemMat(M_ROPE), 1);
+            g.p.inv.add(itemMat(M_WOOD), 2);
+            check(g.craftBlock(rCuAxe) == "YOU ALREADY HAVE ONE", "a second copy of a single tool is refused");
+            // iron tools need the shop's forge
+            g.p.inv.add(itemMat(M_IRONBAR), 2);
+            check(g.craftBlock(rIronAxe) == "STAND AT THE SHOP", "iron tools need the merchant");
+            // armor order
+            g.p.inv.add(itemMat(M_FUR), 4);
+            g.p.inv.add(itemMat(M_HIDE), 12);
+            g.p.inv.add(itemMat(M_FIBER), 2);
+            check(g.craftBlock(rArmor2) == "MAKE THE PREVIOUS LEVEL FIRST", "armor level 2 needs level 1 first");
+            check(g.craft(rArmor1) && g.p.up[U_ARMOR] == 1, "hide armor is worn at once");
+            check(g.craft(rArmor2) && g.p.up[U_ARMOR] == 2, "then the second level");
+            check(g.craftBlock(rArmor1) == "YOU WEAR BETTER ALREADY" || g.craftBlock(rArmor1) == "MISSING MATERIALS", "an older armor level cannot be crafted again");
+            // consumables
+            g.p.inv.clear();
+            g.p.hp = g.p.maxhp - 50;
+            g.p.inv.add(itemCons(C_SALVE), 1);
+            g.p.inv.add(itemCons(C_BREW), 1);
+            g.p.inv.add(itemCons(C_CACTUSWATER), 1);
+            const float h0 = g.p.hp;
+            check(g.useConsumable(C_SALVE) && g.p.hp > h0 && g.p.inv.count(itemCons(C_SALVE)) == 0, "a salve heals and is used up");
+            g.p.hp = g.p.maxhp;
+            check(!g.useConsumable(C_TONIC), "using something you do not own does nothing");
+            check(g.useConsumable(C_BREW) && g.p.warmT > 100.f, "a warm brew gives warmth");
+            check(g.useConsumable(C_CACTUSWATER) && g.p.coolT > 60.f && g.p.stamina >= 99.f, "cactus water refreshes");
+            // chest: move items both ways, keeps the stack rules
+            g.p.inv.clear();
+            g.p.inv.add(itemMat(M_WOOD), 5);
+            g.p.inv.add(itemMat(M_WOOD), 0);
+            g.p.inv.add(itemPlace(PL_CHEST), 1);
+            check(g.placeStructure(PL_CHEST) && g.structs.size() == 2, "a chest is placed");
+            g.chestOpen = 1;
+            int woodSlot = -1;
+            for (int i = 0; i < g.p.bagCap(); i++)
+                if (g.p.inv.slots[i].item == itemMat(M_WOOD)) woodSlot = i;
+            check(woodSlot >= 0 && g.chestMove(1, woodSlot) && g.p.mat(M_WOOD) == 0 && g.structs[1].inv.count(itemMat(M_WOOD)) == 5, "wood moves from the pack into the chest");
+            // save / load: depleted resources, structures and chest contents come back
+            check(standAt(RS_HERB, node, idx, 2) && swingUntilGone(node, idx, steps), "(setup) one more plant is picked");
+            g.save();
+            const size_t nStructs = g.structs.size();
+            g.structs.clear();
+            g.resetHarvest();
+            check(g.harvestUp(node, idx), "(setup) after a reset the plant is back");
+            check(g.load(), "the save loads");
+            check(g.structs.size() == nStructs, "placed structures survive a save / load");
+            bool chestOk = false;
+            for (auto& s : g.structs)
+                if (s.kind == PL_CHEST && s.inv.count(itemMat(M_WOOD)) == 5) chestOk = true;
+            check(chestOk, "chest contents survive a save / load");
+            check(g.hstate(node, idx).gone, "a picked plant is still waiting to regrow after a save / load");
+        }
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

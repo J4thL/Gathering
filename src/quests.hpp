@@ -42,7 +42,7 @@ inline Quest questAt(int idx) {
         case 1: return makeQuest(Q_GATHER, M_MEAT, 5, "FRESH MEAT", "GATHER 5 RAW MEAT FROM CARCASSES", 30, -1, 0, 1);
         case 2: return makeQuest(Q_KILL, A_DEER, 1, "DEER TRACKS", "HUNT A DEER - THROW FROM RANGE", 40, M_BONE, 2);
         case 3: return makeQuest(Q_GATHER, M_HIDE, 4, "TANNER'S ORDER", "GATHER 4 HIDES FOR THE TANNER", 45, M_BONE, 2);
-        case 4: return makeQuest(Q_CRAFT, -1, 1, "BETTER BLADES", "CRAFT A WEAPON AT THE SHOP", 50, -1, 0, 1);
+        case 4: return makeQuest(Q_CRAFT, -1, 1, "BETTER BLADES", "CRAFT A WEAPON OR A TOOL", 50, -1, 0, 1);
         case 5: return makeQuest(Q_KILL, A_BOAR, 1, "TUSKED TERROR", "HUNT A BOAR - IT FIGHTS BACK", 80, -1, 0, 2);
         case 6: return makeQuest(Q_EARN, -1, 100, "MARKET DAY", "SELL GOODS WORTH 100 COINS", 60, M_FUR, 1);
         case 7: return makeQuest(Q_KILL, A_WOLF, 1, "WOLF HUNTER", "HUNT A WOLF - THEY ROAM AT NIGHT", 150, M_FUR, 2);

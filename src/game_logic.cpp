@@ -42,6 +42,7 @@ bool Game::init(bool headless) {
     canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
     buildAssets(ren, A);
     world.generate(7);
+    initHarvest();
     miniTex = toTex(ren, world.minimap());
     audio.init();
     SDL_ShowCursor(SDL_DISABLE);
@@ -89,6 +90,8 @@ void Game::save() {
         f << "\n";
         for (auto& sl : p.inv.slots)
             if (!sl.empty()) f << "slot " << itemKey(sl.item) << ' ' << sl.n << "\n";
+        harvestSave(f);  // resources waiting to regrow ("hv" lines) and placed campfires / chests ("struct", "cslot" lines):
+        structSave(f);   // extra lines that older builds simply ignore, so the save version stays 2
         f.flush();
         if (!f) {
             std::remove(tmp.c_str());
@@ -111,6 +114,7 @@ bool Game::load() {
         return std::max(0L, std::min(lim, v));
     };
     std::vector<std::pair<std::string, int>> slotLines;  // v2
+    std::vector<std::string> hvLines, structLines;       // gathering state and placed structures (applied after the pack is read)
     int legacyMats[M_COUNT] = {0}, legacyWpn[W_COUNT] = {0}, legacyAmmo[AM_COUNT] = {0}, legacyBandages = 0;
     int nMats = 0, nWpn = 0, nAmmo = 0;
     bool sawVersion = false, sawLegacy = false;
@@ -127,7 +131,9 @@ bool Game::load() {
             std::string key;
             ss >> key;
             slotLines.push_back({key, (int)readCount(ss)});
-        } else if (k == "mats") {
+        } else if (k == "hv") hvLines.push_back(line);
+        else if (k == "struct" || k == "cslot") structLines.push_back(line);
+        else if (k == "mats") {
             sawLegacy = true;
             for (; nMats < M_COUNT && !ss.eof(); nMats++) legacyMats[nMats] = (int)readCount(ss);
         } else if (k == "wpn") {
@@ -157,7 +163,7 @@ bool Game::load() {
         newGame();
         return false;
     }
-    for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(2, std::max(0, p.up[i]));
+    for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(i == U_ARMOR ? 3 : 2, std::max(0, p.up[i]));  // scale mail (armor 3) is craft-only
     p.syncPack();  // the backpack level decides how many slots there are, so it must be known before items go in
     p.inv.clear();
     auto give = [&](int item, int n) {
@@ -191,6 +197,8 @@ bool Game::load() {
         }
     }
     refreshQuest();
+    harvestLoad(hvLines);
+    structLoad(structLines);
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
     // keep a usable weapon selected
@@ -210,6 +218,13 @@ void Game::newGame() {
     p.syncPack();
     p.inv.add(itemWpn(W_FLINT), 8);
     p.inv.add(ITEM_CONS0 + C_BANDAGE, 1);
+    for (auto& st : structs) world.solid[st.ty][st.tx] = false;
+    structs.clear();
+    chestOpen = -1;
+    craftCat = -1;
+    craftScroll = 0;
+    craftOnly = false;
+    resetHarvest();  // every tree and plant is back
     animals.clear();
     items.clear();
     projs.clear();
@@ -679,7 +694,7 @@ void Game::throwWeapon() {
     pr.travelled = 0;
     pr.wpn = w;
     pr.angle = atan2f(dir.y, dir.x);
-    pr.spin = (w == W_JAVELIN || launcher) ? 0.f : (w == W_AXE ? 17.f : 26.f);
+    pr.spin = (w == W_JAVELIN || w == W_SPEAR || w == W_IRONSPEAR || launcher) ? 0.f : (w == W_AXE ? 17.f : 26.f);
     pr.crit = rng.chance(0.10f);
     pr.dmg = D.dmg * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
     if (launcher) {
@@ -783,6 +798,22 @@ void Game::updatePlayer(float dt) {
 
     Animal* c = nearestCarcass(26);
     bool wantGather = in.e && c != nullptr && !P.charging;
+    // E priority: a carcass, then a placed structure (chest / campfire), then a tree, plant or rock within reach
+    const bool structBusy = !c && structInteract(dt);
+    HTarget ht;
+    if (!c && !structBusy) findHarvest(ht);
+    bool harvestOk = false;
+    if (ht.valid) {
+        const ResDef& RD = RES[ht.res];
+        harvestOk = RD.tool < 0 || bestTool(RD.tool) >= RD.minTier;
+        if (!harvestOk && in.ePressed && hvMsgT <= 0) {
+            msg(std::string("NEED A ") + TOOLDEF[RD.tool * 4 + RD.minTier - 1].name + " FOR " + RD.name, C_RED);
+            audio.play(S_ERROR, 0.5f);
+            hvMsgT = 1.5f;
+        }
+    }
+    // being hit knocks you out of the swing; charging a throw pauses it (combat always wins)
+    const bool wantHarvest = in.e && ht.valid && harvestOk && !P.charging && P.sinceHurt > 0.5f;
 
     V2 mv((in.right ? 1.f : 0.f) - (in.left ? 1.f : 0.f), (in.down ? 1.f : 0.f) - (in.up ? 1.f : 0.f));
     bool moving = mv.len() > 0.1f;
@@ -793,7 +824,7 @@ void Game::updatePlayer(float dt) {
     float drain = 1.f, regen = 1.f;
     climateMods(drain, regen);
     bool sprinting = false;
-    if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather) {
+    if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
         sprinting = true;
         spd *= 1.55f;
         P.stamina -= 24 * dt * drain;
@@ -808,7 +839,7 @@ void Game::updatePlayer(float dt) {
         if (P.exhausted && P.stamina > 30) P.exhausted = false;
     }
     if (P.charging) spd *= 0.6f;
-    if (wantGather) spd = 0;
+    if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
     if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
         P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-2.4f * dt));
@@ -829,9 +860,10 @@ void Game::updatePlayer(float dt) {
             P.dir = d.y > 0 ? 0 : 1;
     };
     if (wantGather) setDir(c->pos - P.pos);
+    else if (wantHarvest) setDir(ht.pos - P.pos);
     else if (P.charging || P.throwAnim > 0) setDir(P.aim);
     else if (moving) setDir(mv);
-    if (moving && !wantGather) P.animT += dt * (sprinting ? 12.f : 8.5f);
+    if (moving && !wantGather && !wantHarvest) P.animT += dt * (sprinting ? 12.f : 8.5f);
     if (sprinting && rng.chance(0.25f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
 
     // --- throwing
@@ -906,13 +938,15 @@ void Game::updatePlayer(float dt) {
             P.gatherT = 0;
             gatherStep(*c);
         }
+    } else if (wantHarvest) {
+        harvestStep(ht, dt);
     } else {
         P.gathering = false;
         P.gatherT = std::max(0.f, P.gatherT - dt * 2.f);
     }
 
     // --- shop / bandage / regen
-    if (in.ePressed && !c) {
+    if (in.ePressed && !c && !structBusy && !ht.valid) {
         if (nearShop()) {
             state = ST_SHOP;
             audio.play(S_CLICK);
@@ -921,11 +955,13 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
-    if (in.bandage && P.bandages() > 0 && P.hp < P.maxhp) {
-        P.inv.remove(ITEM_CONS0 + C_BANDAGE, 1);
-        P.hp = std::min(P.maxhp, P.hp + BANDAGE_HEAL);
-        ftext(P.pos + V2(0, -24), "+" + S(BANDAGE_HEAL) + " HP", C_GREEN, 1.1f);
-        audio.play(S_PICKUP);
+    if (in.bandage && P.hp < P.maxhp) {  // Q: bandage first, then salve, cooked meat, tonic
+        static const int order[] = {C_BANDAGE, C_SALVE, C_COOKED, C_TONIC};
+        for (int cid : order)
+            if (P.inv.count(itemCons(cid)) > 0) {
+                useConsumable(cid);
+                break;
+            }
     }
     if (P.sinceHurt > 6.f) P.hp = std::min(P.maxhp, P.hp + (nearShop() ? 12.f : 1.6f) * dt);
 }
@@ -1000,13 +1036,14 @@ void Game::climateMods(float& drain, float& regen) const {
     drain = regen = 1.f;
     switch (curBiome) {
         case B_DESERT: {
-            float heat = daylight();
+            float heat = p.coolT > 0 ? 0.f : daylight();  // cactus water: the heat does not bother you
             drain = 1.f + 0.35f * heat;
             regen = 1.f - 0.35f * heat;
             break;
         }
         case B_SNOW: {
             float exposed = p.up[U_ARMOR] >= 2 ? 0.f : (p.up[U_ARMOR] == 1 ? 0.5f : 1.f);
+            if (p.warmT > 0 || warmthAt(p.pos) > 0.3f) exposed = 0.f;  // a warm brew or standing by a campfire
             drain = 1.f + 0.25f * exposed;
             regen = 1.f - 0.30f * exposed;
             break;
@@ -1174,6 +1211,10 @@ void Game::updatePlay(float dt) {
     if (bagWarn > 0) bagWarn -= dt;
     updateBiome(dt);
     updatePlayer(dt);
+    updateHarvest(dt);
+    updateStructures(dt);
+    p.warmT = std::max(0.f, p.warmT - dt);
+    p.coolT = std::max(0.f, p.coolT - dt);
     updateAnimals(dt);
     updateProjectiles(dt);
     checkWeaponSafetyNet(dt);
@@ -1244,7 +1285,11 @@ void Game::update(float dt) {
                 audio.play(S_CLICK);
             }
             if (in.tabPressed) shopTab = (shopTab + 1) % 4;
+            if (shopTab == 0) sellScroll -= in.wheel;
             if (in.selectKey >= 0 && in.selectKey < 4) shopTab = in.selectKey;
+            break;
+        case ST_CHEST:
+            updateChest(dt);
             break;
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
@@ -1262,6 +1307,51 @@ void Game::update(float dt) {
 
 // ================================================================= inventory screen
 constexpr int INV_COLS = 8;
+
+// Eat / drink / apply one consumable (used from the pack and by the Q quick-heal key).
+bool Game::useConsumable(int c) {
+    const int id = itemCons(c);
+    if (p.inv.count(id) <= 0) return false;
+    auto heal = [&](int amount) {
+        if (p.hp >= p.maxhp) {
+            msg("YOU ARE AT FULL HEALTH", C_DIM);
+            audio.play(S_ERROR);
+            return false;
+        }
+        p.hp = std::min(p.maxhp, p.hp + amount);
+        ftext(p.pos + V2(0, -24), "+" + S(amount) + " HP", C_GREEN, 1.1f);
+        return true;
+    };
+    switch (c) {
+        case C_BANDAGE: if (!heal(BANDAGE_HEAL)) return false; break;
+        case C_SALVE: if (!heal(30)) return false; break;
+        case C_TONIC: if (!heal(90)) return false; break;
+        case C_COOKED:
+            if (!heal(35)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_BREW:
+            if (p.warmT > 60.f) {
+                msg("YOU ARE ALREADY WARM", C_DIM);
+                audio.play(S_ERROR);
+                return false;
+            }
+            p.warmT = 180.f;
+            ftext(p.pos + V2(0, -24), "WARM!", C_ORANGE, 1.2f);
+            break;
+        case C_CACTUSWATER:
+            p.stamina = 100.f;
+            p.exhausted = false;
+            p.coolT = 120.f;
+            ftext(p.pos + V2(0, -24), "REFRESHED!", C_BLUE, 1.2f);
+            break;
+        default: return false;
+    }
+    p.inv.remove(id, 1);
+    audio.play(S_PICKUP);
+    return true;
+}
 
 // Equip a weapon or use a consumable from the pack. Returns true when something happened.
 bool Game::useSlot(int slot) {
@@ -1287,17 +1377,13 @@ bool Game::useSlot(int slot) {
             msg("YOU HAVE NOTHING THAT FIRES " + D.name + "S", C_RED);
             audio.play(S_ERROR);
             return false;
-        case IK_CONSUMABLE:
-            if (D.ref == C_BANDAGE) {
-                if (p.hp >= p.maxhp) {
-                    msg("YOU ARE AT FULL HEALTH", C_DIM);
-                    audio.play(S_ERROR);
-                    return false;
-                }
-                p.inv.remove(id, 1);
-                p.hp = std::min(p.maxhp, p.hp + BANDAGE_HEAL);
-                ftext(p.pos + V2(0, -24), "+" + S(BANDAGE_HEAL) + " HP", C_GREEN, 1.1f);
-                audio.play(S_PICKUP);
+        case IK_CONSUMABLE: return useConsumable(D.ref);
+        case IK_TOOL:
+            msg("TOOLS WORK AUTOMATICALLY - THE BEST ONE IN YOUR PACK IS USED", C_DIM);
+            return false;
+        case IK_PLACEABLE:
+            if (placeStructure(D.ref)) {
+                state = ST_PLAY;  // close the pack so the new structure is visible
                 return true;
             }
             return false;
@@ -1330,6 +1416,10 @@ void Game::updateInventory(float dt) {
         }
         if (in.enterPressed) useSlot(invSel);
     }
+    if (invTab == 1) {  // crafting list: arrows and the wheel scroll it
+        craftScroll += (now[1] && !navPrev[1]) - (now[0] && !navPrev[0]);
+        craftScroll -= in.wheel;
+    }
     for (int i = 0; i < 4; i++) navPrev[i] = now[i];
 }
 
@@ -1359,31 +1449,6 @@ bool Game::buyUpgrade(int u) {
     audio.play(S_CRAFT);
     msg(std::string("UPGRADED: ") + L.name, C_GOLD);
     save();
-    return true;
-}
-bool Game::craft(int r) {
-    const Recipe& R = RECIPES[r];
-    for (int i = 0; i < 3; i++)
-        if (R.mat[i] >= 0 && p.mat(R.mat[i]) < R.n[i]) {
-            audio.play(S_ERROR);
-            return false;
-        }
-    const int outItem = recipeItem(R);
-    const std::string outName = item(outItem).name;
-    // the ingredients are used up first, so a recipe that frees a slot can still be crafted in a full bag
-    for (int i = 0; i < 3; i++)
-        if (R.mat[i] >= 0) p.inv.remove(itemMat(R.mat[i]), R.n[i]);
-    if (!p.inv.canAdd(outItem, R.count)) {
-        for (int i = 0; i < 3; i++)  // no room for the result: give the ingredients back (there is always room, we just took them)
-            if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
-        msg("NO ROOM FOR " + outName + " - BAG FULL", C_RED);
-        audio.play(S_ERROR);
-        return false;
-    }
-    p.inv.add(outItem, R.count);
-    audio.play(S_CRAFT);
-    msg("CRAFTED " + S(R.count) + " " + outName, C_GOLD);
-    if (R.kind == RK_WEAPON) questEvent(Q_CRAFT, R.out, 1);  // the elder's quest is about weapons
     return true;
 }
 void Game::sellMat(int m, int n) {

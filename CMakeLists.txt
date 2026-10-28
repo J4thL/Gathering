@@ -6,7 +6,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp)
+add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp)
 
 find_package(SDL2 CONFIG QUIET)
 if(TARGET SDL2::SDL2)
