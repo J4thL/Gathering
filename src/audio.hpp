@@ -8,7 +8,7 @@
 #include <functional>
 #include <vector>
 
-enum Sfx { S_THROW, S_HIT, S_CRIT, S_KILL, S_PICKUP, S_COIN, S_GATHER, S_HURT, S_CLICK, S_CRAFT, S_ERROR, S_BREAK, S_COUNT };
+enum Sfx { S_THROW, S_HIT, S_CRIT, S_KILL, S_PICKUP, S_COIN, S_GATHER, S_HURT, S_CLICK, S_CRAFT, S_ERROR, S_BREAK, S_CHOP, S_MINE, S_RUSTLE, S_FELL, S_SMELT, S_COUNT };
 
 struct Audio {
     struct Voice {
@@ -86,6 +86,32 @@ struct Audio {
         gen(S_ERROR, 0.18f, [&](float t, float u) {
             float s = sinf(2 * PI * 140.f * t) > 0 ? 1.f : -1.f;
             return s * (1.f - u) * 0.22f;
+        });
+        // gathering: axe thunk, pickaxe clink, rustling plant, a tree coming down, a crackling fire
+        float lp3 = 0;
+        gen(S_CHOP, 0.15f, [&](float t, float u) {
+            lp3 += (noise() - lp3) * 0.25f;
+            return (sinf(2 * PI * (210.f - 110.f * u) * t) * expf(-t * 24.f) * 0.8f + lp3 * expf(-t * 55.f) * 0.5f) * 0.8f;
+        });
+        gen(S_MINE, 0.13f, [&](float t, float u) {
+            return (sinf(2 * PI * 1480.f * t) * expf(-t * 38.f) * 0.30f + sinf(2 * PI * 2210.f * t) * expf(-t * 55.f) * 0.18f + noise() * expf(-t * 70.f) * 0.45f) * (1.f - u * 0.3f);
+        });
+        float lp4 = 0;
+        gen(S_RUSTLE, 0.2f, [&](float t, float u) {
+            lp4 += (noise() - lp4) * 0.3f;
+            return lp4 * sinf(PI * u) * 0.75f * (0.7f + 0.3f * sinf(t * 90.f));
+        });
+        float lp5 = 0;
+        gen(S_FELL, 0.5f, [&](float t, float u) {
+            lp5 += (noise() - lp5) * 0.12f;
+            float crack = (u < 0.25f ? noise() * expf(-fmodf(t, 0.05f) * 60.f) * 0.5f : 0.f);
+            float thud = (u > 0.6f ? sinf(2 * PI * 62.f * (t - 0.3f)) * expf(-(t - 0.3f) * 10.f) * 0.9f : 0.f);
+            return crack + thud + lp5 * (1.f - u) * 0.35f;
+        });
+        float lp6 = 0;
+        gen(S_SMELT, 0.3f, [&](float t, float u) {
+            lp6 += (noise() - lp6) * 0.5f;
+            return (lp6 * expf(-t * 12.f) * 0.5f + sinf(2 * PI * (420.f + 520.f * u) * t) * (1.f - u) * 0.18f);
         });
         gen(S_BREAK, 0.16f, [&](float t, float u) { return noise() * expf(-t * 28.f) * (0.5f + 0.5f * sinf(t * 900.f)) * 0.7f; });
     }

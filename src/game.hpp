@@ -1,6 +1,7 @@
 // game.hpp - entities and the Game class.
 #pragma once
 #include <deque>
+#include <ostream>
 #include <string>
 #include <vector>
 #include "audio.hpp"
@@ -8,6 +9,7 @@
 #include "quests.hpp"
 #include "sprites.hpp"
 #include "world.hpp"
+#include "resources.hpp"
 #include "spawns.hpp"
 
 // ----------------------------------------------------------------- palette
@@ -67,6 +69,8 @@ struct Player {
     int up[U_COUNT] = {0};
     float gatherT = 0;
     bool gathering = false;
+    float warmT = 0, coolT = 0;  // seconds left of a warm brew (no cold drain) / cactus water (no heat drain); not saved
+    float pickT = 0;              // hold-E progress for picking up a placed campfire
     float gatherSfx = 0;
     bool dead = false;
     float deadT = 0;
@@ -124,7 +128,32 @@ struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wi
     float x, y, vx, vy, ph, sz;
 };
 
-enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY };
+// harvest state of one resource (see gathering.cpp): hits already landed, regrow timers, a little shake when struck
+struct HState {
+    uint8_t done = 0;   // swings landed so far
+    bool gone = false;  // finished: shown as a stump / rubble / stub until it regrows
+    float t = 0;        // gone: seconds until it starts to regrow; damaged: seconds since the last hit
+    float fade = 0;     // regrowing: seconds of sprout left
+    float shake = 0;
+};
+struct HTarget {
+    bool valid = false;
+    bool node = false;  // world.nodes (true) or world.props (false)
+    int idx = -1, res = -1;
+    V2 pos;             // where the resource is (aim point)
+    float dist = 0;
+    int key() const { return valid ? (node ? (1 << 28) : 0) | idx : -1; }
+};
+constexpr int CHEST_SLOTS = 20, MAX_STRUCTS = 16;
+// things the hunter builds: campfires (smelting, cooking, warmth, light) and storage chests
+struct Structure {
+    int kind = PL_CAMPFIRE;
+    int tx = 0, ty = 0;
+    Inventory inv{CHEST_SLOTS};  // chests only
+    V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
+};
+
+enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST };
 
 struct Game {
     // platform
@@ -156,6 +185,22 @@ struct Game {
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
     int shopPage = 0;
     int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting; selected slot
+    // gathering (gathering.cpp)
+    std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
+    std::vector<int8_t> propRsId;        // ResId of each prop, -1 = scenery
+    std::vector<int> hActive;            // encoded ids (node flag | index) of resources that are damaged, gone or regrowing
+    int hvKey = -1;                      // the resource the current swing belongs to
+    float hvMsgT = 0;                    // rate limit for "need a better tool" messages
+    Rng grng{909091};                    // gathering rolls and particles: its own stream, so the hunting sequence is untouched
+    // crafting screen (crafting.cpp)
+    int sellScroll = 0, invFilter = 0;  // shop SELL list scroll; pack filter chip (0 all, 1 materials, 2 weapons, 3 tools, 4 supplies)
+    int craftCat = -1;                   // category filter, -1 = all
+    int craftScroll = 0;
+    bool craftOnly = false;              // show only what can be made right now
+    // structures (structures.cpp)
+    std::vector<Structure> structs;
+    int chestOpen = -1;
+    int chestSel = 0;
     bool navPrev[4] = {false, false, false, false};
     struct LoadReport {
         int version = 0;       // save format that was read (0 = nothing recognisable)
@@ -214,6 +259,7 @@ struct Game {
     void throwWeapon();
     bool canUse(int w) const;
     bool useSlot(int slot);  // inventory screen: equip a weapon / use a bandage
+    bool useConsumable(int c);
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a);
@@ -235,6 +281,44 @@ struct Game {
     void bloodBurst(V2 p, V2 dir, int n);
     void puff(V2 p, int n, u32 col);
     void addItem(int m, int n);
+    // ---- gathering (gathering.cpp)
+    void initHarvest();   // size the state tables for the current world (call after world.generate)
+    void resetHarvest();  // everything grown back (new game)
+    bool findHarvest(HTarget& out) const;
+    int bestTool(int type, int* toolIdx = nullptr) const;  // highest tool tier of a type in the pack (0 = none)
+    bool harvestUp(bool node, int idx) const;
+    HState& hstate(bool node, int idx) { return node ? nodeSt[idx] : propSt[idx]; }
+    const HState& hstate(bool node, int idx) const { return node ? nodeSt[idx] : propSt[idx]; }
+    bool lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy) const;
+    void harvestStep(const HTarget& t, float dt);  // hold-E gathering: advances the swing, lands hits, finishes the resource
+    void harvestFinish(const HTarget& t);
+    void updateHarvest(float dt);
+    void harvestChips(V2 at, u32 col, int n, float power);
+    void harvestSave(std::ostream& f) const;
+    void harvestLoad(const std::vector<std::string>& lines);
+    void drawHarvestPrompt();
+    std::string harvestVerb(int res) const;
+    // ---- structures (structures.cpp)
+    bool placeStructure(int kind);
+    bool structInteract(float dt);
+    void drawStructPrompt();
+    bool canPlaceAt(int tx, int ty) const;
+    Structure* structNear(float r, int kind = -1);
+    bool nearFire() const;
+    float warmthAt(V2 pos) const;  // 0..1, how warm the spot is from nearby campfires
+    void updateStructures(float dt);
+    void structSave(std::ostream& f) const;
+    void structLoad(const std::vector<std::string>& lines);
+    void updateChest(float dt);
+    void drawChest();
+    bool chestMove(int fromPack, int slot);
+    // ---- crafting (crafting.cpp)
+    bool craft(int r);
+    bool nearStation(int station) const;
+    const Spr& itemIcon(int id) const;
+    std::string craftBlock(int r) const;  // "" when the recipe can be made now, otherwise why not (short, upper case)
+    bool hasIngredients(const Recipe& R) const;
+    void drawCraftTab(int X, int Y, int W, int H);
     bool nearShop() const;
     // quest giver
     bool nearQuestGiver() const;
@@ -247,7 +331,6 @@ struct Game {
     bool canAfford(int coins, int m1, int n1, int m2, int n2) const;
     void spend(int coins, int m1, int n1, int m2, int n2);
     bool buyUpgrade(int u);
-    bool craft(int r);
     void sellMat(int m, int n);
 
     // ---- rendering (game_render.cpp)

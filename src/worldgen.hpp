@@ -573,13 +573,22 @@ inline void World::generateBiomes() {
             if (hypotf(n.x - x, n.y - y) < minD) return false;
         return true;
     };
-    auto scatter = [&](int kind, int b, int patches, const std::function<bool(int, int)>& ok) {
+    // a solid vein needs open ground on every side, or a pocket of cliff can wall a player out of it
+    auto openAround = [&](int tx, int ty) {
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++) {
+                int x = tx + dx, y = ty + dy;
+                if (x < 0 || y < 0 || x >= MW || y >= MH || tile[y][x] == T_CLIFF || solid[y][x]) return false;
+            }
+        return true;
+    };
+    auto scatter = [&](int kind, int b, int patches, const std::function<bool(int, int)>& ok, float spacing = 6.f) {
         for (int p = 0; p < patches; p++)
-            for (int att = 0; att < 500; att++) {
+            for (int att = 0; att < 4000; att++) {
                 int tx = r.irange(3, MW - 4), ty = r.irange(3, MH - 4);
                 if (biome[ty][tx] != b || !nodeFree(tx, ty) || !ok(tx, ty)) continue;
                 float px = tx * TS + 8.f, py = ty * TS + 12.f;
-                if (!farFromNodes(px, py, 6 * TS)) continue;
+                if (!farFromNodes(px, py, spacing * TS)) continue;
                 int n = r.irange(1, 3);
                 for (int i = 0; i < n; i++) {
                     int ntx = tx + (i == 0 ? 0 : r.irange(-1, 1)), nty = ty + (i == 0 ? 0 : r.irange(-1, 1));
@@ -587,7 +596,7 @@ inline void World::generateBiomes() {
                     float nx = ntx * TS + 8.f + r.range(-3, 3), ny = nty * TS + 12.f + r.range(-1, 2);
                     if (!farFromNodes(nx, ny, 10.f)) continue;
                     nodes.push_back({kind, nx, ny, r.f() * 6.28f});
-                    if (kind == RN_CACTUS || kind == RN_ORE) solid[nty][ntx] = true;
+                    if (kind == RN_CACTUS || kind == RN_ORE || kind == RN_COPPER || kind == RN_GOLD) solid[nty][ntx] = true;  // rocks and cacti block the way
                 }
                 break;
             }
@@ -599,4 +608,43 @@ inline void World::generateBiomes() {
     scatter(RN_FROSTBLOOM, B_SNOW, 22, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; });
     scatter(RN_ALPINE_HERB, B_MOUNTAIN, 14, [&](int x, int y) { return tile[y][x] != T_CLIFF; });
     scatter(RN_ORE, B_MOUNTAIN, 18, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 2); });
+    // ---- the gathering expansion: every biome gets its own mix (rarer things are sparser and need better tools)
+    // desert: dry wood, copper deposits
+    scatter(RN_DRYWOOD, B_DESERT, 14, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_DUNE; }, 5.f);
+    scatter(RN_COPPER, B_DESERT, 11, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_STONE; });
+    // swamp: poisonous nightshade, rare bog amber
+    scatter(RN_NIGHTSHADE, B_SWAMP, 11, [&](int x, int y) { return tile[y][x] == T_MUD || tile[y][x] == T_DARK; }, 5.f);
+    scatter(RN_AMBER, B_SWAMP, 6, [&](int x, int y) { return tile[y][x] == T_MUD; }, 12.f);
+    // snow: a few iron outcrops (crystals and timber are props)
+    scatter(RN_ORE, B_SNOW, 6, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; }, 10.f);
+    // mountain: copper at the foot of the cliffs, gold veins deep in the rock
+    scatter(RN_COPPER, B_MOUNTAIN, 12, [&](int x, int y) { return tile[y][x] == T_STONE; }, 5.f);
+    scatter(RN_GOLD, B_MOUNTAIN, 6, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 4) && openAround(x, y); }, 7.f);
+
+    // ---- the home forest: herbs, mushrooms, fallen branches and flax. Placed with their own random stream after everything else,
+    // so the original home map (terrain, trees, rocks, decor) is exactly what it always was.
+    {
+        Rng hr(seed * 104729u + 31u);
+        auto homeOk = [&](int tx, int ty) {
+            const int cx = tx - COX, cy = ty - COY;
+            if (cx < 4 || cy < 4 || cx >= CW - 4 || cy >= CH - 4 || K(tx, ty) != 0) return false;
+            if (hypotf(cx - 44.f, (cy - 30.f) * 1.15f) < 11.f) return false;  // the village plaza stays clear
+            return passable(tx, ty) && passable(tx + 1, ty) && passable(tx - 1, ty) && passable(tx, ty + 1) && passable(tx, ty - 1) && tile[ty][tx] != T_DIRT;
+        };
+        auto homeScatter = [&](int kind, int count, const std::function<bool(int, int)>& ok) {
+            int placed = 0;
+            for (int att = 0; att < count * 60 && placed < count; att++) {
+                int tx = hr.irange(COX + 4, COX + CW - 5), ty = hr.irange(COY + 4, COY + CH - 5);
+                if (!homeOk(tx, ty) || !ok(tx, ty)) continue;
+                float nx = tx * TS + 8.f + hr.range(-3, 3), ny = ty * TS + 12.f + hr.range(-1, 2);
+                if (!farFromNodes(nx, ny, 3.f * TS)) continue;
+                nodes.push_back({kind, nx, ny, hr.f() * 6.28f});
+                placed++;
+            }
+        };
+        homeScatter(RN_HERB, 34, [&](int x, int y) { return tile[y][x] == T_GRASS || tile[y][x] == T_DARK; });
+        homeScatter(RN_MUSHROOM, 26, [&](int x, int y) { return tile[y][x] == T_DARK; });
+        homeScatter(RN_BRANCH, 36, [&](int x, int y) { return tile[y][x] == T_GRASS || tile[y][x] == T_DARK; });
+        homeScatter(RN_FLAX, 28, [&](int x, int y) { return tile[y][x] == T_GRASS; });
+    }
 }

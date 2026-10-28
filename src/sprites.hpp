@@ -4,6 +4,7 @@
 #include <cstring>
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
+#include "sprites_res.hpp"
 #include "sprites_biome.hpp"
 
 // ================================================================= tiles
@@ -1122,6 +1123,7 @@ struct Assets {
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
+    ResAssets R;    // tools, consumables, placeables, depleted resources (sprites_res.hpp)
     SDL_Texture* font = nullptr;
 };
 
@@ -1152,13 +1154,27 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int d = 0; d < 3; d++)
         for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
     buildFauna(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, mkIconMat(m), 8, 8);
-    for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, mkIconWpn(w), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m < M_CARCASS_N ? mkIconMat(m) : mkIconLand(m), 8, 8);
+    for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : mkIconWpnNew(w), 8, 8);
+    for (int k = 0; k < TL_COUNT; k++) {
+        Img t = mkIconTool(k);
+        a.R.toolIcon[k] = makeSpr(r, t, 8, 8);
+        a.R.toolSwing[k] = makeSpr(r, t, 2, 14);
+    }
+    for (int c = 0; c < C_COUNT; c++) a.R.consIcon[c] = c == C_BANDAGE ? Spr() : makeSpr(r, mkIconCons(c), 8, 8);
+    for (int f = 0; f < 3; f++) a.R.campfire[f] = makeSpr(r, mkCampfire(f), 9, 15);
+    a.R.chest = makeSpr(r, mkChest(), 8, 12);
+    a.R.placeIcon[PL_CAMPFIRE] = makeSpr(r, mkCampfire(0), 9, 9);
+    a.R.placeIcon[PL_CHEST] = makeSpr(r, mkChest(), 8, 7);
+    a.R.stump = makeSpr(r, mkStump(), 7, 8);
+    a.R.rubble = makeSpr(r, mkRubble(), 7, 6);
+    a.R.stub = makeSpr(r, mkStub(), 6, 6);
+    a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
         for (int t = 0; t < 3; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, t), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
-        Img im = mkWpnWorld(w);
+        Img im = w < W_SPEAR ? mkWpnWorld(w) : mkWpnWorldNew(w);
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
     for (int k = 0; k < AM_COUNT; k++) {

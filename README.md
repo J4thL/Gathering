@@ -8,7 +8,7 @@ Or:      g++ -std=c++17 -O2 $(sdl2-config --cflags) src/*.cpp -o wildwood $(sdl2
 
 ## Controls
 WASD move | SHIFT sprint | mouse aim | HOLD LMB charge, release to throw | 1-4 / wheel weapon
-E (hold) gather carcass | E at merchant: shop | E at Elder Holt: quests | Q bandage | M map | H help | ESC pause | F11 fullscreen
+E (hold) gather a carcass, chop a tree, mine a rock, pick a plant | E on a chest opens it, hold E on your campfire to pick it up | E at merchant: shop | E at Elder Holt: quests | Q bandage | M map | H help | ESC pause | F11 fullscreen
 
 ## Loop
 Hunt rabbits, deer, boars and wolves -> pick thrown weapons back up -> hold E on the carcass with your skinning knife
@@ -50,7 +50,19 @@ to a temp file and renamed); version 1 saves are migrated on load and the origin
 ## Pack screen and crafting
 `I` opens the pack (ESC or `I` closes; the world is paused). BACKPACK tab: a grid of your slots with counts, details of the selected or
 hovered item, EQUIP / USE (ENTER) and SORT (merges split stacks). Move with the arrow keys / WASD or click a slot; `TAB` switches tabs.
-CRAFTING tab: weapons (bone knife, hand axe, javelin) only at the shop; arrows, bolts and bandages anywhere.
+CRAFTING tab: every recipe with category filters (tools, weapons, ammo, medicine, survival, parts, gear), a CAN MAKE switch, have/need
+counts per ingredient (red when short), a tooltip with the reason a recipe is blocked, and a scroll wheel. Recipes live in `src/recipes.hpp`.
+Stations: ANYWHERE, FIRE (the village fire or a campfire you place) and SHOP (beside the merchant).
+
+## Gathering
+Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/resources.hpp`, behaviour in `src/gathering.cpp`).
+Tools come in four tiers (stone, copper, iron, gilded): higher tiers swing faster, give bonus yield and open harder resources
+(copper and iron ore need a tier 2 pickaxe, gold and crystal tier 3). Each resource takes a number of hits, shows a hit counter and progress
+bar, drops its yields, then becomes a stump / rubble / stub and regrows after a respawn time (trees become solid again). A resource is never
+finished into a full bag, and nothing can be gathered through walls. Trees on the map border and around the home area are never harvestable.
+Each biome has its own plants and ore; thorny and poisonous plants hurt unless you wear armor. Progression: stone tools -> campfire,
+rope and copper bars -> copper tools -> iron bars at the shop -> iron and gilded tools, crossbow, scale mail. Campfires and chests are crafted
+and placed from the pack; chests hold 20 slots.
 
 ## Test flags
     wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
@@ -59,4 +71,4 @@ CRAFTING tab: weapons (bone knife, hand axe, javelin) only at the shop; arrows, 
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
     wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip
-    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, save v2 and v1 migration
+    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, gathering, tools, respawn, recipes, campfires and chests, save v2 and v1 migration

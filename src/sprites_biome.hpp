@@ -774,6 +774,6 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b) {
     b.frosttuft = makeSpr(r, mkFrostTuft(), 4, 7);
     b.alpine = makeSpr(r, mkAlpine(), 4, 7);
     b.gravel = makeSpr(r, mkGravel(), 5, 5);
-    for (int k = 0; k < RN_COUNT; k++) b.node[k] = makeSpr(r, mkNode(k), 9, 16);
+    for (int k = 0; k < RN_COUNT; k++) b.node[k] = makeSpr(r, k < RN_HERB ? mkNode(k) : mkNodeNew(k), 9, 16);
     b.fog = makeSpr(r, mkFog(), 56, 22);
 }
