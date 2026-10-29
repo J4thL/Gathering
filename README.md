@@ -53,6 +53,21 @@ hovered item, EQUIP / USE (ENTER) and SORT (merges split stacks). Move with the 
 CRAFTING tab: every recipe with category filters (tools, weapons, ammo, medicine, survival, parts, gear), a CAN MAKE switch, have/need
 counts per ingredient (red when short), a tooltip with the reason a recipe is blocked, and a scroll wheel. Recipes live in `src/recipes.hpp`.
 Stations: ANYWHERE, FIRE (the village fire or a campfire you place) and SHOP (beside the merchant).
+Every recipe names a skill and a minimum level (`skill`, `minLv` in `src/recipes.hpp`); a locked recipe shows "NEEDS <SKILL> <lv>" and costs nothing.
+Ingredients are spent only when the result is delivered. Processing: planks, bone fragments, leather, grease (from carcass fat) and extracts feed
+most of the newer recipes. Every animal drops one exclusive trophy material (`M_TROPHY0 + species` in `src/data.hpp`) that some recipe uses.
+Crafted gear: fang dagger, reinforced spear, recurve bow, heavy axe, four biome weapons (+30% damage in their biome), armor tiers up to bear hide,
+swiftfoot boots, the explorer pack (50 slots) and carried gear (wolf cloak, parka, desert wraps, venom wraps, waders, climbing harness, quiver)
+that works while it is in the pack. New medicines and foods: poultice, herbal medicine, dried meat, hunter's stew, velvet tonic, nightsight tonic.
+
+## Skills
+The SKILLS tab of the pack lists 15 skills (levels 1-100; data and curve in `src/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
+XP is awarded only after an action really completes: a finished resource (Woodcutting / Mining / Foraging), a kill (Hunting and Ranged,
+reduced when you grind animals far below your level), each carcass piece (Skinning / Butchering), a delivered craft (the recipe's skill), a hit
+survived in armor (Defense), a new landmark or a used consumable (Survival). Each skill has one capped bonus (shown when you hover it): chop /
+mine speed, extra plants, weapon damage, extra pelts / meat, a chance to save a craft, keeping ammo, damage reduction, stronger healing. A bonus
+grows evenly to 60% of its cap at level 100 and gains 10% of the cap at each milestone (10 / 25 / 50 / 75). Progress is saved as `skill <key> <xp>`;
+saves without skills load at level 1.
 
 ## Gathering
 Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/resources.hpp`, behaviour in `src/gathering.cpp`).

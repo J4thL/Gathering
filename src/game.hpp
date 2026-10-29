@@ -2,6 +2,7 @@
 #pragma once
 #include <deque>
 #include <ostream>
+#include <sstream>
 #include <string>
 #include <vector>
 #include "audio.hpp"
@@ -10,6 +11,7 @@
 #include "sprites.hpp"
 #include "world.hpp"
 #include "resources.hpp"
+#include "skills.hpp"
 #include "spawns.hpp"
 
 // ----------------------------------------------------------------- palette
@@ -67,8 +69,10 @@ struct Player {
     Inventory inv{PACK_SLOTS[0]};  // everything the hunter carries (materials, weapons, ammo, bandages)
     int sel = 0;
     int up[U_COUNT] = {0};
+    SkillSet sk;  // skill XP (skills.hpp); saved as "skill <key> <xp>" lines
     float gatherT = 0;
     bool gathering = false;
+    float swiftT = 0, nightT = 0;  // velvet tonic (faster) / nightsight tonic (see in the dark); not saved
     float warmT = 0, coolT = 0;  // seconds left of a warm brew (no cold drain) / cactus water (no heat drain); not saved
     float pickT = 0;              // hold-E progress for picking up a placed campfire
     float gatherSfx = 0;
@@ -81,6 +85,12 @@ struct Player {
     int wpn(int w) const { return inv.count(itemWpn(w)); }
     int ammo(int a) const { return inv.count(itemAmmo(a)); }
     int bandages() const { return inv.count(ITEM_CONS0 + C_BANDAGE); }
+    bool has(int carried) const { return inv.count(itemCarry(carried)) > 0; }  // carried gear is active while it is in the pack
+    int healItems() const {  // everything the Q key can use
+        int n = 0;
+        for (int c : {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE}) n += inv.count(ITEM_CONS0 + c);
+        return n;
+    }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // slots the backpack provides
     void syncPack() { inv.setCapacity(PACK_SLOTS[up[U_BAG]]); }
@@ -184,7 +194,7 @@ struct Game {
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
     int shopPage = 0;
-    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting; selected slot
+    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills; selected slot
     // gathering (gathering.cpp)
     std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
     std::vector<int8_t> propRsId;        // ResId of each prop, -1 = scenery
@@ -263,7 +273,8 @@ struct Game {
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a);
-    void hurtPlayer(float dmg, V2 from);
+    float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)); }  // see skills.hpp
+    void hurtPlayer(float dmg, V2 from, int srcKind = -1);
     void gatherStep(Animal& c);
     bool stepAnimal(Animal& a, V2 dir, float speed, float dt);
     bool trySpawn(int kind, float minDist, bool offscreen);
@@ -319,6 +330,11 @@ struct Game {
     std::string craftBlock(int r) const;  // "" when the recipe can be made now, otherwise why not (short, upper case)
     bool hasIngredients(const Recipe& R) const;
     void drawCraftTab(int X, int Y, int W, int H);
+    // skills (skills.cpp)
+    int grantXp(int skill, int amount);          // adds XP, shows the toast, announces level-ups; returns levels gained
+    void skillSave(std::ostream& f) const;
+    void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
+    void drawSkillsTab(int X, int Y, int W, int H);
     bool nearShop() const;
     // quest giver
     bool nearQuestGiver() const;

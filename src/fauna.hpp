@@ -234,9 +234,34 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     for (int k : {A_GOAT, A_BIGHORN}) drop(k, M_HORN, 1, 2);
     for (int k : {A_LYNX, A_COYOTE, A_FENNEC}) drop(k, M_CLAW, 0, 1);
     for (int k : {A_DUNELION, A_PANTHER, A_MTLION, A_POLARBEAR}) drop(k, M_CLAW, 1, 2);
+    // ---- trophies: every species carries exactly one material no other species drops (see M_TROPHY0 in data.hpp).
+    // Small, harmless animals give theirs half the time; fighters and ambushers always; apex animals give one or two.
+    struct Trophy { int kind, mat, lo, hi; };
+    static const Trophy TROPHY[] = {
+        {A_RABBIT, M_RABBITFOOT, 0, 1}, {A_DEER, M_DEERSINEW, 1, 1}, {A_BOAR, M_BOARBRISTLE, 1, 1}, {A_WOLF, M_WOLFFANG, 1, 1},
+        {A_HARE, M_HARETAIL, 0, 1}, {A_FENNEC, M_FENNECEAR, 0, 1}, {A_COYOTE, M_COYOTEFANG, 1, 1}, {A_RATTLER, M_RATTLE, 1, 1},
+        {A_ROADRUNNER, M_ROADPLUME, 0, 1}, {A_LIZARD, M_LIZARDTAIL, 0, 1}, {A_DUNELION, M_LIONMANE, 1, 2},
+        {A_FROG, M_FROGGLAND, 0, 1}, {A_DUCK, M_DUCKDOWN, 0, 1}, {A_MARSHDEER, M_BOGHOOF, 1, 1}, {A_MOCCASIN, M_VENOMSAC, 1, 1},
+        {A_GATOR, M_GATORTOOTH, 1, 2}, {A_PANTHER, M_PANTHEREYE, 1, 1},
+        {A_ARCTICFOX, M_FOXBRUSH, 0, 1}, {A_SNOWHARE, M_SNOWFOOT, 0, 1}, {A_REINDEER, M_VELVET, 1, 1}, {A_MOOSE, M_MARROW, 1, 2},
+        {A_LYNX, M_LYNXTUFT, 1, 1}, {A_POLARBEAR, M_BEARGALL, 1, 2},
+        {A_GOAT, M_GOATBEARD, 1, 1}, {A_BIGHORN, M_RAMFLEECE, 1, 1}, {A_EAGLE, M_GOLDPLUME, 1, 1}, {A_MARMOT, M_MARMOTPELT, 0, 1},
+        {A_MTLION, M_COUGARFANG, 1, 2},
+    };
+    for (const Trophy& tr : TROPHY) drop(tr.kind, tr.mat, tr.lo, tr.hi);
+    // ---- animal fat: from anything with some body to it (fuel and grease, see recipes.hpp)
+    for (int k = 0; k < A_COUNT; k++) {
+        if (t[k].hp >= 100) drop(k, M_FAT, 2, 3);
+        else if (t[k].hp >= 40) drop(k, M_FAT, 1, 2);
+    }
     return t;
 }
 static const std::array<AnimalDef, A_COUNT> ANIMAL = makeAnimals();
+// the trophy block of the material enum lists the species in Kind order: M_TROPHY0 + kind is that species' trophy
+static_assert(M_TROPHY_N == A_COUNT, "one trophy material per species");
+static_assert(M_RABBITFOOT == M_TROPHY0 + A_RABBIT && M_WOLFFANG == M_TROPHY0 + A_WOLF && M_LIONMANE == M_TROPHY0 + A_DUNELION &&
+              M_GATORTOOTH == M_TROPHY0 + A_GATOR && M_BEARGALL == M_TROPHY0 + A_POLARBEAR && M_COUGARFANG == M_TROPHY0 + A_MTLION,
+              "trophy materials must stay in species order");
 
 // ---------------------------------------------------------------- rarity tiers
 // A specimen's tier is rolled when it spawns. Multipliers are deliberately modest: a rare animal is a better
