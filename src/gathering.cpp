@@ -130,6 +130,8 @@ void Game::harvestStep(const HTarget& t, float dt) {
     int toolIdx = -1;
     int tier = R.tool >= 0 ? bestTool(R.tool, &toolIdx) : 0;
     float speed = R.tool < 0 ? 1.f : (tier > 0 ? TOOLDEF[toolIdx].speed : HAND_SPEED);
+    if (R.cls == RCL_TREE) speed *= 1.f + skillBonus(SK_WOODCUTTING);
+    else if (R.cls == RCL_ROCK || R.cls == RCL_ORE) speed *= 1.f + skillBonus(SK_MINING);
     if (t.key() != hvKey) {  // a different resource: the swing starts over
         hvKey = t.key();
         p.gatherT = 0;
@@ -165,6 +167,10 @@ void Game::harvestFinish(const HTarget& t) {
         n[k] = grng.irange(y.lo, y.hi);
     }
     bool bonus = false;
+    if (n[0] > 0 && R.cls == RCL_PLANT && grng.chance(skillBonus(SK_FORAGING))) {  // a keen forager finds an extra plant
+        n[0]++;
+        bonus = true;
+    }
     if (n[0] > 0 && toolIdx >= 0 && grng.chance(TOOLDEF[toolIdx].bonus)) {
         n[0]++;
         bonus = true;
@@ -190,6 +196,8 @@ void Game::harvestFinish(const HTarget& t) {
         lineY += 8;
     }
     if (bonus) ftext(t.pos + V2(0, -12 - lineY), "BONUS!", C_GOLD, 1.2f);
+    // skill XP: only here, after the pack check passed and the yield was delivered; harder resources pay more
+    grantXp(R.cls == RCL_TREE ? SK_WOODCUTTING : R.cls == RCL_PLANT ? SK_FORAGING : SK_MINING, 2 + R.hits * 2 + R.minTier * 4);
     // finished: depleted state + regrow timer
     HState& s = hstate(t.node, t.idx);
     s.gone = true;
@@ -207,7 +215,8 @@ void Game::harvestFinish(const HTarget& t) {
     audio.play(R.cls == RCL_TREE ? S_FELL : R.cls == RCL_PLANT ? S_PICKUP : S_MINE, 0.8f);
     if (R.cls != RCL_PLANT) audio.play(S_PICKUP, 0.35f);
     // thorns and poison
-    if (R.hurt > 0 && p.up[U_ARMOR] < R.safeArmor && !p.dead) {
+    const bool wrapsSafe = R.safeArmor >= 2 ? p.has(CG_VENOMWRAPS) : (p.has(CG_DESERTWRAPS) || p.has(CG_VENOMWRAPS));  // wraps shield hands from thorns / poison sap
+    if (R.hurt > 0 && p.up[U_ARMOR] < R.safeArmor && !wrapsSafe && !p.dead) {
         p.hp = std::max(1.f, p.hp - R.hurt);
         p.sinceHurt = 0;
         ftext(p.pos + V2(0, -26), R.safeArmor >= 2 ? "POISON! -" + S(R.hurt) : "THORNS! -" + S(R.hurt), HEX(0x9acd6a), 1.2f);

@@ -249,6 +249,47 @@ inline Img mkIconCons(int c) {
             im.set(9, 4, HEX(0xeef6ff));
             im.set(10, 2, HEX(0xeef6ff));
             break;
+        case C_POULTICE:  // a clay dish of green paste with a linen cover
+            im.rect(3, 9, 10, 4, HEX(0xa8703c));
+            im.rect(2, 8, 12, 2, HEX(0xc48a50));
+            im.ellipse(8, 7.5f, 4.6f, 2.2f, HEX(0x7ac85a));
+            im.set(6, 7, HEX(0xc8f0a8)); im.set(10, 8, HEX(0x3f8a3a));
+            im.rect(3, 13, 10, 1, HEX(0x7a4e26));
+            break;
+        case C_MEDICINE:  // a tall brown bottle with a red cross label
+            im.rect(6, 1, 4, 3, HEX(0xb89a5a));
+            im.rect(5, 4, 6, 10, HEX(0x7a4a24));
+            im.rect(5, 4, 1, 10, HEX(0xa8703c));
+            im.rect(6, 7, 4, 4, HEX(0xf4ecd0));
+            im.rect(7, 8, 2, 2, HEX(0xd8483c)); im.rect(7, 7, 2, 4, HEX(0xd8483c)); im.rect(6, 8, 4, 2, HEX(0xd8483c));
+            break;
+        case C_JERKY:  // strips of dark dried meat
+            im.rect(2, 4, 11, 3, HEX(0x8a3a28)); im.rect(2, 4, 11, 1, HEX(0xb85a40));
+            im.rect(4, 8, 10, 3, HEX(0x7a3022)); im.rect(4, 8, 10, 1, HEX(0xa84c36));
+            im.rect(3, 12, 9, 2, HEX(0x8a3a28));
+            im.set(6, 5, HEX(0xe8a080)); im.set(9, 9, HEX(0xe8a080));
+            break;
+        case C_STEW:  // a bowl of stew with steam
+            im.ellipse(8, 10, 6.2f, 3.6f, HEX(0x8a5a2c));
+            im.ellipse(8, 9, 5.4f, 2.6f, HEX(0xc87a38));
+            im.set(6, 9, HEX(0x5aa83c)); im.set(9, 8, HEX(0xf2ead3)); im.set(10, 10, HEX(0xe8a080));
+            im.rect(4, 13, 8, 1, HEX(0x6a4220));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(7, 2, HEX(0xeef6ff)); im.set(10, 4, HEX(0xeef6ff)); im.set(9, 3, HEX(0xeef6ff));
+            break;
+        case C_VIGOR:  // an amber vial with a velvet-brown cork
+            im.rect(6, 2, 4, 3, HEX(0x9a7a5a));
+            im.rect(6, 5, 4, 2, HEX(0xdce6ee));
+            im.ellipseShaded(8, 10, 4.8f, 4.4f, HEX(0xf0b860), HEX(0xd8902c), HEX(0x8a5a18));
+            im.rect(5, 8, 1, 3, HEX(0xfff0c0));
+            im.set(10, 12, HEX(0xfff0c0));
+            break;
+        case C_NIGHTSIGHT:  // a dark blue vial with a glowing eye
+            im.rect(6, 2, 4, 3, HEX(0x5a4a3a));
+            im.rect(6, 5, 4, 2, HEX(0xdce6ee));
+            im.ellipseShaded(8, 10, 4.8f, 4.4f, HEX(0x5a6ad8), HEX(0x34409a), HEX(0x1a2060));
+            im.ellipse(8, 10, 2.6f, 1.6f, HEX(0xfff6a0));
+            im.rect(8, 9, 1, 3, HEX(0x1a2060));
+            break;
         default:  // cactus water: a green gourd flask with a droplet
             im.rect(7, 2, 2, 3, HEX(0xb89a5a));
             im.ellipseShaded(8, 10, 5.f, 4.8f, HEX(0x8ad46a), HEX(0x4a9a4c), HEX(0x2f7a3a));

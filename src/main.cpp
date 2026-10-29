@@ -66,6 +66,7 @@ static void pollInput(Game& g) {
                     case SDLK_7: in.selectKey = 6; break;
                     case SDLK_8: in.selectKey = 7; break;
                     case SDLK_9: in.selectKey = 8; break;
+                    case SDLK_0: in.selectKey = 9; break;
                     case SDLK_F11:
                         g.fullscreen = !g.fullscreen;
                         SDL_SetWindowFullscreen(g.win, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
@@ -233,6 +234,17 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.craftOnly = true;
         frames(3);
         shot("22_craft_canmake.bmp");
+        g.p.sk.s[SK_HUNTING].xp = 900;  // a few trained skills so the SKILLS page shows bars, a level-up row and a capped one
+        g.p.sk.s[SK_WOODCUTTING].xp = 55;
+        g.p.sk.s[SK_SKINNING].xp = 12000;
+        g.p.sk.s[SK_RANGED].xp = SkillState::capXp();
+        g.invTab = 2;
+        g.in.mx = 24 + 20;
+        g.in.my = 12 + 38 + 3 * 9 + 4;  // hover the HUNTING row: footer shows its next milestone
+        frames(3);
+        shot("23_skills.bmp");
+        g.invTab = 0;
+        g.p.sk = SkillSet();
         g.craftOnly = false;
         g.state = ST_PLAY;
         // standing at an oak with an axe, mid-swing
@@ -1065,7 +1077,7 @@ static int selfTest(Game& g) {
         }
         check(keys && (int)ks.size() == ITEM_COUNT && itemFromKey("no_such_item") == -1, "every item has a unique stable save key that maps back to it");
         check(item(MEAT).stack == 99 && item(itemMat(M_CLAW)).stack == 99, "materials stack to 99");
-        check(PACK_SLOTS[0] == 20 && PACK_SLOTS[1] == 30 && PACK_SLOTS[2] == 40, "backpack levels give 20 / 30 / 40 slots");
+        check(PACK_SLOTS[0] == 20 && PACK_SLOTS[1] == 30 && PACK_SLOTS[2] == 40 && PACK_SLOTS[3] == 50, "backpack levels give 20 / 30 / 40 / 50 slots");
     }
     // ---- game rules
     std::string savedBytes;
@@ -1106,11 +1118,14 @@ static int selfTest(Game& g) {
         c.totalRemain += 5;
         int remBefore = c.remain[M_MEAT];
         g.bagWarn = 0;
+        const int64_t xpFull = g.p.sk.s[SK_BUTCHERING].xp;
         g.gatherStep(c);
         check(g.p.mat(M_MEAT) == before && c.remain[M_MEAT] == remBefore, "gathering is refused when the bag is full and no stack can take it");
+        check(g.p.sk.s[SK_BUTCHERING].xp == xpFull, "a refused (bag full) carcass step earns no XP");
         g.p.inv.remove(itemMat(M_TUSK), 50);  // frees one slot
         g.gatherStep(c);
         check(g.p.mat(M_MEAT) >= before + 1, "after freeing a slot, gathering works again");
+        check(g.p.sk.s[SK_BUTCHERING].xp > xpFull, "...and cutting meat trains Butchering");
         // a partly filled meat stack can still take more in a full bag
         g.p.inv.clear();
         fillWithJunk();
@@ -1576,6 +1591,7 @@ static int selfTest(Game& g) {
         const bool done = swingUntilGone(node, idx, steps);
         check(done, "holding the swing finishes the vein");
         check(g.p.mat(M_IRON) > ironBefore, "finishing the vein pays out iron ore");
+        check(g.p.sk.s[SK_MINING].xp == 2 + RES[RS_IRON].hits * 2 + RES[RS_IRON].minTier * 4, "finishing a vein earns Mining XP once, not per swing");
         const float minSecs = (RES[RS_IRON].hits - 1) * RES[RS_IRON].swing / TOOLDEF[TL_PICK2].speed;
         check(steps * 0.05f >= minSecs, "a vein takes at least hits x swing time (no free rewards)");
         {
@@ -1607,6 +1623,7 @@ static int selfTest(Game& g) {
             const int woodBefore = g.p.mat(M_WOOD);
             check(swingUntilGone(node, idx, steps), "an oak can be chopped down");
             check(g.p.mat(M_WOOD) > woodBefore, "felling an oak gives wood");
+            check(g.p.sk.s[SK_WOODCUTTING].xp == 2 + RES[RS_OAK].hits * 2 + RES[RS_OAK].minTier * 4, "felling an oak earns Woodcutting XP once");
             check(!g.world.solid[ty][tx], "a felled tree no longer blocks the way");
             g.p.pos = V2(pr.x + 120, pr.y + 120);  // walk away: nobody blocks the regrowth
             for (float t = 0; t < RES[RS_OAK].respawn * 1.3f + REGROW_FADE + 5.f; t += 1.f) g.updateHarvest(1.f);
@@ -1703,7 +1720,7 @@ static int selfTest(Game& g) {
                 for (int k = 0; k < 3; k++)
                     if (RES[rs].y[k].mat >= 0) producible[RES[rs].y[k].mat] = true;
             for (int a = 0; a < A_COUNT; a++)
-                for (int m = 0; m < M_CARCASS_N; m++)
+                for (int m = 0; m < M_COUNT; m++)
                     if (ANIMAL[a].drop[m][1] > 0) producible[m] = true;
             for (int r = 0; r < RECIPE_N; r++)
                 if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
@@ -1784,6 +1801,374 @@ static int selfTest(Game& g) {
             check(chestOk, "chest contents survive a save / load");
             check(g.hstate(node, idx).gone, "a picked plant is still waiting to regrow after a save / load");
         }
+    }
+    printf("consumables and skill-gated crafting\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.inv.clear();
+        auto cons = [&](int c) { g.p.inv.add(itemCons(c), 1); };
+        g.p.maxhp = 200;
+        g.p.hp = 20;
+        cons(C_POULTICE);
+        check(g.useConsumable(C_POULTICE) && (int)g.p.hp == 80 && g.p.inv.count(itemCons(C_POULTICE)) == 0, "a poultice heals 60 and is used up");
+        cons(C_MEDICINE);
+        check(g.useConsumable(C_MEDICINE) && (int)g.p.hp == 200, "herbal medicine heals 120 (capped at max health)");
+        cons(C_POULTICE);
+        check(!g.useConsumable(C_POULTICE) && g.p.inv.count(itemCons(C_POULTICE)) == 1, "healing items are refused (and kept) at full health");
+        g.p.hp = 100;
+        g.p.stamina = 5.f;
+        g.p.exhausted = true;
+        cons(C_JERKY);
+        check(g.useConsumable(C_JERKY) && (int)g.p.hp == 120 && g.p.stamina >= 99.f && !g.p.exhausted, "dried meat heals 20 and restores stamina");
+        g.p.stamina = 5.f;
+        cons(C_STEW);
+        check(g.useConsumable(C_STEW) && (int)g.p.hp == 200 && g.p.stamina >= 99.f, "hunter's stew heals 85 and restores stamina");
+        g.p.hp = 50;
+        cons(C_VIGOR);
+        check(g.useConsumable(C_VIGOR) && (int)g.p.hp == 105 && g.p.swiftT > 85.f, "velvet tonic heals 55 and grants a speed boost");
+        cons(C_NIGHTSIGHT);
+        check(g.useConsumable(C_NIGHTSIGHT) && g.p.nightT > 295.f, "nightsight tonic starts a five-minute timer");
+        cons(C_NIGHTSIGHT);
+        check(!g.useConsumable(C_NIGHTSIGHT) && g.p.inv.count(itemCons(C_NIGHTSIGHT)) == 1, "a second nightsight tonic is refused while one is active (nothing wasted)");
+        // skill gating
+        auto find = [&](int kind, int out, int firstMat, int count) {
+            for (int r = 0; r < RECIPE_N; r++)
+                if (RECIPES[r].kind == kind && RECIPES[r].out == out && RECIPES[r].mat[0] == firstMat && RECIPES[r].count == count) return r;
+            return -1;
+        };
+        const int rPoul = find(RK_ITEM, itemCons(C_POULTICE), M_EXTRACT, 2);
+        check(rPoul >= 0, "(setup) the poultice recipe exists");
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.inv.clear();
+        g.p.inv.add(itemMat(M_EXTRACT), 4);
+        g.p.inv.add(itemMat(M_FIBER), 4);
+        check(g.craftBlock(rPoul) == "NEEDS ALCHEMY 3", "a recipe above your skill level says which skill and level it needs");
+        check(!g.craft(rPoul) && g.p.mat(M_EXTRACT) == 4 && g.p.mat(M_FIBER) == 4 && g.p.inv.count(itemCons(C_POULTICE)) == 0, "...and a locked recipe consumes nothing");
+        g.p.sk.s[SK_ALCHEMY].xp = xpForLevel(1) + xpForLevel(2);  // exactly level 3
+        check(g.p.sk.level(SK_ALCHEMY) == 3 && g.craftBlock(rPoul).empty(), "reaching the level unlocks it");
+        const int64_t before = g.p.sk.s[SK_ALCHEMY].xp;
+        check(g.craft(rPoul) && g.p.inv.count(itemCons(C_POULTICE)) == 2 && g.p.mat(M_EXTRACT) == 3 && g.p.mat(M_FIBER) == 3, "crafting delivers the result and spends the ingredients");
+        check(g.p.sk.s[SK_ALCHEMY].xp == before + recipeXp(RECIPES[rPoul]), "a successful craft earns the recipe's XP in the recipe's skill");
+        g.p.inv.clear();
+        const int64_t b2 = g.p.sk.s[SK_ALCHEMY].xp;
+        check(!g.craft(rPoul) && g.p.sk.s[SK_ALCHEMY].xp == b2, "a failed craft earns no XP");
+    }
+    printf("gear effects and recipe audit\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.inv.clear();
+        float dr = 1, rg = 1;
+        g.curBiome = B_DESERT;
+        g.dayT = 0.5f;
+        g.climateMods(dr, rg);
+        const float plainHeat = dr;
+        g.p.inv.add(itemCarry(CG_DESERTWRAPS), 1);
+        g.climateMods(dr, rg);
+        check(plainHeat > 1.f && dr < plainHeat && dr >= 1.f, "desert wraps cut the heat drain while carried");
+        g.p.inv.clear();
+        g.curBiome = B_SNOW;
+        g.p.warmT = 0;
+        g.climateMods(dr, rg);
+        const float cold = dr;
+        g.p.inv.add(itemCarry(CG_WOLFCLOAK), 1);
+        g.climateMods(dr, rg);
+        const float cloak = dr;
+        g.p.inv.add(itemCarry(CG_PARKA), 1);
+        g.climateMods(dr, rg);
+        check(cold > cloak && cloak > dr && dr == 1.f, "the wolf cloak halves the cold and the parka removes it");
+        g.p.inv.clear();
+        g.curBiome = B_MOUNTAIN;
+        g.climateMods(dr, rg);
+        const float thin = dr;
+        g.p.inv.add(itemCarry(CG_HARNESS), 1);
+        g.climateMods(dr, rg);
+        check(dr < thin, "the climbing harness eases thin air");
+        // snake wraps: only snake bites are softened
+        g.p.inv.clear();
+        g.p.hp = g.p.maxhp = 200;
+        g.hurtPlayer(20, V2(0, 0), A_RATTLER);
+        const float plain = 200 - g.p.hp;
+        g.p.hp = 200;
+        g.p.invuln = 0;
+        g.p.inv.add(itemCarry(CG_VENOMWRAPS), 1);
+        g.hurtPlayer(20, V2(0, 0), A_RATTLER);
+        const float wrapped = 200 - g.p.hp;
+        g.p.hp = 200;
+        g.p.invuln = 0;
+        g.hurtPlayer(20, V2(0, 0), A_WOLF);
+        check(wrapped < plain && 200 - g.p.hp == plain, "venom wraps soften snake bites but not other attacks");
+        // gear tiers
+        g.p.inv.clear();
+        bool tiers = true;
+        for (int u = 0; u < 4; u++) tiers = tiers && std::string(gearName(u, UP_MAX[u])).size() > 0;
+        check(tiers, "every gear line's top level has a name");
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.up[U_BAG] = 2;
+        g.p.syncPack();
+        g.p.sk.s[SK_LEATHER].xp = SkillState::capXp();
+        g.p.inv.add(itemMat(M_LEATHER), 8);
+        g.p.inv.add(itemMat(M_ROPE), 4);
+        g.p.inv.add(itemMat(M_MARMOTPELT), 3);
+        int rPack = -1;
+        for (int r = 0; r < RECIPE_N; r++)
+            if (RECIPES[r].kind == RK_GEAR && RECIPES[r].out == U_BAG && RECIPES[r].count == 3) rPack = r;
+        g.p.sk.s[SK_LEATHER].xp = 0;
+        check(rPack >= 0 && g.craftBlock(rPack).find("NEEDS LEATHERWORK") == 0, "the explorer pack needs leatherwork skill");
+        g.p.sk.s[SK_LEATHER].xp = SkillState::capXp();
+        g.p.pos = g.world.fire;  // the recipe needs a campfire
+        check(g.craft(rPack) && g.p.up[U_BAG] == 3 && g.p.inv.capacity() == PACK_SLOTS[3], "crafting the explorer pack gives 50 slots at once");
+        // audit
+        bool valid = true, skilled = true;
+        bool used[M_COUNT] = {};
+        for (int r = 0; r < RECIPE_N; r++) {
+            const Recipe& R = RECIPES[r];
+            valid = valid && R.count > 0 && !recipeName(R).empty();
+            skilled = skilled && R.skill >= 0 && R.skill < SK_COUNT && R.minLv >= 1 && R.minLv <= MAX_LEVEL;
+            for (int i = 0; i < 3; i++)
+                if (R.mat[i] >= 0) {
+                    valid = valid && R.mat[i] < M_COUNT && R.n[i] > 0;
+                    used[R.mat[i]] = true;
+                }
+        }
+        check(valid && skilled, "every recipe has a name, a count, valid ingredients and a valid skill level");
+        bool trophiesUsed = true;
+        for (int m = M_TROPHY0; m < M_TROPHY0 + A_COUNT; m++)
+            if (!used[m]) {
+                trophiesUsed = false;
+                printf("    %s is used by no recipe\n", MAT_NAME[m]);
+            }
+        check(trophiesUsed, "every animal's exclusive material is an ingredient in at least one recipe");
+        bool compUsed = true;
+        for (int m : {M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE, M_FAT})
+            if (!used[m]) {
+                compUsed = false;
+                printf("    %s is used by no recipe\n", MAT_NAME[m]);
+            }
+        check(compUsed, "every processed material is consumed by a recipe");
+        bool biomeOk = true;
+        for (int w = W_FANGDAGGER; w < W_COUNT; w++) biomeOk = biomeOk && (WPN[w].biome < 0 || WPN[w].biomeMul > 1.f);
+        check(biomeOk, "every biome weapon has a damage bonus for its biome");
+    }
+    printf("skill bonuses\n");
+    {
+        bool zero = true, mono = true, capped = true, steps = true;
+        for (int k = 0; k < SK_COUNT; k++) {
+            zero = zero && skillBonusAt(k, 1) == 0.f;
+            capped = capped && fabsf(skillBonusAt(k, MAX_LEVEL) - SKILL[k].cap) < 1e-4f && skillBonusAt(k, 500) <= SKILL[k].cap + 1e-4f;
+            for (int l = 2; l <= MAX_LEVEL; l++) mono = mono && skillBonusAt(k, l) >= skillBonusAt(k, l - 1);
+            for (int m : MILESTONES) steps = steps && skillBonusAt(k, m) - skillBonusAt(k, m - 1) > SKILL[k].cap * 0.09f;  // a milestone is a visible jump
+        }
+        check(zero, "level 1 gives no bonus");
+        check(mono, "bonuses never shrink as you level");
+        check(capped, "every bonus tops out exactly at its cap at level 100 and never beyond");
+        check(steps, "reaching a milestone level gives a step up in the bonus");
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.sk.s[SK_DEFENSE].xp = SkillState::capXp();
+        g.p.up[U_ARMOR] = 0;
+        g.p.hp = g.p.maxhp = 100;
+        g.p.invuln = 0;
+        g.hurtPlayer(100, V2(0, 0), A_WOLF);
+        check((int)g.p.hp == 15, "max Defense cuts incoming damage by its capped 15%");
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.hp = 10;
+        g.p.maxhp = 200;
+        g.p.sk.s[SK_SURVIVAL].xp = SkillState::capXp();
+        g.p.inv.add(itemCons(C_TONIC), 1);
+        g.useConsumable(C_TONIC);
+        check((int)g.p.hp == 10 + 117, "max Survival boosts a tonic's healing by its capped 30%");
+    }
+    printf("skill XP from actions\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.animals.clear();
+        Animal* a = g.spawnAnimal(A_RABBIT, g.p.pos + V2(10, 0), 0, 0);
+        g.killAnimal(*a);
+        check(g.p.sk.s[SK_HUNTING].xp > 0 && g.p.sk.s[SK_RANGED].xp > 0, "a kill trains Hunting and Ranged");
+        const int64_t easy = g.p.sk.s[SK_HUNTING].xp;
+        Animal* w = g.spawnAnimal(A_WOLF, g.p.pos + V2(30, 0), 0, 0);
+        const int64_t b1 = g.p.sk.s[SK_HUNTING].xp;
+        g.killAnimal(*w);
+        check(g.p.sk.s[SK_HUNTING].xp - b1 > easy, "a wolf is worth more Hunting XP than a rabbit");
+        g.p.sk.s[SK_HUNTING].xp = SkillState::capXp() / 2;
+        const int hi = g.p.sk.level(SK_HUNTING);
+        check(hi > 40 && xpFalloff(hi, 10) < 1.0 && xpFalloff(hi, 10) >= 0.2 && xpFalloff(5, 10) == 1.0, "farming weak animals at a high level pays less (floor 20%)");
+        g.p.dead = true;
+        const int64_t bd = g.p.sk.s[SK_DEFENSE].xp;
+        g.hurtPlayer(10, V2(0, 0), A_WOLF);
+        check(g.p.sk.s[SK_DEFENSE].xp == bd, "no Defense XP while dead");
+        g.p.dead = false;
+        g.p.up[U_ARMOR] = 1;
+        g.p.hp = g.p.maxhp = 100;
+        g.p.invuln = 0;
+        g.hurtPlayer(40, V2(0, 0), A_WOLF);
+        check(g.p.sk.s[SK_DEFENSE].xp > bd, "surviving a hit in armor trains Defense");
+        g.p.invuln = 0;
+        g.p.hp = 5;
+        const int64_t bk = g.p.sk.s[SK_DEFENSE].xp;
+        g.hurtPlayer(40, V2(0, 0), A_WOLF);
+        check(g.p.sk.s[SK_DEFENSE].xp == bk, "a fatal hit earns no Defense XP");
+    }
+    printf("trophies\n");
+    {
+        auto owners = [](int m) {  // how many species can drop material m (base drop, form drop or legendary drop)
+            int n = 0;
+            for (int k = 0; k < A_COUNT; k++)
+                if (ANIMAL[k].drop[m][1] > 0 || ANIMAL[k].formDrop[0] == m || ANIMAL[k].legendDrop[0] == m) n++;
+            return n;
+        };
+        bool oneEach = true, exclusive = true;
+        for (int k = 0; k < A_COUNT; k++) {
+            const int tm = M_TROPHY0 + k;
+            if (ANIMAL[k].drop[tm][1] <= 0) {
+                oneEach = false;
+                printf("    %s has no trophy drop\n", ANIMAL[k].name);
+            }
+            if (owners(tm) != 1) {
+                exclusive = false;
+                printf("    %s is dropped by %d species\n", MAT_NAME[tm], owners(tm));
+            }
+        }
+        check(oneEach && M_TROPHY_N == A_COUNT, "every one of the 28 species drops its own trophy");
+        check(exclusive, "every trophy is dropped by exactly one species");
+        bool noStray = true;  // no species drops a trophy that belongs to another
+        for (int k = 0; k < A_COUNT; k++)
+            for (int m = M_TROPHY0; m < M_TROPHY0 + M_TROPHY_N; m++)
+                if (m != M_TROPHY0 + k && (ANIMAL[k].drop[m][1] > 0 || ANIMAL[k].formDrop[0] == m || ANIMAL[k].legendDrop[0] == m)) noStray = false;
+        check(noStray, "no species drops another species' trophy");
+        bool tables = true, ranges = true;
+        for (int m = 0; m < M_COUNT; m++) {
+            tables = tables && MAT_NAME[m] && *MAT_NAME[m] && MAT_BLURB[m] && *MAT_BLURB[m] && MAT_PRICE[m] > 0;
+            for (int k = 0; k < A_COUNT; k++) ranges = ranges && ANIMAL[k].drop[m][0] >= 0 && ANIMAL[k].drop[m][0] <= ANIMAL[k].drop[m][1];
+        }
+        check(tables, "every material has a name, a blurb and a sell price (no table is short)");
+        check(ranges, "every drop range is valid (0 <= min <= max)");
+        bool permutation = true;
+        int seen[M_COUNT] = {0};
+        for (int i = 0; i < M_COUNT; i++) {
+            if (GATHER_ORDER[i] < 0 || GATHER_ORDER[i] >= M_COUNT || seen[GATHER_ORDER[i]]++) permutation = false;
+        }
+        check(permutation, "the gather order lists every material exactly once");
+        bool keysOk = true;  // save keys are item names: a duplicate would make two items share a key
+        for (int a = 0; a < ITEM_COUNT && keysOk; a++)
+            for (int b = a + 1; b < ITEM_COUNT; b++)
+                if (itemKey(a) == itemKey(b)) {
+                    keysOk = false;
+                    printf("    duplicate item key %s\n", itemKey(a).c_str());
+                    break;
+                }
+        check(keysOk, "item names are unique, so save keys are unique");
+        bool icons = true;
+        for (int m = 0; m < M_COUNT; m++) icons = icons && g.A.matIcon[m].t != nullptr;
+        check(icons, "every material has an inventory icon");
+        bool classes = isCarcassMat(M_MEAT) && isCarcassMat(M_CLAW) && isCarcassMat(M_WOLFFANG) && isCarcassMat(M_FAT) && !isCarcassMat(M_WOOD) && !isCarcassMat(M_GOLDBAR) &&
+                       isTrophy(M_COUGARFANG) && !isTrophy(M_FAT) && !isTrophy(M_CLAW);
+        check(classes, "carcass / trophy classification is right at every boundary");
+        // the real thing: kill every species 60 times and look at what the carcass holds
+        g.newGame();
+        g.state = ST_PLAY;
+        bool ownDrops = true, guaranteed = true, strayKill = true;
+        for (int k = 0; k < A_COUNT; k++) {
+            const int tm = M_TROPHY0 + k;
+            int got = 0;
+            for (int i = 0; i < 60; i++) {
+                g.animals.clear();
+                Animal* a = g.spawnAnimal(k, g.p.pos + V2(40, 0), 0, 0);
+                g.killAnimal(*a);
+                const Animal& c = g.animals[0];
+                got += c.remain[tm];
+                if (ANIMAL[k].drop[tm][0] >= 1 && c.remain[tm] < 1) guaranteed = false;
+                for (int m = M_TROPHY0; m < M_TROPHY0 + M_TROPHY_N; m++)
+                    if (m != tm && c.remain[m] > 0) strayKill = false;
+            }
+            if (got <= 0) {
+                ownDrops = false;
+                printf("    %s never dropped %s in 60 kills\n", ANIMAL[k].name, MAT_NAME[tm]);
+            }
+        }
+        check(ownDrops, "killing each species yields its trophy");
+        check(guaranteed, "species with a guaranteed trophy always carry it");
+        check(strayKill, "a carcass never holds another species' trophy");
+        // gathering moves trophies and fat into the pack
+        g.newGame();
+        g.state = ST_PLAY;
+        Animal* w = g.spawnAnimal(A_WOLF, g.p.pos + V2(10, 0), 0, 0);
+        g.killAnimal(*w);
+        Animal& wc = *w;
+        for (int i = 0; i < 100 && wc.totalRemain > 0; i++) g.gatherStep(wc);
+        check(wc.totalRemain == 0 && g.p.mat(M_WOLFFANG) >= 1 && g.p.mat(M_FAT) >= 1, "gathering a wolf carcass delivers its fang and fat to the pack");
+        // trophies stack, sell and save like any material
+        g.p.inv.add(itemMat(M_LIONMANE), 120);
+        check(g.p.mat(M_LIONMANE) == 120 && g.p.inv.usedSlots() >= 2, "trophies stack to 99 per slot");
+        const int coinsBefore = g.p.coins;
+        g.sellMat(M_LIONMANE, 20);
+        check(g.p.mat(M_LIONMANE) == 100 && g.p.coins == coinsBefore + 20 * MAT_PRICE[M_LIONMANE], "trophies sell at their listed price");
+        g.p.inv.clear();
+        g.p.inv.add(itemMat(M_BEARGALL), 3);
+        g.p.inv.add(itemMat(M_FAT), 7);
+        g.save();
+        g.newGame();
+        check(g.load() && g.p.mat(M_BEARGALL) == 3 && g.p.mat(M_FAT) == 7, "trophies and fat survive a save / load");
+    }
+    printf("skills\n");
+    {
+        // the curve: strictly increasing, nothing past the cap, level derived from total XP
+        bool inc = true;
+        for (int l = 1; l + 1 < MAX_LEVEL; l++) inc = inc && xpForLevel(l + 1) > xpForLevel(l);
+        check(inc && xpForLevel(MAX_LEVEL) == 0 && xpForLevel(1) == (int64_t)XP_BASE, "XP per level rises with level and stops at the cap");
+        SkillSet ss;
+        check(ss.level(SK_HUNTING) == 1 && ss.add(SK_HUNTING, xpForLevel(1) - 1) == 0 && ss.level(SK_HUNTING) == 1, "one XP short of a level does not level up");
+        check(ss.add(SK_HUNTING, 1) == 1 && ss.level(SK_HUNTING) == 2 && ss.s[SK_HUNTING].into() == 0, "exact XP levels up and carries zero over");
+        check(ss.add(SK_HUNTING, xpForLevel(2) + xpForLevel(3) + 5) == 2 && ss.level(SK_HUNTING) == 4 && ss.s[SK_HUNTING].into() == 5, "a big award can gain several levels at once");
+        check(ss.add(SK_MINING, 0) == 0 && ss.add(SK_MINING, -50) == 0 && ss.add(99, 10) == 0 && ss.add(-1, 10) == 0 && ss.s[SK_MINING].xp == 0, "zero, negative and invalid awards do nothing");
+        ss.add(SK_RANGED, (int64_t)1 << 40);
+        check(ss.level(SK_RANGED) == MAX_LEVEL && ss.s[SK_RANGED].xp == SkillState::capXp(), "XP is clamped at the level cap");
+        bool keys = true;
+        for (int a = 0; a < SK_COUNT; a++)
+            for (int b = a + 1; b < SK_COUNT; b++) keys = keys && strcmp(SKILL[a].key, SKILL[b].key) != 0 && strcmp(SKILL[a].name, SKILL[b].name) != 0;
+        check(keys, "skill keys and names are unique");
+        // in the game: level-up reporting, dead players earn nothing
+        g.newGame();
+        g.state = ST_PLAY;
+        check(g.grantXp(SK_WOODCUTTING, 3) == 0 && g.p.sk.s[SK_WOODCUTTING].xp == 3, "grantXp adds XP below a level-up");
+        check(g.grantXp(SK_WOODCUTTING, (int)xpForLevel(1)) == 1 && g.p.sk.level(SK_WOODCUTTING) == 2, "grantXp reports a level-up");
+        g.p.dead = true;
+        check(g.grantXp(SK_MINING, 50) == 0 && g.p.sk.s[SK_MINING].xp == 0, "a dead hunter earns no XP");
+        g.p.dead = false;
+        // persistence
+        g.p.sk.s[SK_COOKING].xp = 12345;
+        g.p.sk.s[SK_DEFENSE].xp = 7;
+        g.save();
+        g.newGame();
+        check(g.p.sk.s[SK_COOKING].xp == 0, "(setup) a new game starts with no skill XP");
+        check(g.load() && g.p.sk.s[SK_COOKING].xp == 12345 && g.p.sk.s[SK_DEFENSE].xp == 7 && g.p.sk.s[SK_WOODCUTTING].xp > 0, "skill XP survives a save / load");
+        check(g.p.sk.s[SK_MINING].xp == 0, "skills that were never trained stay at zero");
+        {   // damaged / foreign lines: clamped or ignored, the rest of the save still loads
+            std::ifstream in(g.savePath(), std::ios::binary);
+            std::string txt((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            in.close();
+            std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
+            out << txt << "skill futureskill 99\nskill hunting -5\nskill ranged 99999999999999\nskill\nskill mining\n";
+        }
+        check(g.load() && g.p.sk.s[SK_HUNTING].xp >= 0 && g.p.sk.s[SK_RANGED].xp == SkillState::capXp() && g.p.sk.s[SK_COOKING].xp == 12345, "unknown, negative, oversized and truncated skill lines are handled");
+        {   // a save from before skills existed has no skill lines: everything loads at level 1
+            std::ifstream in(g.savePath(), std::ios::binary);
+            std::string line, kept;
+            while (std::getline(in, line))
+                if (line.compare(0, 5, "skill") != 0) kept += line + "\n";
+            in.close();
+            std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
+            out << kept;
+        }
+        bool allOne = g.load();
+        for (int k = 0; k < SK_COUNT; k++) allOne = allOne && g.p.sk.level(k) == 1;
+        check(allOne, "an older save without skill lines loads with every skill at level 1");
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

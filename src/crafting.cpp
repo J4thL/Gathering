@@ -15,7 +15,8 @@ const Spr& Game::itemIcon(int id) const {
         case IK_THROWN:
         case IK_LAUNCHER: return A.wpnIcon[D.ref];
         case IK_AMMO: return A.ammoIcon[D.ref];
-        case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(2, D.ref)];
+        case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(3, D.ref)];
+        case IK_CARRIED: return A.carryIcon[D.ref];
         case IK_TOOL: return A.R.toolIcon[D.ref];
         case IK_PLACEABLE: return A.R.placeIcon[D.ref];
         default: return D.ref == C_BANDAGE ? A.bandage : A.R.consIcon[D.ref];
@@ -38,6 +39,7 @@ bool Game::hasIngredients(const Recipe& R) const {
 
 std::string Game::craftBlock(int r) const {
     const Recipe& R = RECIPES[r];
+    if (p.sk.level(R.skill) < R.minLv) return std::string("NEEDS ") + SKILL[R.skill].name + " " + S(R.minLv);
     if (!hasIngredients(R)) return "MISSING MATERIALS";
     if (!nearStation(R.station)) return R.station == STN_FIRE ? "STAND BY A CAMPFIRE" : "STAND AT THE SHOP";
     if (R.kind == RK_GEAR) {
@@ -72,6 +74,7 @@ bool Game::craft(int r) {
         if (R.out == U_ARMOR) {  // the extra health arrives at once (updatePlayer tops up current HP by the difference)
             p.maxhp = std::max(p.maxhp, (float)ARMOR_HP[p.up[U_ARMOR]]);
         }
+        if (R.out == U_BAG) p.syncPack();
         made = "NOW WEARING " + recipeName(R);
     } else {
         const int out = recipeItem(R);
@@ -86,10 +89,21 @@ bool Game::craft(int r) {
         }
         made = "CRAFTED " + S(R.count) + " " + item(out).name;
     }
+    // skill bonus: a practised crafter sometimes gets more out of a craft. Stackable results come out one extra; one-off
+    // results (weapons, gear, structures) hand back one of the first ingredient instead. Never when it would not fit.
+    if (R.kind != RK_GEAR && rng.chance(skillBonus(R.skill))) {
+        const int out = recipeItem(R);
+        if (item(out).stack > 1 && p.inv.add(out, 1) == 1) {
+            ftext(p.pos + V2(0, -18), "EXTRA!", C_GREEN, 1.1f);
+        } else if (item(out).stack == 1 && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
+            ftext(p.pos + V2(0, -18), "SAVED A MATERIAL!", C_GREEN, 1.1f);
+        }
+    }
     audio.play(S_CRAFT);
     if (R.cat == RC_MATERIALS && R.station == STN_FIRE) audio.play(S_SMELT, 0.6f);
     msg(made, C_GOLD);
     ftext(p.pos + V2(0, -26), "+" + recipeName(R), C_GOLD, 1.2f);
+    grantXp(R.skill, recipeXp(R));  // only reached after the result was delivered and the ingredients were spent
     const bool isTool = R.kind == RK_ITEM && item(R.out).kind == IK_TOOL;
     if (R.kind == RK_WEAPON || isTool || R.kind == RK_GEAR) questEvent(Q_CRAFT, R.kind == RK_WEAPON ? R.out : -1, 1);
     return true;
@@ -108,8 +122,7 @@ void recipeInfo(const Recipe& R, std::vector<std::string>& lines) {
         }
         case RK_AMMO: lines.push_back(std::string("AMMUNITION FOR THE ") + (R.out == AM_ARROW ? "BOWS" : "CROSSBOW")); break;
         case RK_GEAR: {
-            if (R.out == U_ARMOR && R.count == 3) lines.push_back("+75 HP, -42% DAMAGE");
-            else lines.push_back(UPS[R.out].lv[std::min(1, R.count - 1)].desc);
+            lines.push_back(gearDesc(R.out, R.count));
             break;
         }
         case RK_BANDAGE: lines.push_back(item(ITEM_CONS0 + C_BANDAGE).blurb); break;
@@ -170,7 +183,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         const bool can = why.empty();
         panel(x, y, w, rowH - 1, can ? HEX(0x3f3220) : HEX(0x33261a));
         if (inRect(x, y, w, rowH - 1)) hover = r;
-        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(2, R.count)], x + 11, y + 10, 16);
+        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(5, R.count)], x + 11, y + 10, 16);
         else icon(itemIcon(recipeItem(R)), x + 11, y + 10, 16);
         text(x + 24, y + 3, recipeName(R) + (R.count > 1 && R.kind != RK_GEAR ? "  X" + S(R.count) : std::string("")), can ? C_GOLD : HEX(0xa89060));
         if (R.kind != RK_GEAR) {
@@ -180,9 +193,15 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         int ix = x + 24;
         for (int k = 0; k < 3; k++)
             if (R.mat[k] >= 0) ix = chip(ix, y + 11, A.matIcon[R.mat[k]], p.mat(R.mat[k]), R.n[k]);
-        if (R.station != STN_ANY) text(ix, y + 14, R.station == STN_FIRE ? "FIRE" : "SHOP", nearStation(R.station) ? C_GREEN : C_ORANGE, 1, false);
+        if (R.station != STN_ANY) {
+            const char* sn = R.station == STN_FIRE ? "FIRE" : "SHOP";
+            text(ix, y + 14, sn, nearStation(R.station) ? C_GREEN : C_ORANGE, 1, false);
+            ix += textW(sn) + 5;
+        }
+        if (R.minLv > 1) text(ix, y + 14, std::string(SKILL[R.skill].name) + " " + S(R.minLv), p.sk.level(R.skill) >= R.minLv ? C_GREEN : C_RED, 1, false);
         std::string lab = "CRAFT";
-        if (!can && hasIngredients(R) && !nearStation(R.station)) lab = R.station == STN_FIRE ? "AT FIRE" : "AT SHOP";
+        if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
+        else if (!can && hasIngredients(R) && !nearStation(R.station)) lab = R.station == STN_FIRE ? "AT FIRE" : "AT SHOP";
         else if (why == "YOU ALREADY HAVE ONE" || why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
         if (button(x + w - 54, y + 4, 50, 13, lab, can, HEX(0x5d7a2e))) craft(r);
     }
@@ -199,17 +218,23 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         const Recipe& R = RECIPES[hover];
         std::vector<std::string> lines;
         recipeInfo(R, lines);
-        lines.push_back(std::string("MADE ") + STATION_NAME[R.station]);
+        lines.push_back(std::string("MADE ") + STATION_NAME[R.station] + "   " + SKILL[R.skill].name + " LV " + S(R.minLv) + " (YOU " + S(p.sk.level(R.skill)) + ")");
+        lines.push_back(std::string("EARNS ") + S(recipeXp(R)) + " " + SKILL[R.skill].name + " XP");
         const std::string why = craftBlock(hover);
+        std::vector<std::string> missing;  // exactly what is short, one line each
+        for (int k = 0; k < 3; k++)
+            if (R.mat[k] >= 0 && p.mat(R.mat[k]) < R.n[k]) missing.push_back("MISSING " + S(R.n[k] - p.mat(R.mat[k])) + " " + MAT_NAME[R.mat[k]]);
         int tw = textW(recipeName(R)) + 6;
         for (auto& l : lines) tw = std::max(tw, textW(l) + 6);
+        for (auto& l : missing) tw = std::max(tw, textW(l) + 6);
         if (!why.empty()) tw = std::max(tw, textW(why) + 6);
-        int th = 12 + (int)lines.size() * 9 + (why.empty() ? 0 : 9);
+        int th = 12 + (int)(lines.size() + missing.size()) * 9 + (why.empty() ? 0 : 9);
         int tx = std::min((int)in.mx + 10, LW - tw - 2), ty = std::min((int)in.my + 10, LH - th - 2);
         panel(tx, ty, tw, th, HEX(0x241a10));
         text(tx + 3, ty + 3, recipeName(R), C_GOLD);
         int yy = ty + 12;
-        for (size_t i = 0; i < lines.size(); i++, yy += 9) text(tx + 3, yy, lines[i], i + 1 == lines.size() ? C_DIM : C_TEXT, 1, false);
+        for (size_t i = 0; i < lines.size(); i++, yy += 9) text(tx + 3, yy, lines[i], i + 2 >= lines.size() ? C_DIM : C_TEXT, 1, false);
+        for (auto& l : missing) text(tx + 3, yy, l, C_ORANGE, 1, false), yy += 9;
         if (!why.empty()) text(tx + 3, yy, why, C_RED, 1, false);
     }
     textC(X + W / 2, Y + H - 8, "FIRE: VILLAGE OR YOUR OWN CAMPFIRE   SHOP: THE MERCHANT   WHEEL SCROLLS   TAB BACK", C_DIM, 1, false);

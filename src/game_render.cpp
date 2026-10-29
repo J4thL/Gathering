@@ -458,7 +458,7 @@ void Game::renderWorld(bool) {
     }
 
     // ---- lighting: day/night tint, warm glows, vignette
-    float night2 = night;
+    float night2 = p.nightT > 0 ? night * 0.3f : night;  // a nightsight tonic turns night into dusk
     if (night2 > 0.01f) fillRect(0, 0, LW, LH, RGBA(14, 22, 70, (int)(night2 * 128)));
     float sun = sinf(tod() * 6.2832f);
     float warm = clampf(1.f - fabsf(sun) * 3.2f, 0, 1);
@@ -727,7 +727,11 @@ void Game::drawHud() {
     const int stripCols = 5, stripRowsMax = 4;
     const int shownMats = std::min((int)ownedMats.size(), stripCols * stripRowsMax);
     const int stripRows = (shownMats + stripCols - 1) / stripCols;
-    const int stripY = LH - 4 - stripRows * 25;
+    // hotbar geometry (drawn below): 17 weapons make it wide, so it can reach under the materials strip - then the strip rides above it
+    const int hbSw = W_COUNT > 12 ? 17 : (W_COUNT > 6 ? 22 : 24), hbGap = W_COUNT > 12 ? 1 : (W_COUNT > 6 ? 2 : 3);
+    const int hbTotal = W_COUNT * hbSw + (W_COUNT - 1) * hbGap, hbX0 = (LW - hbTotal) / 2 + 14;
+    const int stripLift = hbX0 < 4 + stripCols * 18 + 6 + 3 ? hbSw + 4 : 0;
+    const int stripY = LH - 4 - stripRows * 25 - stripLift;
     // ---- active quest tracker (bottom-left, above the bag meter)
     if (questActive) {
         bool ready = questReady();
@@ -752,8 +756,8 @@ void Game::drawHud() {
     }
     // ---- hotbar
     {
-        int sw = W_COUNT > 6 ? 22 : 24, gap = W_COUNT > 6 ? 2 : 3, total = W_COUNT * sw + (W_COUNT - 1) * gap;
-        int x0 = (LW - total) / 2 + 14, y = LH - sw - 5;
+        const int sw = hbSw, gap = hbGap, total = hbTotal;  // 17 weapons still have to fit a 400-pixel screen
+        int x0 = hbX0, y = LH - sw - 5;
         for (int i = 0; i < W_COUNT; i++) {
             int x = x0 + i * (sw + gap);
             bool sel = i == p.sel;
@@ -767,7 +771,7 @@ void Game::drawHud() {
                 fillRect(x + 1, yy + sw - 1, sw - 2, 1, g);
             }
             icon(A.wpnIcon[i], x + sw / 2, yy + sw / 2, 16, p.wpn(i) > 0 ? 1.f : 0.3f);
-            text(x + 3, yy + 3, S(i + 1), C_DIM, 1, false);
+            if (i < 9) text(x + 2, yy + 2, S(i + 1), C_DIM, 1, false);  // keys 1-9; the wheel reaches the rest
             // launchers show how much ammunition is left instead of how many you own
             int shown = isLauncher(i) ? p.ammo(WPN[i].ammo) : p.wpn(i);
             bool have = isLauncher(i) ? (p.wpn(i) > 0 && shown > 0) : shown > 0;
@@ -777,9 +781,9 @@ void Game::drawHud() {
         }
         int bx = x0 + total + 7;
         panel(bx, y, sw, sw, HEX(0x33241a));
-        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, (p.bandages() + p.inv.count(itemCons(C_SALVE)) + p.inv.count(itemCons(C_COOKED)) + p.inv.count(itemCons(C_TONIC))) > 0 ? 1.f : 0.3f);
+        icon(A.bandage, bx + sw / 2, y + sw / 2, 16, p.healItems() > 0 ? 1.f : 0.3f);
         text(bx + 3, y + 3, "Q", C_DIM, 1, false);
-        const int heals = p.bandages() + p.inv.count(itemCons(C_SALVE)) + p.inv.count(itemCons(C_COOKED)) + p.inv.count(itemCons(C_TONIC));
+        const int heals = p.healItems();
         std::string n = S(heals);
         text(bx + sw - 3 - textW(n), y + sw - 8, n, heals > 0 ? C_TEXT : C_RED);
         // selected weapon name
@@ -955,7 +959,7 @@ void Game::drawShop() {
         std::vector<int> owned;
         int total = 0;
         bool partsHeld = false;
-        auto isPart = [](int m) { return m == M_ROPE || m == M_COPPERBAR || m == M_IRONBAR || m == M_GOLDBAR; };  // crafting components: kept by SELL EVERYTHING
+        auto isPart = [](int m) { return isComponent(m); };  // crafting components: kept by SELL EVERYTHING
         for (int m = 0; m < M_COUNT; m++)
             if (p.mat(m) > 0) {
                 owned.push_back(m);
@@ -1016,15 +1020,15 @@ void Game::drawShop() {
             int y = Y + 22 + u * 40;
             int lv = p.up[u];
             panel(x0, y, cw, 37, HEX(0x3a2a1a));
-            icon(A.gearIcon[u][std::min(2, lv)], x0 + 18, y + 19, 28, lv >= 2 ? 0.8f : 1.f);
+            icon(A.gearIcon[u][std::min(5, lv)], x0 + 18, y + 19, 28, lv >= 2 ? 0.8f : 1.f);
             text(x0 + 36, y + 4, UPS[u].title, C_DIM);
             for (int i = 0; i < 2; i++) {
                 fillRect(x0 + cw - 20 + i * 8, y + 4, 6, 5, i < lv ? C_GOLD : HEX(0x1a120b));
             }
             if (lv >= 2) {
-                text(x0 + 36, y + 13, UPS[u].lv[1].name, C_GOLD);
-                text(x0 + 36, y + 22, UPS[u].lv[1].desc, C_TEXT);
-                text(x0 + 36, y + 30, "FULLY UPGRADED", C_GREEN);
+                text(x0 + 36, y + 13, gearName(u, lv), C_GOLD);
+                text(x0 + 36, y + 22, gearDesc(u, lv), C_TEXT);
+                text(x0 + 36, y + 30, lv > 2 ? "CRAFTED GEAR" : "FULLY UPGRADED", C_GREEN);
                 continue;
             }
             const UpLevel& L = UPS[u].lv[lv];
@@ -1104,8 +1108,15 @@ void Game::drawInventory() {
         text(X + W - 10 - textW(cs), Y + 7, cs, C_GOLD);
         icon(A.coin, X + W - 16 - textW(cs), Y + 10, 8);
     }
-    if (button(X + 8, Y + 20, 64, 13, "BACKPACK", true, invTab == 0 ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = 0;
-    if (button(X + 76, Y + 20, 64, 13, "CRAFTING", true, invTab == 1 ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = 1;
+    {
+        static const char* tabs[3] = {"BACKPACK", "CRAFTING", "SKILLS"};
+        int tx = X + 8;
+        for (int i = 0; i < 3; i++) {
+            const int w = textW(tabs[i]) + 10;
+            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = i;
+            tx += w + 2;
+        }
+    }
     // category filter for the grid: items outside the chosen category are dimmed (the grid itself never moves)
     auto filterOf = [](int id) {
         switch (item(id).kind) {
@@ -1117,7 +1128,7 @@ void Game::drawInventory() {
     };
     if (invTab == 0) {
         static const char* fl[5] = {"ALL", "MATERIALS", "WEAPONS", "TOOLS", "SUPPLIES"};
-        int fx = X + 146;
+        int fx = X + 132;
         for (int i = 0; i < 5; i++) {
             int w = textW(fl[i]) + 10;
             if (button(fx, Y + 20, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
@@ -1191,6 +1202,10 @@ void Game::drawInventory() {
                 const WpnDef& Wd = WPN[D.ref];
                 text(dx + 6, ty, "DMG " + S((int)Wd.dmg) + "  RANGE " + S((int)Wd.range), C_TEXT);
                 ty += 9;
+                if (Wd.biome >= 0) {
+                    text(dx + 6, ty, std::string("+30% IN THE ") + BIOME[Wd.biome].name, BIOME[Wd.biome].col, 1, false);
+                    ty += 9;
+                }
                 if (D.kind == IK_LAUNCHER) {
                     text(dx + 6, ty, std::string("FIRES ") + AMMO[Wd.ammo].name + "S: " + S(p.ammo(Wd.ammo)), C_TEXT, 1, false);
                     ty += 9;
@@ -1234,7 +1249,7 @@ void Game::drawInventory() {
                                 nf++;
                                 break;
                             }
-                    if (D.ref < M_CARCASS_N) from = "HUNTING";
+                    if (isCarcassMat(D.ref)) from = "HUNTING";
                     else if (from.empty()) from = "SMELTING / CRAFTING";
                     wrap("FROM: " + from, C_GREEN);
                     std::string used;
@@ -1261,9 +1276,11 @@ void Game::drawInventory() {
             p.inv.compact();
             msg("PACK SORTED", C_DIM);
         }
-        textC(X + W / 2, Y + H - 12, "I / ESC CLOSE   TAB CRAFTING   ARROWS MOVE   ENTER EQUIP OR USE", C_DIM, 1, false);
-    } else {
+        textC(X + W / 2, Y + H - 12, "I / ESC CLOSE   TAB NEXT PAGE   ARROWS MOVE   ENTER EQUIP OR USE", C_DIM, 1, false);
+    } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);
+    } else {
+        drawSkillsTab(X, Y, W, H);
     }
 }
 

@@ -85,6 +85,7 @@ void Game::save() {
         for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
         f << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
+        skillSave(f);
         f << "disc ";
         for (auto& l : world.landmarks) f << (l.found ? '1' : '0');
         f << "\n";
@@ -148,6 +149,7 @@ bool Game::load() {
         } else if (k == "up") for (int i = 0; i < U_COUNT; i++) ss >> p.up[i];
         else if (k == "day") ss >> dayT;
         else if (k == "kills") ss >> kills;
+        else if (k == "skill") skillLoadLine(ss);
         else if (k == "disc") {
             std::string bits;
             ss >> bits;
@@ -163,7 +165,7 @@ bool Game::load() {
         newGame();
         return false;
     }
-    for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(i == U_ARMOR ? 3 : 2, std::max(0, p.up[i]));  // scale mail (armor 3) is craft-only
+    for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(UP_MAX[i], std::max(0, p.up[i]));  // the top levels (scale mail, reinforced leather, bear hide, swiftfoot boots, explorer pack) are craft-only
     p.syncPack();  // the backpack level decides how many slots there are, so it must be known before items go in
     p.inv.clear();
     auto give = [&](int item, int n) {
@@ -556,7 +558,7 @@ void Game::updateAnimals(float dt) {
                 a.face = dp.x > 0 ? 1 : -1;
                 if (dd < D.hitR + 9) {
                     if (a.atkCd <= 0) {
-                        hurtPlayer(D.dmg * T.dmg, a.pos);
+                        hurtPlayer(D.dmg * T.dmg, a.pos, a.kind);
                         a.atkCd = D.atkCd;
                         a.kb = toP * -70;
                     }
@@ -643,13 +645,21 @@ void Game::killAnimal(Animal& a) {
     audio.play(S_KILL);
     shakeAmt = std::max(shakeAmt, 4.f);
     ftext(a.pos + V2(0, -a.bodyH - 18), "HUNTED!", C_GOLD, 1.4f);
+    // skill XP for a completed kill (every kill is made with a thrown weapon or a launcher); bigger and rarer game pays more
+    const float tierMul = a.tier > 0 ? TIER[a.tier].drops : 1.f;
+    const int rec = 5 + (int)(D.hp / 3);  // level at which this animal is no longer a challenge
+    grantXp(SK_HUNTING, std::max(1, (int)lroundf((3 + D.hp / 6.f) * tierMul * xpFalloff(p.sk.level(SK_HUNTING), rec))));
+    grantXp(SK_RANGED, std::max(1, (int)lroundf((2 + D.hp / 8.f) * tierMul * xpFalloff(p.sk.level(SK_RANGED), rec))));
 }
 
 // ================================================================= player
-void Game::hurtPlayer(float dmg, V2 from) {
+void Game::hurtPlayer(float dmg, V2 from, int srcKind) {
     if (p.invuln > 0 || p.dead) return;
+    dmg *= 1.f - skillBonus(SK_DEFENSE);
+    if (p.has(CG_VENOMWRAPS) && (srcKind == A_RATTLER || srcKind == A_MOCCASIN)) dmg *= 0.65f;  // snake-proof wraps
     int d = std::max(1, (int)ceilf(dmg * (1.f - ARMOR_RED[p.up[U_ARMOR]])));
     p.hp -= d;
+    if (p.hp > 0 && p.up[U_ARMOR] > 0) grantXp(SK_DEFENSE, std::max(1, d / 8));  // surviving a hit in armor
     p.invuln = 0.85f;
     p.sinceHurt = 0;
     V2 dir = (p.pos - from).norm();
@@ -694,15 +704,18 @@ void Game::throwWeapon() {
     pr.travelled = 0;
     pr.wpn = w;
     pr.angle = atan2f(dir.y, dir.x);
-    pr.spin = (w == W_JAVELIN || w == W_SPEAR || w == W_IRONSPEAR || launcher) ? 0.f : (w == W_AXE ? 17.f : 26.f);
+    const bool spearLike = w == W_JAVELIN || w == W_SPEAR || w == W_IRONSPEAR || w == W_RSPEAR || w == W_SUNJAV || w == W_BOGSPEAR || w == W_HARPOON;
+    const bool axeLike = w == W_AXE || w == W_HVYAXE || w == W_CLIFFAXE;
+    pr.spin = (spearLike || launcher) ? 0.f : (axeLike ? 17.f : 26.f);
+    const float biomeMul = (D.biome >= 0 && curBiome == D.biome) ? D.biomeMul : 1.f;  // biome weapons: +30% at home
     pr.crit = rng.chance(0.10f);
-    pr.dmg = D.dmg * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
+    pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
     if (launcher) {
         // a bow shot is only as good as the draw; the crossbow is always fully loaded when it fires
         float draw = D.draw > 0 ? c : 1.f;
         pr.speed = D.speed * (0.55f + 0.45f * draw);
         pr.range = std::min(D.range * (0.5f + 0.5f * draw), dl + 24);
-        pr.dmg = D.dmg * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
+        pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
         pr.ammo = D.ammo;
     }
     projs.push_back(pr);
@@ -746,11 +759,15 @@ void Game::gatherStep(Animal& c) {
     c.totalRemain--;
     p.inv.add(itemMat(m), 1);
     int extra = 0;
-    if (rng.chance(TOOL_BONUS[p.up[U_TOOL]]) && p.inv.canAdd(itemMat(m), 1)) {
+    const bool skinPiece = m == M_HIDE || m == M_FUR || m == M_SCALE || isTrophy(m);
+    if (rng.chance(TOOL_BONUS[p.up[U_TOOL]] + skillBonus(skinPiece ? SK_SKINNING : SK_BUTCHERING)) && p.inv.canAdd(itemMat(m), 1)) {
         p.inv.add(itemMat(m), 1);
         extra = 1;
     }
     questEvent(Q_GATHER, m, 1 + extra);
+    {  // butchering for meat, bone and fat; skinning for hide, fur, scales and the trophy pieces
+        grantXp(skinPiece ? SK_SKINNING : SK_BUTCHERING, std::min(6, std::max(1, MAT_PRICE[m] / 5)) * (1 + extra));
+    }
     ftext(c.pos + V2(rng.range(-6, 6), -10), "+" + S(1 + extra) + " " + MAT_NAME[m], extra ? C_GOLD : C_GREEN, 1.2f);
     bloodBurst(c.pos + V2(0, -4), V2(rng.range(-1, 1), -0.6f), 4);
     puff(c.pos + V2(0, -2), 3, HEX(0xd8c8a8));
@@ -818,9 +835,9 @@ void Game::updatePlayer(float dt) {
     V2 mv((in.right ? 1.f : 0.f) - (in.left ? 1.f : 0.f), (in.down ? 1.f : 0.f) - (in.up ? 1.f : 0.f));
     bool moving = mv.len() > 0.1f;
     if (moving) mv = mv.norm();
-    float spd = 70.f * BOOT_MUL[P.up[U_BOOTS]];
+    float spd = 70.f * BOOT_MUL[P.up[U_BOOTS]] * (P.swiftT > 0 ? 1.15f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
-    spd *= tileSpeed(groundT);  // sand, mud, deep snow slow you down
+    { float ts = tileSpeed(groundT); if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f; spd *= ts; }  // sand, mud, deep snow slow you down
     float drain = 1.f, regen = 1.f;
     climateMods(drain, regen);
     bool sprinting = false;
@@ -955,8 +972,8 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
-    if (in.bandage && P.hp < P.maxhp) {  // Q: bandage first, then salve, cooked meat, tonic
-        static const int order[] = {C_BANDAGE, C_SALVE, C_COOKED, C_TONIC};
+    if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item you carry first, strong medicine last
+        static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};
         for (int cid : order)
             if (P.inv.count(itemCons(cid)) > 0) {
                 useConsumable(cid);
@@ -982,7 +999,7 @@ void Game::updateProjectiles(float dt) {
                 V2 c = a.pos + V2(0, -a.bodyH - a.air);
                 if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
                     hitAnimal(a, pr.dmg, pr.dir, pr.crit);
-                    if (rng.chance(pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk)) {
+                    if (rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
@@ -1036,19 +1053,24 @@ void Game::climateMods(float& drain, float& regen) const {
     drain = regen = 1.f;
     switch (curBiome) {
         case B_DESERT: {
-            float heat = p.coolT > 0 ? 0.f : daylight();  // cactus water: the heat does not bother you
+            float heat = p.coolT > 0 ? 0.f : daylight() * (p.has(CG_DESERTWRAPS) ? 0.3f : 1.f);  // cactus water: the heat does not bother you
             drain = 1.f + 0.35f * heat;
             regen = 1.f - 0.35f * heat;
             break;
         }
         case B_SNOW: {
             float exposed = p.up[U_ARMOR] >= 2 ? 0.f : (p.up[U_ARMOR] == 1 ? 0.5f : 1.f);
+            if (p.has(CG_PARKA)) exposed = 0.f;
+            else if (p.has(CG_WOLFCLOAK)) exposed *= 0.5f;
             if (p.warmT > 0 || warmthAt(p.pos) > 0.3f) exposed = 0.f;  // a warm brew or standing by a campfire
             drain = 1.f + 0.25f * exposed;
             regen = 1.f - 0.30f * exposed;
             break;
         }
-        case B_MOUNTAIN: drain = 1.2f, regen = 0.85f; break;
+        case B_MOUNTAIN:
+            if (p.has(CG_HARNESS)) drain = 1.08f, regen = 0.94f;  // climbing harness: thin air bites less
+            else drain = 1.2f, regen = 0.85f;
+            break;
         case B_SWAMP: drain = 1.1f; break;
         default: break;
     }
@@ -1082,6 +1104,7 @@ void Game::updateBiome(float dt) {
         msg(std::string("DISCOVERED: ") + l.name + " (" + S(landmarksFound()) + "/" + S((int)world.landmarks.size()) + ")", BIOME[l.biome].col);
         ftext(V2(l.x, l.y - 30), l.name, BIOME[l.biome].col, 2.2f);
         audio.play(S_PICKUP, 0.6f);
+        grantXp(SK_SURVIVAL, 20);  // each landmark pays once (found is saved)
     }
 }
 
@@ -1215,6 +1238,8 @@ void Game::updatePlay(float dt) {
     updateStructures(dt);
     p.warmT = std::max(0.f, p.warmT - dt);
     p.coolT = std::max(0.f, p.coolT - dt);
+    p.swiftT = std::max(0.f, p.swiftT - dt);
+    p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
     updateProjectiles(dt);
     checkWeaponSafetyNet(dt);
@@ -1318,6 +1343,7 @@ bool Game::useConsumable(int c) {
             audio.play(S_ERROR);
             return false;
         }
+        amount = (int)lroundf(amount * (1.f + skillBonus(SK_SURVIVAL)));
         p.hp = std::min(p.maxhp, p.hp + amount);
         ftext(p.pos + V2(0, -24), "+" + S(amount) + " HP", C_GREEN, 1.1f);
         return true;
@@ -1346,10 +1372,44 @@ bool Game::useConsumable(int c) {
             p.coolT = 120.f;
             ftext(p.pos + V2(0, -24), "REFRESHED!", C_BLUE, 1.2f);
             break;
+        case C_POULTICE: if (!heal(60)) return false; break;
+        case C_MEDICINE: if (!heal(120)) return false; break;
+        case C_JERKY:
+            if (!heal(20)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_STEW:
+            if (!heal(85)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_VIGOR:
+            if (p.hp >= p.maxhp && p.swiftT > 30.f) {
+                msg("YOU ARE ALREADY INVIGORATED", C_DIM);
+                audio.play(S_ERROR);
+                return false;
+            }
+            p.hp = std::min(p.maxhp, p.hp + 55.f);
+            p.stamina = 100.f;
+            p.exhausted = false;
+            p.swiftT = 90.f;
+            ftext(p.pos + V2(0, -24), "INVIGORATED!", C_GREEN, 1.2f);
+            break;
+        case C_NIGHTSIGHT:
+            if (p.nightT > 120.f) {
+                msg("YOUR EYES ARE ALREADY SHARP", C_DIM);
+                audio.play(S_ERROR);
+                return false;
+            }
+            p.nightT = 300.f;
+            ftext(p.pos + V2(0, -24), "NIGHTSIGHT!", C_BLUE, 1.2f);
+            break;
         default: return false;
     }
     p.inv.remove(id, 1);
     audio.play(S_PICKUP);
+    grantXp(SK_SURVIVAL, 2);  // only reached when the item really took effect (refusals return earlier)
     return true;
 }
 
@@ -1401,7 +1461,7 @@ void Game::updateInventory(float dt) {
         audio.play(S_CLICK);
         return;
     }
-    if (in.tabPressed) invTab = (invTab + 1) % 2;
+    if (in.tabPressed) invTab = (invTab + 1) % 3;
     // cursor: arrow keys / WASD, one step per key press
     const bool now[4] = {in.up, in.down, in.left, in.right};
     const int cap = p.bagCap();

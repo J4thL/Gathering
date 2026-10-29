@@ -5,6 +5,8 @@
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
 #include "sprites_res.hpp"
+#include "sprites_trophy.hpp"
+#include "sprites_gear.hpp"
 #include "sprites_biome.hpp"
 
 // ================================================================= tiles
@@ -899,8 +901,8 @@ inline Img mkIconGear(int up, int tier) {
             break;
         }
         case U_BAG: {
-            u32 c[3] = {HEX(0x8a5c34), HEX(0xa87a4a), HEX(0x6e7a4a)};
-            u32 d[3] = {HEX(0x5e3d22), HEX(0x7a5230), HEX(0x4a5632)};
+            u32 c[4] = {HEX(0x8a5c34), HEX(0xa87a4a), HEX(0x6e7a4a), HEX(0x3f7f86)};
+            u32 d[4] = {HEX(0x5e3d22), HEX(0x7a5230), HEX(0x4a5632), HEX(0x2a4f58)};
             im.ellipse(8, 9, 5.5f, 5.5f, c[tier]);
             im.rect(3, 9, 10, 4, c[tier]);
             im.rect(3, 12, 10, 2, d[tier]);
@@ -912,7 +914,7 @@ inline Img mkIconGear(int up, int tier) {
             break;
         }
         case U_BOOTS: {
-            u32 c[3] = {HEX(0x6b4a2b), HEX(0xa87a4a), HEX(0xd8d2c8)};
+            u32 c[4] = {HEX(0x6b4a2b), HEX(0xa87a4a), HEX(0xd8d2c8), HEX(0xd8a23c)};
             im.rect(3, 3, 4, 8, c[tier]);
             im.rect(2, 10, 7, 3, c[tier]);
             im.rect(9, 5, 4, 8, shadeC(c[tier], 0.85f));
@@ -924,7 +926,7 @@ inline Img mkIconGear(int up, int tier) {
             break;
         }
         case U_ARMOR: {
-            u32 c[3] = {HEX(0x9b6b3a), HEX(0xb08a5a), HEX(0xcfd3d8)};
+            u32 c[6] = {HEX(0x9b6b3a), HEX(0xb08a5a), HEX(0xcfd3d8), HEX(0x6a4a30), HEX(0x5a3a22), HEX(0x4a2e1c)};
             im.rect(3, 3, 10, 11, c[tier]);
             im.rect(1, 3, 3, 4, c[tier]);
             im.rect(12, 3, 3, 4, c[tier]);
@@ -1119,7 +1121,7 @@ struct Assets {
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr player[3][4];
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
-    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][3], bandage;
+    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][6], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
@@ -1154,8 +1156,8 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int d = 0; d < 3; d++)
         for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
     buildFauna(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m < M_CARCASS_N ? mkIconMat(m) : mkIconLand(m), 8, 8);
-    for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : mkIconWpnNew(w), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
         Img t = mkIconTool(k);
         a.R.toolIcon[k] = makeSpr(r, t, 8, 8);
@@ -1171,10 +1173,11 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.R.stub = makeSpr(r, mkStub(), 6, 6);
     a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
-        for (int t = 0; t < 3; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, t), 8, 8);
+        for (int t = 0; t < 6; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, std::min(t, UP_MAX[u])), 8, 8);
+    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
-        Img im = w < W_SPEAR ? mkWpnWorld(w) : mkWpnWorldNew(w);
+        Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
     for (int k = 0; k < AM_COUNT; k++) {
