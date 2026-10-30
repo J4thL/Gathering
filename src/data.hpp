@@ -206,7 +206,7 @@ static const float BOOT_MUL[4] = {1.0f, 1.12f, 1.25f, 1.35f};  // level 3 (swift
 static const int ARMOR_HP[6] = {100, 120, 145, 175, 200, 230};  // levels 3-5 (scale mail, reinforced leather, bear hide) can only be crafted
 static const float ARMOR_RED[6] = {0.0f, 0.15f, 0.30f, 0.42f, 0.48f, 0.55f};
 // highest level of each gear line: the shop sells levels 1-2, the rest is crafted
-constexpr int UP_MAX[4] = {2, 3, 3, 5};  // U_TOOL, U_BAG, U_BOOTS, U_ARMOR
+constexpr int UP_MAX[4] = {2, 4, 3, 5};  // U_TOOL, U_BAG (legacy: old saves' bag level, icons only), U_BOOTS, U_ARMOR
 
 // name / description of gear level `lv` (1-based) - levels 1-2 are the shop's, the rest are crafted only
 inline const char* gearName(int u, int lv) {
@@ -218,7 +218,6 @@ inline const char* gearName(int u, int lv) {
 inline const char* gearDesc(int u, int lv) {
     if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].desc;
     if (u == U_ARMOR) return lv == 3 ? "+75 HP, -42% DAMAGE" : lv == 4 ? "+100 HP, -48% DAMAGE" : "+130 HP, -55% DAMAGE";
-    if (u == U_BAG) return "50 INVENTORY SLOTS";
     if (u == U_BOOTS) return "MOVE 35% FASTER";
     return "";
 }

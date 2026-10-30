@@ -67,9 +67,13 @@ static const Recipe RECIPES[] = {
     {RK_GEAR, U_BOOTS, 2, {M_FUR, M_HIDE, M_ROPE}, {3, 2, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 1},
     // higher tiers: leatherwork-gated, built from processed leather and the animals' exclusive trophies
     {RK_GEAR, U_BOOTS, 3, {M_LEATHER, M_RABBITFOOT, M_SNOWFOOT}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 18},
-    {RK_GEAR, U_BAG, 3, {M_LEATHER, M_ROPE, M_MARMOTPELT}, {8, 4, 3}, RC_ARMOR, STN_FIRE, SK_LEATHER, 35},
     {RK_GEAR, U_ARMOR, 4, {M_LEATHER, M_GREASE, M_IRONBAR}, {6, 2, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 30},
     {RK_GEAR, U_ARMOR, 5, {M_LEATHER, M_FUR, M_CLAW}, {5, 6, 3}, RC_ARMOR, STN_SHOP, SK_LEATHER, 45},
+    // bags: crafted, then worn (equip from the pack); each one only raises the carrying-weight limit
+    {RK_ITEM, itemPack(PK_SATCHEL), 1, {M_HIDE, M_FIBER, -1}, {4, 2, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
+    {RK_ITEM, itemPack(PK_TRAPPER), 1, {M_HIDE, M_FUR, M_ROPE}, {6, 3, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 10},
+    {RK_ITEM, itemPack(PK_EXPLORER), 1, {M_LEATHER, M_ROPE, M_MARMOTPELT}, {8, 4, 3}, RC_ARMOR, STN_FIRE, SK_LEATHER, 35},
+    {RK_ITEM, itemPack(PK_EXPEDITION), 1, {M_LEATHER, M_ROPE, M_RAMFLEECE}, {12, 6, 4}, RC_ARMOR, STN_SHOP, SK_LEATHER, 45},
     // carried gear: it works while it is in the pack
     {RK_ITEM, itemCarry(CG_QUIVER), 1, {M_LEATHER, M_BOARBRISTLE, M_ROPE}, {2, 2, 1}, RC_ARMOR, STN_ANY, SK_LEATHER, 8},
     {RK_ITEM, itemCarry(CG_WOLFCLOAK), 1, {M_FUR, M_WOLFFANG, M_FOXBRUSH}, {5, 1, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 14},

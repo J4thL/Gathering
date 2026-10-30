@@ -66,7 +66,9 @@ struct Player {
     bool charging = false;
     float cd = 0, invuln = 0, sinceHurt = 99;
     int coins = 0;
-    Inventory inv{PACK_SLOTS[0]};  // everything the hunter carries (materials, weapons, ammo, bandages)
+    Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
+    int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
+    int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
     int up[U_COUNT] = {0};
     SkillSet sk;  // skill XP (skills.hpp); saved as "skill <key> <xp>" lines
@@ -92,8 +94,15 @@ struct Player {
         return n;
     }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
-    int bagCap() const { return inv.capacity(); }   // slots the backpack provides
-    void syncPack() { inv.setCapacity(PACK_SLOTS[up[U_BAG]]); }
+    int bagCap() const { return inv.capacity(); }   // always 100
+    int carryLimit() const { return bag >= 0 ? PACK_CARRY_KG[bag] : BASE_CARRY_KG; }  // kg
+    void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
+    int hotSlotOf(int itemId) const {
+        for (int i = 0; i < HOT_N; i++)
+            if (hot[i] == itemId) return i;
+        return -1;
+    }
+    bool equippedWpn(int w) const { return hotSlotOf(itemWpn(w)) >= 0; }
 };
 
 struct Proj {
@@ -108,6 +117,9 @@ struct GroundItem {
     int wpn;
     float angle, t;
     int ammo = -1;  // >= 0: a recovered arrow / bolt lying on the ground (wpn is then unused)
+    int item = -1;  // >= 0: a stack the hunter dropped (any item id, `n` pieces); wpn / ammo are then unused
+    int n = 0;
+    float lock = 0; // seconds before a dropped stack can be picked up again (so it is not grabbed back at once)
 };
 struct Part {
     float x, y, z, vx, vy, vz, life, max;
@@ -155,11 +167,12 @@ struct HTarget {
     int key() const { return valid ? (node ? (1 << 28) : 0) | idx : -1; }
 };
 constexpr int CHEST_SLOTS = 20, MAX_STRUCTS = 16;
+constexpr int INV_COLS = 10;  // the pack screen draws its 100 slots as 10 columns x 10 rows
 // things the hunter builds: campfires (smelting, cooking, warmth, light) and storage chests
 struct Structure {
     int kind = PL_CAMPFIRE;
     int tx = 0, ty = 0;
-    Inventory inv{CHEST_SLOTS};  // chests only
+    Inventory inv{CHEST_SLOTS, 1e9f};  // chests only (a chest has no weight limit)
     V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
 };
 
@@ -276,7 +289,18 @@ struct Game {
     int landmarksFound() const;
     void throwWeapon();
     bool canUse(int w) const;
-    bool useSlot(int slot);  // inventory screen: equip a weapon / use a bandage
+    bool useSlot(int slot);  // inventory screen: equip a weapon / use a consumable / wear a bag
+    // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
+    bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
+    bool unequipBag();
+    bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
+    void unequipHot(int hotSlot);
+    bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)
+    void hotUse(int hotSlot);           // the hotbar key: select a weapon / use a consumable / place a structure
+    void fixSel();                      // keeps the selected weapon one that is on the hotbar
+    bool dropSlot(int slot, int n);     // put a stack on the ground
+    void notifyBlocked(int itemId, int n, const Inventory* ref = nullptr);  // "PACK FULL" / "TOO HEAVY" feedback after a failed pickup
+    bool canUseWpn(int w) const { return canUse(w); }
     bool useConsumable(int c);
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);

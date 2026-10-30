@@ -1,8 +1,9 @@
 // inventory.hpp - the slot-based inventory.
 //
-// A fixed number of slots (set by the backpack), each holding one kind of item and up to that item's stack size
-// (materials, ammunition and thrown weapons stack; launchers and backpacks do not). Backpacks only add slots - they
-// never change stack sizes. All item facts come from the registry in items.hpp.
+// Always INV_SLOTS (100) slots, each holding one kind of item and up to that item's stack size (999 for everything that
+// stacks; launchers, tools, bags and carried gear take a slot each). What limits the hunter is weight: the inventory has
+// a maximum carrying weight (set from the worn bag) and add() never takes more than fits. Weights are never stored, they are
+// always computed from the registry. All item facts come from items.hpp.
 #pragma once
 #include <algorithm>
 #include <string>
@@ -19,7 +20,38 @@ class Inventory {
 public:
     std::vector<Slot> slots;
 
-    explicit Inventory(int capacity = 20) : slots(capacity) {}
+    float maxWeight;  // kg that can be carried (the worn bag sets it; chests have no limit)
+
+    explicit Inventory(int capacity = INV_SLOTS, float maxW = (float)BASE_CARRY_KG) : slots(capacity), maxWeight(maxW) {}
+
+    // ---- weight
+    float totalWeight() const {
+        double t = 0;
+        for (auto& s : slots)
+            if (!s.empty()) t += (double)::item(s.item).weight * s.n;
+        return (float)t;
+    }
+    float weightLeft() const { return maxWeight - totalWeight(); }
+    bool overweight() const { return totalWeight() > maxWeight + 1e-3f; }
+    float stackWeight(int slot) const { return slots[slot].empty() ? 0.f : ::item(slots[slot].item).weight * slots[slot].n; }
+    // how many of an item the weight limit alone still allows
+    int weightRoom(int item) const {
+        const float w = ::item(item).weight;
+        if (w <= 0.f) return 1 << 30;
+        const float left = weightLeft();
+        return left <= 0.f ? 0 : (int)std::min<double>((left + 1e-3) / w, 1 << 30);
+    }
+    // how many of an item the slots alone still allow
+    int slotRoom(int item) const {
+        if (!itemValid(item)) return 0;
+        int st = ::item(item).stack;
+        long r = 0;
+        for (auto& s : slots) {
+            if (s.empty()) r += st;
+            else if (s.item == item) r += std::max(0, st - s.n);
+        }
+        return (int)std::min<long>(r, 1 << 30);
+    }
 
     int capacity() const { return (int)slots.size(); }
     int usedSlots() const {
@@ -36,21 +68,24 @@ public:
             if (!s.empty() && s.item == item) t += s.n;
         return (int)t;
     }
-    // How many more of an item would fit right now (room in partly filled stacks plus empty slots).
-    int room(int item) const {
-        if (!itemValid(item)) return 0;
-        int st = ::item(item).stack;
-        long r = 0;
-        for (auto& s : slots) {
-            if (s.empty()) r += st;
-            else if (s.item == item) r += std::max(0, st - s.n);
-        }
-        return (int)std::min<long>(r, 1 << 30);
+    // How many more of an item would fit right now: limited by the free slots / partly filled stacks AND by the weight limit.
+    int room(int item) const { return itemValid(item) ? std::min(slotRoom(item), weightRoom(item)) : 0; }
+    // why an add of n would fall short: 0 fits, 1 all slots used, 2 too heavy
+    int blockReason(int item, int n) const {
+        if (!itemValid(item) || n <= 0) return 0;
+        if (slotRoom(item) < n) return 1;
+        return weightRoom(item) < n ? 2 : 0;
     }
     bool canAdd(int item, int n) const { return n >= 0 && room(item) >= n; }
 
-    // Adds up to n; returns how many were actually added (partial adds are normal when the bag is nearly full).
+    // Adds up to n; returns how many were actually added (partial adds are normal when the pack is full or too heavy).
+    // Nothing is ever discarded: the caller keeps what did not fit. Use forceAdd for things that must not be refused.
     int add(int item, int n) {
+        if (!itemValid(item) || n <= 0) return 0;
+        n = std::min(n, weightRoom(item));
+        return addIgnoringWeight(item, n);
+    }
+    int addIgnoringWeight(int item, int n) {
         if (!itemValid(item) || n <= 0) return 0;
         const int st = ::item(item).stack;
         int left = n;
@@ -116,7 +151,7 @@ public:
             }
         std::sort(tot.begin(), tot.end());
         for (auto& s : slots) s = Slot();
-        for (auto& p : tot) add(p.first, p.second);
+        for (auto& p : tot) addIgnoringWeight(p.first, p.second);  // re-sorting must never drop anything, even when overweight
     }
     void clear() {
         for (auto& s : slots) s = Slot();

@@ -179,12 +179,7 @@ void Game::harvestFinish(const HTarget& t) {
     Inventory test = p.inv;
     for (int k = 0; k < 3; k++)
         if (n[k] > 0 && test.add(itemMat(mat[k]), n[k]) < n[k]) {
-            if (bagWarn <= 0) {
-                ftext(p.pos + V2(0, -28), "BAG FULL!", C_RED, 1.2f);
-                msg("BAG FULL - MAKE ROOM, THEN KEEP GATHERING", C_RED);
-                audio.play(S_ERROR);
-                bagWarn = 1.6f;
-            }
+            notifyBlocked(itemMat(mat[k]), n[k], &test);
             return;
         }
     int lineY = 0;
