@@ -11,7 +11,7 @@ static float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b :
 constexpr float FIRE_RANGE = 56.f;  // crafting range of a campfire
 
 bool Game::canPlaceAt(int tx, int ty) const {
-    if (protectedTile(tx, ty) || world.solidTile(tx, ty) || tileDeep(world.tile[ty][tx])) return false;
+    if (protectedTile(tx, ty, world.mapId) || world.solidTile(tx, ty) || tileDeep(world.tile[ty][tx])) return false;
     const V2 c(tx * TS + 8.f, ty * TS + 8.f);
     if (dist(p.pos, c) < 10.f) return false;
     if (dist(c, world.keeper) < 26.f || dist(c, world.questGiver) < 26.f || dist(c, world.fire) < 26.f || dist(c, world.door) < 26.f) return false;
@@ -163,7 +163,7 @@ void Game::structLoad(const std::vector<std::string>& lines) {
         if (tag == "struct") {
             int kind = -1, tx = 0, ty = 0;
             ss >> kind >> tx >> ty;
-            if (!ss || kind < 0 || kind >= PL_COUNT || tx < 0 || ty < 0 || tx >= MW || ty >= MH || protectedTile(tx, ty) || (int)structs.size() >= MAX_STRUCTS) continue;
+            if (!ss || kind < 0 || kind >= PL_COUNT || tx < 0 || ty < 0 || tx >= MW || ty >= MH || protectedTile(tx, ty, world.mapId) || (int)structs.size() >= MAX_STRUCTS) continue;
             bool dup = false;
             for (auto& o : structs) dup = dup || (o.tx == tx && o.ty == ty);
             if (dup) continue;

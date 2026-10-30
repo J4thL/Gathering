@@ -107,10 +107,9 @@ inline int propRes(int propKind) {
 
 // Does a prop tile count as a protected boundary? The map's edge wall and the home forest's outer tree wall stay standing
 // so that felling trees can never open the world's border or the biome gates.
-inline bool protectedTile(int tx, int ty) {
-    if (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3) return true;
-    const bool inCore = tx >= COX && tx < COX + CW && ty >= COY && ty < COY + CH;
-    if (inCore) {
+inline bool protectedTile(int tx, int ty, int map = B_HOME) {
+    if (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3) return true;  // every map has the same edge wall
+    if (map == B_HOME && tx >= COX && tx < COX + CW && ty >= COY && ty < COY + CH) {  // the original area's own tree wall
         int cx = tx - COX, cy = ty - COY;
         if (cx < 3 || cy < 3 || cx >= CW - 3 || cy >= CH - 3) return true;
     }

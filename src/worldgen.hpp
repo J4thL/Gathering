@@ -1,27 +1,38 @@
-// worldgen.hpp - builds the four biomes around the original map. Included at the end of world.hpp.
+// worldgen.hpp - builds one map: the home map's gates and forest, or a complete biome map. Included at the end of world.hpp.
 //
-// Layout (tile coordinates, world is 240x168, the home area occupies x 76..163, y 54..113):
-//   north: SNOWFIELDS   east: DESERT   south: SWAMP   west: MOUNTAINS
-// Borders between biomes follow the map diagonals, warped by noise and speckled with the neighbour's ground.
-// The home area's four dirt paths continue through gates in its tree wall to a "hub" landmark in each biome,
-// with spur trails to the other landmarks. Everything is deterministic for a given world seed.
+// Every map is MW x MH (240x168) tiles, ringed by a 2-tile wall. The home map is the original 88x60 Wildwood (World::generateCore,
+// unchanged) in the centre, surrounded by home forest; its four dirt paths run out to gaps in the edge wall (the gaps are portals, see maps.hpp).
+// Each biome map is generated whole from its own rules below: ground, a trail from its gate to a hub landmark with spur trails
+// to the other landmarks, scattered props and decorations, the edge wall and resource nodes. The biome tables (what grows
+// where, which resources) are the ones the original ring-around-home world used; only the layout was fitted to one map.
+// Everything is deterministic for a given world seed and map.
 #pragma once
 #include <functional>
 #include <vector>
+#include "maps.hpp"
 
-inline void World::generateBiomes() {
-    Rng r(seed * 104729u + 977u);
-    const uint32_t S = seed;
+inline void World::generateMap(int map) {
+    Rng r(seed * 104729u + 977u + (uint32_t)map * 7919u);
+    const uint32_t S = seed + (uint32_t)map * 31u;  // per-map salt for the noise fields
+    const bool home = map == B_HOME;
+    const MapDef& MD = MAPS[map];
     auto inCore = [](int x, int y) { return x >= COX && x < COX + CW && y >= COY && y < COY + CH; };
     auto inMap = [](int x, int y) { return x >= 0 && y >= 0 && x < MW && y < MH; };
-    auto inRing = [](int x, int y) { return x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2; };  // map-edge wall
+    auto inRing = [](int x, int y) { return x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2; };  // the map's edge wall
     auto cl = [](float v, float a, float b) { return v < a ? a : (v > b ? b : v); };
+
+    if (!home) {  // no village here: park the village-only things far outside the map so nothing draws or triggers
+        const V2 away(-99999.f, -99999.f);
+        village = hut = door = keeper = fire = questGiver = away;
+    }
+    for (int b = 0; b < B_COUNT; b++) hub[b] = V2(-99999.f, -99999.f);
+    hub[map] = V2(MD.hubTx * TS + 8.f, MD.hubTy * TS + 8.f);
+    if (!home) spawn = V2(MD.entryTx * TS + 8.f, MD.entryTy * TS + 8.f);
 
     // keep mask: 1 = trail tile, 2 = cleared zone (no scattered props / solid terrain), 3 = landmark feature
     std::vector<uint8_t> keep((size_t)MW * MH, 0);
     auto K = [&](int x, int y) -> uint8_t& { return keep[(size_t)y * MW + x]; };
 
-    static const int bmap[4] = {B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN};  // index = direction (E, S, N, W)
     auto baseGround = [](int b) -> uint8_t {
         switch (b) {
             case B_DESERT: return T_SAND;
@@ -32,22 +43,7 @@ inline void World::generateBiomes() {
         }
     };
 
-    // ------------------------------------------------------------ 1. which biome is where
-    auto classify = [&](int x, int y, int& best, int& second, float& margin) {
-        float dx = (x + 0.5f - MW / 2.f) / (MW / 2.f), dy = (y + 0.5f - MH / 2.f) / (MH / 2.f);
-        dx += (fbm(x * 0.045f, y * 0.045f, S + 500) - 0.5f) * 0.42f;
-        dy += (fbm(x * 0.045f + 31.f, y * 0.045f + 17.f, S + 501) - 0.5f) * 0.42f;
-        float sc[4] = {dx, dy, -dy, -dx};
-        best = 0;
-        for (int i = 1; i < 4; i++)
-            if (sc[i] > sc[best]) best = i;
-        second = best == 0 ? 1 : 0;
-        for (int i = 0; i < 4; i++)
-            if (i != best && sc[i] > sc[second]) second = i;
-        margin = sc[best] - sc[second];
-    };
-
-    // ground of each biome at a tile
+    // ------------------------------------------------------------ 1. ground of a biome map
     auto groundFor = [&](int b, int x, int y) -> uint8_t {
         switch (b) {
             case B_DESERT: {
@@ -70,8 +66,8 @@ inline void World::generateBiomes() {
                 float p = fbm(x * 0.07f, y * 0.07f, S + 301);
                 return p > 0.58f ? T_SNOWP : T_SNOW;
             }
-            default: {  // mountains: cliff massifs, thin ridge lines with gaps, alpine meadows near the home area
-                float alt = 1.f - std::min(1.f, x / (float)COX);  // 0 next to home, 1 at the far west edge
+            default: {  // mountains: cliff massifs, thin ridge lines with gaps, alpine meadows near the gate (the east side)
+                float alt = 1.f - x / (float)(MW - 1);  // 0 next to the gate, 1 at the far west edge
                 float m = fbm(x * 0.055f, y * 0.055f, S + 403);
                 float ridge = fbm(x * 0.07f, y * 0.07f, S + 402);
                 float gap = fbm(x * 0.12f + 9.f, y * 0.12f + 9.f, S + 404);
@@ -83,71 +79,57 @@ inline void World::generateBiomes() {
             }
         }
     };
-
-    for (int y = 0; y < MH; y++)
-        for (int x = 0; x < MW; x++) {
-            if (inCore(x, y)) continue;
-            int best, second;
-            float margin;
-            classify(x, y, best, second, margin);
-            biome[y][x] = (uint8_t)bmap[best];
-            int use = best;
-            if (margin < 0.12f) {  // speckle the neighbour's ground across the border
-                float t = (hash2(x, y, S + 9) & 0xFFFF) / 65535.f;
-                if (t < (0.12f - margin) / 0.24f) use = second;
-            }
-            tile[y][x] = groundFor(bmap[use], x, y);
-        }
-    // soft border around the home area: a band of home-style grass thins out into the biome's own ground
-    std::vector<uint8_t> trans((size_t)MW * MH, 0);
-    {
-        const int BL = 8;
+    if (home) {  // the home forest around the original area: the same grass / dark-grass noise, a few lakes
+        struct Lake {
+            float cx, cy, rx, ry;
+        } lakes[] = {{30, 30, 12, 6}, {205, 28, 14, 7}, {30, 140, 12, 6}, {205, 142, 13, 6.5f}, {62, 84, 6, 9}, {180, 84, 6, 9}, {120, 20, 9, 4.5f}, {120, 150, 9, 4.5f}};
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) {
                 if (inCore(x, y)) continue;
-                int dxc = x < COX ? COX - x : (x >= COX + CW ? x - (COX + CW - 1) : 0);
-                int dyc = y < COY ? COY - y : (y >= COY + CH ? y - (COY + CH - 1) : 0);
-                int dc = std::max(dxc, dyc);
-                if (dc < 1 || dc > BL) continue;
-                float pr = (1.f - (dc - 1) / (float)BL) * 0.9f;
-                if ((hash2(x, y, S + 13) & 0xFFFF) / 65535.f < pr) {
-                    tile[y][x] = fbm(x * 0.08f, y * 0.08f, S + 1) > 0.6f ? T_DARK : T_GRASS;
-                    trans[(size_t)y * MW + x] = 1;
+                uint8_t t = fbm(x * 0.08f, y * 0.08f, S + 1) > 0.6f ? T_DARK : T_GRASS;
+                for (auto& l : lakes) {
+                    float dx = (x - l.cx) / l.rx, dy = (y - l.cy) / l.ry;
+                    if (dx * dx + dy * dy + (fbm(x * 0.22f, y * 0.22f, S + 7) - 0.5f) * 0.8f < 1.f) t = T_WATER;
                 }
+                tile[y][x] = t;
+                biome[y][x] = B_HOME;
             }
-    }
-    // bog shores are shallow murk, not a hard edge
-    for (int y = 1; y < MH - 1; y++)
-        for (int x = 1; x < MW - 1; x++)
-            if (tile[y][x] == T_BOG) {
-                const int d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-                for (auto& d : d4) {
-                    uint8_t& n = tile[y + d[1]][x + d[0]];
-                    if (!inCore(x + d[0], y + d[1]) && (n == T_MUD || n == T_DARK)) n = T_MURK;
-                }
-            }
-    // frozen lakes
-    {
-        struct Lk {
-            float cx, cy, rx, ry;
-        } lk[] = {{84, 24, 11, 6}, {158, 30, 9, 5}, {190, 12, 8, 4.5f}, {56, 12, 7, 4}};
+    } else {
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) {
-                if (biome[y][x] != B_SNOW || inCore(x, y)) continue;
-                for (auto& l : lk) {
-                    float dx = (x - l.cx) / l.rx, dy = (y - l.cy) / l.ry;
-                    float d = dx * dx + dy * dy + (fbm(x * 0.22f, y * 0.22f, S + 307) - 0.5f) * 0.7f;
-                    if (d < 1.f) tile[y][x] = T_ICE;
-                }
+                biome[y][x] = (uint8_t)map;
+                tile[y][x] = groundFor(map, x, y);
             }
+        if (map == B_SWAMP) {  // bog shores are shallow murk, not a hard edge
+            for (int y = 1; y < MH - 1; y++)
+                for (int x = 1; x < MW - 1; x++)
+                    if (tile[y][x] == T_BOG) {
+                        const int d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                        for (auto& d : d4) {
+                            uint8_t& n = tile[y + d[1]][x + d[0]];
+                            if (n == T_MUD || n == T_DARK) n = T_MURK;
+                        }
+                    }
+        }
+        if (map == B_SNOW) {  // frozen lakes
+            struct Lk {
+                float cx, cy, rx, ry;
+            } lk[] = {{60, 40, 11, 6}, {190, 50, 9, 5}, {30, 110, 8, 4.5f}, {160, 20, 7, 4}, {200, 140, 10, 5.5f}};
+            for (int y = 0; y < MH; y++)
+                for (int x = 0; x < MW; x++)
+                    for (auto& l : lk) {
+                        float dx = (x - l.cx) / l.rx, dy = (y - l.cy) / l.ry;
+                        float d = dx * dx + dy * dy + (fbm(x * 0.22f, y * 0.22f, S + 307) - 0.5f) * 0.7f;
+                        if (d < 1.f) tile[y][x] = T_ICE;
+                    }
+        }
     }
 
-    // ------------------------------------------------------------ 2. trails, hubs, gates
-    const V2 hubT[B_COUNT] = {V2(MW / 2, MH / 2), V2(206, 84), V2(120, 146), V2(120, 24), V2(34, 84)};  // tile coords
-    for (int b = 0; b < B_COUNT; b++) hub[b] = V2(hubT[b].x * TS + 8, hubT[b].y * TS + 8);
-
-    auto stampTrail = [&](int x, int y) {
-        if (!inMap(x, y) || inRing(x, y)) return;
+    // ------------------------------------------------------------ 2. trails, hub plaza, gates
+    // In the home map the trails run through the tree wall (the wall is the ring); in a biome map the ring is cut by an explicit gap.
+    auto trailTile = [&](int x, int y) {
+        if (!inMap(x, y)) return;
+        if (inRing(x, y)) return;
         tile[y][x] = biome[y][x] == B_SNOW ? T_SNOWP : T_DIRT;
         solid[y][x] = false;
         K(x, y) = 1;
@@ -158,58 +140,85 @@ inline void World::generateBiomes() {
                 int x = cx + dx, y = cy + dy;
                 if (!inMap(x, y) || inRing(x, y) || K(x, y) == 1) continue;
                 if (K(x, y) == 0) K(x, y) = 2;
-                if (!inCore(x, y) && tileSolid(tile[y][x])) tile[y][x] = baseGround(biome[y][x]);
+                if (!(home && inCore(x, y)) && tileSolid(tile[y][x])) tile[y][x] = baseGround(biome[y][x]);
             }
     };
     auto stampBlock = [&](int px, int py) {
         for (int a = 0; a < 2; a++)
-            for (int b = 0; b < 2; b++) stampTrail(px + a, py + b);
+            for (int b = 0; b < 2; b++) trailTile(px + a, py + b);
         clearZone(px, py, 2);
         clearZone(px + 1, py + 1, 2);
     };
-    // The four original paths, continued outward with the same wiggle formula.
-    {
+    auto carveLine = [&](float x0, float y0, float x1, float y1, float amp, int sk) {
+        float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+        if (len < 1.f) return;
+        float nx = -dy / len, ny = dx / len;
+        int n = (int)len;
+        for (int i = 0; i <= n; i++) {
+            float t = i / len, w = sinf(i * 0.33f + sk) * amp * std::min(1.f, std::min((float)i, (float)(n - i)) / 6.f);
+            stampBlock((int)(x0 + dx * t + nx * w), (int)(y0 + dy * t + ny * w));
+        }
+    };
+
+    if (home) {
+        // The four original paths, continued to the edge of the map with the same wiggle formula; where they meet the tree wall
+        // the wall is opened (the gaps are the portals to the biome maps).
         const float vx = COX + 44, vy = COY + 30;
         const int dirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
-        const int maxI[4] = {86, 86, 62, 60};  // east, west, south, north
         for (int k = 0; k < 4; k++)
-            for (int i = 30; i <= maxI[k]; i++) {
+            for (int i = 30; i <= 125; i++) {
                 float wig = sinf(i * 0.37f + k * 2.1f) * 1.6f;
                 int px = (int)(vx + dirs[k][0] * i + (dirs[k][0] ? 0 : wig));
                 int py = (int)(vy + dirs[k][1] * i + (dirs[k][1] ? 0 : wig));
                 stampBlock(px, py);
             }
-    }
-    // hub plazas
-    for (int b = B_DESERT; b < B_COUNT; b++) {
-        int hx = (int)hubT[b].x, hy = (int)hubT[b].y;
+        for (size_t i = 0; i < props.size();) {
+            const Prop& p = props[i];
+            int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
+            bool tree = p.kind == P_OAK0 || p.kind == P_OAK1 || p.kind == P_PINE || p.kind == P_ROCK0 || p.kind == P_ROCK1;
+            if (inMap(tx, ty) && K(tx, ty) != 0 && tree) {  // the trail opens the core's tree wall
+                solid[ty][tx] = false;
+                props.erase(props.begin() + i);
+            } else
+                i++;
+        }
+        for (size_t i = 0; i < decor.size();) {
+            int tx = (int)(decor[i].x / TS), ty = (int)(decor[i].y / TS);
+            if (inMap(tx, ty) && K(tx, ty) == 1) decor.erase(decor.begin() + i);
+            else i++;
+        }
+    } else {
+        // the gate: the trail starts just inside the edge wall at the gap and runs to the hub
+        for (int i = 0; i < MD.nPortals; i++) {
+            const TileRect& z = MD.portals[i].zone;
+            const int side = MD.portals[i].side;  // the edge the gap is in
+            const int gx = (z.x0 + z.x1) / 2, gy = (z.y0 + z.y1) / 2;
+            const int ix = side == 0 ? MW - 3 : side == 3 ? 2 : gx, iy = side == 1 ? MH - 3 : side == 2 ? 2 : gy;
+            carveLine((float)ix, (float)iy, (float)MD.hubTx, (float)MD.hubTy, 1.2f, 4 + map);
+        }
+        // hub plaza
         for (int dy = -4; dy <= 4; dy++)
             for (int dx = -4; dx <= 4; dx++)
-                if (dx * dx + dy * dy <= 12) stampTrail(hx + dx, hy + dy);
-        clearZone(hx, hy, 6);
+                if (dx * dx + dy * dy <= 12) trailTile(MD.hubTx + dx, MD.hubTy + dy);
+        clearZone(MD.hubTx, MD.hubTy, 6);
     }
-    // open the home area's tree wall where the trails pass through it
-    for (size_t i = 0; i < props.size();) {
-        const Prop& p = props[i];
-        int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
-        bool tree = p.kind == P_OAK0 || p.kind == P_OAK1 || p.kind == P_PINE || p.kind == P_ROCK0 || p.kind == P_ROCK1;
-        if (inCore(tx, ty) && K(tx, ty) != 0 && tree) {
-            solid[ty][tx] = false;
-            props.erase(props.begin() + i);
-        } else
-            i++;
-    }
-    for (size_t i = 0; i < decor.size();) {
-        int tx = (int)(decor[i].x / TS), ty = (int)(decor[i].y / TS);
-        if (inCore(tx, ty) && K(tx, ty) == 1) decor.erase(decor.begin() + i);
-        else i++;
+
+    // cut every map's edge wall open at its gates (the gap tiles are the portal zones)
+    for (int i = 0; i < MD.nPortals; i++) {
+        const TileRect& z = MD.portals[i].zone;
+        for (int y = z.y0; y <= z.y1; y++)
+            for (int x = z.x0; x <= z.x1; x++) {
+                tile[y][x] = biome[y][x] == B_SNOW ? T_SNOWP : T_DIRT;
+                solid[y][x] = false;
+                K(x, y) = 1;
+            }
     }
 
     // ------------------------------------------------------------ helpers for landmarks
     auto clearDisc = [&](float cx, float cy, float rad, uint8_t kv) {
         for (int y = (int)(cy - rad) - 1; y <= (int)(cy + rad) + 1; y++)
             for (int x = (int)(cx - rad) - 1; x <= (int)(cx + rad) + 1; x++) {
-                if (!inMap(x, y) || inRing(x, y) || inCore(x, y) || K(x, y) == 1) continue;
+                if (!inMap(x, y) || inRing(x, y) || K(x, y) == 1) continue;
                 if (hypotf(x - cx, y - cy) > rad) continue;
                 if (K(x, y) < kv) K(x, y) = kv;
                 if (tileSolid(tile[y][x])) tile[y][x] = baseGround(biome[y][x]);
@@ -227,26 +236,16 @@ inline void World::generateBiomes() {
     };
     auto addDecor = [&](int kind, float x, float y) { decor.push_back({kind, x, y, r.f() * 6.28f}); };
     auto addLandmark = [&](const char* name, int b, float tx, float ty) { landmarks.push_back({name, b, tx * TS + 8.f, ty * TS + 8.f, false}); };
-    auto carveLine = [&](float x0, float y0, float x1, float y1, float amp, int sk) {
-        float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
-        if (len < 1.f) return;
-        float nx = -dy / len, ny = dx / len;
-        int n = (int)len;
-        for (int i = 0; i <= n; i++) {
-            float t = i / len, w = sinf(i * 0.33f + sk) * amp * std::min(1.f, std::min((float)i, (float)(n - i)) / 6.f);
-            stampBlock((int)(x0 + dx * t + nx * w), (int)(y0 + dy * t + ny * w));
-        }
-    };
-    // trail from a hub towards a landmark, stopping `reach` tiles short of its centre
-    auto spur = [&](int b, float tx, float ty, float reach, int sk) {
-        float hx = hubT[b].x, hy = hubT[b].y, dx = tx - hx, dy = ty - hy, len = sqrtf(dx * dx + dy * dy);
+    // trail from the hub towards a landmark, stopping `reach` tiles short of its centre
+    auto spur = [&](float tx, float ty, float reach, int sk) {
+        float hx = (float)MD.hubTx, hy = (float)MD.hubTy, dx = tx - hx, dy = ty - hy, len = sqrtf(dx * dx + dy * dy);
         if (len <= reach + 1) return;
         carveLine(hx, hy, tx - dx / len * reach, ty - dy / len * reach, 1.4f, sk);
     };
 
-    // ------------------------------------------------------------ 3. desert landmarks
-    {
-        const int hx = 206, hy = 84;
+    // ------------------------------------------------------------ 3. landmarks
+    if (map == B_DESERT) {
+        const int hx = MD.hubTx, hy = MD.hubTy;
         addLandmark("SUNKEN RUINS", B_DESERT, hx, hy);
         clearDisc(hx, hy, 8, 2);
         const int col[8][2] = {{-5, -4}, {-2, -5}, {3, -5}, {6, -3}, {-6, 1}, {6, 3}, {-4, 5}, {4, 6}};
@@ -257,12 +256,12 @@ inline void World::generateBiomes() {
         addP(P_RUINWALL, hx + 7, hy - 1, 3);
         lanterns.push_back({hx * TS + 8.f, hy * TS - 6.f, 0.7f});  // a brazier in the middle of the plaza
         // oasis
-        const float cx = 188, cy = 56, rx = 5.5f, ry = 3.8f;
+        const float cx = 120, cy = 40, rx = 5.5f, ry = 3.8f;
         addLandmark("OASIS", B_DESERT, cx, cy + 6);
         clearDisc(cx, cy, 11, 2);
         for (int y = (int)(cy - 12); y <= (int)(cy + 12); y++)
             for (int x = (int)(cx - 14); x <= (int)(cx + 14); x++) {
-                if (!inMap(x, y) || inRing(x, y) || inCore(x, y) || K(x, y) == 1) continue;
+                if (!inMap(x, y) || inRing(x, y) || K(x, y) == 1) continue;
                 float dx = (x - cx) / rx, dy = (y - cy) / ry;
                 float d = dx * dx + dy * dy + (fbm(x * 0.25f, y * 0.25f, S + 601) - 0.5f) * 0.5f;
                 if (d < 1.f) {
@@ -280,7 +279,7 @@ inline void World::generateBiomes() {
             if (inMap(px, py) && tile[py][px] == T_GRASS && K(px, py) != 1 && !solid[py][px]) addP(P_PALM, px, py);
         }
         // bone field
-        const float bx = 222, by = 112;
+        const float bx = 190, by = 130;
         addLandmark("BONE FIELD", B_DESERT, bx, by);
         clearDisc(bx, by, 6, 2);
         for (int i = 0; i < 16; i++) {
@@ -290,20 +289,17 @@ inline void World::generateBiomes() {
         addP(P_SANDROCK1, (int)bx - 4, (int)by - 2, 1, 8, 14);
         addP(P_SANDROCK0, (int)bx + 4, (int)by + 3, 1, 8, 14);
         // sandstone arch
-        const int ax = 214, ay = 38;
+        const int ax = 150, ay = 28;
         addLandmark("SANDSTONE ARCH", B_DESERT, ax, ay + 2);
         clearDisc(ax, ay, 5, 2);
         props.push_back({P_ARCH, ax * TS + 8.f, ay * TS + 15.f, 0});
         solid[ay][ax - 1] = solid[ay][ax + 1] = true;
         K(ax - 1, ay) = K(ax + 1, ay) = 3;
-        spur(B_DESERT, cx, cy, 9, 1);
-        spur(B_DESERT, bx, by, 3, 2);
-        spur(B_DESERT, ax, ay, 3, 3);
-    }
-
-    // ------------------------------------------------------------ 4. swamp landmarks
-    {
-        const int hx = 120, hy = 146;
+        spur(cx, cy, 9, 1);
+        spur(bx, by, 3, 2);
+        spur((float)ax, (float)ay, 3, 3);
+    } else if (map == B_SWAMP) {
+        const int hx = MD.hubTx, hy = MD.hubTy;
         addLandmark("STILT HUT", B_SWAMP, hx, hy + 2);
         clearDisc(hx, hy, 8, 2);
         props.push_back({P_STILTHUT, hx * TS + 8.f, (hy - 2) * TS + 15.f, 0});
@@ -316,7 +312,7 @@ inline void World::generateBiomes() {
         addP(P_LOG, hx - 6, hy + 1);
         addP(P_DEADTREE0, hx + 7, hy - 3);
         // witch tree
-        const int wx = 88, wy = 138;
+        const int wx = 50, wy = 110;
         addLandmark("WITCH TREE", B_SWAMP, wx, wy + 3);
         clearDisc(wx, wy, 6, 2);
         props.push_back({P_WITCHTREE, wx * TS + 8.f, wy * TS + 15.f, 0});
@@ -327,18 +323,15 @@ inline void World::generateBiomes() {
             }
         for (int i = 0; i < 4; i++) addDecor(D_SKULL, (wx + r.range(-4, 4)) * TS + 8, (wy + r.range(1, 4)) * TS + 8);
         // sunken graves
-        const int gx = 158, gy = 144;
+        const int gx = 190, gy = 120;
         addLandmark("SUNKEN GRAVES", B_SWAMP, gx, gy);
         clearDisc(gx, gy, 7, 2);
         for (int row = 0; row < 2; row++)
             for (int c = 0; c < 4; c++) addP(P_GRAVE, gx - 4 + c * 2 + (row ? 1 : 0), gy - 1 + row * 3);
-        spur(B_SWAMP, wx, wy + 3, 3, 1);
-        spur(B_SWAMP, gx, gy, 4, 2);
-    }
-
-    // ------------------------------------------------------------ 5. snow landmarks
-    {
-        const int hx = 120, hy = 24;
+        spur((float)wx, (float)(wy + 3), 3, 1);
+        spur((float)gx, (float)gy, 4, 2);
+    } else if (map == B_SNOW) {
+        const int hx = MD.hubTx, hy = MD.hubTy;
         addLandmark("ICE FISHER'S HUT", B_SNOW, hx, hy + 2);
         clearDisc(hx, hy, 8, 2);
         props.push_back({P_ICEHUT, hx * TS + 8.f, (hy - 1) * TS + 15.f, 0});
@@ -351,7 +344,7 @@ inline void World::generateBiomes() {
         // a small fishing pond next to the hut
         for (int y = hy + 1; y <= hy + 8; y++)
             for (int x = hx - 14; x <= hx - 5; x++) {
-                if (!inMap(x, y) || K(x, y) == 1) continue;
+                if (!inMap(x, y) || inRing(x, y) || K(x, y) == 1) continue;
                 float dx = (x - (hx - 9.5f)) / 4.6f, dy = (y - (hy + 4.5f)) / 3.0f;
                 if (dx * dx + dy * dy < 1.f) {
                     tile[y][x] = T_ICE;
@@ -359,30 +352,27 @@ inline void World::generateBiomes() {
                 }
             }
         // frozen lake landmark (the ice itself is generated above); crystals along its shore
-        addLandmark("FROZEN LAKE", B_SNOW, 84, 31);
+        addLandmark("FROZEN LAKE", B_SNOW, 60, 47);
         int placed = 0;
         for (int i = 0; i < 40 && placed < 7; i++) {
             float a = r.range(0, 6.28f);
-            int px = (int)(84 + cosf(a) * 12.5f), py = (int)(24 + sinf(a) * 7.2f);
+            int px = (int)(60 + cosf(a) * 12.5f), py = (int)(40 + sinf(a) * 7.2f);
             if (inMap(px, py) && !inRing(px, py) && K(px, py) == 0 && (tile[py][px] == T_SNOW || tile[py][px] == T_SNOWP) && !solid[py][px]) {
                 addP(P_CRYSTAL, px, py);
                 placed++;
             }
         }
         // watch cairn
-        const int cx = 150, cy = 42;
+        const int cx = 190, cy = 60;
         addLandmark("WATCH CAIRN", B_SNOW, cx, cy + 2);
         clearDisc(cx, cy, 5, 2);
         addP(P_CAIRN, cx, cy);
         addP(P_SNOWROCK, cx - 3, cy + 1, 1, 8, 14);
         addP(P_SNOWROCK, cx + 3, cy - 1, 1, 8, 14);
-        spur(B_SNOW, 84, 31, 4, 1);
-        spur(B_SNOW, cx, cy, 3, 2);
-    }
-
-    // ------------------------------------------------------------ 6. mountain landmarks
-    {
-        const int hx = 34, hy = 84;
+        spur(60, 47, 4, 1);
+        spur((float)cx, (float)cy, 3, 2);
+    } else if (map == B_MOUNTAIN) {
+        const int hx = MD.hubTx, hy = MD.hubTy;
         addLandmark("MOUNTAIN PASS", B_MOUNTAIN, hx, hy);
         clearDisc(hx, hy, 9, 2);
         const int st[6][2] = {{-6, -3}, {-6, 3}, {6, -3}, {6, 3}, {0, -6}, {0, 6}};
@@ -393,7 +383,7 @@ inline void World::generateBiomes() {
             clearDisc(tx, ty + 1, 8, 2);
             for (int y = ty - 3; y <= y1; y++)
                 for (int x = tx - 4; x <= tx + 4; x++) {
-                    if (!inMap(x, y) || inRing(x, y) || inCore(x, y) || K(x, y) == 1) continue;
+                    if (!inMap(x, y) || inRing(x, y) || K(x, y) == 1) continue;
                     if (y == ty - 3 && (x == tx - 4 || x == tx + 4)) continue;  // rounded corners
                     tile[y][x] = T_CLIFF;
                     solid[y][x] = true;
@@ -402,34 +392,33 @@ inline void World::generateBiomes() {
             props.push_back({P_CAVE, tx * TS + 8.f, (y1 + 1) * TS + 0.f, 0});
             addLandmark(name, B_MOUNTAIN, tx, y1 + 2);
             // trail: hub -> a waypoint south of the outcrop -> the cave mouth
-            carveLine(hubT[B_MOUNTAIN].x, hubT[B_MOUNTAIN].y, (float)tx, (float)(y1 + 5), 1.4f, sk);
+            carveLine((float)hx, (float)hy, (float)tx, (float)(y1 + 5), 1.4f, sk);
             carveLine((float)tx, (float)(y1 + 5), (float)tx, (float)(y1 + 1), 0.f, sk);
         };
-        makeCave(20, 54, "ECHO CAVE", 1);
-        makeCave(18, 112, "HOLLOW CAVE", 2);
+        makeCave(130, 40, "ECHO CAVE", 1);
+        makeCave(130, 128, "HOLLOW CAVE", 2);
         // summit cairn
-        const int sx = 12, sy = 66;
+        const int sx = 30, sy = 84;
         addLandmark("SUMMIT CAIRN", B_MOUNTAIN, sx, sy + 2);
         clearDisc(sx, sy, 5, 2);
         addP(P_CAIRN, sx, sy);
         addP(P_BOULDER, sx + 3, sy + 1, 1, 8, 14);
         addP(P_BOULDER, sx - 3, sy - 1, 1, 8, 14);
-        spur(B_MOUNTAIN, sx, sy, 3, 3);
+        spur((float)sx, (float)sy, 3, 3);
     }
 
-    // ------------------------------------------------------------ 7. gate signs
-    {
+    // ------------------------------------------------------------ 4. gate signs (home): one beside each gap, inside the wall
+    if (home) {
         struct G {
             int kind, tx, ty;
-        } gates[4] = {{P_BSIGN0, COX + CW + 2, COY + 30 - 4}, {P_BSIGN1, COX + 44 + 4, COY + CH + 2},
-                      {P_BSIGN2, COX + 44 + 4, COY - 2}, {P_BSIGN3, COX - 3, COY + 30 - 4}};
+        } gates[4] = {{P_BSIGN0, COX + CW + 2, COY + 26}, {P_BSIGN1, COX + 48, COY + CH + 2}, {P_BSIGN2, COX + 48, COY - 2}, {P_BSIGN3, COX - 3, COY + 26}};
         for (auto& g : gates) {
             clearDisc(g.tx, g.ty, 1.5f, 3);
             addP(g.kind, g.tx, g.ty);
         }
     }
 
-    // ------------------------------------------------------------ 8. scatter trees, rocks, plants
+    // ------------------------------------------------------------ 5. scatter trees, rocks, plants (biome maps)
     auto tileProp = [&](int kind, int tx, int ty) {
         props.push_back({kind, tx * TS + 8.f + r.range(-2, 2), ty * TS + 15.f, r.f() * 6.28f});
         solid[ty][tx] = true;
@@ -439,124 +428,127 @@ inline void World::generateBiomes() {
         solid[ty][tx] = true;
     };
     for (int ty = 2; ty < MH - 2; ty++)
-        for (int tx = 2; tx < MW - 2; tx++) {
-            if (inCore(tx, ty) || K(tx, ty) != 0 || solid[ty][tx]) continue;
-            uint8_t t = tile[ty][tx];
-            if (tileSolid(t)) continue;
-            const float fx = tx * TS, fy = ty * TS;
-            auto dx = [&]() { return fx + r.range(2, 14); };
-            auto dy = [&]() { return fy + r.range(6, 15); };
-            if (trans[(size_t)ty * MW + tx]) {  // border band: the home forest's own trees and flowers
-                if (r.chance(0.09f)) tileProp(r.chance(0.5f) ? P_OAK0 : (r.chance(0.5f) ? P_OAK1 : P_PINE), tx, ty);
-                else if (r.chance(0.05f)) addDecor(D_TUFT, dx(), dy());
-                else if (r.chance(0.02f)) addDecor(r.irange(0, 2), dx(), dy());
-                continue;
+            for (int tx = 2; tx < MW - 2; tx++) {
+                if (K(tx, ty) != 0 || solid[ty][tx] || (home && inCore(tx, ty))) continue;
+                uint8_t t = tile[ty][tx];
+                if (tileSolid(t)) continue;
+                const float fx = tx * TS, fy = ty * TS;
+                auto dx = [&]() { return fx + r.range(2, 14); };
+                auto dy = [&]() { return fy + r.range(6, 15); };
+                if (home) {  // the home forest outside the original area: same recipe as inside it
+                    float ff = fbm(tx * 0.08f, ty * 0.08f, S + 1);
+                    float pTree = 0.014f + 0.36f * cl((ff - 0.5f) / 0.2f, 0, 1);
+                    if (r.chance(pTree)) tileProp(t == T_DARK ? (r.chance(0.55f) ? P_PINE : P_OAK0) : (r.chance(0.12f) ? P_PINE : (r.chance(0.5f) ? P_OAK0 : P_OAK1)), tx, ty);
+                    else if (r.chance(0.007f)) rockProp(r.chance(0.6f) ? P_ROCK0 : P_ROCK1, tx, ty);
+                    else if (r.chance(0.011f)) addDecor(6 + r.irange(0, 1), tx * TS + 8.f, ty * TS + 15.f);
+                    else if (r.chance(0.085f)) {
+                        float roll = r.f();
+                        addDecor(roll < 0.3f ? r.irange(0, 2) : roll < 0.82f ? 3 : roll < 0.9f ? (t == T_DARK ? 4 : 3) : 5, dx(), dy());
+                    }
+                    continue;
+                }
+                switch (map) {
+                    case B_DESERT: {
+                        float pc = t == T_SAND ? 0.011f : (t == T_DUNE ? 0.004f : 0.f);
+                        if (r.chance(pc)) {
+                            tileProp(r.chance(0.55f) ? P_CACTUS0 : P_CACTUS1, tx, ty);
+                            break;
+                        }
+                        if (r.chance(t == T_STONE ? 0.035f : 0.008f)) {
+                            rockProp(r.chance(0.5f) ? P_SANDROCK0 : P_SANDROCK1, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.035f)) addDecor(D_DRYBUSH, dx(), dy());
+                        else if (r.chance(0.05f)) addDecor(D_SANDTUFT, dx(), dy());
+                        else if (r.chance(0.0035f)) addDecor(D_SKULL, dx(), dy());
+                        else if (r.chance(0.012f)) addDecor(D_PEBBLES, dx(), dy());
+                        break;
+                    }
+                    case B_SWAMP: {
+                        bool nearWater = tile[ty][tx - 1] == T_MURK || tile[ty][tx + 1] == T_MURK || tile[ty - 1][tx] == T_MURK || tile[ty + 1][tx] == T_MURK ||
+                                         tile[ty][tx - 1] == T_BOG || tile[ty][tx + 1] == T_BOG || tile[ty - 1][tx] == T_BOG || tile[ty + 1][tx] == T_BOG;
+                        if (t == T_MURK) {
+                            if (r.chance(0.012f)) tileProp(P_DEADTREE1, tx, ty);
+                            else if (r.chance(0.16f)) addDecor(r.chance(0.35f) ? D_REEDS1 : D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
+                            else if (r.chance(0.07f)) addDecor(D_LILY, dx(), dy());
+                            break;
+                        }
+                        if (r.chance(t == T_DARK ? 0.07f : 0.04f)) {
+                            tileProp(r.chance(0.5f) ? P_DEADTREE0 : P_DEADTREE1, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.004f)) {
+                            props.push_back({P_LOG, fx + 8.f, fy + 14.f, 0});
+                            solid[ty][tx] = true;
+                            break;
+                        }
+                        if (t == T_DARK && r.chance(0.06f)) addDecor(D_BUSH0 + r.irange(0, 1), fx + 8.f, fy + 15.f);
+                        else if (nearWater && r.chance(0.22f)) addDecor(r.chance(0.3f) ? D_REEDS1 : D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
+                        else if (r.chance(0.035f)) addDecor(D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
+                        else if (t == T_MUD && r.chance(0.025f)) addDecor(D_BUBBLES, dx(), dy());
+                        else if (t == T_DARK && r.chance(0.035f)) addDecor(D_MUSHROOM, dx(), dy());
+                        else if (t == T_DARK && r.chance(0.09f)) addDecor(D_TUFT, dx(), dy());
+                        break;
+                    }
+                    case B_SNOW: {
+                        if (t == T_ICE) break;
+                        float ff = fbm(tx * 0.07f, ty * 0.07f, S + 303);
+                        float pTree = 0.012f + 0.30f * cl((ff - 0.5f) / 0.2f, 0, 1);
+                        if (r.chance(pTree)) {
+                            tileProp(r.chance(0.82f) ? P_SNOWPINE : P_BARETREE, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.007f)) {
+                            rockProp(P_SNOWROCK, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.0025f)) {
+                            tileProp(P_CRYSTAL, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.06f)) addDecor(D_DRIFT, dx(), dy());
+                        else if (r.chance(0.05f)) addDecor(D_FROSTTUFT, dx(), dy());
+                        else if (r.chance(0.008f)) addDecor(D_PEBBLES, dx(), dy());
+                        break;
+                    }
+                    default: {  // mountains
+                        float ff = fbm(tx * 0.06f, ty * 0.06f, S + 405);
+                        bool meadow = t != T_STONE;
+                        float pPine = meadow ? 0.07f + 0.15f * cl((ff - 0.5f) / 0.2f, 0, 1) : (ff > 0.55f ? 0.03f : 0.004f);
+                        if (r.chance(pPine)) {
+                            tileProp(P_PINE, tx, ty);
+                            break;
+                        }
+                        if (!meadow && r.chance(0.011f)) {
+                            rockProp(P_BOULDER, tx, ty);
+                            break;
+                        }
+                        if (!meadow && r.chance(0.06f)) addDecor(D_GRAVEL, dx(), dy());
+                        else if (r.chance(0.045f)) addDecor(D_ALPINE, dx(), dy());
+                        else if (meadow && r.chance(0.08f)) addDecor(D_TUFT, dx(), dy());
+                        else if (meadow && r.chance(0.04f)) addDecor(r.irange(0, 2), dx(), dy());
+                        break;
+                    }
+                }
             }
-            int pb = (t == T_SAND || t == T_DUNE) ? B_DESERT
-                     : (t == T_MUD || t == T_MURK) ? B_SWAMP
-                     : (t == T_SNOW || t == T_SNOWP || t == T_ICE) ? B_SNOW
-                                                                  : (int)biome[ty][tx];
-            switch (pb) {
-                case B_DESERT: {
-                    float pc = t == T_SAND ? 0.011f : (t == T_DUNE ? 0.004f : 0.f);
-                    if (r.chance(pc)) {
-                        tileProp(r.chance(0.55f) ? P_CACTUS0 : P_CACTUS1, tx, ty);
-                        break;
-                    }
-                    if (r.chance(t == T_STONE ? 0.035f : 0.008f)) {
-                        rockProp(r.chance(0.5f) ? P_SANDROCK0 : P_SANDROCK1, tx, ty);
-                        break;
-                    }
-                    if (r.chance(0.035f)) addDecor(D_DRYBUSH, dx(), dy());
-                    else if (r.chance(0.05f)) addDecor(D_SANDTUFT, dx(), dy());
-                    else if (r.chance(0.0035f)) addDecor(D_SKULL, dx(), dy());
-                    else if (r.chance(0.012f)) addDecor(D_PEBBLES, dx(), dy());
-                    break;
-                }
-                case B_SWAMP: {
-                    bool nearWater = tile[ty][tx - 1] == T_MURK || tile[ty][tx + 1] == T_MURK || tile[ty - 1][tx] == T_MURK || tile[ty + 1][tx] == T_MURK ||
-                                     tile[ty][tx - 1] == T_BOG || tile[ty][tx + 1] == T_BOG || tile[ty - 1][tx] == T_BOG || tile[ty + 1][tx] == T_BOG;
-                    if (t == T_MURK) {
-                        if (r.chance(0.012f)) tileProp(P_DEADTREE1, tx, ty);
-                        else if (r.chance(0.16f)) addDecor(r.chance(0.35f) ? D_REEDS1 : D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
-                        else if (r.chance(0.07f)) addDecor(D_LILY, dx(), dy());
-                        break;
-                    }
-                    if (r.chance(t == T_DARK ? 0.07f : 0.04f)) {
-                        tileProp(r.chance(0.5f) ? P_DEADTREE0 : P_DEADTREE1, tx, ty);
-                        break;
-                    }
-                    if (r.chance(0.004f)) {
-                        props.push_back({P_LOG, fx + 8.f, fy + 14.f, 0});
-                        solid[ty][tx] = true;
-                        break;
-                    }
-                    if (t == T_DARK && r.chance(0.06f)) addDecor(D_BUSH0 + r.irange(0, 1), fx + 8.f, fy + 15.f);
-                    else if (nearWater && r.chance(0.22f)) addDecor(r.chance(0.3f) ? D_REEDS1 : D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
-                    else if (r.chance(0.035f)) addDecor(D_REEDS0, fx + r.range(3, 13), fy + r.range(8, 15));
-                    else if (t == T_MUD && r.chance(0.025f)) addDecor(D_BUBBLES, dx(), dy());
-                    else if (t == T_DARK && r.chance(0.035f)) addDecor(D_MUSHROOM, dx(), dy());
-                    else if (t == T_DARK && r.chance(0.09f)) addDecor(D_TUFT, dx(), dy());
-                    break;
-                }
-                case B_SNOW: {
-                    if (t == T_ICE) break;
-                    float ff = fbm(tx * 0.07f, ty * 0.07f, S + 303);
-                    float pTree = 0.012f + 0.30f * cl((ff - 0.5f) / 0.2f, 0, 1);
-                    if (r.chance(pTree)) {
-                        tileProp(r.chance(0.82f) ? P_SNOWPINE : P_BARETREE, tx, ty);
-                        break;
-                    }
-                    if (r.chance(0.007f)) {
-                        rockProp(P_SNOWROCK, tx, ty);
-                        break;
-                    }
-                    if (r.chance(0.0025f)) {
-                        tileProp(P_CRYSTAL, tx, ty);
-                        break;
-                    }
-                    if (r.chance(0.06f)) addDecor(D_DRIFT, dx(), dy());
-                    else if (r.chance(0.05f)) addDecor(D_FROSTTUFT, dx(), dy());
-                    else if (r.chance(0.008f)) addDecor(D_PEBBLES, dx(), dy());
-                    break;
-                }
-                default: {  // mountains
-                    float ff = fbm(tx * 0.06f, ty * 0.06f, S + 405);
-                    bool meadow = t != T_STONE;
-                    float pPine = meadow ? 0.07f + 0.15f * cl((ff - 0.5f) / 0.2f, 0, 1) : (ff > 0.55f ? 0.03f : 0.004f);
-                    if (r.chance(pPine)) {
-                        tileProp(P_PINE, tx, ty);
-                        break;
-                    }
-                    if (!meadow && r.chance(0.011f)) {
-                        rockProp(P_BOULDER, tx, ty);
-                        break;
-                    }
-                    if (!meadow && r.chance(0.06f)) addDecor(D_GRAVEL, dx(), dy());
-                    else if (r.chance(0.045f)) addDecor(D_ALPINE, dx(), dy());
-                    else if (meadow && r.chance(0.08f)) addDecor(D_TUFT, dx(), dy());
-                    else if (meadow && r.chance(0.04f)) addDecor(r.irange(0, 2), dx(), dy());
-                    break;
-                }
-            }
-        }
 
-    // ------------------------------------------------------------ 9. the world's edge wall
+    // ------------------------------------------------------------ 6. the map's edge wall (biome maps; home has its own tree wall)
     for (int ty = 0; ty < MH; ty++)
-        for (int tx = 0; tx < MW; tx++) {
-            if (!inRing(tx, ty)) continue;
-            solid[ty][tx] = true;
-            if (!r.chance(0.8f)) continue;
-            float px = tx * TS + 8.f + r.range(-2, 2), py = ty * TS + 15.f, ph = r.f() * 6.28f;
-            switch (biome[ty][tx]) {
-                case B_DESERT: props.push_back({r.chance(0.5f) ? P_SANDROCK0 : P_SANDROCK1, px, py, ph}); break;
-                case B_SWAMP: props.push_back({r.chance(0.5f) ? P_DEADTREE0 : P_DEADTREE1, px, py, ph}); break;
-                case B_SNOW: props.push_back({P_SNOWPINE, px, py, ph}); break;
-                default: props.push_back({r.chance(0.6f) ? P_BOULDER : P_PINE, px, py, ph}); break;
+            for (int tx = 0; tx < MW; tx++) {
+                if (!inRing(tx, ty) || K(tx, ty) == 1) continue;  // the gate gap stays open
+                solid[ty][tx] = true;
+                if (!r.chance(0.8f)) continue;
+                float px = tx * TS + 8.f + r.range(-2, 2), py = ty * TS + 15.f, ph = r.f() * 6.28f;
+                switch (map) {
+                    case B_DESERT: props.push_back({r.chance(0.5f) ? P_SANDROCK0 : P_SANDROCK1, px, py, ph}); break;
+                    case B_SWAMP: props.push_back({r.chance(0.5f) ? P_DEADTREE0 : P_DEADTREE1, px, py, ph}); break;
+                    case B_SNOW: props.push_back({P_SNOWPINE, px, py, ph}); break;
+                    case B_HOME: props.push_back({r.chance(0.6f) ? P_PINE : P_OAK0, px, py, ph}); break;
+                    default: props.push_back({r.chance(0.6f) ? P_BOULDER : P_PINE, px, py, ph}); break;
+                }
             }
-        }
 
-    // ------------------------------------------------------------ 10. resource nodes
+    // ------------------------------------------------------------ 7. resource nodes
     auto nearCliff = [&](int tx, int ty, int rad) {
         for (int y = ty - rad; y <= ty + rad; y++)
             for (int x = tx - rad; x <= tx + rad; x++)
@@ -565,7 +557,7 @@ inline void World::generateBiomes() {
     };
     auto passable = [&](int tx, int ty) { return inMap(tx, ty) && !solid[ty][tx] && !tileSolid(tile[ty][tx]); };
     auto nodeFree = [&](int tx, int ty) {
-        if (inCore(tx, ty) || inRing(tx, ty) || K(tx, ty) != 0) return false;
+        if (inRing(tx, ty) || K(tx, ty) != 0) return false;
         return passable(tx, ty) && passable(tx + 1, ty) && passable(tx - 1, ty) && passable(tx, ty + 1) && passable(tx, ty - 1);
     };
     auto farFromNodes = [&](float x, float y, float minD) {
@@ -582,11 +574,11 @@ inline void World::generateBiomes() {
             }
         return true;
     };
-    auto scatter = [&](int kind, int b, int patches, const std::function<bool(int, int)>& ok, float spacing = 6.f) {
+    auto scatter = [&](int kind, int patches, const std::function<bool(int, int)>& ok, float spacing = 6.f) {
         for (int p = 0; p < patches; p++)
             for (int att = 0; att < 4000; att++) {
                 int tx = r.irange(3, MW - 4), ty = r.irange(3, MH - 4);
-                if (biome[ty][tx] != b || !nodeFree(tx, ty) || !ok(tx, ty)) continue;
+                if (!nodeFree(tx, ty) || !ok(tx, ty)) continue;
                 float px = tx * TS + 8.f, py = ty * TS + 12.f;
                 if (!farFromNodes(px, py, spacing * TS)) continue;
                 int n = r.irange(1, 3);
@@ -601,29 +593,30 @@ inline void World::generateBiomes() {
                 break;
             }
     };
-    scatter(RN_CACTUS, B_DESERT, 16, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_DUNE; });
-    scatter(RN_DESERT_HERB, B_DESERT, 14, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_STONE; });
-    scatter(RN_REED, B_SWAMP, 16, [&](int x, int y) { return tile[y][x] == T_MURK || tile[y][x] == T_MUD; });
-    scatter(RN_BOGWORT, B_SWAMP, 14, [&](int x, int y) { return tile[y][x] == T_MUD || tile[y][x] == T_DARK; });
-    scatter(RN_FROSTBLOOM, B_SNOW, 22, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; });
-    scatter(RN_ALPINE_HERB, B_MOUNTAIN, 14, [&](int x, int y) { return tile[y][x] != T_CLIFF; });
-    scatter(RN_ORE, B_MOUNTAIN, 18, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 2); });
-    // ---- the gathering expansion: every biome gets its own mix (rarer things are sparser and need better tools)
-    // desert: dry wood, copper deposits
-    scatter(RN_DRYWOOD, B_DESERT, 14, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_DUNE; }, 5.f);
-    scatter(RN_COPPER, B_DESERT, 11, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_STONE; });
-    // swamp: poisonous nightshade, rare bog amber
-    scatter(RN_NIGHTSHADE, B_SWAMP, 11, [&](int x, int y) { return tile[y][x] == T_MUD || tile[y][x] == T_DARK; }, 5.f);
-    scatter(RN_AMBER, B_SWAMP, 6, [&](int x, int y) { return tile[y][x] == T_MUD; }, 12.f);
-    // snow: a few iron outcrops (crystals and timber are props)
-    scatter(RN_ORE, B_SNOW, 6, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; }, 10.f);
-    // mountain: copper at the foot of the cliffs, gold veins deep in the rock
-    scatter(RN_COPPER, B_MOUNTAIN, 12, [&](int x, int y) { return tile[y][x] == T_STONE; }, 5.f);
-    scatter(RN_GOLD, B_MOUNTAIN, 6, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 4) && openAround(x, y); }, 7.f);
+    // patch counts are the original biome's, scaled to the size of one map; rarer things are sparser and need better tools
+    if (map == B_DESERT) {
+        scatter(RN_CACTUS, 32, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_DUNE; });
+        scatter(RN_DESERT_HERB, 28, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_STONE; });
+        scatter(RN_DRYWOOD, 28, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_DUNE; }, 5.f);
+        scatter(RN_COPPER, 22, [&](int x, int y) { return tile[y][x] == T_SAND || tile[y][x] == T_STONE; });
+    } else if (map == B_SWAMP) {
+        scatter(RN_REED, 32, [&](int x, int y) { return tile[y][x] == T_MURK || tile[y][x] == T_MUD; });
+        scatter(RN_BOGWORT, 28, [&](int x, int y) { return tile[y][x] == T_MUD || tile[y][x] == T_DARK; });
+        scatter(RN_NIGHTSHADE, 22, [&](int x, int y) { return tile[y][x] == T_MUD || tile[y][x] == T_DARK; }, 5.f);
+        scatter(RN_AMBER, 12, [&](int x, int y) { return tile[y][x] == T_MUD; }, 12.f);
+    } else if (map == B_SNOW) {
+        scatter(RN_FROSTBLOOM, 44, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; });
+        scatter(RN_ORE, 14, [&](int x, int y) { return tile[y][x] == T_SNOW || tile[y][x] == T_SNOWP; }, 10.f);
+    } else if (map == B_MOUNTAIN) {
+        scatter(RN_ALPINE_HERB, 28, [&](int x, int y) { return tile[y][x] != T_CLIFF; });
+        scatter(RN_ORE, 36, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 2); });
+        scatter(RN_COPPER, 24, [&](int x, int y) { return tile[y][x] == T_STONE; }, 5.f);
+        scatter(RN_GOLD, 12, [&](int x, int y) { return tile[y][x] == T_STONE && nearCliff(x, y, 4) && openAround(x, y); }, 7.f);
+    }
 
     // ---- the home forest: herbs, mushrooms, fallen branches and flax. Placed with their own random stream after everything else,
     // so the original home map (terrain, trees, rocks, decor) is exactly what it always was.
-    {
+    if (home) {
         Rng hr(seed * 104729u + 31u);
         auto homeOk = [&](int tx, int ty) {
             const int cx = tx - COX, cy = ty - COY;
@@ -646,5 +639,11 @@ inline void World::generateBiomes() {
         homeScatter(RN_MUSHROOM, 26, [&](int x, int y) { return tile[y][x] == T_DARK; });
         homeScatter(RN_BRANCH, 36, [&](int x, int y) { return tile[y][x] == T_GRASS || tile[y][x] == T_DARK; });
         homeScatter(RN_FLAX, 28, [&](int x, int y) { return tile[y][x] == T_GRASS; });
+        // and the same plants through the home forest around the original area
+        auto outer = [&](int x, int y) { return !inCore(x, y); };
+        scatter(RN_HERB, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
+        scatter(RN_MUSHROOM, 40, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_DARK; }, 4.f);
+        scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
+        scatter(RN_FLAX, 50, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_GRASS; }, 4.f);
     }
 }
