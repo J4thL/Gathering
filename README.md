@@ -49,14 +49,27 @@ hit can be picked up again. Both weapons and their ammo are sold on the shop's B
 drop from the new species (see `fauna.hpp`).
 
 ## Inventory
-The pack is slot-based (`src/inventory.hpp`): every item stack takes one slot, materials / ammo stack to 99, thrown weapons to 30,
-bandages to 9, launchers never stack. The backpack upgrade only adds slots: 20 -> 30 -> 40. A full bag refuses gathering, pickups,
-crafting and purchases that do not fit an existing stack or a free slot. Saves are version 2 (`slot <item name> <count>` lines, written
-to a temp file and renamed); version 1 saves are migrated on load and the original is kept as `save.v1.bak`.
+The pack (`src/inventory.hpp`) always has exactly 100 slots; every stackable item stacks to 999, launchers / tools / bags / carried gear take a
+slot each, and different items never share a slot. What limits the hunter is **weight**: every item has a weight in kg, defined once in
+`src/items.hpp` (`matWeight`, `wpnWeight`, ...), and the pack has a maximum carrying weight. `Inventory::add` never takes more than fits (slots
+or weight), so gathering, looting, pickups, crafting, shop purchases and chest withdrawals all refuse politely ("PACK FULL" / "TOO HEAVY")
+and nothing is ever deleted. Carrying limit: 50 kg with no bag; bags are crafted items you wear (HIDE SATCHEL 100, TRAPPER PACK 150,
+EXPLORER PACK 200, EXPEDITION PACK 300 kg). A bag only raises the limit - never the slots or stack size - and a worn bag has no weight.
+There is no movement penalty for weight: being over the limit (e.g. after swapping to a smaller bag) just blocks new pickups until you
+drop, sell, store or use something. Saves are version 2 (`slot <item name> <count>` lines, `bag` and `hotbar` lines; weights and limits are
+never stored); version 1 saves are migrated on load (the old backpack level becomes the worn bag, owned weapons and consumables are
+equipped once) and the original is kept as `save.v1.bak`.
 
 ## Pack screen and crafting
-`I` opens the pack (ESC or `I` closes; the world is paused). BACKPACK tab: a grid of your slots with counts, details of the selected or
-hovered item, EQUIP / USE (ENTER) and SORT (merges split stacks). Move with the arrow keys / WASD or click a slot; `TAB` switches tabs.
+The main screen has no material counters any more (materials live in the pack). The hotbar at the bottom shows only what you have equipped:
+keys `1`-`8` select a weapon or use the equipped consumable / place the structure, the wheel cycles equipped weapons, `Q` uses the lightest
+equipped healing item. Nothing is auto-equipped except the starting knife and bandage.
+
+`I` opens the pack (ESC or `I` closes; the world is paused). BACKPACK tab: the 10 x 10 slot grid, a carrying-weight bar ("85 / 150 KG"),
+the worn bag (TAKE OFF), details of the selected item (quantity, weight each / per stack, attributes), EQUIP / USE / WEAR (ENTER), DROP 1 /
+DROP ALL (the stack lies on the ground until you walk over it again), TO HOTBAR and SORT. Move with the arrow keys / WASD or click a slot;
+`TAB` switches tabs. The HOTBAR row at the bottom shows the 8 quick slots (3 weapon, 2 healing, food, buff, utility): click a slot to equip the
+selected item there or to unequip what is in it.
 CRAFTING tab: every recipe with category filters (tools, weapons, ammo, medicine, survival, parts, gear), a CAN MAKE switch, have/need
 counts per ingredient (red when short), a tooltip with the reason a recipe is blocked, and a scroll wheel. Recipes live in `src/recipes.hpp`.
 Stations: ANYWHERE, FIRE (the village fire or a campfire you place) and SHOP (beside the merchant).
@@ -64,7 +77,7 @@ Every recipe names a skill and a minimum level (`skill`, `minLv` in `src/recipes
 Ingredients are spent only when the result is delivered. Processing: planks, bone fragments, leather, grease (from carcass fat) and extracts feed
 most of the newer recipes. Every animal drops one exclusive trophy material (`M_TROPHY0 + species` in `src/data.hpp`) that some recipe uses.
 Crafted gear: fang dagger, reinforced spear, recurve bow, heavy axe, four biome weapons (+30% damage in their biome), armor tiers up to bear hide,
-swiftfoot boots, the explorer pack (50 slots) and carried gear (wolf cloak, parka, desert wraps, venom wraps, waders, climbing harness, quiver)
+swiftfoot boots, the bags (satchel to expedition pack) and carried gear (wolf cloak, parka, desert wraps, venom wraps, waders, climbing harness, quiver)
 that works while it is in the pack. New medicines and foods: poultice, herbal medicine, dried meat, hunter's stew, velvet tonic, nightsight tonic.
 
 ## Skills
@@ -93,4 +106,4 @@ and placed from the pack; chests hold 20 slots.
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
     wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip
-    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, gathering, tools, respawn, recipes, campfires and chests, save v2 and v1 migration, separate maps (travel, per-map state, save / load, old-save conversion)
+    wildwood --headless --selftest        inventory class, weight rules, bags, hotbar, full-pack rules, pack screen + crafting, gathering, tools, respawn, recipes, campfires and chests, save v2 and v1 migration, separate maps (travel, per-map state, save / load, old-save conversion)

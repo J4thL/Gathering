@@ -901,8 +901,8 @@ inline Img mkIconGear(int up, int tier) {
             break;
         }
         case U_BAG: {
-            u32 c[4] = {HEX(0x8a5c34), HEX(0xa87a4a), HEX(0x6e7a4a), HEX(0x3f7f86)};
-            u32 d[4] = {HEX(0x5e3d22), HEX(0x7a5230), HEX(0x4a5632), HEX(0x2a4f58)};
+            u32 c[5] = {HEX(0x8a5c34), HEX(0xa87a4a), HEX(0x6e7a4a), HEX(0x3f7f86), HEX(0x7a4a8a)};
+            u32 d[5] = {HEX(0x5e3d22), HEX(0x7a5230), HEX(0x4a5632), HEX(0x2a4f58), HEX(0x4e2c5e)};
             im.ellipse(8, 9, 5.5f, 5.5f, c[tier]);
             im.rect(3, 9, 10, 4, c[tier]);
             im.rect(3, 12, 10, 2, d[tier]);

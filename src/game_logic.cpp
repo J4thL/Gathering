@@ -86,6 +86,11 @@ void Game::save() {
         f << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
+        // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
+        // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
+        f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nhotbar";
+        for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
+        f << "\n";
         for (auto& sl : p.inv.slots)
             if (!sl.empty()) f << "slot " << itemKey(sl.item) << ' ' << sl.n << "\n";
         // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
@@ -99,6 +104,8 @@ void Game::save() {
             f << "map " << m << "\ndisc " << mm.disc << "\n";
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
+            for (auto& g : mm.items)  // stacks the hunter dropped lie where they were left
+                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << "\n";
         }
         f.flush();
         if (!f) {
@@ -121,6 +128,10 @@ bool Game::load() {
         if (!(ss >> v)) return 0L;
         return std::max(0L, std::min(lim, v));
     };
+    std::string bagKey = "-", hotKeys[HOT_N];
+    bool sawBag = false, sawHotbar = false;
+    struct DropLine { std::string key; int n, x, y; };
+    std::vector<DropLine> dropLines[B_COUNT];
     std::vector<std::pair<std::string, int>> slotLines;  // v2
     // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
     // separate maps existed (one big world) and are converted below
@@ -147,6 +158,21 @@ bool Game::load() {
             std::string key;
             ss >> key;
             slotLines.push_back({key, (int)readCount(ss)});
+        } else if (k == "bag") {
+            ss >> bagKey;
+            sawBag = true;
+        } else if (k == "hotbar") {
+            sawHotbar = true;
+            for (int i = 0; i < HOT_N; i++) {
+                std::string key;
+                if (!(ss >> key)) break;
+                hotKeys[i] = key;
+            }
+        } else if (k == "drop") {
+            std::string key;
+            int n = 0, x = 0, y = 0;
+            ss >> key >> n >> x >> y;
+            if (ss && curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y});
         } else if (k == "map") {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
@@ -193,11 +219,21 @@ bool Game::load() {
         return false;
     }
     for (int i = 0; i < U_COUNT; i++) p.up[i] = std::min(UP_MAX[i], std::max(0, p.up[i]));  // the top levels (scale mail, reinforced leather, bear hide, swiftfoot boots, explorer pack) are craft-only
-    p.syncPack();  // the backpack level decides how many slots there are, so it must be known before items go in
+    // The pack always has 100 slots; the worn bag only sets the carrying limit. A save from before bags were items stored a backpack
+    // upgrade level (1-3 = satchel, trapper, explorer): it becomes the worn bag. Items are loaded WITHOUT the weight limit - an old
+    // pack may be heavier than the new limits allow, and nothing a hunter owns may be lost (they just cannot pick up more until lighter).
+    p.bag = -1;
+    if (sawBag) {
+        const int id = itemFromKey(bagKey);
+        if (id >= ITEM_PACK0 && id < ITEM_PACK0 + PK_COUNT) p.bag = id - ITEM_PACK0;
+    } else if (p.up[U_BAG] >= 1)
+        p.bag = std::min(p.up[U_BAG], (int)PK_EXPLORER + 1) - 1;
+    p.up[U_BAG] = 0;
+    p.syncPack();
     p.inv.clear();
     auto give = [&](int item, int n) {
         if (n <= 0) return;
-        int got = p.inv.add(item, n);
+        int got = p.inv.addIgnoringWeight(item, n);
         loadReport.dropped += n - got;
     };
     if (sawVersion) {
@@ -276,18 +312,47 @@ bool Game::load() {
     }
     for (auto& rf : legacyRefund) {  // (see above) nothing a hunter owned may vanish
         const int id = itemFromKey(rf.first);
-        if (id >= 0) loadReport.dropped += rf.second - p.inv.add(id, rf.second);
+        if (id >= 0) loadReport.dropped += rf.second - p.inv.addIgnoringWeight(id, rf.second);
     }
     for (int m = 0; m < B_COUNT; m++) {
         mapMem[m].hv = mapHv[m];
         mapMem[m].st = mapSt[m];
         mapMem[m].disc = mapDisc[m];
         mapMem[m].visited = !mapHv[m].empty() || !mapSt[m].empty() || !mapDisc[m].empty() || m == atMap;
+        mapMem[m].items.clear();
+        for (auto& d : dropLines[m]) {
+            const int id = itemFromKey(d.key);
+            if (id < 0) continue;
+            GroundItem g{};
+            g.pos = V2((float)d.x, (float)d.y);
+            g.item = id;
+            g.n = d.n;
+            g.ammo = -1;
+            mapMem[m].items.push_back(g);
+            mapMem[m].visited = true;
+        }
+    }
+    // hotbar: from the save; a save from before the hotbar existed gets what it owns equipped once (the strongest weapons first)
+    for (int i = 0; i < HOT_N; i++) p.hot[i] = -1;
+    if (sawHotbar) {
+        for (int i = 0; i < HOT_N; i++) {
+            const int id = hotKeys[i].empty() || hotKeys[i] == "-" ? -1 : itemFromKey(hotKeys[i]);
+            if (id >= 0 && hotAccepts(HOT_KIND[i], id) && p.hotSlotOf(id) < 0) p.hot[i] = id;
+        }
+    } else {
+        std::vector<int> ws;
+        for (int w = 0; w < W_COUNT; w++)
+            if (p.wpn(w) > 0) ws.push_back(w);
+        std::stable_sort(ws.begin(), ws.end(), [](int a, int b) { return WPN[a].dmg > WPN[b].dmg; });
+        for (int w : ws) equipHotQuiet(itemWpn(w));
+        for (int c = 0; c < C_COUNT; c++)
+            if (p.inv.count(itemCons(c)) > 0) equipHotQuiet(itemCons(c));
     }
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
-    // keep a usable weapon selected
+    // keep a usable weapon selected (one that is equipped on the hotbar)
+    fixSel();
     if (!canUse(p.sel))
         for (int w = 0; w < W_COUNT; w++)
             if (canUse(w)) {
@@ -311,6 +376,8 @@ void Game::newGame() {
     p.syncPack();
     p.inv.add(itemWpn(W_FLINT), 8);
     p.inv.add(ITEM_CONS0 + C_BANDAGE, 1);
+    p.hot[0] = itemWpn(W_FLINT);          // the starting kit is equipped: a knife in the first weapon slot, the bandage in the first healing slot
+    p.hot[3] = ITEM_CONS0 + C_BANDAGE;
     for (auto& st : structs) world.solid[st.ty][st.tx] = false;
     structs.clear();
     chestOpen = -1;
@@ -771,7 +838,8 @@ void Game::hurtPlayer(float dmg, V2 from, int srcKind) {
 }
 
 // A weapon can be used when you own it and (for the bow and crossbow) have ammo for it.
-bool Game::canUse(int w) const { return p.wpn(w) > 0 && (!isLauncher(w) || p.ammo(WPN[w].ammo) > 0); }
+// a weapon can be used when it is equipped on the hotbar, there is one in the pack and (for launchers) there is ammunition
+bool Game::canUse(int w) const { return p.equippedWpn(w) && p.wpn(w) > 0 && (!isLauncher(w) || p.ammo(WPN[w].ammo) > 0); }
 
 void Game::throwWeapon() {
     int w = p.sel;
@@ -838,12 +906,7 @@ void Game::gatherStep(Animal& c) {
         return;
     }
     if (!p.inv.canAdd(itemMat(m), 1)) {
-        if (bagWarn <= 0) {
-            ftext(p.pos + V2(0, -28), "BAG FULL!", C_RED, 1.2f);
-            msg("BAG FULL - SELL AT THE SHOP", C_RED);
-            audio.play(S_ERROR);
-            bagWarn = 1.6f;
-        }
+        notifyBlocked(itemMat(m), 1);
         return;
     }
     c.remain[m]--;
@@ -896,8 +959,20 @@ void Game::updatePlayer(float dt) {
     P.sinceHurt += dt;
     P.throwAnim = std::max(0.f, P.throwAnim - dt);
 
-    if (in.selectKey >= 0 && in.selectKey < W_COUNT) P.sel = in.selectKey;
-    if (in.wheel != 0) P.sel = ((P.sel + (in.wheel > 0 ? -1 : 1)) % W_COUNT + W_COUNT) % W_COUNT;
+    if (in.selectKey >= 0 && in.selectKey < HOT_N) hotUse(in.selectKey);  // number keys = hotbar slots
+    if (in.wheel != 0) {  // the wheel cycles through the weapons equipped on the hotbar
+        int cyc[HOT_N], n = 0, at = -1;
+        for (int i = 0; i < HOT_N; i++)
+            if (P.hot[i] >= 0 && (item(P.hot[i]).kind == IK_THROWN || item(P.hot[i]).kind == IK_LAUNCHER)) {
+                if (item(P.hot[i]).ref == P.sel) at = n;
+                cyc[n++] = item(P.hot[i]).ref;
+            }
+        if (n > 0) {
+            P.sel = cyc[((at < 0 ? 0 : at) + (in.wheel > 0 ? n - 1 : 1)) % n];
+            P.charging = false;
+        }
+    }
+    fixSel();
 
     V2 mw(in.mx + camX, in.my + camY);
     V2 hand = P.pos + V2(0, -10);
@@ -1009,6 +1084,24 @@ void Game::updatePlayer(float dt) {
     // --- pick thrown weapons back up
     for (size_t i = 0; i < items.size();) {
         GroundItem& it = items[i];
+        if (it.item >= 0) {  // a stack the hunter dropped: taken back as far as slots and weight allow
+            if (it.lock > 0) it.lock -= dt;
+            else if (dist(P.pos, it.pos) < 13) {
+                const int got = P.inv.add(it.item, it.n);
+                if (got > 0) {
+                    it.n -= got;
+                    ftext(P.pos + V2(0, -24), "+" + S(got) + " " + item(it.item).name, C_BLUE, 0.9f);
+                    audio.play(S_PICKUP, 0.4f);
+                } else
+                    notifyBlocked(it.item, 1);
+                if (it.n <= 0) {
+                    items.erase(items.begin() + i);
+                    continue;
+                }
+            }
+            i++;
+            continue;
+        }
         if (it.ammo >= 0) {
             if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemAmmo(it.ammo), 1)) {
                 P.inv.add(itemAmmo(it.ammo), 1);
@@ -1019,10 +1112,7 @@ void Game::updatePlayer(float dt) {
                 i++;
             continue;
         }
-        if (dist(P.pos, it.pos) < 13 && !P.inv.canAdd(itemWpn(it.wpn), 1) && bagWarn <= 0) {
-            ftext(P.pos + V2(0, -24), "BAG FULL!", C_RED, 1.0f);
-            bagWarn = 1.6f;
-        }
+        if (dist(P.pos, it.pos) < 13 && !P.inv.canAdd(itemWpn(it.wpn), 1)) notifyBlocked(itemWpn(it.wpn), 1);
         if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemWpn(it.wpn), 1)) {
             P.inv.add(itemWpn(it.wpn), 1);
             ftext(P.pos + V2(0, -24), std::string("+") + WPN[it.wpn].name, C_BLUE, 1.0f);
@@ -1063,13 +1153,19 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
-    if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item you carry first, strong medicine last
+    if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};
+        bool used = false;
         for (int cid : order)
-            if (P.inv.count(itemCons(cid)) > 0) {
+            if (P.hotSlotOf(itemCons(cid)) >= 0 && P.inv.count(itemCons(cid)) > 0) {
                 useConsumable(cid);
+                used = true;
                 break;
             }
+        if (!used) {
+            msg("NO HEALING EQUIPPED - EQUIP SOME FROM THE PACK (TAB)", C_RED);
+            audio.play(S_ERROR);
+        }
     }
     if (P.sinceHurt > 6.f) P.hp = std::min(P.maxhp, P.hp + (nearShop() ? 12.f : 1.6f) * dt);
 }
@@ -1257,7 +1353,7 @@ void Game::updateFx(float dt) {
     }
     for (size_t i = 0; i < items.size();) {
         items[i].t += dt;
-        if (items[i].t > 300) items.erase(items.begin() + i);
+        if (items[i].t > 300 && items[i].item < 0) items.erase(items.begin() + i);  // dropped stacks stay until picked up
         else i++;
     }
     for (auto& m : msgs) m.t -= dt;
@@ -1301,18 +1397,24 @@ void Game::checkWeaponSafetyNet(float dt) {
     stuckCheckT = 1.f;
     if (p.dead || p.charging) return;
     for (int w = 0; w < W_COUNT; w++)
-        if (canUse(w)) return;                // still holding a weapon (a bow with no arrows doesn't count)
+        if (p.wpn(w) > 0 && (!isLauncher(w) || p.ammo(WPN[w].ammo) > 0)) return;  // still holding a weapon (a bow with no arrows doesn't count)
     if (!projs.empty() || !items.empty()) return;  // a thrown weapon can still be picked up
     int wealth = p.coins;
     for (int m = 0; m < M_COUNT; m++) wealth += p.mat(m) * MAT_PRICE[m];
     if (wealth >= FLINT_PACK_PRICE) return;  // could buy flint at the shop
-    if (!p.inv.canAdd(itemWpn(W_FLINT), FLINT_LOAN)) {  // bag stuffed with junk: make room by dropping the cheapest material stack
+    if (p.inv.slotRoom(itemWpn(W_FLINT)) < FLINT_LOAN) {  // all slots used: make room by dropping the cheapest material stack
         int cheapest = -1;
         for (int m = 0; m < M_COUNT; m++)
             if (p.mat(m) > 0 && (cheapest < 0 || MAT_PRICE[m] < MAT_PRICE[cheapest])) cheapest = m;
         if (cheapest >= 0) p.inv.remove(itemMat(cheapest), p.mat(cheapest));
     }
-    p.inv.add(itemWpn(W_FLINT), FLINT_LOAN);
+    p.inv.addIgnoringWeight(itemWpn(W_FLINT), FLINT_LOAN);  // the loan is never refused for weight
+    if (p.hotSlotOf(itemWpn(W_FLINT)) < 0) {  // and it is equipped, so the hunter can use it at once
+        int slot = 0;
+        for (int i = HOT_N - 1; i >= 0; i--)
+            if (HOT_KIND[i] == HK_WEAPON && (p.hot[i] < 0 || i == 0)) slot = i;
+        p.hot[slot] = itemWpn(W_FLINT);
+    }
     p.sel = W_FLINT;
     msg("THE MERCHANT LENDS YOU " + S(FLINT_LOAN) + " FLINT KNIVES", C_GOLD);
     ftext(p.pos + V2(0, -28), "+" + S(FLINT_LOAN) + " FLINT KNIFE", C_BLUE, 1.4f);
@@ -1423,7 +1525,6 @@ void Game::update(float dt) {
 }
 
 // ================================================================= inventory screen
-constexpr int INV_COLS = 8;
 
 // Eat / drink / apply one consumable (used from the pack and by the Q quick-heal key).
 bool Game::useConsumable(int c) {
@@ -1512,19 +1613,26 @@ bool Game::useSlot(int slot) {
     const ItemDef& D = item(id);
     switch (D.kind) {
         case IK_THROWN:
-        case IK_LAUNCHER:
-            p.sel = D.ref;
-            p.charging = false;
-            msg("EQUIPPED " + D.name, C_GOLD);
-            audio.play(S_CLICK);
-            return true;
+        case IK_LAUNCHER:  // equip it on the hotbar (or, if it is already there, take it in hand)
+            if (p.equippedWpn(D.ref)) {
+                p.sel = D.ref;
+                p.charging = false;
+                msg("IN HAND: " + D.name, C_GOLD);
+                audio.play(S_CLICK);
+                return true;
+            }
+            return equipHot(id);
+        case IK_BACKPACK: return equipBag(slot);
         case IK_AMMO:
             for (int w = 0; w < W_COUNT; w++)  // ammunition equips the launcher that fires it
                 if (WPN[w].ammo == D.ref && p.wpn(w) > 0) {
-                    p.sel = w;
-                    msg("EQUIPPED " + std::string(WPN[w].name), C_GOLD);
-                    audio.play(S_CLICK);
-                    return true;
+                    if (p.equippedWpn(w)) {
+                        p.sel = w;
+                        msg("IN HAND: " + std::string(WPN[w].name), C_GOLD);
+                        audio.play(S_CLICK);
+                        return true;
+                    }
+                    return equipHot(itemWpn(w));
                 }
             msg("YOU HAVE NOTHING THAT FIRES " + D.name + "S", C_RED);
             audio.play(S_ERROR);
@@ -1588,6 +1696,7 @@ void Game::spend(int coins, int m1, int n1, int m2, int n2) {
     if (m2 >= 0) p.inv.remove(itemMat(m2), n2);
 }
 bool Game::buyUpgrade(int u) {
+    if (u == U_BAG) return false;  // bags are crafted and worn, not bought
     int lv = p.up[u];
     if (lv >= 2) return false;
     const UpLevel& L = UPS[u].lv[lv];
@@ -1597,7 +1706,6 @@ bool Game::buyUpgrade(int u) {
     }
     spend(L.coins, L.m1, L.n1, L.m2, L.n2);
     p.up[u]++;
-    if (u == U_BAG) p.syncPack();  // a bigger backpack only adds slots
     audio.play(S_CRAFT);
     msg(std::string("UPGRADED: ") + L.name, C_GOLD);
     save();

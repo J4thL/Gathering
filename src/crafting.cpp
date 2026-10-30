@@ -15,7 +15,7 @@ const Spr& Game::itemIcon(int id) const {
         case IK_THROWN:
         case IK_LAUNCHER: return A.wpnIcon[D.ref];
         case IK_AMMO: return A.ammoIcon[D.ref];
-        case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(3, D.ref)];
+        case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(4, D.ref + 1)];  // tiers 1-4 of the bag art
         case IK_CARRIED: return A.carryIcon[D.ref];
         case IK_TOOL: return A.R.toolIcon[D.ref];
         case IK_PLACEABLE: return A.R.placeIcon[D.ref];
@@ -49,11 +49,12 @@ std::string Game::craftBlock(int r) const {
     }
     const int out = recipeItem(R);
     if ((R.kind == RK_ITEM || R.kind == RK_WEAPON) && item(out).stack == 1 && p.inv.count(out) > 0) return "YOU ALREADY HAVE ONE";
+    if (R.kind == RK_ITEM && item(out).kind == IK_BACKPACK && p.bag == item(out).ref) return "YOU ALREADY WEAR ONE";
     // space: ingredients go first, then the result must fit
     Inventory test = p.inv;
     for (int i = 0; i < 3; i++)
         if (R.mat[i] >= 0) test.remove(itemMat(R.mat[i]), R.n[i]);
-    if (test.add(out, R.count) < R.count) return "BAG FULL";
+    if (test.add(out, R.count) < R.count) return test.blockReason(out, R.count) == 2 ? "TOO HEAVY" : "PACK FULL";
     return "";
 }
 
@@ -74,7 +75,6 @@ bool Game::craft(int r) {
         if (R.out == U_ARMOR) {  // the extra health arrives at once (updatePlayer tops up current HP by the difference)
             p.maxhp = std::max(p.maxhp, (float)ARMOR_HP[p.up[U_ARMOR]]);
         }
-        if (R.out == U_BAG) p.syncPack();
         made = "NOW WEARING " + recipeName(R);
     } else {
         const int out = recipeItem(R);
@@ -83,7 +83,7 @@ bool Game::craft(int r) {
             p.inv.remove(out, got);
             for (int i = 0; i < 3; i++)
                 if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
-            msg("BAG FULL", C_RED);
+            msg("PACK FULL OR TOO HEAVY", C_RED);
             audio.play(S_ERROR);
             return false;
         }
