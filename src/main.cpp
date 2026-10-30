@@ -1,6 +1,6 @@
 // main.cpp - entry point, input and fixed-timestep loop.
 // Test flags:  --headless (dummy video/audio)  --shots DIR (write screenshots then exit)
-//              --worldcheck (reachability + walking test)  --tour DIR (biome screenshots)  --dumpcore FILE (home-area dump)
+//              --worldcheck (reachability + walking test)  --tour DIR (screenshots of every map)  --dumpcore FILE (home-area dump)
 #include <map>
 #include <set>
 #include <cstdio>
@@ -345,109 +345,205 @@ struct Reach {
     }
 };
 
-static int worldCheck(Game& g) {
-    World& w = g.world;
-    int bad = 0;
-    Reach rc(w, w.spawn);
-    printf("world %dx%d tiles (%dx%d px); home area at tile (%d,%d)\n", MW, MH, (int)w.pixW(), (int)w.pixH(), COX, COY);
-    printf("props=%zu decor=%zu nodes=%zu landmarks=%zu\n", w.props.size(), w.decor.size(), w.nodes.size(), w.landmarks.size());
-    // biome area and how much of it the player can actually reach
-    long total[B_COUNT] = {0}, reach[B_COUNT] = {0};
-    for (int cy = 0; cy < rc.gh; cy++)
-        for (int cx = 0; cx < rc.gw; cx++) {
-            int b = w.biomeAtPos(cx * 8.f, cy * 8.f);
-            if (!w.blocked(cx * 8.f + 4, cy * 8.f + 4, 4.f)) {
-                total[b]++;
-                if (rc.d[(size_t)cy * rc.gw + cx] >= 0) reach[b]++;
+// start a fresh game and stand at the entrance of map `b` (the home map is where a new game starts)
+static void enterMap(Game& g, int b) {
+    g.newGame();
+    g.state = ST_PLAY;
+    g.helpT = 0;
+    if (b != B_HOME) g.travelTo(b, MAPS[b].entryTx, MAPS[b].entryTy, false);
+    g.travelCd = g.travelFade = 0;
+    g.animals.clear();
+    g.respawnT = 1e9f;
+}
+
+// drive the real player through update() along the shortest route to `target` (pixels) in the active map, until the map changes or
+// the target is reached. Returns the number of frames used (-1 = never arrived).
+static int driveTo(Game& g, V2 target, int stopIfMapChanges, int maxFrames = 60 * 240) {
+    const World& w = g.world;
+    Reach back(w, target, 6.f);  // planned with a fatter body than the real one (4px) so steering can't clip corners
+    const int startMap = w.mapId;
+    for (int frames = 0; frames < maxFrames; frames++) {
+        int cx = (int)(g.p.pos.x / 8), cy = (int)(g.p.pos.y / 8);
+        int cur = back.at(g.p.pos.x, g.p.pos.y);
+        if (cur >= 0 && cur <= 2 && !stopIfMapChanges) return frames;
+        int bx = cx, by = cy, bd = cur < 0 ? 1 << 30 : cur;
+        for (int dy = -1; dy <= 1; dy++)
+            for (int dx = -1; dx <= 1; dx++) {
+                int nx = cx + dx, ny = cy + dy;
+                if (nx < 0 || ny < 0 || nx >= back.gw || ny >= back.gh) continue;
+                int nd = back.d[(size_t)ny * back.gw + nx];
+                if (dx && dy && (back.d[(size_t)cy * back.gw + cx + dx] < 0 || back.d[(size_t)(cy + dy) * back.gw + cx] < 0)) continue;  // no corner cutting
+                if (nd >= 0 && nd < bd) bd = nd, bx = nx, by = ny;
             }
+        V2 tgt(bx * 8.f + 4, by * 8.f + 4), dv = tgt - g.p.pos;
+        g.in.left = dv.x < -0.3f, g.in.right = dv.x > 0.3f, g.in.up = dv.y < -0.3f, g.in.down = dv.y > 0.3f;
+        g.in.sprint = false;
+        g.p.stamina = 100;
+        g.p.hp = g.p.maxhp;  // this test is about terrain, not about wolves
+        g.animals.clear();
+        g.respawnT = 1e9f;
+        g.update(1.f / 60.f);
+        if (g.world.mapId != startMap) {
+            g.in.left = g.in.right = g.in.up = g.in.down = false;
+            return frames;
         }
-    for (int b = 0; b < B_COUNT; b++)
-        printf("  %-10s walkable cells %6ld  reachable from spawn %6ld (%.1f%%)\n", BIOME[b].name, total[b], reach[b], total[b] ? 100.0 * reach[b] / total[b] : 0.0);
-    // hubs and landmarks
-    for (int b = 1; b < B_COUNT; b++) {
-        int d = rc.at(w.hub[b].x, w.hub[b].y);
-        printf("  hub %-10s reachable: %s  path length %d px\n", BIOME[b].name, d >= 0 ? "yes" : "NO", d >= 0 ? d * Reach::CELL : -1);
+    }
+    g.in.left = g.in.right = g.in.up = g.in.down = false;
+    return -1;
+}
+
+// the open tile of a gate's zone nearest its middle, as a pixel position (where a walker aims to go through the gate)
+static V2 portalPoint(const World& w, const Portal& pt) {
+    const float mx = (pt.zone.x0 + pt.zone.x1) * 0.5f, my = (pt.zone.y0 + pt.zone.y1) * 0.5f;
+    V2 best((mx + 0.5f) * TS, (my + 0.5f) * TS);
+    float bd = 1e9f;
+    for (int y = pt.zone.y0; y <= pt.zone.y1; y++)
+        for (int x = pt.zone.x0; x <= pt.zone.x1; x++)
+            if (!w.solidTile(x, y) && hypotf(x - mx, y - my) < bd) bd = hypotf(x - mx, y - my), best = V2(x * TS + 8.f, y * TS + 8.f);
+    return best;
+}
+
+// Checks one map: size, biome purity, every landmark / resource / hub / gate reachable from where you arrive, edge wall closed except at the gates.
+static int mapCheck(Game& g, int map, long nodeTotals[]) {
+    int bad = 0;
+    enterMap(g, map);
+    World& w = g.world;
+    const MapDef& MD = MAPS[map];
+    const V2 arrive = g.p.pos;
+    Reach rc(w, arrive);
+    printf("%s map: %dx%d tiles (%dx%d px), mapId %d, props=%zu decor=%zu nodes=%zu landmarks=%zu\n", MD.name, MW, MH, (int)w.pixW(), (int)w.pixH(), w.mapId, w.props.size(), w.decor.size(), w.nodes.size(), w.landmarks.size());
+    if (MW != 240 || MH != 168 || w.mapId != map) {
+        printf("  PROBLEM: map size is not 240x168\n");
+        bad++;
+    }
+    // purity: every tile belongs to this map's biome; the home map has only its own four ground types
+    long foreign = 0, wrongGround = 0;
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++) {
+            if (w.biome[y][x] != map) foreign++;
+            const uint8_t t = w.tile[y][x];
+            if (map == B_HOME && !(t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_WATER)) wrongGround++;
+        }
+    printf("  tiles of another biome: %ld%s   foreign ground in home: %ld\n", foreign, foreign ? "  <-- PROBLEM" : "", wrongGround);
+    if (foreign || wrongGround) bad++;
+    // reach
+    long total = 0, reach = 0;
+    for (int cy = 0; cy < rc.gh; cy++)
+        for (int cx = 0; cx < rc.gw; cx++)
+            if (!w.blocked(cx * 8.f + 4, cy * 8.f + 4, 4.f)) {
+                total++;
+                if (rc.d[(size_t)cy * rc.gw + cx] >= 0) reach++;
+            }
+    printf("  walkable cells %ld, reachable from the arrival point %ld (%.1f%%)\n", total, reach, total ? 100.0 * reach / total : 0.0);
+    {
+        const int d = rc.at(w.hub[map].x, w.hub[map].y);
+        printf("  hub reachable: %s  path length %d px\n", d >= 0 ? "yes" : "NO", d >= 0 ? d * Reach::CELL : -1);
         if (d < 0) bad++;
     }
     for (auto& l : w.landmarks) {
         bool ok = rc.nearReach(l.x, l.y, 2);
-        printf("  landmark %-18s (%s) reachable: %s\n", l.name, BIOME[l.biome].name, ok ? "yes" : "NO");
+        printf("  landmark %-18s reachable: %s\n", l.name, ok ? "yes" : "NO");
         if (!ok) bad++;
     }
     int nodeBad = 0, nodeCnt[RN_COUNT] = {0};
     for (auto& n : w.nodes) {
         nodeCnt[n.kind]++;
+        nodeTotals[n.kind]++;
         if (!rc.nearReach(n.x, n.y, 2)) {
             nodeBad++;
-            printf("    unreachable %s at tile (%d,%d) biome %s\n", NODE_NAME[n.kind], (int)(n.x / 16.f), (int)(n.y / 16.f), BIOME[w.biomeAtPos(n.x, n.y)].name);
+            printf("    unreachable %s at tile (%d,%d)\n", NODE_NAME[n.kind], (int)(n.x / 16.f), (int)(n.y / 16.f));
         }
     }
     printf("  resource nodes:");
-    for (int k = 0; k < RN_COUNT; k++) printf(" %s=%d", NODE_NAME[k], nodeCnt[k]);
+    for (int k = 0; k < RN_COUNT; k++)
+        if (nodeCnt[k]) printf(" %s=%d", NODE_NAME[k], nodeCnt[k]);
     printf("\n  nodes unreachable: %d of %zu\n", nodeBad, w.nodes.size());
     if (nodeBad) bad++;
-    // the edge wall must be solid everywhere
-    int hole = 0;
+    // the edge wall must be solid everywhere except inside the gates' zones
+    int hole = 0, gateOpen = 0, gateBlocked = 0;
     for (int y = 0; y < MH; y++)
         for (int x = 0; x < MW; x++)
-            if ((x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2) && !w.solidTile(x, y)) hole++;
-    printf("  edge wall holes: %d\n", hole);
-    if (hole) bad++;
-    // start area: spawn, shop door, elder and campfire must all be walkable and connected
-    printf("  spawn reachable: %s\n", rc.at(w.spawn.x, w.spawn.y) >= 0 ? "yes" : "NO");
-
-    // walk test: drive the real player through update() along the BFS route to each hub
-    for (int b = 1; b < B_COUNT; b++) {
-        g.newGame();
-        g.state = ST_PLAY;
-        g.helpT = 0;
-        g.p.pos = w.spawn;
-        g.setCam(0, true);
-        // route: follow strictly decreasing distance-from-hub (BFS from the hub gives the way back)
-        Reach back(w, w.hub[b], 6.f);  // planned with a fatter body than the real one (4px) so steering can't clip corners
-        int frames = 0;
-        float lastD = 1e9f;
-        bool arrived = false;
-        for (; frames < 60 * 240; frames++) {
-            int cx = (int)(g.p.pos.x / 8), cy = (int)(g.p.pos.y / 8);
-            int cur = back.at(g.p.pos.x, g.p.pos.y);
-            if (cur >= 0 && cur <= 2) {
-                arrived = true;
-                break;
+            if ((x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2) && !w.solidTile(x, y)) {
+                if (portalAt(map, x, y)) gateOpen++;
+                else hole++;
             }
-            int bx = cx, by = cy, bd = cur < 0 ? 1 << 30 : cur;
-            for (int dy = -1; dy <= 1; dy++)
-                for (int dx = -1; dx <= 1; dx++) {
-                    int nx = cx + dx, ny = cy + dy;
-                    if (nx < 0 || ny < 0 || nx >= back.gw || ny >= back.gh) continue;
-                    int nd = back.d[(size_t)ny * back.gw + nx];
-                    if (dx && dy && (back.d[(size_t)cy * back.gw + cx + dx] < 0 || back.d[(size_t)(cy + dy) * back.gw + cx] < 0)) continue;  // no corner cutting
-                    if (nd >= 0 && nd < bd) bd = nd, bx = nx, by = ny;
-                }
-            V2 tgt(bx * 8.f + 4, by * 8.f + 4), dv = tgt - g.p.pos;
-            g.in.left = dv.x < -0.3f, g.in.right = dv.x > 0.3f, g.in.up = dv.y < -0.3f, g.in.down = dv.y > 0.3f;
-            g.in.sprint = false;
-            g.p.stamina = 100;
-            g.p.hp = g.p.maxhp;  // this test is about terrain, not about wolves
-            g.animals.clear();
-            g.respawnT = 1e9f;
-            g.update(1.f / 60.f);
-            lastD = (float)cur;
+    for (int i = 0; i < MD.nPortals; i++) {
+        const Portal& pt = MD.portals[i];
+        const V2 c = portalPoint(w, pt);
+        const bool ok = rc.nearReach(c.x, c.y, 2);
+        printf("  gate to %-9s reachable: %s\n", MAPS[pt.toMap].name, ok ? "yes" : "NO");
+        if (!ok) gateBlocked++;
+        // the arrival point on the other side must be a valid free spot inside that map's walls
+        const V2 a = g.freeSpot(pt.arriveTx, pt.arriveTy);
+        if (a.x < 3 * TS || a.y < 3 * TS || a.x > (MW - 3) * TS || a.y > (MH - 3) * TS) {
+            printf("  PROBLEM: arrival point of gate to %s is outside the playable area\n", MAPS[pt.toMap].name);
+            bad++;
         }
-        if (!arrived) printf("    stuck at px (%.1f, %.1f) tile (%d,%d) dist-to-hub cells %d tile=%d solid=%d\n", g.p.pos.x, g.p.pos.y, (int)(g.p.pos.x / TS), (int)(g.p.pos.y / TS), back.at(g.p.pos.x, g.p.pos.y), (int)w.tileAt(g.p.pos.x, g.p.pos.y), (int)w.blocked(g.p.pos.x, g.p.pos.y, 4.f));
-        g.in.left = g.in.right = g.in.up = g.in.down = false;
-        printf("  walk to %-10s hub: %s after %.0fs (biome now %s, discovered %d)\n", BIOME[b].name, arrived ? "arrived" : "FAILED", frames / 60.f,
-               BIOME[g.curBiome].name, g.landmarksFound());
-        (void)lastD;
-        if (!arrived) bad++;
+    }
+    printf("  edge wall holes outside gates: %d (gate tiles open: %d)\n", hole, gateOpen);
+    if (hole || gateBlocked) bad++;
+    printf("  entry reachable: %s\n", rc.at(arrive.x, arrive.y) >= 0 ? "yes" : "NO");
+    // walk test: the real player walks from the entry to the hub
+    {
+        const int f = driveTo(g, w.hub[map], 0);
+        printf("  walk from the entry to the hub: %s after %.0fs (landmarks discovered %d)\n", f >= 0 ? "arrived" : "FAILED", f >= 0 ? f / 60.f : 240.f, g.landmarksFound());
+        if (f < 0) bad++;
+    }
+    return bad;
+}
+
+static int worldCheck(Game& g) {
+    int bad = 0;
+    long nodeTotals[RN_COUNT] = {0};
+    printf("maps: %d, each %dx%d tiles (the original Wildwood area is %dx%d at tile (%d,%d) of the home map)\n", B_COUNT, MW, MH, CW, CH, COX, COY);
+    for (int m = 0; m < B_COUNT; m++) bad += mapCheck(g, m, nodeTotals);
+    {
+        printf("all resource nodes over the five maps:");
+        for (int k = 0; k < RN_COUNT; k++) printf(" %s=%ld", NODE_NAME[k], nodeTotals[k]);
+        printf("\n");
+        for (int k = 0; k < RN_COUNT; k++)
+            if (!nodeTotals[k]) {
+                printf("  PROBLEM: no %s anywhere\n", NODE_NAME[k]);
+                bad++;
+            }
+    }
+    // travel test: walk through every gate with the real player, check the arrival, then walk back through the gate home
+    for (int m = B_DESERT; m < B_COUNT; m++) {
+        enterMap(g, B_HOME);
+        g.p.pos = g.world.spawn;
+        g.p.coins = 777;
+        g.p.inv.add(itemMat(M_WOOD), 5);
+        g.p.hp = 77;
+        g.p.sk.s[SK_MINING].xp = 123;
+        int gi = -1;
+        for (int i = 0; i < MAPS[B_HOME].nPortals; i++)
+            if (MAPS[B_HOME].portals[i].toMap == m) gi = i;
+        const Portal& pt = MAPS[B_HOME].portals[gi];
+        const V2 c = portalPoint(g.world, pt);
+        const int f = driveTo(g, c, 1);
+        const bool there = f >= 0 && g.world.mapId == m && g.curBiome == m;
+        const V2 pp = g.p.pos;
+        const bool valid = !g.world.blocked(pp.x, pp.y, 5.f) && pp.x > 2 * TS && pp.y > 2 * TS && pp.x < (MW - 2) * TS && pp.y < (MH - 2) * TS;
+        const bool kept = g.p.coins == 777 && g.p.mat(M_WOOD) == 5 && g.p.sk.s[SK_MINING].xp == 123 && (int)g.p.hp <= 100;
+        printf("  walk through the gate home -> %-9s: %s after %.1fs, map %d, valid spot %s, hunter's state kept %s\n", MAPS[m].name, there ? "arrived" : "FAILED", f / 60.f, g.world.mapId, valid ? "yes" : "NO", kept ? "yes" : "NO");
+        if (!there || !valid || !kept) bad++;
+        // and back
+        g.travelCd = 0;
+        const Portal& back = MAPS[m].portals[0];
+        const V2 bc = portalPoint(g.world, back);
+        const int f2 = driveTo(g, bc, 1);
+        const bool home = f2 >= 0 && g.world.mapId == B_HOME;
+        const V2 q = g.p.pos;
+        const bool valid2 = !g.world.blocked(q.x, q.y, 5.f);
+        printf("  walk through the gate %-9s -> home: %s after %.1fs, valid spot %s\n", MAPS[m].name, home ? "arrived" : "FAILED", f2 / 60.f, valid2 ? "yes" : "NO");
+        if (!home || !valid2) bad++;
     }
 
-    // terrain + climate mechanics, measured through the real player update
+    // terrain + climate mechanics, measured through the real player update (each in the map where that ground exists)
     {
-        auto findPatch = [&](uint8_t t, int biomeWanted, V2& out, int rad = 4) {
+        auto findPatch = [&](const World& w, uint8_t t, V2& out, int rad = 4) {
             for (int y = 8; y < MH - 8; y++)
                 for (int x = 8; x < MW - 8; x++) {
-                    if (biomeWanted >= 0 && w.biome[y][x] != biomeWanted) continue;
                     bool ok = true;
                     for (int j = -rad; j <= rad && ok; j++)
                         for (int i = -rad; i <= rad && ok; i++)
@@ -467,15 +563,12 @@ static int worldCheck(Game& g) {
                     {"murk", T_MURK, B_SWAMP}, {"snow", T_SNOW, B_SNOW}, {"packed snow", T_SNOWP, B_SNOW}, {"ice", T_ICE, B_SNOW}};
         float grassD = 0;
         for (auto& rw : rows) {
+            enterMap(g, rw.biome);
             V2 at;
-            if (!findPatch(rw.tile, rw.biome, at, rw.tile == T_MUD ? 2 : 4)) {
+            if (!findPatch(g.world, rw.tile, at, rw.tile == T_MUD ? 2 : 4)) {
                 printf("  terrain %-12s no 9x9 patch found (skipped)\n", rw.name);
                 continue;
             }
-            g.newGame();
-            g.state = ST_PLAY;
-            g.animals.clear();
-            g.respawnT = 1e9f;
             g.p.pos = at;
             g.in.right = true;
             for (int f = 0; f < 30; f++) {
@@ -499,16 +592,12 @@ static int worldCheck(Game& g) {
         for (int armor = 0; armor <= 2; armor += 2)
             for (auto& c : cls) {
                 if (armor == 2 && c.biome != B_SNOW) continue;
+                enterMap(g, c.biome);
                 V2 at;
-                if (!findPatch(c.tile, c.biome, at, c.tile == T_MUD ? 2 : 4)) continue;
-                g.newGame();
-                g.state = ST_PLAY;
-                g.animals.clear();
-                g.respawnT = 1e9f;
+                if (!findPatch(g.world, c.tile, at, c.tile == T_MUD ? 2 : 4)) continue;
                 g.dayT = 60;  // midday
                 g.p.up[U_ARMOR] = armor;
                 g.p.pos = at;
-                g.curBiome = c.biome;
                 g.in.right = true;
                 g.in.sprint = true;
                 float s0 = g.p.stamina;
@@ -516,7 +605,6 @@ static int worldCheck(Game& g) {
                     g.p.hp = g.p.maxhp;
                     g.dayT = 60;
                     g.update(1.f / 60.f);
-                    g.curBiome = c.biome;
                 }
                 g.in.right = g.in.sprint = false;
                 printf("  sprint 1s in %-8s%s: stamina %.1f -> %.1f (drain %.1f)\n", c.name, armor == 2 ? " + fur coat" : "", s0, g.p.stamina, s0 - g.p.stamina);
@@ -536,60 +624,52 @@ static void tour(Game& g, const std::string& dir) {
         g.render();
     };
     auto shot = [&](const std::string& name) { g.saveCanvas((dir + "/" + name + ".bmp").c_str()); };
-    g.newGame();
-    g.state = ST_PLAY;
-    g.helpT = 0;
-    g.showMap = true;
-    g.animals.clear();
     static const char* nm[B_COUNT] = {"home", "desert", "swamp", "snow", "mountain"};
     for (int b = 0; b < B_COUNT; b++) {
-        // hub, then every landmark of that biome
+        enterMap(g, b);
+        g.showMap = true;
+        g.respawnT = 1e9f;
+        // the entrance, the hub, then every landmark of the map
         std::vector<std::pair<std::string, V2>> spots;
+        spots.push_back({std::string(nm[b]) + "_entry", g.p.pos});
         spots.push_back({std::string(nm[b]) + "_hub", b == B_HOME ? g.world.spawn : g.world.hub[b]});
         int i = 0;
-        for (auto& l : g.world.landmarks)
-            if (l.biome == b) spots.push_back({std::string(nm[b]) + "_lm" + std::to_string(i++), V2(l.x, l.y + 24)});
+        for (auto& l : g.world.landmarks) spots.push_back({std::string(nm[b]) + "_lm" + std::to_string(i++), V2(l.x, l.y + 24)});
         int k = 0;
         for (auto& sp : spots) {
             g.p.pos = sp.second;
             g.dayT = 60;  // midday
+            g.travelCd = 1e9f;  // a tour must not walk through a gate by accident
             g.setCam(0, true);
-            for (int x = 0; x < B_COUNT; x++) g.bw[x] = (x == b) ? 1.f : 0.f;
-            g.curBiome = b;
             frames(25);
             shot(sp.first);
-            if (k == 0) {  // also a night view of each hub, for lanterns / fog / glows
+            if (k == 1) {  // also a night view of each hub, for lanterns / fog / glows
                 g.dayT = 300.f * 0.6f;
                 frames(20);
                 shot(sp.first + "_night");
             }
             k++;
         }
-    }
-    // frame cost (software renderer, so only the relative numbers mean anything)
-    for (int b = 0; b < B_COUNT; b++) {
+        // frame cost (software renderer, so only the relative numbers mean anything)
         g.p.pos = b == B_HOME ? g.world.spawn : g.world.hub[b];
         g.setCam(0, true);
-        for (int x = 0; x < B_COUNT; x++) g.bw[x] = (x == b) ? 1.f : 0.f;
-        g.curBiome = b;
         Uint64 t0 = SDL_GetPerformanceCounter();
-        for (int i = 0; i < 120; i++) {
+        for (int i2 = 0; i2 < 120; i2++) {
             g.update(1.f / 60.f);
             g.render();
         }
         double ms = (SDL_GetPerformanceCounter() - t0) * 1000.0 / SDL_GetPerformanceFrequency() / 120.0;
         printf("  frame cost at %-8s hub: %.2f ms (update+render)\n", nm[b], ms);
-    }
-    // the border crossings
-    struct X { const char* n; V2 p; } cross[4] = {
-        {"gate_east", V2((COX + CW) * TS - 10.f, g.world.village.y)}, {"gate_south", V2(g.world.village.x, (COY + CH) * TS - 10.f)},
-        {"gate_north", V2(g.world.village.x, COY * TS + 20.f)}, {"gate_west", V2(COX * TS + 20.f, g.world.village.y)}};
-    for (auto& c : cross) {
-        g.p.pos = c.p;
-        g.dayT = 60;
-        g.setCam(0, true);
-        frames(25);
-        shot(c.n);
+        // the gates of this map, with the label and minimap marker
+        for (int gi = 0; gi < MAPS[b].nPortals; gi++) {
+            const V2 c = portalPoint(g.world, MAPS[b].portals[gi]);
+            const int side = MAPS[b].portals[gi].side;
+            g.p.pos = c + (side == 0 ? V2(-70, 0) : side == 3 ? V2(70, 0) : side == 1 ? V2(0, -50) : V2(0, 50));
+            g.dayT = 60;
+            g.setCam(0, true);
+            frames(25);
+            shot(std::string(nm[b]) + "_gate_to_" + nm[MAPS[b].portals[gi].toMap]);
+        }
     }
 }
 
@@ -675,6 +755,7 @@ static void wildlife(Game& g, const std::string& dir) {
     }
     // 5) behaviour probes
     {
+        enterMap(g, B_DESERT);
         g.p.pos = g.world.hub[B_DESERT];
         g.p.maxhp = g.p.hp = 1e6f;
         const char* stn[5] = {"wander", "flee", "chase", "feed", "rest"};
@@ -690,7 +771,8 @@ static void wildlife(Game& g, const std::string& dir) {
         }
         g.dayT = 60;
         int seen[5] = {0};
-        g.animals.clear();
+        enterMap(g, B_MOUNTAIN);
+        g.respawnT = 4.f;
         g.p.pos = g.world.hub[B_MOUNTAIN];
         for (int i = 0; i < 6; i++) g.spawnAnimal(A_MARMOT, g.p.pos + V2(300 + i * 5, 40 * i), 0, 0), g.spawnAnimal(A_GOAT, g.p.pos + V2(330, 40 * i - 100), 0, 0);
         for (int f = 0; f < 60 * 120; f++) {
@@ -701,12 +783,11 @@ static void wildlife(Game& g, const std::string& dir) {
     }
     // 4) spawn simulation: 10 minutes standing in each new biome, day and night
     for (int b = 1; b < B_COUNT; b++) {
-        g.animals.clear();
+        enterMap(g, b);
+        g.respawnT = 4.f;
         memset(g.spawnStat, 0, sizeof g.spawnStat);
         g.p.pos = g.world.hub[b];
         g.p.maxhp = g.p.hp = 1e6f;
-        for (int x = 0; x < B_COUNT; x++) g.bw[x] = (x == b) ? 1.f : 0.f;
-        g.curBiome = b;
         g.legCool = 0;
         int maxLive = 0, maxLeg = 0;
         double sumLive = 0;
@@ -1578,7 +1659,9 @@ static int selfTest(Game& g) {
         bool node = false;
         int idx = -1, steps = 0;
 
-        // ---- tool tiers gate ore
+        // ---- tool tiers gate ore (iron is found in the mountain map)
+        g.travelTo(B_MOUNTAIN, MAPS[B_MOUNTAIN].entryTx, MAPS[B_MOUNTAIN].entryTy, false);
+        g.travelCd = 0;
         check(standAt(RS_IRON, node, idx), "an iron vein exists and can be reached by line of sight");
         check(!canHarvest(RS_IRON), "iron cannot be mined with bare hands");
         g.p.inv.add(itemTool(TL_PICK1), 1);
@@ -1613,6 +1696,8 @@ static int selfTest(Game& g) {
             HTarget t;
             check(g.findHarvest(t) && t.idx == idx, "and can be harvested again");
         }
+        g.travelTo(B_HOME, MAPS[B_MOUNTAIN].portals[0].arriveTx, MAPS[B_MOUNTAIN].portals[0].arriveTy, false);  // back to the home map for the trees and herbs
+        g.travelCd = 0;
         // ---- trees: solid tile cleared while felled, restored when regrown, border trees stay
         {
             g.p.inv.add(itemTool(TL_AXE1), 1);
@@ -1635,7 +1720,7 @@ static int selfTest(Game& g) {
                 const int tx = (int)(g.world.props[i].x / TS), ty = (int)(g.world.props[i].y / TS);
                 if (g.propRsId[i] >= 0) {
                     harvestable++;
-                    if (protectedTile(tx, ty)) bad++;
+                    if (protectedTile(tx, ty, g.world.mapId)) bad++;
                 }
             }
             check(harvestable > 0 && bad == 0, "trees on the map border and around the home core are never harvestable");
@@ -1952,6 +2037,143 @@ static int selfTest(Game& g) {
         bool biomeOk = true;
         for (int w = W_FANGDAGGER; w < W_COUNT; w++) biomeOk = biomeOk && (WPN[w].biome < 0 || WPN[w].biomeMul > 1.f);
         check(biomeOk, "every biome weapon has a damage bonus for its biome");
+    }
+    printf("separate maps and travel\n");
+    {
+        auto packTotal = [&]() {
+            long n = 0;
+            for (auto& sl : g.p.inv.slots) n += sl.empty() ? 0 : sl.n;
+            return n;
+        };
+        auto spotOk = [&]() {
+            const V2 q = g.p.pos;
+            return !g.world.blocked(q.x, q.y, 5.f) && q.x > 2 * TS && q.y > 2 * TS && q.x < (MW - 2) * TS && q.y < (MH - 2) * TS;
+        };
+        check(MW == 240 && MH == 168 && CW == 88 && CH == 60, "every map is 240x168 tiles; the original 88x60 Wildwood area sits inside the home map");
+        bool allSame = true, allWalled = true, pure = true;
+        for (int m = 0; m < B_COUNT; m++) {
+            g.loadMapWorld(m);
+            allSame = allSame && g.world.mapId == m && g.world.pixW() == 240 * TS && g.world.pixH() == 168 * TS;
+            for (int y = 0; y < MH; y++)
+                for (int x = 0; x < MW; x++) {
+                    pure = pure && g.world.biome[y][x] == m;
+                    if ((x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2) && !g.world.solidTile(x, y) && !portalAt(m, x, y)) allWalled = false;
+                }
+        }
+        check(allSame && pure, "all five maps have the same pixel size and only their own biome");
+        check(allWalled, "every map's edge wall is closed except at its gates");
+        g.loadMapWorld(B_HOME);
+        bool homeSame = true;  // the same seed always builds the same map
+        {
+            World a, b;
+            a.generate(WORLD_SEED, B_DESERT);
+            b.generate(WORLD_SEED, B_DESERT);
+            homeSame = a.props.size() == b.props.size() && a.nodes.size() == b.nodes.size() && memcmp(a.tile, b.tile, sizeof a.tile) == 0;
+        }
+        check(homeSame, "a map is rebuilt identically every time it is entered");
+        // ---- travel keeps the hunter, and each map keeps its own state
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.coins = 500;
+        g.p.inv.add(itemMat(M_WOOD), 7);
+        g.p.inv.add(itemMat(M_STONE), 5);
+        g.p.inv.add(itemPlace(PL_CAMPFIRE), 2);
+        g.p.hp = 55;
+        g.p.sk.s[SK_HUNTING].xp = 300;
+        g.questIdx = 2;
+        g.dayT = 77;
+        const long packBefore = packTotal();
+        check(g.world.mapId == B_HOME && g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the home map");
+        const int homeTx = g.structs[0].tx, homeTy = g.structs[0].ty;
+        g.p.inv.add(itemPlace(PL_CAMPFIRE), 0);
+        const long packMid = packTotal();
+        check(g.travelTo(B_DESERT, MAPS[B_DESERT].entryTx, MAPS[B_DESERT].entryTy, false) && g.world.mapId == B_DESERT && g.curBiome == B_DESERT, "travelling loads the desert map");
+        check(spotOk(), "the hunter arrives on a free tile inside the map");
+        check(packTotal() == packMid && g.p.coins == 500 && (int)g.p.hp == 55 && g.p.sk.s[SK_HUNTING].xp == 300 && g.questIdx == 2 && g.dayT == 77.f, "pack, coins, health, skills, quest and time are unchanged by a trip");
+        check(g.structs.empty(), "the home campfire is not in the desert (maps do not mix)");
+        g.travelCd = 0;
+        check(g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the desert");
+        const int dTx = g.structs[0].tx, dTy = g.structs[0].ty;
+        const long packNow = packTotal();  // (the placed campfire left the pack)
+        check(g.world.landmarks.size() == 4 && g.landmarksFound() == 0, "the desert has its own four landmarks, none found yet");
+        g.world.landmarks[1].found = true;
+        int herb = -1;
+        for (size_t i = 0; i < g.world.nodes.size(); i++)
+            if (nodeRes(g.world.nodes[i].kind) >= 0) {
+                herb = (int)i;
+                break;
+            }
+        check(herb >= 0, "(setup) the desert has a gatherable node");
+        g.hstate(true, herb).gone = true;
+        g.hstate(true, herb).t = 500;
+        g.hActive.push_back((1 << 28) | herb);
+        g.items.push_back({g.p.pos + V2(20, 0), W_FLINT, 0.f, 0.f});
+        const V2 hubPos = g.world.hub[B_DESERT];
+        g.travelTo(B_HOME, MAPS[B_DESERT].portals[0].arriveTx, MAPS[B_DESERT].portals[0].arriveTy, false);
+        check(g.world.mapId == B_HOME && spotOk(), "the way back leads home to a valid spot");
+        check(g.structs.size() == 1 && g.structs[0].tx == homeTx && g.structs[0].ty == homeTy, "the home map still has only its own campfire");
+        check(g.items.empty() && g.landmarksFound() == 0 && g.world.landmarks.empty(), "the desert's dropped weapon and landmarks are not in the home map");
+        g.travelCd = 0;
+        g.travelTo(B_DESERT, MAPS[B_DESERT].entryTx, MAPS[B_DESERT].entryTy, false);
+        check(g.structs.size() == 1 && g.structs[0].tx == dTx && g.structs[0].ty == dTy && g.world.solid[dTy][dTx], "returning to the desert restores its campfire (and it blocks the tile)");
+        check(g.hstate(true, herb).gone && g.landmarksFound() == 1 && g.world.landmarks[1].found, "...its harvested resource and its discovered landmark");
+        check(g.items.size() == 1 && g.items[0].wpn == W_FLINT, "...and the weapon that lay on the ground");
+        check(packTotal() == packNow && g.world.hub[B_DESERT].x == hubPos.x, "nothing was duplicated or lost over two round trips");
+        g.travelCd = 0;
+        check(!g.travelTo(-1, 5, 5, false) && !g.travelTo(B_COUNT, 5, 5, false) && g.world.mapId == B_DESERT, "an invalid destination is refused");
+        g.p.dead = true;
+        check(!g.travelTo(B_HOME, 40, 30, false) && g.world.mapId == B_DESERT, "a dead hunter cannot travel");
+        g.p.dead = false;
+        // ---- a gate trigger: standing in a gate's zone travels, once
+        g.travelTo(B_HOME, 40, 30, false);
+        g.travelCd = 0;
+        {
+            const Portal& east = MAPS[B_HOME].portals[0];
+            g.p.pos = V2((east.zone.x0 + 0.5f) * TS, 84.5f * TS);
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_DESERT, "stepping into the east gate leads to the desert");
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_DESERT && g.travelCd > 0, "arriving does not bounce the hunter straight back");
+        }
+        // ---- saving in another map and loading
+        removeAll();
+        g.travelCd = 0;
+        g.save();
+        g.newGame();
+        check(g.world.mapId == B_HOME && !g.mapMem[B_DESERT].visited && g.structs.empty(), "a new game starts in the home map with every map reset");
+        const bool ld = g.load();
+        check(ld && g.world.mapId == B_DESERT && g.curBiome == B_DESERT && spotOk(), "loading a save made in the desert continues in the desert");
+        check(g.structs.size() == 1 && g.structs[0].tx == dTx && g.hstate(true, herb).gone && g.world.landmarks[1].found, "the desert's campfire, harvest and discovered landmark are restored");
+        g.travelTo(B_HOME, 40, 30, false);
+        check(g.structs.size() == 1 && g.structs[0].tx == homeTx && packTotal() == packNow, "the home map's campfire and the pack survive the save / load too");
+        removeAll();
+        // ---- a save from before the separate maps (one 240x168 world, home area at tile 76,54)
+        {
+            g.newGame();
+            int hn = -1;
+            for (size_t i = 0; i < g.world.nodes.size(); i++)
+                if (g.world.nodes[i].kind == RN_HERB && (int)(g.world.nodes[i].x / TS) < COX + CW - 5 && (int)(g.world.nodes[i].x / TS) >= COX && (int)(g.world.nodes[i].y / TS) >= COY && (int)(g.world.nodes[i].y / TS) < COY + CH) {
+                    hn = (int)i;
+                    break;
+                }
+            const int htx = (int)(g.world.nodes[hn].x / TS), hty = (int)(g.world.nodes[hn].y / TS);
+            std::string t = "version 2\ncoins 40\nup 0 0 0 0\nday 30\nkills 0\nquest 0 0 0\ndisc 10000100001000\n";
+            t += std::string("slot ") + itemKey(itemWpn(W_FLINT)) + " 8\n";
+            t += "hv n " + S(htx) + " " + S(hty) + " " + S(nodeRes(RN_HERB)) + " 120\n";
+            t += "hv n 9 9 0 50\n";  // a resource that was out in a biome: ignored
+            t += "struct " + S(PL_CHEST) + " " + S(30 + 76) + " " + S(20 + 54) + "\n";                 // a chest in the home area
+            t += "struct " + S(PL_CHEST) + " 200 100\n";                                               // a chest out in the biomes
+            t += std::string("cslot 0 ") + itemKey(itemMat(M_WOOD)) + " 5\n";
+            t += std::string("cslot 1 ") + itemKey(itemMat(M_STONE)) + " 3\n";
+            writeFile(t);
+            const bool ok = g.load();
+            check(ok && g.world.mapId == B_HOME && g.p.coins == 40, "an old save still loads");
+            check(g.structs.size() == 1 && g.structs[0].kind == PL_CHEST && g.structs[0].tx == COX + 30 && g.structs[0].ty == COY + 20 && g.structs[0].inv.count(itemMat(M_WOOD)) == 5, "its home chest moves into the home map with its contents");
+            check(g.hstate(true, hn).gone, "its harvested herb is still harvested");
+            check(g.p.inv.count(itemPlace(PL_CHEST)) == 1 && g.p.mat(M_STONE) == 3, "a chest that stood out in the biomes comes back to the pack with its contents (nothing is lost)");
+            check(g.mapMem[B_DESERT].disc == "1000" && g.mapMem[B_SWAMP].disc == "010" && g.mapMem[B_MOUNTAIN].disc == "1000", "old landmark discoveries are split between the maps");
+            removeAll();
+        }
     }
     printf("skill bonuses\n");
     {

@@ -21,14 +21,21 @@ Eight story quests (kill, gather, craft, earn) lead into endless scaling bountie
 bandages. The active quest shows bottom-left, and the elder is marked on the minimap. Quest progress is saved.
 
 ## World
-The map is 240x168 tiles. The original Wildwood sits unchanged in the centre; each of its four dirt paths now leads through
-a gate in the tree wall to a new biome: SNOWFIELDS (north), DESERT (east), SWAMP (south), MOUNTAINS (west). Each has its own
-terrain, props, weather, landmarks (walk up to one to discover it) and gathering plants/ore. Terrain and climate matter:
-sand, mud and deep snow slow you down, ice makes you slide, heat/cold/thin air change how fast stamina drains
-(the fur coat cancels the cold). The minimap shows discovered landmarks and the biome you are in.
+The game has five separate maps, each exactly 240x168 tiles: WILDWOOD (the start map: the original 88x60 Wildwood area, unchanged, in the centre of
+home forest, with four gates at the map edge), DESERT, SWAMP, SNOW and MOUNTAIN. Each biome map has its own terrain, props, weather, landmarks
+(walk up to one to discover it), gathering plants/ore, wildlife table and a trail from its gate to its hub landmark. Walk out of
+WILDWOOD through a gate (east desert, south swamp, north snow, west mountain) to travel; each biome has one gate leading back home. A
+"TO <MAP>" label shows near a gate and the minimap marks gates in the colour of their destination. Travelling keeps your health, pack,
+skills, quests and the time of day; each map remembers its own campfires and chests, harvested resources, discovered landmarks and dropped
+weapons (only the map you are in is loaded; the others are rebuilt from the world seed when you enter them). Saves record the map you are in.
+Terrain and climate matter: sand, mud and deep snow slow you down, ice makes you slide, heat/cold/thin air change how fast stamina drains
+(the fur coat cancels the cold).
+Maps are defined in `src/maps.hpp` (gates, entry and hub per map), generated in `src/world.hpp` / `src/worldgen.hpp`, and travel
+is `Game::travelTo` in `src/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
+`worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
 
 ## Wildlife
-28 species (`src/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four new biomes
+28 species (`src/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
 stream species in just off-screen (`src/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).
 Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
 recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
@@ -80,10 +87,10 @@ rope and copper bars -> copper tools -> iron bars at the shop -> iron and gilded
 and placed from the pack; chests hold 20 slots.
 
 ## Test flags
-    wildwood --headless --worldcheck      reachability of every hub/landmark/plant + a scripted walk to each biome + terrain/climate checks
-    wildwood --headless --tour DIR        screenshots of every biome, landmark and border gate (BMP)
+    wildwood --headless --worldcheck      per map: size, biome purity, reachability of every hub/landmark/plant/gate, walks through every gate and back, terrain/climate checks
+    wildwood --headless --tour DIR        screenshots of every map's entrance, hub, landmarks and gates (BMP)
     wildwood --headless --dumpcore FILE   dump of the original home area, for diffing against an older build
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome
     wildwood --headless --weapons         item registry checks, bow / crossbow / ammo behaviour, drops, save round trip
-    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, gathering, tools, respawn, recipes, campfires and chests, save v2 and v1 migration
+    wildwood --headless --selftest        inventory class, full-bag rules, backpack upgrades, pack screen + crafting, gathering, tools, respawn, recipes, campfires and chests, save v2 and v1 migration, separate maps (travel, per-map state, save / load, old-save conversion)

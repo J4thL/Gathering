@@ -41,7 +41,7 @@ bool Game::init(bool headless) {
     }
     canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
     buildAssets(ren, A);
-    world.generate(7);
+    world.generate(WORLD_SEED);
     initHarvest();
     miniTex = toTex(ren, world.minimap());
     audio.init();
@@ -86,13 +86,20 @@ void Game::save() {
         f << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
-        f << "disc ";
-        for (auto& l : world.landmarks) f << (l.found ? '1' : '0');
-        f << "\n";
         for (auto& sl : p.inv.slots)
             if (!sl.empty()) f << "slot " << itemKey(sl.item) << ' ' << sl.n << "\n";
-        harvestSave(f);  // resources waiting to regrow ("hv" lines) and placed campfires / chests ("struct", "cslot" lines):
-        structSave(f);   // extra lines that older builds simply ignore, so the save version stays 2
+        // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
+        // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
+        // builds simply ignore, so the save version stays 2.
+        snapshotMap();
+        f << "at " << world.mapId << "\n";
+        for (int m = 0; m < B_COUNT; m++) {
+            const MapMem& mm = mapMem[m];
+            if (!mm.visited) continue;
+            f << "map " << m << "\ndisc " << mm.disc << "\n";
+            for (auto& ln : mm.hv) f << ln << "\n";
+            for (auto& ln : mm.st) f << ln << "\n";
+        }
         f.flush();
         if (!f) {
             std::remove(tmp.c_str());
@@ -115,7 +122,15 @@ bool Game::load() {
         return std::max(0L, std::min(lim, v));
     };
     std::vector<std::pair<std::string, int>> slotLines;  // v2
-    std::vector<std::string> hvLines, structLines;       // gathering state and placed structures (applied after the pack is read)
+    // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
+    // separate maps existed (one big world) and are converted below
+    std::vector<std::string> mapHv[B_COUNT], mapSt[B_COUNT];
+    std::string mapDisc[B_COUNT];
+    std::vector<std::string> legHv, legSt;
+    std::string legDisc;
+    std::vector<std::pair<std::string, int>> legacyRefund;  // items from old out-of-home chests (see below)
+    int curLoad = -1, atMap = B_HOME;
+    bool sawMapBlock = false;
     int legacyMats[M_COUNT] = {0}, legacyWpn[W_COUNT] = {0}, legacyAmmo[AM_COUNT] = {0}, legacyBandages = 0;
     int nMats = 0, nWpn = 0, nAmmo = 0;
     bool sawVersion = false, sawLegacy = false;
@@ -132,9 +147,20 @@ bool Game::load() {
             std::string key;
             ss >> key;
             slotLines.push_back({key, (int)readCount(ss)});
-        } else if (k == "hv") hvLines.push_back(line);
-        else if (k == "struct" || k == "cslot") structLines.push_back(line);
-        else if (k == "mats") {
+        } else if (k == "map") {
+            ss >> curLoad;
+            if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
+            sawMapBlock = true;
+        } else if (k == "at") {
+            ss >> atMap;
+            if (!ss || atMap < 0 || atMap >= B_COUNT) atMap = B_HOME;
+        } else if (k == "hv") {
+            if (curLoad >= 0) mapHv[curLoad].push_back(line);
+            else if (curLoad == -1) legHv.push_back(line);
+        } else if (k == "struct" || k == "cslot") {
+            if (curLoad >= 0) mapSt[curLoad].push_back(line);
+            else if (curLoad == -1) legSt.push_back(line);
+        } else if (k == "mats") {
             sawLegacy = true;
             for (; nMats < M_COUNT && !ss.eof(); nMats++) legacyMats[nMats] = (int)readCount(ss);
         } else if (k == "wpn") {
@@ -153,7 +179,8 @@ bool Game::load() {
         else if (k == "disc") {
             std::string bits;
             ss >> bits;
-            for (size_t i = 0; i < bits.size() && i < world.landmarks.size(); i++) world.landmarks[i].found = bits[i] == '1';
+            if (curLoad >= 0) mapDisc[curLoad] = bits;
+            else if (curLoad == -1) legDisc = bits;
         } else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
             int active = 0;
             ss >> questIdx >> active >> questProg;
@@ -199,8 +226,65 @@ bool Game::load() {
         }
     }
     refreshQuest();
-    harvestLoad(hvLines);
-    structLoad(structLines);
+    // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is
+    // exactly where it is in the new home map. Data inside that area is kept as it was. Structures out in the old biome areas cannot
+    // stay where they were (that ground is now home forest or another map), so their
+    // campfires / chests and everything inside them go back to the pack instead of being lost.
+    if (!sawMapBlock && (!legHv.empty() || !legSt.empty() || !legDisc.empty())) {
+        const int DN[4] = {4, 3, 3, 4};  // old home offset; landmarks per biome (desert, swamp, snow, mountain)
+        for (auto& ln : legHv) {
+            std::istringstream ss(ln);
+            std::string tag;
+            char kind;
+            int tx, ty, res, secs;
+            if (!(ss >> tag >> kind >> tx >> ty >> res >> secs)) continue;
+            if (tx >= COX && ty >= COY && tx < COX + CW && ty < COY + CH) mapHv[B_HOME].push_back("hv " + std::string(1, kind) + " " + S(tx) + " " + S(ty) + " " + S(res) + " " + S(secs));
+        }
+        std::vector<int> newIdx;  // old struct index -> index in the home map, or -1 when it was out in a biome
+        std::vector<int> oldKind;
+        for (auto& ln : legSt) {
+            std::istringstream ss(ln);
+            std::string tag;
+            ss >> tag;
+            if (tag != "struct") continue;
+            int kind = -1, tx = 0, ty = 0;
+            ss >> kind >> tx >> ty;
+            oldKind.push_back(kind);
+            if (ss && tx >= COX && ty >= COY && tx < COX + CW && ty < COY + CH) {
+                newIdx.push_back((int)mapSt[B_HOME].size() - 0);
+                int count = 0;
+                for (auto& e : mapSt[B_HOME]) count += e.compare(0, 7, "struct ") == 0 ? 1 : 0;
+                newIdx.back() = count;
+                mapSt[B_HOME].push_back("struct " + S(kind) + " " + S(tx) + " " + S(ty));
+            } else
+                newIdx.push_back(-1);
+        }
+        for (size_t i = 0; i < newIdx.size(); i++)
+            if (newIdx[i] < 0 && oldKind[i] >= 0 && oldKind[i] < PL_COUNT) legacyRefund.push_back({itemKey(itemPlace(oldKind[i])), 1});
+        for (auto& ln : legSt) {
+            std::istringstream ss(ln);
+            std::string tag, key;
+            int idx = -1, n = 0;
+            ss >> tag >> idx >> key >> n;
+            if (tag != "cslot" || !ss || idx < 0 || idx >= (int)newIdx.size()) continue;
+            if (newIdx[idx] >= 0) mapSt[B_HOME].push_back("cslot " + S(newIdx[idx]) + " " + key + " " + S(n));
+            else legacyRefund.push_back({key, n});
+        }
+        int at = 0;
+        for (int b = B_DESERT; b <= B_MOUNTAIN; at += DN[b - B_DESERT], b++)
+            mapDisc[b] = at < (int)legDisc.size() ? legDisc.substr(at, DN[b - B_DESERT]) : std::string();
+    }
+    for (auto& rf : legacyRefund) {  // (see above) nothing a hunter owned may vanish
+        const int id = itemFromKey(rf.first);
+        if (id >= 0) loadReport.dropped += rf.second - p.inv.add(id, rf.second);
+    }
+    for (int m = 0; m < B_COUNT; m++) {
+        mapMem[m].hv = mapHv[m];
+        mapMem[m].st = mapSt[m];
+        mapMem[m].disc = mapDisc[m];
+        mapMem[m].visited = !mapHv[m].empty() || !mapSt[m].empty() || !mapDisc[m].empty() || m == atMap;
+    }
+    restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
     // keep a usable weapon selected
@@ -210,11 +294,18 @@ bool Game::load() {
                 p.sel = w;
                 break;
             }
+    if (atMap != B_HOME) travelTo(atMap, MAPS[atMap].entryTx, MAPS[atMap].entryTy, false);  // saved out in a biome: continue there
     return true;
 }
 
 // ================================================================= helpers
 void Game::newGame() {
+    for (auto& m : mapMem) m = MapMem();
+    travelFade = travelCd = 0;
+    if (world.mapId != B_HOME) {  // a new game always starts in the original map
+        structs.clear();
+        loadMapWorld(B_HOME);
+    }
     p = Player();
     p.pos = world.spawn;
     p.syncPack();
@@ -1259,6 +1350,7 @@ void Game::updatePlay(float dt) {
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }
     streamSpawns(dt);
+    checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
 }
 
 void Game::update(float dt) {

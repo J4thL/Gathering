@@ -598,6 +598,23 @@ void Game::drawPrompt(float wx, float wy, const std::string& key, const std::str
     fillRect(sx, y + h + 1, 1, 1, UI_BORDER);
 }
 
+// "TO DESERT" over a gate when the hunter is close to it
+void Game::drawPortalLabels() {
+    for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
+        const Portal& pt = MAPS[world.mapId].portals[i];
+        const V2 c(((pt.zone.x0 + pt.zone.x1 + 1) * 0.5f) * TS, ((pt.zone.y0 + pt.zone.y1 + 1) * 0.5f) * TS);
+        const float d = dist(p.pos, c);
+        if (d > 130.f) continue;
+        // sit the label inside the map, a few tiles in from the gap
+        const V2 in = pt.side == 0 ? V2(-44, 0) : pt.side == 3 ? V2(44, 0) : pt.side == 1 ? V2(0, -34) : V2(0, 34);
+        const int sx = (int)(c.x + in.x) - camX, sy = (int)(c.y + in.y) - camY;
+        const std::string s = std::string("TO ") + MAPS[pt.toMap].shortName;
+        const int w = textW(s) + 8;
+        panel(sx - w / 2, sy - 6, w, 12, HEX(0x2b1d12));
+        textC(sx, sy - 2, s, BIOME[pt.toMap].col, 1, false);
+    }
+}
+
 void Game::drawMinimap() {
     int x = LW - MM_W - 10, y = 6;
     panel(x, y, MM_W + 4, MM_H + 4, HEX(0x2b1d12));
@@ -614,9 +631,15 @@ void Game::drawMinimap() {
     fillRect(vx, vy + vh, vw, 1, wc);
     fillRect(vx, vy, 1, vh, wc);
     fillRect(vx + vw, vy, 1, vh + 1, wc);
-    // shop and elder
-    fillRect(mx(world.hut.x) - 1, my(world.hut.y) - 1, 3, 3, C_GOLD);
-    fillRect(mx(world.questGiver.x), my(world.questGiver.y), 2, 2, C_BLUE);
+    // shop and elder (home only), and the gates to the other maps in the colour of where they lead
+    if (world.mapId == B_HOME) {
+        fillRect(mx(world.hut.x) - 1, my(world.hut.y) - 1, 3, 3, C_GOLD);
+        fillRect(mx(world.questGiver.x), my(world.questGiver.y), 2, 2, C_BLUE);
+    }
+    for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
+        const Portal& pt = MAPS[world.mapId].portals[i];
+        fillRect(ox + (pt.zone.x0 + pt.zone.x1) / 2 - 1, oy + (pt.zone.y0 + pt.zone.y1) / 2 - 1, 3, 3, BIOME[pt.toMap].col);
+    }
     // discovered landmarks, in their biome's colour
     for (auto& l : world.landmarks)
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
@@ -712,6 +735,7 @@ void Game::drawHud() {
     }
     if (showMap) drawMinimap();
     drawBiomeBanner();
+    if (state == ST_PLAY) drawPortalLabels();
 
     // ---- timed effects under the vitals
     {
@@ -1341,6 +1365,7 @@ void Game::render() {
     }
     if (state == ST_PLAY && !p.dead) drawReticle();
     else sprS(A.cursor, (int)in.mx, (int)in.my);
+    if (travelFade > 0) fillRect(0, 0, LW, LH, RGBA(0, 0, 0, (int)(255.f * std::min(1.f, travelFade / 0.6f))));  // fade in after a trip
 }
 
 void Game::present() {

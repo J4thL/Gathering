@@ -241,6 +241,14 @@ struct Game {
     int bannerBiome = B_HOME;
     std::string bannerSub;
     float bw[B_COUNT] = {1, 0, 0, 0, 0};  // smoothed weight of each biome around the player (drives weather and tint)
+    // maps (maps.cpp): the world holds the active map; everything that belongs to the other maps is parked in mapMem
+    struct MapMem {
+        bool visited = false;
+        std::vector<std::string> hv, st;  // harvested resources and placed structures, as save lines
+        std::string disc;                 // which landmarks were discovered ('1' / '0')
+        std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
+    } mapMem[B_COUNT];
+    float travelFade = 0.f, travelCd = 0.f;  // fade-in after a trip (seconds left); no new trip before this runs out
     // test hooks
     bool botOn = false;
 
@@ -292,6 +300,14 @@ struct Game {
     void bloodBurst(V2 p, V2 dir, int n);
     void puff(V2 p, int n, u32 col);
     void addItem(int m, int n);
+    // ---- maps (maps.cpp)
+    bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
+    void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)
+    void snapshotMap();                // park the active map's state in mapMem
+    void restoreMap();                 // put mapMem's state for the active map back
+    V2 freeSpot(int tx, int ty) const;  // the nearest standable position to a tile
+    void checkPortals(float dt);
+    void drawPortalLabels();
     // ---- gathering (gathering.cpp)
     void initHarvest();   // size the state tables for the current world (call after world.generate)
     void resetHarvest();  // everything grown back (new game)

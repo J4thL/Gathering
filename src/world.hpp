@@ -1,13 +1,15 @@
-// world.hpp - procedural world: terrain, lakes, forests, the village and four surrounding biomes;
-// plus collision queries. The original 88x60 "home" map is generated exactly as before and sits in the
-// centre of the expanded 240x168 world (see generateCore); worldgen.hpp builds everything around it.
+// world.hpp - one procedural map at a time: terrain, lakes, forests, the village or a biome, plus collision queries.
+// The game has five maps (maps.hpp), every one exactly MW x MH = 240x168 tiles: the home map (the original 88x60 Wildwood
+// from generateCore, unchanged, in its centre, with home forest around it) and one map each for the desert, swamp, snow and
+// mountain biomes (worldgen.hpp). `World` holds the map
+// that is currently active; Game::travelTo (maps.cpp) swaps it by regenerating the destination from the world seed.
 #pragma once
 #include "sprites.hpp"
 
 constexpr int TS = 16;
-constexpr int CW = 88, CH = 60;                          // the original map ("home" area)
-constexpr int MW = 240, MH = 168;                        // the whole world
-constexpr int COX = (MW - CW) / 2, COY = (MH - CH) / 2;  // where the home area starts (in tiles)
+constexpr int CW = 88, CH = 60;                          // the original Wildwood area (the core of the home map)
+constexpr int MW = 240, MH = 168;                        // size of EVERY map
+constexpr int COX = (MW - CW) / 2, COY = (MH - CH) / 2;  // where the original area starts inside the home map (in tiles)
 constexpr int LW = 400, LH = 225;                        // logical (pixel-art) resolution
 constexpr int MM_DIV = 3;                                // minimap: one pixel per MM_DIV x MM_DIV tiles
 constexpr int MM_W = MW / MM_DIV, MM_H = MH / MM_DIV;
@@ -112,6 +114,7 @@ struct World {
     V2 village, hut, door, keeper, fire, spawn, questGiver;
     V2 hub[B_COUNT];  // the trail-head / main landmark of each biome
     uint32_t seed = 7;
+    int mapId = B_HOME;  // which map is active (a Biome id: B_HOME is the original map)
 
     float pixW() const { return MW * TS; }
     float pixH() const { return MH * TS; }
@@ -153,8 +156,9 @@ struct World {
         if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) solid[ty][tx] = true;
     }
 
-    void generate(uint32_t sd) {
+    void generate(uint32_t sd, int map = B_HOME) {
         seed = sd;
+        mapId = map;
         props.clear();
         decor.clear();
         nodes.clear();
@@ -164,8 +168,8 @@ struct World {
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) tile[y][x] = T_GRASS;
-        generateCore();
-        generateBiomes();  // worldgen.hpp
+        if (map == B_HOME) generateCore();
+        generateMap(map);  // worldgen.hpp: the home map's gates and forest, or a whole biome map
         std::sort(props.begin(), props.end(), [](const Prop& a, const Prop& b) { return a.y < b.y; });
         std::sort(decor.begin(), decor.end(), [](const Decor& a, const Decor& b) { return a.y < b.y; });
         std::sort(nodes.begin(), nodes.end(), [](const ResNode& a, const ResNode& b) { return a.y < b.y; });
@@ -281,7 +285,7 @@ struct World {
             for (int tx = 0; tx < CW; tx++) biome[COY + ty][COX + tx] = B_HOME;
     }
 
-    void generateBiomes();  // worldgen.hpp
+    void generateMap(int map);  // worldgen.hpp
 
     // colour of a tile / prop on the minimap
     static u32 miniTileColor(uint8_t t) {
@@ -339,4 +343,5 @@ struct World {
     }
 };
 
+#include "maps.hpp"
 #include "worldgen.hpp"

@@ -27,7 +27,7 @@ void Game::initHarvest() {
     propRsId.assign(world.props.size(), -1);
     for (size_t i = 0; i < world.props.size(); i++) {
         int r = propRes(world.props[i].kind);
-        if (r >= 0 && protectedTile((int)(world.props[i].x / TS), (int)(world.props[i].y / TS))) r = -1;
+        if (r >= 0 && protectedTile((int)(world.props[i].x / TS), (int)(world.props[i].y / TS), world.mapId)) r = -1;
         propRsId[i] = (int8_t)r;
     }
     hActive.clear();
