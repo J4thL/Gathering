@@ -88,6 +88,7 @@ void Game::save() {
         skillSave(f);
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
         // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
+        f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
         f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
@@ -96,8 +97,9 @@ void Game::save() {
         // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
         // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
         // builds simply ignore, so the save version stays 2.
-        snapshotMap();
-        f << "at " << world.mapId << "\n";
+        snapshotMap();  // (does nothing indoors: the outside map was parked in mapMem when the hunter went in)
+        f << "at " << (interior >= 0 ? extMap : world.mapId) << "\n";
+        if (interior >= 0) f << "atpos " << (int)extPos.x << ' ' << (int)extPos.y << "\n";  // saved inside a building: the next load stands at its door
         for (int m = 0; m < B_COUNT; m++) {
             const MapMem& mm = mapMem[m];
             if (!mm.visited) continue;
@@ -140,7 +142,8 @@ bool Game::load() {
     std::vector<std::string> legHv, legSt;
     std::string legDisc;
     std::vector<std::pair<std::string, int>> legacyRefund;  // items from old out-of-home chests (see below)
-    int curLoad = -1, atMap = B_HOME;
+    HunterLook lookLoaded;
+    int curLoad = -1, atMap = B_HOME, atPosX = -1, atPosY = -1;
     bool sawMapBlock = false;
     int legacyMats[M_COUNT] = {0}, legacyWpn[W_COUNT] = {0}, legacyAmmo[AM_COUNT] = {0}, legacyBandages = 0;
     int nMats = 0, nWpn = 0, nAmmo = 0;
@@ -158,6 +161,9 @@ bool Game::load() {
             std::string key;
             ss >> key;
             slotLines.push_back({key, (int)readCount(ss)});
+        } else if (k == "look") {
+            ss >> lookLoaded.hair >> lookLoaded.color >> lookLoaded.skin >> lookLoaded.outfit;
+            if (!ss) lookLoaded = HunterLook();
         } else if (k == "bag") {
             ss >> bagKey;
             sawBag = true;
@@ -177,6 +183,9 @@ bool Game::load() {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
             sawMapBlock = true;
+        } else if (k == "atpos") {
+            ss >> atPosX >> atPosY;
+            if (!ss) atPosX = atPosY = -1;
         } else if (k == "at") {
             ss >> atMap;
             if (!ss || atMap < 0 || atMap >= B_COUNT) atMap = B_HOME;
@@ -261,6 +270,7 @@ bool Game::load() {
             dst << src.rdbuf();
         }
     }
+    applyLook(lookLoaded);
     refreshQuest();
     // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is
     // exactly where it is in the new home map. Data inside that area is kept as it was. Structures out in the old biome areas cannot
@@ -360,6 +370,7 @@ bool Game::load() {
                 break;
             }
     if (atMap != B_HOME) travelTo(atMap, MAPS[atMap].entryTx, MAPS[atMap].entryTy, false);  // saved out in a biome: continue there
+    else if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);          // saved inside a town building: back outside its door
     return true;
 }
 
@@ -367,11 +378,16 @@ bool Game::load() {
 void Game::newGame() {
     for (auto& m : mapMem) m = MapMem();
     travelFade = travelCd = 0;
-    if (world.mapId != B_HOME) {  // a new game always starts in the original map
+    interior = -1;
+    svc = -1;
+    craftBld = -1;
+    extAnimals.clear();
+    if (world.mapId != B_HOME) {  // a new game always starts in the original map (also leaves any building)
         structs.clear();
         loadMapWorld(B_HOME);
     }
     p = Player();
+    if (ren && A.look != p.look) rebuildPlayerSprites(ren, A, p.look);
     p.pos = world.spawn;
     p.syncPack();
     p.inv.add(itemWpn(W_FLINT), 8);
@@ -430,7 +446,6 @@ void Game::puff(V2 pp, int n, u32 col) {
     for (int i = 0; i < n; i++)
         parts.push_back({pp.x + rng.range(-3, 3), pp.y, rng.range(0, 3), rng.range(-14, 14), rng.range(-6, 6), rng.range(10, 36), 0.5f, 0.5f, col, 1, false});
 }
-bool Game::nearShop() const { return dist(p.pos, world.keeper) < 44 || dist(p.pos, world.door) < 36; }
 
 Animal* Game::nearestCarcass(float maxD) {
     Animal* best = nullptr;
@@ -1145,10 +1160,8 @@ void Game::updatePlayer(float dt) {
 
     // --- shop / bandage / regen
     if (in.ePressed && !c && !structBusy && !ht.valid) {
-        if (nearShop()) {
-            state = ST_SHOP;
-            audio.play(S_CLICK);
-        } else if (nearQuestGiver()) {
+        if (townInteract()) {
+        } else if (interior < 0 && nearQuestGiver()) {
             state = ST_QUEST;
             audio.play(S_CLICK);
         }
@@ -1370,6 +1383,12 @@ void Game::updateFx(float dt) {
 }
 
 void Game::setCam(float dt, bool snap) {
+    if (interior >= 0) {  // a room is about one screen: the camera stays on its middle
+        cam = world.roomCenter - V2(LW / 2.f, LH / 2.f);
+        camX = (int)roundf(cam.x);
+        camY = (int)roundf(cam.y);
+        return;
+    }
     V2 target = p.pos + V2(0, -8) - V2(LW / 2.f, LH / 2.f);
     if (snap) cam = target;
     else {
@@ -1423,6 +1442,7 @@ void Game::checkWeaponSafetyNet(float dt) {
 
 void Game::updatePlay(float dt) {
     dayT += dt;
+    if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;
     updateBiome(dt);
@@ -1441,7 +1461,7 @@ void Game::updatePlay(float dt) {
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;
-    if (respawnT <= 0 && world.biomeAtPos(p.pos.x, p.pos.y) != B_HOME) respawnT = 4.f;  // home herds only refill while you are home
+    if (respawnT <= 0 && (interior >= 0 || world.biomeAtPos(p.pos.x, p.pos.y) != B_HOME)) respawnT = 4.f;  // home herds only refill while you are home
     if (respawnT <= 0) {
         respawnT = 4.f;
         int alive[A_COUNT] = {0};
@@ -1451,7 +1471,7 @@ void Game::updatePlay(float dt) {
         for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }
-    streamSpawns(dt);
+    if (interior < 0) streamSpawns(dt);
     checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
 }
 
@@ -1503,12 +1523,15 @@ void Game::update(float dt) {
                 save();
                 audio.play(S_CLICK);
             }
-            if (in.tabPressed) shopTab = (shopTab + 1) % 4;
+            if (in.tabPressed) shopTab = (shopTab + 1) % 2;
             if (shopTab == 0) sellScroll -= in.wheel;
-            if (in.selectKey >= 0 && in.selectKey < 4) shopTab = in.selectKey;
+            if (in.selectKey >= 0 && in.selectKey < 2) shopTab = in.selectKey;
             break;
         case ST_CHEST:
             updateChest(dt);
+            break;
+        case ST_SERVICE:
+            updateService(dt);
             break;
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;

@@ -91,7 +91,8 @@ inline float matWeight(int m) {
         // trophies: small, exclusive pieces
         0.2f, 0.3f, 0.4f, 0.3f,  0.1f, 0.1f, 0.2f, 0.2f, 0.1f, 0.2f, 0.4f,  0.2f, 0.1f, 0.4f, 0.2f, 0.3f, 0.3f,  0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.3f,  0.3f, 0.4f, 0.1f, 0.3f, 0.2f,
         /*FAT*/ 0.5f,
-        /*PLANK*/ 1.5f, /*LEATHER*/ 1.0f, /*BONEFRAG*/ 0.2f, /*EXTRACT*/ 0.1f, /*GREASE*/ 0.3f};
+        /*PLANK*/ 1.5f, /*LEATHER*/ 1.0f, /*BONEFRAG*/ 0.2f, /*EXTRACT*/ 0.1f, /*GREASE*/ 0.3f,
+        /*ROSE*/ 0.05f, /*TULIP*/ 0.05f, /*LAVENDER*/ 0.05f, /*SUNFLOWER*/ 0.1f, /*BOUQUET*/ 0.3f};
     return W[m];
 }
 inline float wpnWeight(int w) {

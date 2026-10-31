@@ -27,6 +27,7 @@ void Game::loadMapWorld(int map) {
 }
 
 void Game::snapshotMap() {
+    if (world.isInterior()) return;  // an interior has no state of its own: the outside was parked when the hunter went in
     MapMem& m = mapMem[world.mapId];
     m.visited = true;
     std::ostringstream h, s;
@@ -40,6 +41,7 @@ void Game::snapshotMap() {
 }
 
 void Game::restoreMap() {
+    if (world.isInterior()) return;
     const MapMem& m = mapMem[world.mapId];
     structs.clear();
     harvestLoad(m.hv);
@@ -110,7 +112,7 @@ bool Game::travelTo(int map, int atx, int aty, bool autosave) {
 void Game::checkPortals(float dt) {
     if (travelCd > 0) travelCd -= dt;
     if (travelFade > 0) travelFade -= dt;
-    if (p.dead || travelCd > 0) return;
+    if (p.dead || travelCd > 0 || interior >= 0) return;
     const Portal* pt = portalAt(world.mapId, (int)floorf(p.pos.x / TS), (int)floorf(p.pos.y / TS));
     if (pt) travelTo(pt->toMap, pt->arriveTx, pt->arriveTy);
 }

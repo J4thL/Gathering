@@ -149,6 +149,15 @@ void Game::renderWorld(bool) {
                     break;
                 }
                 case T_STONE: sprS(A.B.stone[h % 3], sx, sy); break;
+                case T_COBBLE: sprS(A.T.cobble[h % 3], sx, sy); break;
+                case T_VOID: break;  // outside the room: the canvas is cleared to black first
+                case T_WALL: sprS(A.T.wallFace[std::max(0, interior)], sx, sy); break;
+                case T_WALLT: sprS(A.T.wallCap[std::max(0, interior)], sx, sy); break;
+                case T_FLOORW: sprS(A.T.floorW[(tx * 3 + ty) % 3], sx, sy); break;
+                case T_FLOORS: sprS(A.T.floorS[(tx + ty * 2) % 3], sx, sy); break;
+                case T_FLOORT: sprS(A.T.floorT[(tx + ty) & 1], sx, sy); break;
+                case T_RUG: sprS(A.T.rug[std::max(0, interior)], sx, sy); break;
+                case T_MAT: sprS(A.T.mat, sx, sy); break;
                 case T_CLIFF: {
                     sprS(A.B.cliff[h % 3], sx, sy);
                     if (!world.tileIs(tx, ty - 1, T_CLIFF)) fillRect(sx, sy, TS, 2, HEX(0x9b9eb2));
@@ -265,12 +274,13 @@ void Game::renderWorld(bool) {
     for (size_t i = 0; i < structs.size(); i++) dl.push_back({structs[i].pos().y, 5, (int)i});
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
+    for (size_t i = 0; i < world.npcs.size(); i++) dl.push_back({world.npcs[i].pos.y, 6, (int)i});
     dl.push_back({p.pos.y, 2, 0});
     for (size_t i = 0; i < animals.size(); i++)
         if (!animals[i].dead) dl.push_back({animals[i].pos.y, 3, (int)i});
     std::sort(dl.begin(), dl.end(), [](const DL& a, const DL& b) { return a.y < b.y; });
 
-    float night = 1.f - daylight();
+    float night = interior >= 0 ? 0.f : 1.f - daylight();
     for (auto& e : dl) {
         if (e.t == 0) {
             const Prop& pr = world.props[e.i];
@@ -303,6 +313,17 @@ void Game::renderWorld(bool) {
                 case P_CRATE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.crate, pr.x, pr.y); break;
                 case P_BARREL: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.barrel, pr.x, pr.y); break;
                 case P_SIGN: sprW(A.sign, pr.x, pr.y); break;
+                // ---- the town
+                case P_BLD0: case P_BLD1: case P_BLD2: case P_BLD3: case P_BLD4: case P_BLD5:
+                    sprW(A.shadow[2], pr.x + 6, pr.y - 1, false, 0.55f);
+                    sprW(A.T.bld[pr.kind - P_BLD0], pr.x, pr.y);
+                    break;
+                case P_FURN: sprW(A.shadow[0], pr.x, pr.y, false, 0.5f); sprW(A.T.furn[std::max(0, std::min(FU_COUNT - 1, (int)pr.ph))], pr.x, pr.y); break;
+                case P_LAMP: sprW(A.T.lamp, pr.x, pr.y); break;
+                case P_FENCE: sprW(A.T.fence, pr.x, pr.y); break;
+                case P_BENCH: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.T.bench, pr.x, pr.y); break;
+                case P_PLANTER: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.T.planter, pr.x, pr.y); break;
+                case P_WELL: sprW(A.shadow[1], pr.x, pr.y, false, 0.6f); sprW(A.T.well, pr.x, pr.y); break;
                 // ---- desert
                 case P_CACTUS0: case P_CACTUS1: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cactus[pr.kind - P_CACTUS0], pr.x, pr.y); break;
                 case P_PALM:
@@ -368,6 +389,10 @@ void Game::renderWorld(bool) {
         } else if (e.t == 1) {
             sprW(A.shadow[0], world.keeper.x, world.keeper.y, false, 0.8f);
             sprW(A.keeper[((int)(timeAcc * 1.6f)) & 1], world.keeper.x, world.keeper.y, p.pos.x < world.keeper.x);
+        } else if (e.t == 6) {
+            const World::Npc& n = world.npcs[e.i];
+            sprW(A.shadow[0], n.pos.x, n.pos.y, false, 0.8f);
+            sprW(A.T.npc[n.kind][((int)(timeAcc * 1.5f + e.i)) & 1], n.pos.x, n.pos.y, p.pos.x < n.pos.x);
         } else if (e.t == 4) {
             sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
             sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
@@ -462,7 +487,7 @@ void Game::renderWorld(bool) {
     float night2 = p.nightT > 0 ? night * 0.3f : night;  // a nightsight tonic turns night into dusk
     if (night2 > 0.01f) fillRect(0, 0, LW, LH, RGBA(14, 22, 70, (int)(night2 * 128)));
     float sun = sinf(tod() * 6.2832f);
-    float warm = clampf(1.f - fabsf(sun) * 3.2f, 0, 1);
+    float warm = interior >= 0 ? 0.f : clampf(1.f - fabsf(sun) * 3.2f, 0, 1);
     if (warm > 0.01f) fillRect(0, 0, LW, LH, RGBA(255, 120, 50, (int)(warm * 46)));
     {
         float fl = 0.85f + 0.15f * sinf(timeAcc * 11.f) + 0.05f * sinf(timeAcc * 27.f);
@@ -502,11 +527,12 @@ void Game::renderWorld(bool) {
         }
         SDL_SetTextureAlphaMod(g, 255);
     }
-    drawBiomeFx();
+    if (interior < 0) drawBiomeFx();
     // fireflies at night / pollen by day
     // (none in the desert or the snow: it is too dry / too cold for them)
     float flyW = bw[B_HOME] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.4f;
     for (auto& f : flies) {
+        if (interior >= 0) break;
         if (night2 > 0.25f) {
             float b = (0.5f + 0.5f * sinf(timeAcc * 3.f * f.sp + f.ph)) * flyW;
             if (b < 0.02f) continue;
@@ -694,7 +720,7 @@ void Game::drawHud() {
         } else {
             HTarget ht;
             if (findHarvest(ht)) drawHarvestPrompt();
-            else if (nearShop()) drawPrompt(world.keeper.x, world.keeper.y - 36, "E", "SHOP");
+            else if (townPrompt()) {}
             else if (nearQuestGiver()) drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
         }
     }
@@ -734,9 +760,9 @@ void Game::drawHud() {
             y += 8;
         }
     }
-    if (showMap) drawMinimap();
+    if (showMap && interior < 0) drawMinimap();
     drawBiomeBanner();
-    if (state == ST_PLAY) drawPortalLabels();
+    if (state == ST_PLAY && interior < 0) drawPortalLabels();
 
     // ---- timed effects under the vitals
     {
@@ -927,15 +953,15 @@ void Game::drawShop() {
     const int X = 36, Y = 12, W = 328, H = 201;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
-    text(X + 8, Y + 7, "BRAMBLE TRADING POST", C_GOLD);
+    text(X + 8, Y + 7, "GENERAL STORE", C_GOLD);
     {
         std::string c = S(p.coins);
         int cw = textW(c);
         icon(A.coin, X + W - 10 - cw - 8, Y + 10, 10);
         text(X + W - 8 - cw, Y + 7, c, C_GOLD);
     }
-    const char* tabs[4] = {"SELL", "CRAFT", "UPGRADE", "BUY"};
-    for (int i = 0; i < 4; i++) {
+    const char* tabs[2] = {"SELL", "BUY"};  // the general store only trades: crafting lives in the workshops, gear upgrades at the smith and tanner
+    for (int i = 0; i < 2; i++) {
         int ty = Y + 22 + i * 22;
         bool sel = shopTab == i;
         if (button(X + 6, ty, 66, 19, tabs[i], true, sel ? HEX(0x92693a) : HEX(0x5a4028))) shopTab = i;
@@ -946,10 +972,10 @@ void Game::drawShop() {
     // shopkeeper portrait
     panel(X + 6, Y + 112, 66, 72, HEX(0x2b1d12));
     {
-        const Spr& k = A.keeper[((int)(timeAcc * 1.6f)) & 1];
+        const Spr& k = A.T.npc[BLD_SHOP][((int)(timeAcc * 1.6f)) & 1];
         SDL_Rect d{X + 6 + 33 - k.w, Y + 114, k.w * 2, k.h * 2};
         SDL_RenderCopy(ren, k.t, nullptr, &d);
-        textC(X + 39, Y + 168, "MERCHANT", C_DIM, 1, false);
+        textC(X + 39, Y + 168, "GARRICK", C_DIM, 1, false);
         const char* lines[] = {"GOOD HUNTING!", "FRESH HIDES?", "I PAY WELL!", "SHARP KNIVES!"};
         textC(X + 39, Y + 176, lines[((int)(titleT + timeAcc * 0.15f)) % 4], C_TEXT, 1, false);
     }
@@ -996,59 +1022,8 @@ void Game::drawShop() {
             save();
         }
     }
-    // ---------------- CRAFT
-    if (shopTab == 1) {
-        for (int r = 0; r < RECIPE_WEAPONS; r++) {
-            const Recipe& R = RECIPES[r];
-            int y = Y + 22 + r * 53;
-            panel(x0, y, cw, 49, HEX(0x3a2a1a));
-            icon(A.wpnIcon[R.out], x0 + 20, y + 20, 32);
-            text(x0 + 42, y + 5, std::string(WPN[R.out].name) + "  X" + S(R.count), C_GOLD);
-            text(x0 + 42, y + 14, WPN[R.out].blurb, C_DIM);
-            text(x0 + 42, y + 22, "DMG " + S((int)WPN[R.out].dmg) + "  RANGE " + S((int)WPN[R.out].range) + "  OWNED " + S(p.wpn(R.out)), C_TEXT);
-            int cx = x0 + 42;
-            bool ok = true;
-            for (int i = 0; i < 3; i++)
-                if (R.mat[i] >= 0) {
-                    cx = chip(cx, y + 33, A.matIcon[R.mat[i]], p.mat(R.mat[i]), R.n[i]);
-                    if (p.mat(R.mat[i]) < R.n[i]) ok = false;
-                }
-            if (button(x0 + 186, y + 29, 50, 16, "CRAFT", ok, HEX(0x5d7a2e))) craft(r);
-        }
-        text(x0, Y + 22 + RECIPE_WEAPONS * 53 + 2, "WEAPONS ARE THROWN - WALK OVER THEM TO PICK THEM UP AGAIN", C_DIM, 1, false);
-    }
-    // ---------------- UPGRADE
-    if (shopTab == 2) {
-        int row = 0;
-        for (int u = 0; u < U_COUNT; u++) {
-            if (u == U_BAG) continue;  // bags are crafted and worn, not bought
-            int y = Y + 22 + row++ * 40;
-            int lv = p.up[u];
-            panel(x0, y, cw, 37, HEX(0x3a2a1a));
-            icon(A.gearIcon[u][std::min(5, lv)], x0 + 18, y + 19, 28, lv >= 2 ? 0.8f : 1.f);
-            text(x0 + 36, y + 4, UPS[u].title, C_DIM);
-            for (int i = 0; i < 2; i++) {
-                fillRect(x0 + cw - 20 + i * 8, y + 4, 6, 5, i < lv ? C_GOLD : HEX(0x1a120b));
-            }
-            if (lv >= 2) {
-                text(x0 + 36, y + 13, gearName(u, lv), C_GOLD);
-                text(x0 + 36, y + 22, gearDesc(u, lv), C_TEXT);
-                text(x0 + 36, y + 30, lv > 2 ? "CRAFTED GEAR" : "FULLY UPGRADED", C_GREEN);
-                continue;
-            }
-            const UpLevel& L = UPS[u].lv[lv];
-            text(x0 + 36, y + 13, L.name, C_GOLD);
-            text(x0 + 36, y + 21, L.desc, C_TEXT);
-            int cx = x0 + 36;
-            cx = chip(cx, y + 27, A.coin, p.coins, L.coins);
-            if (L.m1 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m1], p.mat(L.m1), L.n1);
-            if (L.m2 >= 0) cx = chip(cx, y + 27, A.matIcon[L.m2], p.mat(L.m2), L.n2);
-            bool ok = canAfford(L.coins, L.m1, L.n1, L.m2, L.n2);
-            if (button(x0 + 188, y + 17, 46, 16, "BUY", ok, HEX(0x5d7a2e))) buyUpgrade(u);
-        }
-    }
     // ---------------- BUY
-    if (shopTab == 3) {
+    if (shopTab == 1) {
         struct Good {
             const char* name;
             const char* desc;
@@ -1095,7 +1070,7 @@ void Game::drawShop() {
         if (button(x0, Y + 22 + PER * 42 - 2, 70, 12, shopPage + 1 < PAGES ? "MORE GOODS >" : "< BACK TO START", true, HEX(0x4a3a5e))) shopPage = (shopPage + 1) % PAGES;
         text(x0 + 76, Y + 22 + PER * 42 + 1, "PAGE " + S(shopPage + 1) + "/" + S(PAGES), C_DIM, 1, false);
     }
-    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-4: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
+    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-2: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
 }
 
 // ================================================================= inventory screen
@@ -1351,6 +1326,7 @@ void Game::render() {
         case ST_TITLE: drawTitle(); break;
         case ST_PLAY: drawHud(); break;
         case ST_SHOP: drawHud(); drawShop(); break;
+        case ST_SERVICE: drawHud(); drawService(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
         case ST_INVENTORY: drawHud(); drawInventory(); break;

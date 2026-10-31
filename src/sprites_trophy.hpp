@@ -232,6 +232,51 @@ inline Img mkIconTrophy(int m) {
     return im;
 }
 
+// the flower shop's goods: a cut flower with its stem, and a tied bouquet
+inline Img mkIconFlower(int m) {
+    Img im(16, 16);
+    const u32 stem = HEX(0x3f8a42), stemL = HEX(0x58a85a);
+    if (m == M_BOUQUET) {
+        im.rect(7, 8, 2, 7, stem);
+        im.rect(5, 9, 6, 1, stem);
+        im.rect(6, 12, 4, 2, HEX(0xe8584f));  // ribbon
+        im.rect(7, 12, 2, 4, HEX(0xe8584f));
+        const u32 fc[5] = {HEX(0xe8584f), HEX(0xf2c94c), HEX(0xa070e0), HEX(0xf4f0ea), HEX(0xe88ab8)};
+        const int fx[5] = {4, 8, 12, 6, 10}, fy[5] = {6, 4, 6, 8, 8};
+        for (int i = 0; i < 5; i++) {
+            im.ellipse(fx[i], fy[i], 2.4f, 2.4f, fc[i]);
+            im.set(fx[i], fy[i], HEX(0xfff6d0));
+        }
+    } else {
+        im.rect(7, 7, 2, 9, stem);
+        im.rect(9, 11, 3, 1, stemL);
+        im.rect(4, 10, 3, 1, stemL);
+        if (m == M_ROSE) {
+            im.ellipse(8, 5, 4, 4, HEX(0xd8384a));
+            im.ellipse(8, 5, 2.5f, 2.5f, HEX(0xf0586a));
+            im.set(8, 5, HEX(0xa02030));
+        } else if (m == M_TULIP) {
+            im.rect(5, 2, 6, 6, HEX(0xf2a03a));
+            im.rect(5, 2, 1, 3, HEX(0xf2a03a));
+            im.set(5, 1, HEX(0xf2a03a));
+            im.set(8, 1, HEX(0xf2a03a));
+            im.set(10, 1, HEX(0xf2a03a));
+            im.rect(7, 3, 2, 4, HEX(0xffc870));
+        } else if (m == M_LAVENDER) {
+            for (int i = 0; i < 6; i++) {
+                im.rect(7, 1 + i, 2, 1, i & 1 ? HEX(0x8f6fe0) : HEX(0xa488f0));
+                im.set(6 + (i & 1) * 3, 2 + i, HEX(0x8f6fe0));
+            }
+        } else {  // sunflower
+            im.ellipse(8, 5, 5, 5, HEX(0xf2c94c));
+            im.ellipse(8, 5, 2.6f, 2.6f, HEX(0x6b4423));
+            im.set(8, 5, HEX(0x4a2e18));
+        }
+    }
+    im.outline(OUT);
+    return im;
+}
+
 // processed crafting components (planks, leather, bone fragments, extract, grease)
 inline Img mkIconProcessed(int m) {
     Img im(16, 16);

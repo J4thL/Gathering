@@ -11,6 +11,7 @@ static float clampf(float v, float a, float b) { return v < a ? a : (v > b ? b :
 constexpr float FIRE_RANGE = 56.f;  // crafting range of a campfire
 
 bool Game::canPlaceAt(int tx, int ty) const {
+    if (interior >= 0) return false;  // nothing is built indoors
     if (protectedTile(tx, ty, world.mapId) || world.solidTile(tx, ty) || tileDeep(world.tile[ty][tx])) return false;
     const V2 c(tx * TS + 8.f, ty * TS + 8.f);
     if (dist(p.pos, c) < 10.f) return false;
