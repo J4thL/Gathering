@@ -645,5 +645,116 @@ inline void World::generateMap(int map) {
         scatter(RN_MUSHROOM, 40, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_DARK; }, 4.f);
         scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
         scatter(RN_FLAX, 50, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_GRASS; }, 4.f);
+        generateTown();  // last: the town is laid over the middle of the original area
     }
+}
+
+// ------------------------------------------------------------------------------------------------------------------------------
+// The central town (town.hpp). Laid over the middle of the original Wildwood area after everything else is generated, so the surrounding
+// terrain, forest and resources are exactly as before: only the town's own rectangle is cleared (trees, rocks, plants and the old hut go),
+// paved with streets and filled with the six buildings and their street furniture. Streets run to the plaza and join the old dirt paths.
+inline void World::generateTown() {
+    const int X0 = COX + TOWN_X0, Y0 = COY + TOWN_Y0, X1 = COX + TOWN_X1, Y1 = COY + TOWN_Y1;  // map tiles, X1 / Y1 exclusive
+    auto inRect = [&](float px, float py) { return px >= X0 * TS && px < X1 * TS && py > Y0 * TS && py <= Y1 * TS; };
+    // 1. clear the rectangle: props (the campfire stays), decor, resource nodes, solid marks, water
+    props.erase(std::remove_if(props.begin(), props.end(), [&](const Prop& p) { return p.kind != P_FIRE && inRect(p.x, p.y); }), props.end());
+    decor.erase(std::remove_if(decor.begin(), decor.end(), [&](const Decor& d) { return inRect(d.x, d.y); }), decor.end());
+    nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) { return inRect(n.x, n.y); }), nodes.end());
+    for (int y = Y0; y < Y1; y++)
+        for (int x = X0; x < X1; x++) {
+            solid[y][x] = false;
+            if (tile[y][x] == T_WATER || tile[y][x] == T_DIRT) tile[y][x] = T_GRASS;
+        }
+    markSolidAt(fire.x, fire.y - 3);
+    // 2. streets: two east-west streets in front of the building rows, a north-south road through the middle, a paved plaza
+    auto paved = [&](int cx0, int cy0, int cx1, int cy1) {  // core tile rectangle, inclusive
+        for (int y = COY + cy0; y <= COY + cy1; y++)
+            for (int x = COX + cx0; x <= COX + cx1; x++)
+                if (x >= 2 && y >= 2 && x < MW - 2 && y < MH - 2 && tile[y][x] != T_WATER) tile[y][x] = T_COBBLE;
+    };
+    paved(TOWN_X0, 24, TOWN_X1 - 1, 26);   // street A, in front of the north row
+    paved(TOWN_X0, 37, TOWN_X1 - 1, 38);   // street B, in front of the south row
+    paved(43, TOWN_Y0, 44, TOWN_Y1 - 1);   // the road through the middle
+    paved(38, 27, 50, 33);                 // the plaza around the campfire
+    // the four old dirt paths run out of the town: pave their first stretch so they meet the streets
+    for (int y = COY + 8; y < COY + TOWN_Y0; y++)
+        for (int x = COX + 43; x <= COX + 44; x++) tile[y][x] = T_COBBLE;
+    for (int y = COY + TOWN_Y1; y < COY + 52; y++)
+        for (int x = COX + 43; x <= COX + 44; x++) tile[y][x] = T_COBBLE;
+    for (int x = COX + 12; x < COX + TOWN_X0; x++)
+        for (int y = COY + 24; y <= COY + 26; y++) tile[y][x] = T_COBBLE;
+    for (int x = COX + TOWN_X1; x < COX + 76; x++)
+        for (int y = COY + 24; y <= COY + 26; y++) tile[y][x] = T_COBBLE;
+    // 3. the buildings
+    for (int k = 0; k < BLD_COUNT; k++) {
+        props.push_back({P_BLD0 + k, bldCenterX(k, COX), bldBaseY(k, COY), 0});
+        for (int y = 0; y < BLD_H; y++)
+            for (int x = 0; x < BLD_W; x++) solid[COY + BUILDINGS[k].cy + y][COX + BUILDINGS[k].cx + x] = true;
+        // a lamp by every door, lit at night
+        const float lx = bldCenterX(k, COX) + 34.f, ly = bldBaseY(k, COY) + 12.f;
+        props.push_back({P_LAMP, lx, ly, 0});
+        lanterns.push_back({lx, ly - 24.f, 0.8f});
+    }
+    // 4. street furniture: lamps along both streets, fences behind the north row and along the south edge (gaps for the roads), benches, planters, the well, trees
+    auto at = [&](int cx, float cyf) { return V2((COX + cx) * (float)TS + 8.f, (COY + cyf) * (float)TS); };
+    for (int cx : {28, 36, 41, 46, 52, 60}) {
+        const V2 a = at(cx, 27.f);
+        props.push_back({P_LAMP, a.x, a.y - 2.f, 0});
+        lanterns.push_back({a.x, a.y - 26.f, 0.75f});
+    }
+    for (int cx : {28, 40, 47, 56}) {
+        const V2 a = at(cx, 39.f);
+        props.push_back({P_LAMP, a.x, a.y - 2.f, 0});
+        lanterns.push_back({a.x, a.y - 26.f, 0.75f});
+    }
+    for (int cx = TOWN_X0; cx < TOWN_X1; cx++) {
+        if (cx >= 42 && cx <= 45) continue;  // the road
+        for (int cy : {18, 42}) {
+            const V2 a = at(cx, cy + 0.9f);
+            props.push_back({P_FENCE, a.x, a.y, 0});
+            solid[COY + cy][COX + cx] = true;
+        }
+    }
+    const int bench[][2] = {{40, 28}, {47, 33}, {40, 33}, {50, 28}};
+    for (auto& b : bench) {
+        const V2 a = at(b[0], b[1] + 0.9f);
+        props.push_back({P_BENCH, a.x + 4.f, a.y, 0});
+        solid[COY + b[1]][COX + b[0]] = true;
+    }
+    const int planters[][2] = {{29, 37}, {36, 37}, {51, 37}, {58, 37}, {27, 27}, {62, 27}};
+    for (auto& b : planters) {
+        const V2 a = at(b[0], b[1] + 0.95f);
+        props.push_back({P_PLANTER, a.x, a.y, 0});
+        solid[COY + b[1]][COX + b[0]] = true;
+    }
+    {
+        const V2 a = at(38, 31.9f);
+        props.push_back({P_WELL, a.x + 8.f, a.y, 0});
+        solid[COY + 31][COX + 38] = solid[COY + 31][COX + 39] = true;
+    }
+    {   // town signs where the streets leave the town
+        const V2 w = at(TOWN_X0 - 1, 28.6f), e = at(TOWN_X1, 28.6f);
+        props.push_back({P_SIGN, w.x, w.y, 0});
+        props.push_back({P_SIGN, e.x, e.y, 0});
+        markSolidAt(w.x, w.y - 2.f);
+        markSolidAt(e.x, e.y - 2.f);
+    }
+    Rng tr(seed * 31337u + 4);
+    const int trees[][2] = {{26, 31}, {61, 31}, {25, 40}, {62, 40}, {35, 18}, {52, 18}, {27, 17}, {60, 17}};
+    for (auto& t : trees) {
+        const V2 a = at(t[0], t[1] + 0.9f);
+        props.push_back({tr.chance(0.5f) ? P_OAK0 : P_PINE, a.x, a.y, tr.f() * 6.28f});
+        solid[COY + t[1]][COX + t[0]] = true;
+    }
+    // flowers along the plaza edge (decor)
+    for (int i = 0; i < 40; i++) {
+        const int cx = 24 + (int)(tr.f() * 40), cy = 27 + (int)(tr.f() * 7);
+        if (tile[COY + cy][COX + cx] == T_COBBLE || solid[COY + cy][COX + cx]) continue;
+        decor.push_back({tr.irange(0, 2), (COX + cx) * (float)TS + tr.range(2, 14), (COY + cy) * (float)TS + tr.range(6, 15), tr.f() * 6.28f});
+    }
+    // 5. where things are now: the hunter starts on the plaza; the old shop hut is gone (the General Store is a building)
+    spawn = V2((COX + 43.5f) * TS, (COY + 30.f) * TS);
+    questGiver = V2((COX + 45.75f) * TS, (COY + 31.6f) * TS);
+    hut = keeper = V2(-99999.f, -99999.f);
+    door = V2(bldDoorX(BLD_SHOP, COX), bldDoorY(BLD_SHOP, COY));
 }

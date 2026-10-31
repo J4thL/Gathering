@@ -66,6 +66,7 @@ struct Player {
     bool charging = false;
     float cd = 0, invuln = 0, sinceHurt = 99;
     int coins = 0;
+    HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
@@ -176,7 +177,7 @@ struct Structure {
     V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
 };
 
-enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST };
+enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE };
 
 struct Game {
     // platform
@@ -262,8 +263,21 @@ struct Game {
         std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
     } mapMem[B_COUNT];
     float travelFade = 0.f, travelCd = 0.f;  // fade-in after a trip (seconds left); no new trip before this runs out
+    // town buildings (town.cpp): while inside, `world` holds the interior and everything of the outside is parked here
+    int interior = -1;                 // BuildingKind the hunter is inside, -1 = outdoors
+    int extMap = B_HOME;               // the map to return to
+    V2 extPos;                         // the exact spot the hunter stood on when entering: leaving puts them back there
+    std::vector<Animal> extAnimals;    // the outside wildlife, parked while indoors
+    float bldCd = 0;                   // no new door use for a moment after one (the E that opened a door must not also close it)
+    int svc = -1;                      // ST_SERVICE: the building whose service screen is open
+    int craftBld = -1;                 // crafting list filter (-1 = the whole book, as in the pack's CRAFTING tab)
+    int svcTab = 0;
+    HunterLook salonLook;                    // the salon's preview (not applied until CONFIRM)
+    Spr salonPrev[3];                  // preview sprites [dir], drawn for salonPrevLook
+    HunterLook salonPrevLook;
     // test hooks
     bool botOn = false;
+    bool craftAnywhere = false;  // the crafting tests run away from the town buildings; real play never sets this
 
     // ---- platform (main.cpp / game_logic.cpp)
     bool init(bool headless);
@@ -375,7 +389,28 @@ struct Game {
     void skillSave(std::ostream& f) const;
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
-    bool nearShop() const;
+    bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
+    // ---- town buildings (town.cpp, services.cpp)
+    int doorNear() const;               // BuildingKind whose door is within reach (outdoors), or -1
+    bool nearExit() const;              // standing on the doormat inside
+    int npcNear() const;                // index in world.npcs of the person within talking reach, or -1
+    bool stationNear() const;           // next to the anvil / rack / workbench of the building
+    bool enterBuilding(int k);
+    bool exitBuilding();
+    bool townInteract();                // the E key in town: enter, leave or open the service; true when it acted
+    void openService(int k);
+    void closeService();
+    void updateService(float dt);
+    bool townPrompt();                  // draws the door / person / exit prompt in reach; true when one was drawn
+    void drawService();
+    void drawFlowerShop();
+    void drawSalon();
+    void openSalon();
+    bool confirmSalon();
+    bool buyFlower(int m, int n);
+    bool applyLook(const HunterLook& l);      // redraw the hunter's real sprites with this look
+    void drawCraftService();            // blacksmith / leatherworks / workshop
+    void drawUpgradeRows(int x0, int Y, int cw, const int* list, int n);
     // quest giver
     bool nearQuestGiver() const;
     bool questReady() const { return questActive && questProg >= quest.goal; }

@@ -99,9 +99,22 @@ Each biome has its own plants and ore; thorny and poisonous plants hurt unless y
 rope and copper bars -> copper tools -> iron bars at the shop -> iron and gilded tools, crossbow, scale mail. Campfires and chests are crafted
 and placed from the pack; chests hold 20 slots.
 
+## The town
+The middle of Wildwood is a town: cobbled streets, lamps, fences, a plaza with the elder, a well and the campfire. Six buildings, each with a
+sign and its own interior map (walk up to the door, **E** to enter, **E** on the doormat to leave; you come back out on the exact spot you went in from):
+- **Blacksmith** (Brokk): smelting ore into ingots, metal tools, weapons and gear; the tool upgrade (coins) is sold here.
+- **Leatherworks** (Hild): hide into leather, armor, boots, bags, carried gear; the armor / boots upgrades are sold here.
+- **Workshop** (Tobin): everything else you craft (wood and bone weapons, ammo, medicine, food, campfires, chests, bouquets).
+- **General Store** (Garrick): buying and selling only.
+- **Flower Shop** (Mary Rose): buy cut flowers (rose, tulip, lavender, sunflower), sell flowers and bouquets; tie bouquets at the workshop.
+- **Salon** (Salona Mia): hairstyle (5), hair colour (8), skin (5), tunic colour (6) with a live preview; CONFIRM costs 25 coins and redraws the hunter, CANCEL costs nothing.
+All crafting happens inside the matching building (the pack's CRAFTING tab is now a recipe book that says where each recipe is made). The look is saved (`look` line).
+Code: `town.hpp` (table), `sprites_town.hpp` / `sprites_interior.hpp` (art), `interiors.hpp` (room layouts), `town.cpp` (doors), `services.cpp`, `flowers.cpp`, `salon.cpp`, `appearance.hpp`.
+
 ## Test flags
     wildwood --headless --worldcheck      per map: size, biome purity, reachability of every hub/landmark/plant/gate, walks through every gate and back, terrain/climate checks
     wildwood --headless --tour DIR        screenshots of every map's entrance, hub, landmarks and gates (BMP)
+- `--town DIR` - enters every town building, checks reachability, collision, exact return, services (crafting rules, flowers, salon, save of the look) and writes screenshots
     wildwood --headless --dumpcore FILE   dump of the original home area, for diffing against an older build
     wildwood --headless --shots DIR       the original scripted playthrough
     wildwood --headless --wildlife DIR    species sheets, tier odds, drops, behaviour probes, 10-minute spawn sims per biome

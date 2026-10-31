@@ -25,9 +25,7 @@ const Spr& Game::itemIcon(int id) const {
 
 bool Game::nearStation(int station) const {
     switch (station) {
-        case STN_FIRE: return nearFire();
-        case STN_SHOP: return nearShop();
-        default: return true;
+        default: return interior >= 0;  // the building's own forge, racks, stove and benches provide every station
     }
 }
 
@@ -41,7 +39,7 @@ std::string Game::craftBlock(int r) const {
     const Recipe& R = RECIPES[r];
     if (p.sk.level(R.skill) < R.minLv) return std::string("NEEDS ") + SKILL[R.skill].name + " " + S(R.minLv);
     if (!hasIngredients(R)) return "MISSING MATERIALS";
-    if (!nearStation(R.station)) return R.station == STN_FIRE ? "STAND BY A CAMPFIRE" : "STAND AT THE SHOP";
+    if (!craftAnywhere && interior != recipeBuilding(R)) return std::string("MADE AT THE ") + buildingName(recipeBuilding(R));
     if (R.kind == RK_GEAR) {
         if (p.up[R.out] >= R.count) return "YOU WEAR BETTER ALREADY";
         if (p.up[R.out] < R.count - 1) return "MAKE THE PREVIOUS LEVEL FIRST";
@@ -162,6 +160,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
     // ---- the visible list
     std::vector<int> list;
     for (int r = 0; r < RECIPE_N; r++) {
+        if (craftBld >= 0 && recipeBuilding(RECIPES[r]) != craftBld) continue;
         if (craftCat >= 0 && RECIPES[r].cat != craftCat) continue;
         if (craftOnly && !craftBlock(r).empty()) continue;
         list.push_back(r);
@@ -193,15 +192,15 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         int ix = x + 24;
         for (int k = 0; k < 3; k++)
             if (R.mat[k] >= 0) ix = chip(ix, y + 11, A.matIcon[R.mat[k]], p.mat(R.mat[k]), R.n[k]);
-        if (R.station != STN_ANY) {
-            const char* sn = R.station == STN_FIRE ? "FIRE" : "SHOP";
-            text(ix, y + 14, sn, nearStation(R.station) ? C_GREEN : C_ORANGE, 1, false);
+        if (craftBld < 0) {  // the pack's book: say where each one is made
+            const char* sn = recipeBuilding(R) == BLD_SMITH ? "SMITH" : recipeBuilding(R) == BLD_TANNER ? "LEATHER" : "WORKSHOP";
+            text(ix, y + 14, sn, interior == recipeBuilding(R) ? C_GREEN : C_ORANGE, 1, false);
             ix += textW(sn) + 5;
         }
         if (R.minLv > 1) text(ix, y + 14, std::string(SKILL[R.skill].name) + " " + S(R.minLv), p.sk.level(R.skill) >= R.minLv ? C_GREEN : C_RED, 1, false);
         std::string lab = "CRAFT";
         if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
-        else if (!can && hasIngredients(R) && !nearStation(R.station)) lab = R.station == STN_FIRE ? "AT FIRE" : "AT SHOP";
+        else if (!can && why.compare(0, 8, "MADE AT ") == 0) lab = "IN TOWN";
         else if (why == "YOU ALREADY HAVE ONE" || why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
         if (button(x + w - 54, y + 4, 50, 13, lab, can, HEX(0x5d7a2e))) craft(r);
     }
@@ -218,7 +217,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         const Recipe& R = RECIPES[hover];
         std::vector<std::string> lines;
         recipeInfo(R, lines);
-        lines.push_back(std::string("MADE ") + STATION_NAME[R.station] + "   " + SKILL[R.skill].name + " LV " + S(R.minLv) + " (YOU " + S(p.sk.level(R.skill)) + ")");
+        lines.push_back(std::string("MADE AT THE ") + buildingName(recipeBuilding(R)) + "   " + SKILL[R.skill].name + " LV " + S(R.minLv) + " (YOU " + S(p.sk.level(R.skill)) + ")");
         lines.push_back(std::string("EARNS ") + S(recipeXp(R)) + " " + SKILL[R.skill].name + " XP");
         const std::string why = craftBlock(hover);
         std::vector<std::string> missing;  // exactly what is short, one line each
@@ -237,5 +236,5 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         for (auto& l : missing) text(tx + 3, yy, l, C_ORANGE, 1, false), yy += 9;
         if (!why.empty()) text(tx + 3, yy, why, C_RED, 1, false);
     }
-    textC(X + W / 2, Y + H - 8, "FIRE: VILLAGE OR YOUR OWN CAMPFIRE   SHOP: THE MERCHANT   WHEEL SCROLLS   TAB BACK", C_DIM, 1, false);
+    if (craftBld < 0) textC(X + W / 2, Y + H - 8, "CRAFTING IS DONE INSIDE THE TOWN BUILDINGS   WHEEL SCROLLS   TAB BACK", C_DIM, 1, false);
 }

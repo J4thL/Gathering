@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <string>
 #include "data.hpp"
+#include "town.hpp"
 
 constexpr int RECIPE_WEAPONS = 3;  // the first three recipes are the merchant's weapons (they have their own page on the shop's CRAFT tab)
 
@@ -111,6 +112,9 @@ static const Recipe RECIPES[] = {
     {RK_WEAPON, W_HARPOON, 2, {M_PLANK, M_BONEFRAG, M_LYNXTUFT}, {2, 3, 1}, RC_WEAPONS, STN_SHOP, SK_CRAFTING, 22},
     {RK_WEAPON, W_CLIFFAXE, 2, {M_IRONBAR, M_PLANK, M_COUGARFANG}, {1, 1, 1}, RC_WEAPONS, STN_SHOP, SK_SMITHING, 25},
     {RK_AMMO, AM_ARROW, 14, {M_BONEFRAG, M_GOLDPLUME, M_BRANCH}, {3, 1, 2}, RC_AMMO, STN_ANY, SK_CRAFTING, 14},
+    // ---- the flower shop's cut flowers tied into bouquets (a trade good worth more than the flowers cost)
+    {RK_ITEM, itemMat(M_BOUQUET), 1, {M_ROSE, M_TULIP, M_LAVENDER}, {1, 1, 1}, RC_MATERIALS, STN_ANY, SK_CRAFTING, 1},
+    {RK_ITEM, itemMat(M_BOUQUET), 1, {M_SUNFLOWER, M_FIBER, -1}, {3, 1, 0}, RC_MATERIALS, STN_ANY, SK_CRAFTING, 1},
 };
 constexpr int RECIPE_N = sizeof(RECIPES) / sizeof(RECIPES[0]);
 
@@ -129,3 +133,6 @@ inline std::string recipeName(const Recipe& R) {
     }
     return item(recipeItem(R)).name;
 }
+
+// Which town building a recipe is made in: smithing at the blacksmith, leatherwork at the leatherworks, all the rest at the workshop.
+inline int recipeBuilding(const Recipe& R) { return R.skill == SK_SMITHING ? BLD_SMITH : R.skill == SK_LEATHER ? BLD_TANNER : BLD_WORKSHOP; }

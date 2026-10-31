@@ -36,10 +36,13 @@ inline float dist(V2 a, V2 b) { return (a - b).len(); }
 
 enum Tile : uint8_t {
     T_GRASS, T_DARK, T_DIRT, T_WATER,                           // original tiles (keep order: saves/tools may rely on it)
-    T_SAND, T_DUNE, T_MUD, T_MURK, T_BOG, T_SNOW, T_SNOWP, T_ICE, T_STONE, T_CLIFF
+    T_SAND, T_DUNE, T_MUD, T_MURK, T_BOG, T_SNOW, T_SNOWP, T_ICE, T_STONE, T_CLIFF,
+    T_COBBLE,                                                   // town paving (walkable)
+    T_VOID, T_WALL, T_WALLT,                                    // building interiors: outside the room, wall face, wall cap (all solid)
+    T_FLOORW, T_FLOORS, T_FLOORT, T_RUG, T_MAT                  // interior floors: wood, flagstone, tile; rug; doormat (walkable)
 };
 // terrain properties, one place for all of them
-inline bool tileSolid(uint8_t t) { return t == T_WATER || t == T_BOG || t == T_CLIFF; }
+inline bool tileSolid(uint8_t t) { return t == T_WATER || t == T_BOG || t == T_CLIFF || t == T_VOID || t == T_WALL || t == T_WALLT; }
 inline bool tileDeep(uint8_t t) { return t == T_WATER || t == T_BOG; }  // projectiles splash, foam is drawn
 inline float tileSpeed(uint8_t t) {
     switch (t) {
@@ -59,7 +62,10 @@ enum PropKind {
     P_DEADTREE0, P_DEADTREE1, P_LOG, P_STILTHUT, P_WITCHTREE, P_GRAVE,                      // swamp
     P_SNOWPINE, P_BARETREE, P_SNOWROCK, P_CRYSTAL, P_ICEHUT, P_CAIRN,                       // snow
     P_CAVE, P_BOULDER, P_STANDING,                                                          // mountain
-    P_BSIGN0, P_BSIGN1, P_BSIGN2, P_BSIGN3                                                  // biome gate signs
+    P_BSIGN0, P_BSIGN1, P_BSIGN2, P_BSIGN3,                                                 // biome gate signs
+    P_BLD0, P_BLD1, P_BLD2, P_BLD3, P_BLD4, P_BLD5,                                         // town buildings (BuildingKind order)
+    P_LAMP, P_FENCE, P_BENCH, P_PLANTER, P_WELL,                                            // town street furniture
+    P_FURN                                                                                  // interior furniture (Prop::ph = furniture id, interiors.hpp)
 };
 struct Prop {
     int kind;
@@ -114,7 +120,18 @@ struct World {
     V2 village, hut, door, keeper, fire, spawn, questGiver;
     V2 hub[B_COUNT];  // the trail-head / main landmark of each biome
     uint32_t seed = 7;
-    int mapId = B_HOME;  // which map is active (a Biome id: B_HOME is the original map)
+    int mapId = B_HOME;  // which map is active (a Biome id: B_HOME is the original map; MAP_INT0 + building = a building interior)
+    // ---- building interiors (interiors.hpp): a small room generated into the same arrays
+    struct Npc {
+        int kind;  // BuildingKind of the building the NPC works in
+        V2 pos;
+    };
+    std::vector<Npc> npcs;
+    std::vector<V2> stations;  // spots that open the building's service (besides the NPC): anvil, tanning rack, workbench...
+    V2 exitPos;                // the doormat: standing here offers LEAVE
+    V2 roomCenter;             // the camera is fixed on this while inside
+    bool isInterior() const { return mapId >= B_COUNT; }
+    int interiorKind() const { return mapId - B_COUNT; }
 
     float pixW() const { return MW * TS; }
     float pixH() const { return MH * TS; }
@@ -164,6 +181,8 @@ struct World {
         nodes.clear();
         landmarks.clear();
         lanterns.clear();
+        npcs.clear();
+        stations.clear();
         memset(solid, 0, sizeof(solid));
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
@@ -286,6 +305,8 @@ struct World {
     }
 
     void generateMap(int map);  // worldgen.hpp
+    void generateTown();        // worldgen.hpp: the central town on the home map
+    void generateInterior(int kind);  // interiors.hpp: the inside of one town building
 
     // colour of a tile / prop on the minimap
     static u32 miniTileColor(uint8_t t) {
@@ -303,6 +324,10 @@ struct World {
             case T_ICE: return HEX(0x9fd0ea);
             case T_STONE: return HEX(0x858893);
             case T_CLIFF: return HEX(0x55586a);
+            case T_COBBLE: return HEX(0xa49a88);
+            case T_VOID: return HEX(0x000000);
+            case T_WALL: case T_WALLT: return HEX(0x6a4a30);
+            case T_FLOORW: case T_FLOORS: case T_FLOORT: case T_RUG: case T_MAT: return HEX(0xb08556);
             default: return HEX(0x5aa63f);
         }
     }
@@ -319,6 +344,7 @@ struct World {
                 case P_OAK0: case P_OAK1: case P_PINE: c = HEX(0x24602a); break;
                 case P_ROCK0: case P_ROCK1: c = HEX(0x8d929e); break;
                 case P_SNOWPINE: c = HEX(0x4d7d6c); break;
+                case P_BLD0: case P_BLD1: case P_BLD2: case P_BLD3: case P_BLD4: case P_BLD5: c = HEX(0x8a4a24); break;
                 case P_DEADTREE0: case P_DEADTREE1: case P_WITCHTREE: c = HEX(0x3a2f24); break;
                 case P_CACTUS0: case P_CACTUS1: case P_PALM: c = HEX(0x4f9a52); break;
                 default: break;
@@ -345,3 +371,4 @@ struct World {
 
 #include "maps.hpp"
 #include "worldgen.hpp"
+#include "interiors.hpp"

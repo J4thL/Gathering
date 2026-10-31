@@ -1,6 +1,7 @@
 // sprites.hpp - every sprite in the game is painted here, procedurally, as pixel art.
 #pragma once
 #include "data.hpp"
+#include "appearance.hpp"
 #include <cstring>
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
@@ -8,6 +9,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 #include "sprites_trophy.hpp"
 #include "sprites_gear.hpp"
 #include "sprites_biome.hpp"
+#include "sprites_town.hpp"
 
 // ================================================================= tiles
 inline Img mkGrass(int variant, Rng& r) {
@@ -245,7 +247,7 @@ inline Img mkSign() {
     im.rect(2, 2, 28, 1, HEX(0xe3b97a));
     im.rect(2, 13, 28, 1, HEX(0x8a5c34));
     im.rect(3, 3, 26, 1, HEX(0x8a5c34));
-    im.text(9, 6, "SHOP", HEX(0x3b2616));
+    im.text(8, 6, "TOWN", HEX(0x3b2616));
     im.set(4, 4, HEX(0x52341a));
     im.set(27, 4, HEX(0x52341a));
     im.outline(OUT);
@@ -379,11 +381,13 @@ inline Img mkQuestGiver(int frame) {
 }
 
 // ================================================================= hunter
-inline Img mkPlayer(int dir, int f) {
+inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) {
     Img im(18, 26);
-    const u32 skin = HEX(0xf0c49a), skinS = HEX(0xd9a77a), cap = HEX(0x3e7d46), capD = HEX(0x2d5e35),
-              capL = HEX(0x5ba05c), tun = HEX(0x9b6b3a), tunD = HEX(0x7a5229), belt = HEX(0x3b2616),
-              pants = HEX(0x5a4a3a), boots = HEX(0x2e2118), hair = HEX(0x5a3a22), eye = HEX(0x2a1c1c),
+    const HunterLook L = clampLook(look);
+    const OutfitCol& oc = OUTFITCOL[L.outfit];
+    const u32 skin = SKINCOL[L.skin], skinS = SKINSHADE[L.skin], cap = HEX(0x3e7d46), capD = HEX(0x2d5e35),
+              capL = HEX(0x5ba05c), tun = oc.base, tunD = oc.dark, belt = HEX(0x3b2616),
+              pants = HEX(0x5a4a3a), boots = HEX(0x2e2118), hair = HAIRCOL[L.color], eye = HEX(0x2a1c1c),
               leather = HEX(0x6b4423);
     int bob = (f == 1 || f == 3) ? 1 : 0;
     int ox = 1;  // canvas margin
@@ -404,7 +408,7 @@ inline Img mkPlayer(int dir, int f) {
         im.set(ox + 12, 17 - bob - aL, skin);
         // torso
         im.rect(ox + 5, 11 - bob, 6, 8, tun);
-        im.rect(ox + 5, 11 - bob, 6, 1, HEX(0xb3834f));
+        im.rect(ox + 5, 11 - bob, 6, 1, oc.hi);
         im.rect(ox + 5, 18 - bob, 6, 1, tunD);
         im.rect(ox + 5, 15 - bob, 6, 1, belt);
         im.set(ox + 8, 15 - bob, HEX(0xf2c94c));
@@ -445,7 +449,7 @@ inline Img mkPlayer(int dir, int f) {
         im.rect(ox + a - 1, 22, 3, 2, boots);
         im.rect(ox + b - 1, 22, 4, 2, boots);
         im.rect(ox + 5, 11 - bob, 6, 8, tun);
-        im.rect(ox + 5, 11 - bob, 6, 1, HEX(0xb3834f));
+        im.rect(ox + 5, 11 - bob, 6, 1, oc.hi);
         im.rect(ox + 5, 18 - bob, 6, 1, tunD);
         im.rect(ox + 5, 15 - bob, 6, 1, belt);
         im.rect(ox + 3, 12 - bob, 3, 5, leather);  // satchel
@@ -466,6 +470,58 @@ inline Img mkPlayer(int dir, int f) {
         im.set(ox + 4, 8 - bob, hair);
         im.set(ox + 10, 8 - bob, eye);
         im.set(ox + 11, 9 - bob, skinS);
+    }
+    // ---- hairstyle (the default SHORT adds nothing: the cap and the few strands above are the original look)
+    {
+        const u32 hd = shadeC(hair, 0.75f), hl = shadeC(hair, 1.2f);
+        const int sw = (f == 1) ? 1 : (f == 3 ? -1 : 0);
+        switch (L.hair) {
+            case 1:  // long: falls past the shoulders
+                if (dir == 0) {
+                    im.rect(ox + 4, 7 - bob, 1, 7, hair);
+                    im.rect(ox + 11, 7 - bob, 1, 7, hair);
+                    im.set(ox + 4, 8 - bob, hl);
+                } else if (dir == 1) {
+                    im.rect(ox + 4, 8 - bob, 8, 7, hair);
+                    im.rect(ox + 7, 8 - bob, 1, 7, hd);
+                } else {
+                    im.rect(ox + 3, 7 - bob, 3, 8, hair);
+                    im.set(ox + 3, 8 - bob, hl);
+                }
+                break;
+            case 2:  // ponytail
+                if (dir == 0) {
+                    im.rect(ox + 11, 6 - bob, 1, 3, hair);
+                    im.set(ox + 11, 6 - bob, HEX(0xe8584f));
+                } else if (dir == 1) {
+                    im.rect(ox + 7, 8 - bob, 2, 7, hair);
+                    im.set(ox + 7, 8 - bob, HEX(0xe8584f));
+                    im.set(ox + 8, 14 - bob, hd);
+                } else {
+                    im.rect(ox + 3 + sw, 7 - bob, 2, 6, hair);
+                    im.set(ox + 4 + sw, 7 - bob, HEX(0xe8584f));
+                }
+                break;
+            case 3:  // two braids
+                for (int y = 0; y < 6; y++) {
+                    const u32 c = (y & 1) ? hair : hd;
+                    if (dir == 2) {
+                        im.set(ox + 4, 8 + y - bob, c);
+                        im.set(ox + 3, 8 + y - bob, (y & 1) ? hd : hair);
+                    } else {
+                        im.set(ox + 4, 8 + y - bob, c);
+                        im.set(ox + 11, 8 + y - bob, c);
+                    }
+                }
+                im.set(ox + 4, 14 - bob, HEX(0xe8584f));
+                if (dir != 2) im.set(ox + 11, 14 - bob, HEX(0xe8584f));
+                break;
+            case 4:  // a bun on top of the head
+                im.ellipse(ox + 8, 2 - bob, 2.2f, 1.8f, hair);
+                im.set(ox + 7, 1 - bob, hl);
+                break;
+            default: break;
+        }
     }
     im.outline(OUT);
     return im;
@@ -1120,14 +1176,28 @@ struct Assets {
     Spr oak[2], pine, rock[2];
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr player[3][4];
+    HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][6], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
+    TownAssets T;   // the central town: building exteriors, street furniture, paving, interiors (sprites_town.hpp)
     ResAssets R;    // tools, consumables, placeables, depleted resources (sprites_res.hpp)
     SDL_Texture* font = nullptr;
 };
+
+// Redraw the hunter's sprites for a new appearance (the salon). Frees the old textures first.
+inline void rebuildPlayerSprites(SDL_Renderer* r, Assets& a, const HunterLook& look) {
+    for (int d = 0; d < 3; d++)
+        for (int f = 0; f < 4; f++) {
+            Spr& s = a.player[d][f];
+            if (s.t) SDL_DestroyTexture(s.t);
+            if (s.flash) SDL_DestroyTexture(s.flash);
+            s = makeSpr(r, mkPlayer(d, f, look), 9, 24, true);
+        }
+    a.look = look;
+}
 
 inline void buildAssets(SDL_Renderer* r, Assets& a) {
     Rng rg(1234567);
@@ -1156,7 +1226,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int d = 0; d < 3; d++)
         for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
     buildFauna(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
         Img t = mkIconTool(k);
@@ -1186,6 +1256,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         a.ammoWorld[k] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
     buildBiomeAssets(r, a.B);
+    buildTownAssets(r, a.T);
     a.coin = makeSpr(r, mkCoin(), 5, 5);
     a.heart = makeSpr(r, mkHeart(), 5, 5);
     a.bolt = makeSpr(r, mkBolt(), 4, 6);

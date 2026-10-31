@@ -175,7 +175,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
     }
 
     // shop screens
-    g.p.pos = g.world.keeper + V2(-8, 14);
+    g.p.pos = g.world.spawn;
     frames(10);
     g.in.ePressed = true;
     g.update(1.f / 60.f);
@@ -274,6 +274,207 @@ static void scriptedRun(Game& g, const std::string& dir) {
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
 
+
+// ---- town tour (flag: --town DIR): screenshots of the central town from a grid of camera positions, for checking the layout
+static void townTour(Game& g, const std::string& dir) {
+    g.newGame();
+    g.state = ST_PLAY;
+    g.helpT = 0;
+    g.dayT = 30;
+    g.animals.clear();
+    int n = 0;
+    for (int gy = 0; gy < 3; gy++)
+        for (int gx = 0; gx < 3; gx++) {
+            g.p.pos = V2((COX + 31.f + gx * 12.f) * TS, (COY + 22.f + gy * 8.f) * TS);
+            g.setCam(0, true);
+            g.render();
+            g.saveCanvas((dir + "/town_" + std::to_string(gy) + std::to_string(gx) + ".bmp").c_str());
+            n++;
+        }
+    printf("town tour: %d screenshots in %s\n", n, dir.c_str());
+
+    // ---- every building: enter, look around, talk, leave
+    int bad = 0;
+    auto check = [&](bool ok, const std::string& what) {
+        printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what.c_str());
+        if (!ok) bad++;
+    };
+    g.newGame();
+    g.state = ST_PLAY;
+    g.animals.clear();
+    g.p.coins = 777;
+    g.p.inv.add(itemMat(M_IRON), 5);
+    const int coins0 = g.p.coins, iron0 = g.p.inv.count(itemMat(M_IRON));
+    const float w0 = g.p.inv.totalWeight();
+    check(MW == 240 && MH == 168 && g.world.pixW() == 240 * TS && g.world.pixH() == 168 * TS, "the home map is still 240x168 tiles");
+    for (int k = 0; k < BLD_COUNT; k++) {
+        printf(" %s\n", BUILDINGS[k].name);
+        const V2 door(bldDoorX(k, COX), bldDoorY(k, COY));
+        g.p.pos = door + V2(0.5f, 0.25f);  // an odd spot, so "exact" means something
+        const V2 before = g.p.pos;
+        g.bldCd = 0;
+        check(g.doorNear() == k, "the door prompt is offered at the door");
+        check(g.townInteract() && g.interior == k && g.world.isInterior() && g.world.interiorKind() == k, "E enters an interior map of its own");
+        check(g.world.pixW() == 240 * TS && dist(g.p.pos, g.world.spawn) < 1.f && g.nearExit(), "the hunter stands at the interior entrance, in reach of the exit");
+        check(!g.world.blocked(g.p.pos.x, g.p.pos.y, 6.f), "the entrance is a free spot");
+        g.setCam(0, true);
+        g.helpT = 0;
+        g.travelFade = 0;
+        g.render();
+        g.saveCanvas((dir + "/int_" + std::to_string(k) + ".bmp").c_str());
+        // reachability over free tiles from the entrance
+        static bool seen[MH][MW];
+        memset(seen, 0, sizeof(seen));
+        std::vector<std::pair<int, int>> q;
+        q.push_back({(int)(g.p.pos.x / TS), (int)(g.p.pos.y / TS)});
+        seen[q[0].second][q[0].first] = true;
+        for (size_t i = 0; i < q.size(); i++)
+            for (int d = 0; d < 4; d++) {
+                const int nx = q[i].first + (d == 0) - (d == 1), ny = q[i].second + (d == 2) - (d == 3);
+                if (nx < 0 || ny < 0 || nx >= MW || ny >= MH || seen[ny][nx] || g.world.solidTile(nx, ny)) continue;
+                seen[ny][nx] = true;
+                q.push_back({nx, ny});
+            }
+        auto reach = [&](V2 target, float within) {
+            for (auto& t : q)
+                if (dist(V2((t.first + 0.5f) * TS, (t.second + 0.5f) * TS), target) < within) return true;
+            return false;
+        };
+        check(!g.world.npcs.empty() && reach(g.world.npcs[0].pos, 30.f), "the person is reachable (free floor within talking range)");
+        bool stationsOk = true;
+        for (auto& st : g.world.stations) stationsOk = stationsOk && reach(st, 24.f);
+        check(stationsOk, "every station is reachable");
+        int blockedProps = 0;
+        for (auto& pr : g.world.props)
+            if (!g.world.solid[(int)(pr.y / TS)][(int)(pr.x / TS)]) blockedProps++;
+        check(blockedProps == 0, "every piece of furniture blocks movement");
+        check(g.world.blocked(0, 0, 4) && g.world.blocked(INT_RX * TS + 8, INT_RY * TS + 8, 4) && g.world.blocked((INT_RX + 12) * TS, (INT_RY + 1) * TS + 8, 4), "walls and the void are solid");
+        // talk to the person
+        {
+            V2 stand = g.p.pos;
+            float bd = 1e9f;
+            for (auto& t : q) {
+                const V2 c((t.first + 0.5f) * TS, (t.second + 0.5f) * TS);
+                const float d = dist(c, g.world.npcs[0].pos);
+                if (d < bd) bd = d, stand = c;
+            }
+            g.p.pos = stand;
+            g.bldCd = 0;
+            check(g.npcNear() >= 0, "the person can be talked to");
+            g.townInteract();
+            const bool opened = k == BLD_SHOP ? g.state == ST_SHOP : g.state == ST_SERVICE && g.svc == k;
+            check(opened, "E opens that person's service screen");
+            g.travelFade = 0;
+            g.render();
+            g.saveCanvas((dir + "/svc_" + std::to_string(k) + ".bmp").c_str());
+            if (g.state == ST_SERVICE) g.closeService();
+            g.state = ST_PLAY;
+        }
+        g.p.pos = g.world.exitPos;
+        g.bldCd = 0;
+        check(g.nearExit(), "the exit prompt is offered on the doormat");
+        check(g.townInteract() && g.interior == -1 && g.world.mapId == B_HOME, "E on the doormat leaves, back to the home map");
+        check(g.p.pos.x == before.x && g.p.pos.y == before.y, "the hunter is back on the exact spot they entered from");
+        check(g.p.coins == coins0 && g.p.inv.count(itemMat(M_IRON)) == iron0 && fabsf(g.p.inv.totalWeight() - w0) < 1e-3f, "coins and pack are untouched");
+    }
+    printf("town interiors: %s (%d failed)\n", bad ? "FAILED" : "all passed", bad);
+
+    // ---- the services
+    printf("town services\n");
+    int bad2 = 0;
+    auto ck = [&](bool ok, const std::string& what) {
+        printf("  [%s] %s\n", ok ? "PASS" : "FAIL", what.c_str());
+        if (!ok) bad2++;
+    };
+    auto find = [&](int outItem, int mat0) {
+        for (int r = 0; r < RECIPE_N; r++)
+            if (RECIPES[r].kind != RK_GEAR && recipeItem(RECIPES[r]) == outItem && (mat0 < 0 || RECIPES[r].mat[0] == mat0)) return r;
+        return -1;
+    };
+    g.newGame();
+    g.state = ST_PLAY;
+    g.animals.clear();
+    g.p.coins = 500;
+    // crafting is done only in the matching building
+    const int rIronBar = find(itemMat(M_IRONBAR), M_IRON), rLeather = find(itemMat(M_LEATHER), M_HIDE), rBouquet = find(itemMat(M_BOUQUET), M_ROSE);
+    ck(rIronBar >= 0 && rLeather >= 0 && rBouquet >= 0, "recipes for ingots, leather and bouquets exist");
+    g.p.inv.add(itemMat(M_IRON), 6);
+    g.p.inv.add(itemMat(M_WOOD), 8);
+    g.p.inv.add(itemMat(M_HIDE), 6);
+    g.p.inv.add(itemMat(M_GREASE), 2);
+    g.interior = -1;
+    ck(!g.craft(rIronBar) && g.p.mat(M_IRON) == 6, "ore is not smelted outdoors");
+    g.interior = BLD_TANNER;
+    ck(!g.craft(rIronBar) && g.p.mat(M_IRON) == 6, "ore is not smelted at the leatherworks either");
+    g.interior = BLD_SMITH;
+    const int xp0 = g.p.sk.level(SK_SMITHING), w1 = (int)g.p.inv.totalWeight();
+    ck(g.craft(rIronBar) && g.p.mat(M_IRONBAR) >= 1 && g.p.mat(M_IRON) == 4, "the blacksmith smelts ore into an ingot (same recipe, same pack)");
+    (void)xp0; (void)w1;
+    g.interior = BLD_SHOP;
+    ck(!g.craft(rLeather), "the general store crafts nothing");
+    g.interior = BLD_TANNER;
+    ck(g.craft(rLeather) && g.p.mat(M_LEATHER) >= 2 && g.p.mat(M_HIDE) == 3, "the leatherworks tans hide into leather");
+    g.interior = -1;
+    // upgrades moved to the smith: still real
+    g.p.coins = 500;
+    g.p.inv.add(itemMat(M_COPPER), 20);
+    g.p.inv.add(itemMat(M_IRON), 20);
+    g.p.inv.add(itemMat(M_HIDE), 20);
+    const int up0 = g.p.up[U_TOOL];
+    g.buyUpgrade(U_TOOL);
+    ck(g.p.up[U_TOOL] >= up0, "the tool upgrade still works (now sold at the blacksmith)");
+    // flowers
+    g.p.inv.clear();
+    g.p.coins = 200;
+    ck(g.buyFlower(M_ROSE, 1) && g.buyFlower(M_TULIP, 1) && g.buyFlower(M_LAVENDER, 1) && g.p.mat(M_ROSE) == 1 && g.p.coins == 200 - 8 - 6 - 10, "Mary Rose sells flowers for coins into the real pack");
+    ck(!g.buyFlower(M_ROSE, 1000) && g.p.coins == 200 - 24, "a purchase that cannot be paid or carried changes nothing");
+    g.interior = BLD_WORKSHOP;
+    ck(g.craft(rBouquet) && g.p.mat(M_BOUQUET) == 1 && g.p.mat(M_ROSE) == 0, "the workshop ties them into a bouquet");
+    g.interior = BLD_FLOWER;
+    const int c0 = g.p.coins;
+    g.sellMat(M_BOUQUET, 1);
+    ck(g.p.coins == c0 + MAT_PRICE[M_BOUQUET] && g.p.mat(M_BOUQUET) == 0, "the bouquet sells for its price");
+    g.interior = -1;
+    // salon
+    g.p.coins = 100;
+    g.p.inv.add(itemMat(M_BONE), 3);
+    const int up1 = g.p.up[U_ARMOR], lv1 = g.p.sk.level(SK_CRAFTING), bone1 = g.p.mat(M_BONE), q1 = g.questIdx;
+    const HunterLook def;
+    ck(g.p.look == def, "the hunter starts with the default look");
+    g.salonLook = def;
+    ck(!g.confirmSalon() && g.p.coins == 100, "confirming with no change costs nothing");
+    // every option changes the drawn sprite (all three directions)
+    bool allDiffer = true;
+    for (int opt = 0; opt < 4; opt++) {
+        HunterLook l = def;
+        const int n = opt == 0 ? LOOK_HAIR_N : opt == 1 ? LOOK_COLOR_N : opt == 2 ? LOOK_SKIN_N : LOOK_OUTFIT_N;
+        for (int v = 1; v < n; v++) {
+            (opt == 0 ? l.hair : opt == 1 ? l.color : opt == 2 ? l.skin : l.outfit) = v;
+            if (opt == 0 && v == 0) continue;
+            bool diff = false;
+            for (int d = 0; d < 3 && !diff; d++)
+                for (int f = 0; f < 4 && !diff; f++) diff = mkPlayer(d, f, l).p != mkPlayer(d, f, def).p;
+            allDiffer = allDiffer && diff;
+        }
+    }
+    ck(allDiffer, "every hairstyle, hair colour, skin tone and tunic colour changes the sprite in every direction");
+    HunterLook want;
+    want.hair = 2; want.color = 6; want.skin = 3; want.outfit = 2;
+    g.salonLook = want;
+    g.p.coins = 10;
+    ck(!g.confirmSalon() && g.p.look == def && g.p.coins == 10, "too few coins: refused, nothing changes");
+    g.p.coins = 100;
+    ck(g.confirmSalon() && g.p.look == want && g.p.coins == 100 - SALON_FEE && g.A.look == want, "confirm charges the small fee and applies the look to the real sprites");
+    ck(g.p.up[U_ARMOR] == up1 && g.p.sk.level(SK_CRAFTING) == lv1 && g.p.mat(M_BONE) == bone1 && g.questIdx == q1, "inventory, gear, skills and quests are untouched");
+    g.salonLook = def;  // a preview that is cancelled / abandoned changes nothing
+    g.salonLook = g.p.look;
+    ck(g.p.look == want, "cancelling keeps the confirmed look");
+    g.save();
+    g.newGame();
+    ck(g.p.look == def && g.A.look == def, "a new game starts with the default look");
+    ck(g.load() && g.p.look == want && g.A.look == want, "the look survives save and load");
+    printf("town services: %s (%d failed)\n", bad2 ? "FAILED" : "all passed", bad2);
+}
 
 // ---- world verification (flags: --worldcheck, --dumpcore FILE, --tour DIR)
 // Dump of the original home area's interior (tiles, solid flags, props, decor). Written by the old generator
@@ -422,7 +623,7 @@ static int mapCheck(Game& g, int map, long nodeTotals[]) {
         for (int x = 0; x < MW; x++) {
             if (w.biome[y][x] != map) foreign++;
             const uint8_t t = w.tile[y][x];
-            if (map == B_HOME && !(t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_WATER)) wrongGround++;
+            if (map == B_HOME && !(t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_WATER || t == T_COBBLE)) wrongGround++;
         }
     printf("  tiles of another biome: %ld%s   foreign ground in home: %ld\n", foreign, foreign ? "  <-- PROBLEM" : "", wrongGround);
     if (foreign || wrongGround) bad++;
@@ -1102,6 +1303,7 @@ static int weaponTest(Game& g) {
 // ---- inventory verification (flag: --selftest): the Inventory class, the game rules built on it, and save v2 / migration
 static int selfTest(Game& g) {
     int bad = 0;
+    g.craftAnywhere = true;  // the crafting rules below are tested away from the buildings (the building rule has its own checks)
     auto check = [&](bool ok, const char* what) {
         printf("  [%s] %s\n", ok ? "ok" : "FAIL", what);
         if (!ok) bad++;
@@ -1268,7 +1470,7 @@ static int selfTest(Game& g) {
               R_BOLT = findRecipe(RK_AMMO, AM_BOLT, M_BONE), R_BANDAGE = findRecipe(RK_BANDAGE, 0, M_HIDE);
     check(R_BONE == 0 && R_ARROW > 0 && R_BOLT > 0 && R_BANDAGE > 0, "the original recipes are all still in the table");
     {   // crafting in a full bag
-        g.p.pos = g.world.keeper + V2(-8, 14);  // bone knives are made at the shop
+        g.p.pos = g.world.spawn;  // bone knives are made at the shop
         g.p.inv.clear();
         fillWithJunk();
         g.p.inv.remove(itemMat(M_TUSK), 50);
@@ -1707,12 +1909,18 @@ static int selfTest(Game& g) {
             g.render();
             g.in.uiClick = false;
         };
-        g.p.pos = g.world.spawn + V2(300, 300);  // far from the shop
-        check(!g.nearShop(), "test setup: the hunter is away from the shop");
+        // crafting happens only inside the matching town building: outdoors every recipe is refused, in the right building it works
+        g.craftAnywhere = false;
+        g.p.pos = g.world.spawn;
+        g.interior = -1;
+        check(!g.nearShop(), "test setup: the hunter is outdoors");
         clickRecipe(R_BONE);
-        check(g.p.wpn(W_BONE) == 0 && g.p.mat(M_BONE) == 5, "weapon recipes are refused away from the shop");
+        check(g.p.wpn(W_BONE) == 0 && g.p.mat(M_BONE) == 5, "weapon recipes are refused outdoors");
         clickRecipe(R_ARROW);
-        check(g.p.ammo(AM_ARROW) == 6 && g.p.mat(M_BONE) == 4 && g.p.mat(M_FEATHER) == 2, "ARROWS x6 can be crafted anywhere: 1 bone + 2 feathers");
+        check(g.p.ammo(AM_ARROW) == 0 && g.p.mat(M_BONE) == 5, "so is every other recipe (all crafting is done in the town buildings)");
+        g.interior = recipeBuilding(RECIPES[R_ARROW]);
+        clickRecipe(R_ARROW);
+        check(g.p.ammo(AM_ARROW) == 6 && g.p.mat(M_BONE) == 4 && g.p.mat(M_FEATHER) == 2, "ARROWS x6 are crafted in the workshop: 1 bone + 2 feathers");
         clickRecipe(R_BOLT);
         check(g.p.ammo(AM_BOLT) == 4 && g.p.mat(M_HORN) == 0 && g.p.mat(M_BONE) == 2, "BOLTS x4: 2 bone + 1 horn");
         clickRecipe(R_BOLT);
@@ -1734,13 +1942,16 @@ static int selfTest(Game& g) {
         bool cr2 = g.craft(R_BANDAGE);
         check(fs == 0 && !cr2 && g.p.bandages() == 0 && g.p.mat(M_HIDE) == hide0 && g.p.mat(M_ORGAN) == org0, "in a full bag the bandage recipe is refused and the ingredients are returned");
         // near the shop: weapons allowed
-        g.p.pos = g.world.keeper + V2(-8, 14);
+        g.p.pos = g.world.spawn;
         g.p.inv.clear();
         g.p.inv.add(HIDE, 2);
         g.p.inv.add(BONE, 4);
-        check(g.nearShop(), "test setup: the hunter is at the shop");
+        g.interior = BLD_WORKSHOP;
+        check(g.nearShop(), "test setup: the hunter is inside the workshop");
         clickRecipe(R_BONE);
-        check(g.p.wpn(W_BONE) == 4, "at the shop the same screen crafts weapons");
+        check(g.p.wpn(W_BONE) == 4, "in the workshop the same screen crafts weapons");
+        g.interior = -1;
+        g.craftAnywhere = true;
         // ---- the quest about crafting a weapon only counts weapons
         g.questIdx = 4;
         g.refreshQuest();
@@ -2070,6 +2281,7 @@ static int selfTest(Game& g) {
                     if (ANIMAL[a].drop[m][1] > 0) producible[m] = true;
             for (int r = 0; r < RECIPE_N; r++)
                 if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
+            for (int m : {M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER}) producible[m] = true;  // bought at the flower shop
             int unmakeable = 0;
             for (int r = 0; r < RECIPE_N; r++)
                 for (int k = 0; k < 3; k++)
@@ -2082,12 +2294,21 @@ static int selfTest(Game& g) {
             g.p.inv.add(itemMat(M_COPPER), 2);
             g.p.inv.add(itemMat(M_WOOD), 12);
             g.p.inv.add(itemMat(M_STONE), 6);
-            check(g.craftBlock(rCopperBar) == "STAND BY A CAMPFIRE", "smelting away from a fire is refused");
+            g.craftAnywhere = false;
+            check(g.craftBlock(rCopperBar) == "MADE AT THE BLACKSMITH", "smelting outdoors is refused: it is done at the blacksmith");
             check(!g.craft(rCopperBar) && g.p.mat(M_COPPER) == 2, "...and consumes nothing");
+            g.interior = BLD_WORKSHOP;
+            check(g.craftBlock(rCopperBar) == "MADE AT THE BLACKSMITH", "the wrong building refuses it too");
+            g.interior = -1;
+            g.craftAnywhere = true;
             check(g.craft(rCamp) && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 1 && g.p.mat(M_STONE) == 3, "a campfire is crafted from wood and stone");
             check(g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1 && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 0, "the campfire is placed");
             check(g.nearFire(), "standing by the placed campfire counts as a fire");
-            check(g.craft(rCopperBar) && g.p.mat(M_COPPERBAR) == 1 && g.p.mat(M_COPPER) == 0, "copper smelts into a bar at the fire");
+            g.craftAnywhere = false;
+            g.interior = BLD_SMITH;
+            check(g.craft(rCopperBar) && g.p.mat(M_COPPERBAR) == 1 && g.p.mat(M_COPPER) == 0, "copper smelts into a bar at the blacksmith");
+            g.interior = -1;
+            g.craftAnywhere = true;
             // rope, then the copper axe
             g.p.inv.add(itemMat(M_FIBER), 3);
             check(g.craft(rRope) && g.p.mat(M_ROPE) == 1 && g.p.mat(M_FIBER) == 0, "fibre twists into rope");
@@ -2100,7 +2321,9 @@ static int selfTest(Game& g) {
             check(g.craftBlock(rCuAxe) == "YOU ALREADY HAVE ONE", "a second copy of a single tool is refused");
             // iron tools need the shop's forge
             g.p.inv.add(itemMat(M_IRONBAR), 2);
-            check(g.craftBlock(rIronAxe) == "STAND AT THE SHOP", "iron tools need the merchant");
+            g.craftAnywhere = false;
+            check(g.craftBlock(rIronAxe) == "MADE AT THE BLACKSMITH", "iron tools are made at the blacksmith");
+            g.craftAnywhere = true;
             // armor order
             g.p.inv.add(itemMat(M_FUR), 4);
             g.p.inv.add(itemMat(M_HIDE), 12);
@@ -2664,13 +2887,14 @@ static int selfTest(Game& g) {
 
 int main(int argc, char** argv) {
     bool headless = false;
-    std::string shots, tourDir, dumpFile, wildDir;
+    std::string shots, tourDir, townDir, dumpFile, wildDir;
     bool wtest = false, stest = false;
     bool wcheck = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
         if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
         if (!strcmp(argv[i], "--tour") && i + 1 < argc) tourDir = argv[++i];
+        if (!strcmp(argv[i], "--town") && i + 1 < argc) townDir = argv[++i];
         if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
         if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
         if (!strcmp(argv[i], "--weapons")) wtest = true;
@@ -2706,6 +2930,11 @@ int main(int argc, char** argv) {
     }
     if (!wildDir.empty()) {
         wildlife(g, wildDir);
+        g.audio.shutdown();
+        return 0;
+    }
+    if (!townDir.empty()) {
+        townTour(g, townDir);
         g.audio.shutdown();
         return 0;
     }

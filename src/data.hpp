@@ -19,12 +19,13 @@ enum Mat {
     M_GOATBEARD, M_RAMFLEECE, M_GOLDPLUME, M_MARMOTPELT, M_COUGARFANG,                                               // mountain
     M_FAT,                                                                                                           // shared carcass fat (grease, fuel)
     M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,                                                             // processed from the above (crafting components)
+    M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,                                                             // the flower shop: cut flowers (bought) and the bouquet made from them
     M_COUNT
 };
 constexpr int M_CARCASS_N = M_CLAW + 1;  // the ORIGINAL carcass materials (a contiguous block); trophies and fat come from carcasses too
 constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_COUGARFANG - M_RABBITFOOT + 1;
 inline bool isTrophy(int m) { return m >= M_TROPHY0 && m < M_TROPHY0 + M_TROPHY_N; }
-inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || m >= M_PLANK; }  // made by crafting: SELL EVERYTHING keeps these
+inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE); }  // made by crafting: SELL EVERYTHING keeps these
 inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m <= M_FAT); }  // can appear in a carcass (hunting) rather than on the land
 [[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {
     "RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER", "FEATHER", "HORN", "SCALE", "CLAW",
@@ -38,7 +39,8 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "FOX BRUSH", "SNOW HARE FOOT", "VELVET ANTLER", "MOOSE MARROW", "LYNX TUFT", "BEAR GALL",
     "GOAT BEARD", "RAM FLEECE", "GOLDEN PLUME", "MARMOT PELT", "COUGAR FANG",
     "ANIMAL FAT",
-    "PLANK", "LEATHER", "BONE FRAGMENTS", "HERBAL EXTRACT", "GREASE"};
+    "PLANK", "LEATHER", "BONE FRAGMENTS", "HERBAL EXTRACT", "GREASE",
+    "ROSE", "TULIP", "LAVENDER", "SUNFLOWER", "BOUQUET"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -50,7 +52,8 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        14, 10, 22, 26, 24, 36,
                                        14, 22, 28, 8, 30,
                                        4,
-                                       4, 12, 1, 12, 5};
+                                       4, 12, 1, 12, 5,
+                                       4, 3, 5, 2, 40};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -67,7 +70,9 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "TROPHY OF THE ARCTIC FOX", "TROPHY OF THE SNOW HARE", "TROPHY OF THE REINDEER", "TROPHY OF THE MOOSE", "TROPHY OF THE LYNX", "TROPHY OF THE POLAR BEAR",
     "TROPHY OF THE MOUNTAIN GOAT", "TROPHY OF THE BIGHORN SHEEP", "TROPHY OF THE GOLDEN EAGLE", "TROPHY OF THE MARMOT", "TROPHY OF THE MOUNTAIN LION",
     "RENDERED FROM BIG GAME - A SLOW-BURNING FUEL",
-    "SAWN BOARDS - BOWS, SPEARS, HAFTS", "TANNED HIDE - ARMOR, PACKS AND GEAR", "CRUSHED BONE - ARROWHEADS, BLADES, FITTINGS", "PRESSED FROM HERBS - MEDICINES", "RENDERED FAT - TANNING, COOKING, WATERPROOFING"};
+    "SAWN BOARDS - BOWS, SPEARS, HAFTS", "TANNED HIDE - ARMOR, PACKS AND GEAR", "CRUSHED BONE - ARROWHEADS, BLADES, FITTINGS", "PRESSED FROM HERBS - MEDICINES", "RENDERED FAT - TANNING, COOKING, WATERPROOFING",
+    "A CUT ROSE FROM THE FLOWER SHOP - BOUQUETS", "A CUT TULIP FROM THE FLOWER SHOP - BOUQUETS", "SWEET-SCENTED SPRIGS FROM THE FLOWER SHOP - BOUQUETS", "A BIG SUNNY BLOOM - BOUQUETS",
+    "A HAND-TIED BOUQUET - A LOVELY GIFT, PRIZED BY TRADERS"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -75,7 +80,8 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_RABBITFOOT, M_DEERSINEW, M_BOARBRISTLE, M_WOLFFANG, M_HARETAIL, M_FENNECEAR, M_COYOTEFANG, M_RATTLE, M_ROADPLUME,
                                           M_LIZARDTAIL, M_LIONMANE, M_FROGGLAND, M_DUCKDOWN, M_BOGHOOF, M_VENOMSAC, M_GATORTOOTH, M_PANTHEREYE, M_FOXBRUSH,
                                           M_SNOWFOOT, M_VELVET, M_MARROW, M_LYNXTUFT, M_BEARGALL, M_GOATBEARD, M_RAMFLEECE, M_GOLDPLUME, M_MARMOTPELT,
-                                          M_COUGARFANG, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE};
+                                          M_COUGARFANG, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,
+                                          M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
