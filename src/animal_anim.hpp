@@ -1,4 +1,4 @@
-// animal_anim.hpp - animation states and clips for animals that have a full animation set (boar, wolf, deer so far).
+// animal_anim.hpp - animation states and clips for animals that have a full animation set (boar, wolf, deer, rabbit, desert hare, snow hare so far).
 //
 // A species opts in by returning clips from animalClips(kind) and a painter in sprites_boar.hpp style (see buildRichAnimals).
 // Every other species keeps the older four-frame walk cycle. The states follow what the animal's AI is doing:
@@ -29,5 +29,29 @@ inline const AnimalClips& quadClipSet() {
     return C;
 }
 
+// Hoppers (rabbit, hares): idle is sitting up with a nose twitch and a nibble, walk is a small hop, run a long bounding leap.
+inline const AnimalClips& hopClipSet() {
+    static const AnimalClips C = {
+        {4, 6, 6, 1, 4, 6},
+        {
+            Clip::seq({0, 1, 0, 2, 3, 2, 3, 0}, {0.7f, 0.18f, 0.5f, 0.22f, 0.18f, 0.22f, 0.18f, 0.5f}, true),  // idle: sit, twitch, nibble
+            Clip::run(0, 6, 0.085f, true),                                                                       // walk: crouch, push off, rise, peak, fall, land
+            Clip::run(0, 6, 0.065f, true),                                                                       // run: the same hop, longer and flatter
+            Clip::run(0, 1, 0.1f, false),                                                                        // attack: unused (nothing hopping bites)
+            Clip::run(0, 4, 0.085f, false),                                                                      // hurt
+            Clip::seq({0, 1, 2, 3, 4, 5}, {0.1f, 0.1f, 0.12f, 0.14f, 0.16f, 0.2f}, false),                     // death
+        }};
+    return C;
+}
+
+// every species that has a full animation set
+constexpr int RICH_KINDS[] = {A_BOAR, A_WOLF, A_DEER, A_RABBIT, A_HARE, A_SNOWHARE};
+
 // Clips for the species that have a full animation set; nullptr for the others (they keep the four-frame walk cycle).
-inline const AnimalClips* animalClips(int kind) { return (kind == A_BOAR || kind == A_WOLF || kind == A_DEER) ? &quadClipSet() : nullptr; }
+inline const AnimalClips* animalClips(int kind) {
+    switch (kind) {
+        case A_BOAR: case A_WOLF: case A_DEER: return &quadClipSet();
+        case A_RABBIT: case A_HARE: case A_SNOWHARE: return &hopClipSet();
+        default: return nullptr;
+    }
+}
