@@ -18,7 +18,10 @@ struct HPose {
     bool blink = false;         // eyes shut
 };
 
-enum HunterState { HS_IDLE, HS_WALK, HS_RUN, HS_AIM, HS_THROW, HS_GATHER, HS_SWING, HS_USE, HS_HURT, HS_DEATH, HS_COUNT };
+// HS_SWING is the axe stroke (chopping), HS_MINE the pickaxe stroke, HS_FORAGE picking plants by hand and HS_GATHER kneeling at a carcass
+// (skinning). SWING, MINE and FORAGE play raise, top, strike, impact (the frame the resource takes damage) and then a recovery
+// pose; the first four follow the harvest timer (see hunterSwingSpan), the recovery shows right after each hit.
+enum HunterState { HS_IDLE, HS_WALK, HS_RUN, HS_AIM, HS_THROW, HS_GATHER, HS_SWING, HS_USE, HS_HURT, HS_DEATH, HS_MINE, HS_FORAGE, HS_COUNT };
 constexpr int HS_MAXF = 6;  // most poses any state has
 
 inline HPose walkPose(int f) {  // the original four-frame walk
@@ -36,7 +39,7 @@ inline HPose walkPose(int f) {  // the original four-frame walk
 }
 
 inline int hunterPoseCount(int st) {
-    static const int N[HS_COUNT] = {3, 4, 6, 2, 2, 4, 4, 3, 2, 2};
+    static const int N[HS_COUNT] = {3, 4, 6, 2, 2, 4, 5, 3, 2, 2, 5, 5};
     return N[st];
 }
 
@@ -90,12 +93,32 @@ inline HPose hunterPose(int st, int i) {
             p.lean = 1;
             break;
         }
-        case HS_SWING: {  // a tool stroke: slow raise, fast strike (the clip's timing follows the harvest timer)
-            static const int AR[4] = {-5, -6, -1, 3}, BOB[4] = {0, 1, -1, -2}, SW[4] = {-2, -2, 2, 3}, SDY[4] = {-5, -6, -2, 1}, LN[4] = {-1, -1, 1, 1};
+        case HS_SWING: {  // an axe stroke: slow raise, fast strike, impact, then a recovery pose (the clip's timing follows the harvest timer)
+            static const int AR[5] = {-5, -6, -1, 3, 1}, BOB[5] = {0, 1, -1, -2, -1}, SW[5] = {-2, -2, 2, 3, 1}, SDY[5] = {-5, -6, -2, 1, 0}, LN[5] = {-1, -1, 1, 1, 0};
             p.aR = AR[i];
             p.bob = BOB[i];
             p.sw = SW[i];
             p.sdy = SDY[i];
+            p.lean = LN[i];
+            break;
+        }
+        case HS_MINE: {  // a pickaxe: heavier than the axe - a high two-handed lift, a long fall, a hard stop on the rock
+            static const int AR[5] = {-6, -8, 0, 4, 2}, BOB[5] = {0, 1, -1, -2, -1}, SW[5] = {-2, -3, 3, 4, 2}, SDY[5] = {-6, -8, -1, 2, 0}, LN[5] = {-1, -2, 1, 2, 1};
+            p.aR = AR[i];
+            p.aL = AR[i] / 2;
+            p.bob = BOB[i];
+            p.sw = SW[i];
+            p.sdy = SDY[i];
+            p.lean = LN[i];
+            break;
+        }
+        case HS_FORAGE: {  // picking a plant: bend down, reach, pluck, gather it in, straighten up
+            static const int BOB[5] = {-2, -3, -3, -3, -1}, SW[5] = {1, 3, 4, 2, 1}, SDY[5] = {1, 3, 4, 2, -1}, AR[5] = {1, 2, 3, 1, -1}, LN[5] = {1, 2, 2, 1, 0};
+            p.bob = BOB[i];
+            p.sw = SW[i];
+            p.sdy = SDY[i];
+            p.aR = AR[i];
+            p.aL = 1;
             p.lean = LN[i];
             break;
         }
@@ -135,10 +158,21 @@ inline const Clip& hunterClip(int st) {
         Clip::run(0, 2, 0.2f, false),                                                           // aim (scrubbed by the charge)
         Clip::seq({0, 1}, {0.12f, 0.22f}, false),                                               // throw
         Clip::run(0, 4, 0.11f, true),                                                           // gather
-        Clip::seq({0, 1, 2, 3}, {0.35f, 0.35f, 0.15f, 0.15f}, false),                           // swing (scrubbed by the harvest timer)
+        Clip::seq({0, 1, 2, 3, 4}, {0.3f, 0.25f, 0.15f, 0.1f, 0.25f}, false),                   // axe: raise, top, strike, impact, recover
         Clip::seq({0, 1, 1, 2}, {0.12f, 0.18f, 0.12f, 0.12f}, false),                           // use an item
         Clip::seq({0, 1}, {0.14f, 0.18f}, false),                                               // hurt
         Clip::seq({0, 1}, {0.16f, 0.16f}, false),                                               // death
+        Clip::seq({0, 1, 2, 3, 4}, {0.3f, 0.3f, 0.15f, 0.1f, 0.25f}, false),                    // mine: lift, top, strike, impact, recover
+        Clip::seq({0, 1, 2, 3, 4}, {0.25f, 0.25f, 0.2f, 0.15f, 0.25f}, false),                  // forage: bend, reach, pluck, collect, rise
     };
     return C[st];
 }
+
+// The harvest timer drives the first four poses of SWING / MINE / FORAGE: progress 0..1 of a swing maps onto this share of the clip.
+// (The last pose, the recovery, is shown on its own for a moment after each hit lands.)
+inline float hunterSwingSpan(int st) {
+    const Clip& c = hunterClip(st);
+    if (c.n < 2) return 1.f;
+    return (c.total() - c.dur[c.n - 1]) / c.total();
+}
+inline bool isToolStroke(int st) { return st == HS_SWING || st == HS_MINE || st == HS_FORAGE; }

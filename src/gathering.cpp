@@ -140,6 +140,7 @@ void Game::harvestStep(const HTarget& t, float dt) {
     p.gatherT += dt * speed;
     if (p.gatherT < R.swing) return;
     p.gatherT = 0;
+    p.impactT = 0.16f;  // the strike lands now: the hunter shows the impact and recovery pose
     HState& s = hstate(t.node, t.idx);
     if (s.done + 1 >= R.hits) {
         harvestFinish(t);
@@ -150,6 +151,7 @@ void Game::harvestStep(const HTarget& t, float dt) {
     s.shake = 0.22f;
     if (std::find(hActive.begin(), hActive.end(), enc(t.node, t.idx)) == hActive.end()) hActive.push_back(enc(t.node, t.idx));
     harvestChips(t.pos + V2(0, -4), HEX(R.chip), R.cls == RCL_PLANT ? 3 : 6, 1.f);
+    if (R.cls == RCL_ROCK || R.cls == RCL_ORE) harvestChips(t.pos + V2(0, -6), HEX(0xffe7a0), 4, 1.3f);  // pickaxe sparks
     shakeAmt = std::max(shakeAmt, R.cls == RCL_TREE ? 1.2f : 0.8f);
     audio.play(R.cls == RCL_TREE ? S_CHOP : R.cls == RCL_PLANT ? S_RUSTLE : S_MINE, 0.7f);
 }
