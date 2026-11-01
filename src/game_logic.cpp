@@ -528,6 +528,7 @@ Animal* Game::spawnAnimal(int kind, V2 pos, int form, int tier) {
     a.variant = form;
     a.pos = a.target = pos;
     applyTier(a, tier);
+    if (ren) ensureRichBank(ren, A, kind, form, tier);  // a rarer specimen's sprites are drawn the first time one appears
     a.face = frng.chance(0.5f) ? 1 : -1;
     a.bias = frng.chance(0.5f) ? 1.f : -1.f;
     a.idleT = frng.range(0, 3);

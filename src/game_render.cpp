@@ -453,6 +453,7 @@ void Game::renderWorld(bool) {
             hop += a.air + (a.air > 0 ? sinf(timeAcc * 3.f + a.animT) * 1.5f : 0.f);
             int fr = (a.st == AS_REST || a.st == AS_FEED) ? 0 : (spd > 1 ? ((int)a.animT) & 3 : 0);
             // species with a full animation set draw from their own bank (8 facings, six states); the rest use the walk cycle
+            if (ren) ensureRichBank(ren, A, a.kind, a.variant, a.tier);  // (safety net: normally built when it spawned)
             const RichAnimal* rich = A.rich[a.kind].get();
             bool mirror = a.face < 0;
             const Spr* sp = &A.animal[a.kind][a.variant + 2 * a.tier][a.dead ? 4 : fr];

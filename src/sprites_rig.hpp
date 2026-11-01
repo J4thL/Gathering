@@ -16,6 +16,7 @@ constexpr int AV_VIEWS = 5;  // S, SE, E, NE, N  (same views as the hunter, see 
 
 struct RichAnimal {
     Spr s[8][AV_VIEWS][AN_COUNT][AN_MAXF];  // [form + 2*tier][view][state][pose]
+    bool built[8] = {false};                // which [form + 2*tier] banks are drawn: the common tier at start-up, the rarer ones when first needed
 };
 
 // ---------------------------------------------------------------- pose
@@ -794,25 +795,44 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
 }
 
 // Build every form / tier / view / state / pose of every species that has a full animation set.
+// Draw one form / rarity tier of one species: every view, state and pose.
+inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form, int tier) {
+    const int idx = form + 2 * tier;
+    if (bank.built[idx]) return;
+    const AnimalClips& C = *animalClips(kind);
+    const RigShape R = rigShape(kind, form);
+    const QuadSpec sp = fauSpec(kind, form, tier);
+    const float k = TIER[tier].scale;
+    for (int v = 0; v < AV_VIEWS; v++)
+        for (int st = 0; st < AN_COUNT; st++)
+            for (int i = 0; i < C.poses[st]; i++) {
+                Img im = paintQuad(sp, R, k, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
+                styleActor(im, OUT, 0);  // dark contour tinted from the fill, as in the style reference (the hunter uses the same pass)
+                bank.s[idx][v][st][i] = makeSpr(r, im, im.w / 2, (int)(im.h - 6.f * k), true);
+            }
+    bank.built[idx] = true;
+}
+
+// Make sure the bank for this form / tier exists (called when such an animal spawns and, as a safety net, when it is drawn).
+template <class AssetsT>
+inline void ensureRichBank(SDL_Renderer* r, AssetsT& a, int kind, int form, int tier) {
+    if (a.rich[kind] && !a.rich[kind]->built[form + 2 * tier]) buildRichCombo(r, *a.rich[kind], kind, form, tier);
+}
+
+// Start-up: the common rarity of every form of every species that has a full animation set. Rarer tiers (uncommon, rare, legendary:
+// the same art, recoloured and larger) are drawn the first time one spawns, which keeps start-up time and memory down.
 template <class AssetsT>
 inline void buildRichAnimals(SDL_Renderer* r, AssetsT& a) {
     for (int kind : RICH_KINDS) {
         auto bank = std::make_shared<RichAnimal>();
-        const AnimalClips& C = *animalClips(kind);
-        for (int form = 0; form < ANIMAL[kind].forms; form++) {
-            const RigShape R = rigShape(kind, form);
-            for (int tier = 0; tier < TR_COUNT; tier++) {
-                const QuadSpec sp = fauSpec(kind, form, tier);
-                const float k = TIER[tier].scale;
-                for (int v = 0; v < AV_VIEWS; v++)
-                    for (int st = 0; st < AN_COUNT; st++)
-                        for (int i = 0; i < C.poses[st]; i++) {
-                            Img im = paintQuad(sp, R, k, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
-                            styleActor(im, OUT, 0);  // dark contour tinted from the fill, as in the style reference (the hunter uses the same pass)
-                            bank->s[form + 2 * tier][v][st][i] = makeSpr(r, im, im.w / 2, (int)(im.h - 6.f * k), true);
-                        }
-            }
-        }
+        for (int form = 0; form < ANIMAL[kind].forms; form++) buildRichCombo(r, *bank, kind, form, 0);
         a.rich[kind] = bank;
     }
+}
+// Draw every tier too (the exporter and the full bank test use this).
+template <class AssetsT>
+inline void buildAllRichBanks(SDL_Renderer* r, AssetsT& a) {
+    for (int kind : RICH_KINDS)
+        for (int form = 0; form < ANIMAL[kind].forms; form++)
+            for (int tier = 0; tier < TR_COUNT; tier++) ensureRichBank(r, a, kind, form, tier);
 }
