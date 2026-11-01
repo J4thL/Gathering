@@ -642,6 +642,7 @@ void Game::updateAnimals(float dt) {
             a.kb = V2();
         if (a.dead) {
             a.deadT += dt;
+            updateAnimalAnim(a, dt);
             if (a.deadT > 170) a.fade -= dt / 8.f;
             if (a.totalRemain <= 0) a.fade -= dt * 1.6f;
             if (a.fade <= 0) a.gone = true;
@@ -732,6 +733,7 @@ void Game::updateAnimals(float dt) {
                 if (dd < D.hitR + 9) {
                     if (a.atkCd <= 0) {
                         hurtPlayer(D.dmg * T.dmg, a.pos, a.kind);
+                        if (const AnimalClips* ac = animalClips(a.kind)) a.atkT = ac->clip[AN_ATTACK].total();
                         a.atkCd = D.atkCd;
                         a.kb = toP * -70;
                     }
@@ -745,8 +747,37 @@ void Game::updateAnimals(float dt) {
         float spd = a.vel.len();
         if (spd > 1) a.animT += spd * dt * D.animK;
         a.noticeT += dt;
+        updateAnimalAnim(a, dt);
     }
     animals.erase(std::remove_if(animals.begin(), animals.end(), [](const Animal& a) { return a.gone; }), animals.end());
+}
+
+// Choose and advance the animation of an animal that has a full set (animal_anim.hpp). The AI decides what the animal does; this
+// only reads it: death, a fresh hit, a bite landing, running (fleeing / charging), walking, idling. Walk and run play at the pace
+// of the animal's real speed so the feet do not slide.
+void Game::updateAnimalAnim(Animal& a, float dt) {
+    const AnimalClips* ac = animalClips(a.kind);
+    if (!ac) return;
+    const AnimalDef& D = ANIMAL[a.kind];
+    const float spd = a.vel.len();
+    a.hurtT = std::max(0.f, a.hurtT - dt);
+    a.atkT = std::max(0.f, a.atkT - dt);
+    int st;
+    float rate = 1.f;
+    if (a.dead) st = AN_DEATH;
+    else if (a.hurtT > 0) st = AN_HURT;
+    else if (a.atkT > 0) st = AN_ATTACK;
+    else if (spd > 1.f) {
+        const bool fast = a.st == AS_CHASE || a.st == AS_FLEE;
+        st = fast ? AN_RUN : AN_WALK;
+        rate = clampf(spd / (fast ? D.run : D.wander), 0.5f, 1.8f);
+    } else st = AN_IDLE;
+    if (!a.dead) {
+        if (a.st == AS_CHASE && dist(a.pos, p.pos) < D.hitR + 30) a.face8 = facingFromDir(p.pos.x - a.pos.x, p.pos.y - a.pos.y, a.face8);
+        else if (spd > 1.f) a.face8 = facingFromDir(a.vel.x, a.vel.y, a.face8);
+    }
+    a.anim.play(st, &ac->clip[st]);
+    a.anim.update(dt * rate);
 }
 
 void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
@@ -754,6 +785,11 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     a.hp -= d;
     a.flash = 0.16f;
     a.hpShow = 3.0f;
+    if (const AnimalClips* ac = animalClips(a.kind)) {
+        a.hurtT = ac->clip[AN_HURT].total();
+        a.atkT = 0;
+        a.anim.play(AN_HURT, &ac->clip[AN_HURT], true);  // every hit restarts the flinch
+    }
     a.kb += dir * (crit ? 150.f : 105.f);
     bloodBurst(a.pos + V2(0, -a.bodyH), dir, crit ? 14 : 8);
     ftext(a.pos + V2(0, -a.bodyH - 10), (crit ? std::string("CRIT ") : std::string()) + S(d), crit ? C_ORANGE : C_TEXT, 0.9f);

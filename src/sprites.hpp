@@ -746,7 +746,7 @@ inline QuadSpec specDeer(bool stag) {
 inline QuadSpec specBoar() {
     QuadSpec s{};
     s.W = 36; s.H = 26; s.cx = 14; s.bw = 18; s.bh = 11; s.legLen = 4; s.legW = 2;
-    s.body = HEX(0x6b4a3a); s.light = HEX(0x87634d); s.belly = HEX(0x4e3529); s.dark = HEX(0x3d2a20);
+    s.body = HEX(0x8a4b30); s.light = HEX(0xa9663f); s.belly = HEX(0x5c3222); s.dark = HEX(0x3a2018);
     s.hoof = HEX(0x1c1410); s.snout = HEX(0xc99a86); s.eye = HEX(0xf2c94c);
     s.hr = 4.2f; s.hdx = 1.5f; s.hdy = 1.5f; s.snoutLen = 4.5f; s.ear = 4; s.tail = 4;
     s.tusks = true; s.ridge = true;
@@ -762,6 +762,7 @@ inline QuadSpec specWolf() {
 }
 
 #include "sprites_fauna.hpp"
+#include "sprites_boar.hpp"
 
 // ================================================================= icons & UI art
 inline Img mkIconMat(int m) {
@@ -1200,6 +1201,7 @@ struct Assets {
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S SE E NE N][state][pose]; the west views are mirrors
     HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
+    std::shared_ptr<RichAnimal> rich[A_COUNT];  // full animation sets (animal_anim.hpp): only species that have one are set
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][6], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
@@ -1253,6 +1255,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 2; i++) a.quester[i] = makeSpr(r, mkQuestGiver(i), 9, 24);
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
+    buildBoar(r, a);
     for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {

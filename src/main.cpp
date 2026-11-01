@@ -504,6 +504,17 @@ static void spriteSheet(Game& g, const std::string& dir) {
             for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
         page(("animals" + std::to_string(pg)).c_str(), list, 12, 33, 50);
     }
+    // the boar: one page per state, a row per facing (S SE E NE N), a column per pose
+    if (g.A.rich[A_BOAR]) {
+        static const char* BN[AN_COUNT] = {"idle", "walk", "run", "attack", "hurt", "death"};
+        for (int st = 0; st < AN_COUNT; st++) {
+            std::vector<const Spr*> list;
+            const int n = animalClips(A_BOAR)->poses[st];
+            for (int v = 0; v < AV_VIEWS; v++)
+                for (int i = 0; i < AN_MAXF; i++) list.push_back(&g.A.rich[A_BOAR]->s[0][v][st][std::min(i, n - 1)]);
+            page((std::string("boar_") + BN[st]).c_str(), list, AN_MAXF, 50, 40);
+        }
+    }
     // the hunter standing in the world in every facing / a few states (shadow, depth, view mirroring)
     g.newGame();
     g.state = ST_PLAY;
@@ -3016,6 +3027,71 @@ static int selfTest(Game& g) {
         check(!g.p.dead, "the hunter gets back up after the death animation");
         run(2);
         check(g.p.anim.state == HS_IDLE, "idle resumes after respawning");
+    }
+    {  // ---- the boar's full animation set
+        const AnimalClips* bc = animalClips(A_BOAR);
+        check(bc && !animalClips(A_RABBIT) && g.A.rich[A_BOAR] && !g.A.rich[A_RABBIT], "only the boar has a full animation set so far");
+        bool bankOk = bc != nullptr, clipsOk = bc != nullptr;
+        if (bc) {
+            for (int form = 0; form < ANIMAL[A_BOAR].forms; form++)
+                for (int tier = 0; tier < TR_COUNT; tier++)
+                    for (int v = 0; v < AV_VIEWS; v++)
+                        for (int st = 0; st < AN_COUNT; st++)
+                            for (int i = 0; i < bc->poses[st]; i++) bankOk = bankOk && g.A.rich[A_BOAR]->s[form + 2 * tier][v][st][i].ok();
+            for (int st = 0; st < AN_COUNT; st++) {
+                clipsOk = clipsOk && bc->poses[st] <= AN_MAXF && bc->clip[st].n > 0;
+                for (int i = 0; i < bc->clip[st].n; i++) clipsOk = clipsOk && bc->clip[st].frame[i] < bc->poses[st];
+            }
+            clipsOk = clipsOk && bc->clip[AN_IDLE].loop && bc->clip[AN_WALK].loop && bc->clip[AN_RUN].loop && !bc->clip[AN_ATTACK].loop && !bc->clip[AN_HURT].loop && !bc->clip[AN_DEATH].loop;
+        }
+        check(bankOk, "every boar form / rarity / view / state / pose is drawn");
+        check(clipsOk, "boar clips only use poses that exist; idle, walk and run loop, attack, hurt and death play once");
+        if (bc) {
+            g.newGame();
+            g.state = ST_PLAY;
+            g.animals.clear();
+            Animal* a = g.spawnAnimal(A_BOAR, g.p.pos + V2(80, 0), 0, 0);
+            check(a != nullptr, "test setup: a boar");
+            if (a) {
+                const int idx = (int)(a - &g.animals[0]);
+                auto A_ = [&]() -> Animal& { return g.animals[idx]; };
+                A_().hp = A_().maxhp = 5000;
+                A_().st = AS_WANDER;
+                A_().vel = V2();
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.state == AN_IDLE, "a standing boar plays idle");
+                A_().vel = V2(20, 0);
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.state == AN_WALK && A_().face8 == F_E, "a wandering boar plays walk facing the way it moves");
+                const float t1 = A_().anim.t;
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.t > t1, "walking keeps advancing (no restart every frame)");
+                A_().vel = V2(-15, 15);
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().face8 == F_SW, "moving down-left faces south-west");
+                A_().st = AS_FLEE;
+                A_().vel = V2(60, 0);
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.state == AN_RUN, "a fleeing boar plays run");
+                // a real bite: put a charging boar next to the hunter
+                g.p.invuln = 0;
+                g.p.hp = g.p.maxhp;
+                A_().st = AS_CHASE;
+                A_().atkCd = 0;
+                A_().pos = g.p.pos + V2(8, 0);
+                g.updateAnimals(0.02f);
+                check(A_().atkT > 0 && A_().anim.state == AN_ATTACK && g.p.hp < g.p.maxhp, "a charging boar bites: the attack animation plays as the hit lands");
+                check(A_().face8 == F_W, "the boar faces the hunter while it attacks");
+                for (int i = 0; i < 40; i++) g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.state != AN_ATTACK, "the attack animation ends");
+                g.hitAnimal(A_(), 1.f, V2(1, 0), false);
+                g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().anim.state == AN_HURT, "a hit plays the hurt animation");
+                g.killAnimal(A_());
+                for (int i = 0; i < 80; i++) g.updateAnimalAnim(A_(), 0.02f);
+                check(A_().dead && A_().anim.state == AN_DEATH && A_().anim.done && A_().anim.frame() == bc->poses[AN_DEATH] - 1, "a dead boar plays death once and stays on the last pose");
+            }
+        }
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
