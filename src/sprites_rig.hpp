@@ -35,6 +35,8 @@ struct BPose {
     float limp = 0;           // legs hanging loose (death)
     float slash = -1;         // attack arc progress 0..1, -1 = none
     float squash = 0;         // torso flattened by this much
+    float pitch = 0;          // nose up (+) / down (-): lifts the shoulders and head, lowers the haunch
+    float hind = 0, fore = 0; // hoppers: how far the hind legs are stretched back / the forelegs reached forward
 };
 
 inline BPose quadPose(int st, int i) {
@@ -106,6 +108,67 @@ inline BPose quadPose(int st, int i) {
     return p;
 }
 
+// Poses for the hoppers: a hop is crouch, push off (legs stretched), rise, peak, fall, land. `air` is the height of the hop.
+inline BPose hopPose(int st, int i) {
+    BPose p;
+    switch (st) {
+        case AN_IDLE: {  // sitting up on the haunches: 0 sit, 1 nose twitch, 2 head down nibbling, 3 head up chewing
+            p.pitch = 0.7f;
+            p.squash = 0.3f;
+            p.breathe = (i == 1) ? 0.25f : 0.f;
+            p.ear = (i == 1) ? 1.f : 0.f;
+            p.headDz = i == 2 ? -2.2f : i == 3 ? -0.9f : 0.f;
+            p.headDx = i == 2 ? 1.2f : i == 3 ? 0.5f : 0.f;
+            if (i == 2) p.pitch = -0.2f;
+            if (i == 3) p.pitch = 0.2f;
+            p.fore = 0.f;
+            p.hind = 0.f;
+            break;
+        }
+        case AN_WALK: {
+            static const float AIR[6] = {0.f, 0.6f, 1.6f, 2.2f, 1.2f, 0.2f}, HIND[6] = {0.f, 1.f, 0.9f, 0.6f, 0.3f, 0.1f},
+                               FORE[6] = {0.5f, 1.f, 0.9f, 0.6f, 0.3f, -0.2f}, PITCH[6] = {-0.2f, 0.8f, 0.5f, 0.f, -0.5f, -0.4f},
+                               SQ[6] = {0.4f, 0.f, 0.f, 0.f, 0.f, 0.3f};
+            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
+            p.ear = i >= 3 ? 0.f : 0.f;
+            p.tail = (i == 5) ? 1.f : 0.f;
+            break;
+        }
+        case AN_RUN: {
+            static const float AIR[6] = {0.f, 1.4f, 3.2f, 4.2f, 2.6f, 0.4f}, HIND[6] = {0.f, 1.2f, 1.3f, 1.2f, 0.8f, 0.2f},
+                               FORE[6] = {0.3f, 1.2f, 1.2f, 1.f, 0.8f, -0.1f}, PITCH[6] = {-0.3f, 0.6f, 0.2f, -0.1f, -0.5f, -0.4f},
+                               SQ[6] = {0.6f, 0.f, 0.f, 0.f, 0.f, 0.4f};
+            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
+            p.headDx = 0.6f;
+            p.tail = 1.f;
+            break;
+        }
+        case AN_HURT: {
+            static const float TN[4] = {0.45f, 0.9f, 1.0f, 0.5f}, BD[4] = {-0.8f, -1.2f, -0.6f, 0.f}, AIR[4] = {0.6f, 1.2f, 0.5f, 0.f};
+            p.tint = TN[i];
+            p.bodyDx = BD[i];
+            p.air = AIR[i];
+            p.pitch = 0.5f;
+            p.hind = 0.8f;
+            p.fore = 0.6f;
+            p.squash = (i == 3) ? 0.3f : 0.f;
+            break;
+        }
+        case AN_DEATH: {
+            static const float TN[6] = {0.6f, 0.8f, 0.6f, 0.3f, 0.12f, 0.f}, RL[6] = {0.f, 0.45f, 1.05f, 1.4f, 1.57f, 1.57f};
+            p.tint = TN[i];
+            p.roll = RL[i];
+            p.air = i == 0 ? 0.8f : 0.f;
+            p.limp = i >= 2 ? 1.f : (i == 1 ? 0.5f : 0.f);
+            p.hind = i >= 2 ? 0.9f : 0.5f;
+            p.fore = 0.3f;
+            break;
+        }
+        default: break;  // attack: unused
+    }
+    return p;
+}
+
 // ---------------------------------------------------------------- the rig
 struct RPart {
     int type;                 // 0 ellipsoid, 1 spike, 2 stroke (two points), 3 dot
@@ -132,6 +195,7 @@ struct RigShape {
     float neck;                // > 0: the neck is drawn as a thick tapered stroke from the shoulders to the head
     int tail;                  // 0 short curl, 1 bushy, 2 short flag
     bool tusks, mane, ridge, antlers, spots;
+    bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
     float strideMul, liftMul, airMul;
     int W, H;                  // canvas at scale 1
 };
@@ -172,10 +236,34 @@ inline RigShape deerShape(bool stag) {
     r.W = 54; r.H = 58;
     return r;
 }
+inline RigShape rabbitShape() {
+    RigShape r{};
+    r.tx = 4.8f; r.ty = 3.2f; r.tz = 3.4f; r.zb = 4.6f;
+    r.legFx = 3.2f; r.legBx = -2.6f; r.legY = 1.7f; r.legW = 1;
+    r.hdx = 1.2f; r.hdz = 1.5f; r.hrx = 2.7f; r.hry = 2.3f; r.hrz = 2.4f;
+    r.snx = 2.1f; r.snz = -0.6f; r.snr = 0.55f;
+    r.ear = 3; r.earH = 4.4f; r.neck = 0; r.tail = 3;
+    r.hopper = true;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.W = 30; r.H = 30;
+    return r;
+}
+inline RigShape hareShape() {  // leaner, longer in the leg and ear
+    RigShape r = rabbitShape();
+    r.tx = 5.6f; r.ty = 3.1f; r.tz = 3.5f; r.zb = 5.4f;
+    r.legFx = 3.8f; r.legBx = -3.0f;
+    r.hdx = 1.5f; r.hdz = 1.7f; r.hrx = 2.9f; r.hry = 2.2f; r.hrz = 2.5f;
+    r.earH = 5.6f;
+    r.airMul = 1.25f;
+    r.W = 34; r.H = 34;
+    return r;
+}
 inline RigShape rigShape(int kind, int form) {
     switch (kind) {
         case A_WOLF: return wolfShape();
         case A_DEER: return deerShape(form == 1);
+        case A_RABBIT: return rabbitShape();
+        case A_HARE: case A_SNOWHARE: return hareShape();
         default: return boarShape();
     }
 }
@@ -212,11 +300,12 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
     const float zb = R.zb + P.bob + P.air;
     const float bx = P.bodyDx;
     const float hx = bx + R.tx * 0.95f + R.hdx + P.headDx;          // head centre x
-    const float hz = zb + R.hdz + P.headDz;
+    const float hz = zb + R.hdz + P.headDz + P.pitch * 1.3f;
     const float sqz = P.squash;
+    const float pz = P.pitch;
     ell(bx, 0, zb, R.tx, R.ty, R.tz - sqz + P.breathe, light, body, dk);                                              // torso
-    ell(bx - R.tx * 0.51f, 0, zb - 0.5f, R.tx * 0.62f, R.ty * 0.96f, R.tz * 0.92f - sqz, light, body, dk);          // haunch
-    ell(bx + R.tx * 0.36f, 0, zb + 0.7f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);       // shoulder
+    ell(bx - R.tx * 0.51f, 0, zb - 0.5f - pz * 0.8f, R.tx * (R.hopper ? 0.8f : 0.62f), R.ty * (R.hopper ? 1.15f : 0.96f), R.tz * 0.92f - sqz, light, body, dk);  // haunch
+    ell(bx + R.tx * 0.36f, 0, zb + 0.7f + pz * 1.0f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);  // shoulder
     ell(bx, 0, zb - R.tz * 0.52f, R.tx * 0.82f, R.ty * 0.8f, R.tz * 0.4f, belly, belly, dk);                          // belly
     if (R.neck > 0) {  // a long neck: two overlapping blobs from the shoulders up to the head
         const float sx0 = bx + R.tx * 0.6f, sz0 = zb + R.tz * 0.5f;
@@ -230,7 +319,13 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
     dot(hx + R.snx + 2.6f * R.snr, 0.9f * R.snr, hz + R.snz + 0.2f, dk);                                               // nostrils
     dot(hx + R.snx + 2.6f * R.snr, -0.9f * R.snr, hz + R.snz + 0.2f, dk);
     const float earUp = P.ear * 0.9f;
-    if (R.ear == 1) {  // upright pointed ears
+    if (R.ear == 3) {  // long upright ears: they lean back when running and lie flat after a hit
+        const float lean = (P.stride > 3.f || P.air > 2.5f) ? -1.6f : 0.f, up = P.ear * 0.7f;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            ell(hx - 0.8f + lean, sd * 1.5f, hz + R.hrz + R.earH * 0.5f + up, 0.9f, 0.7f, R.earH * 0.62f, body, body, dk);
+            dot(hx - 0.2f + lean, sd * 1.5f, hz + R.hrz + R.earH * 0.5f + up, belly);  // the pale inside of the ear
+        }
+    } else if (R.ear == 1) {  // upright pointed ears
         ell(hx - 0.8f, 2.0f, hz + R.hrz + 0.6f + earUp, 1.0f, 0.9f, R.earH, body, body, dk);
         ell(hx - 0.8f, -2.0f, hz + R.hrz + 0.6f - earUp * 0.4f, 1.0f, 0.9f, R.earH, body, body, dk);
     } else if (R.ear == 2) {  // leaf ears held out to the sides
@@ -281,6 +376,8 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
         ell(bx - R.tx - 1.6f, tw * 0.5f, zb + 1.0f + up * 0.5f, 2.6f, 1.5f, 1.5f, body, body, dk);
         ell(bx - R.tx - 4.2f, tw, zb + 0.4f + up, 2.4f, 1.4f, 1.4f, light, body, dk);
         ell(bx - R.tx - 6.2f, tw * 1.3f, zb + 0.1f + up * 1.2f, 1.6f, 1.2f, 1.2f, dk, dk, dk);
+    } else if (R.tail == 3) {  // a cotton-ball tail
+        ell(bx - R.tx - 0.4f, 0, zb + 0.9f + P.tail * 0.5f, 1.5f, 1.5f, 1.5f, belly, belly, light);
     } else if (R.tail == 2) {  // a short flag with a pale underside
         ell(bx - R.tx - 0.6f, 0, zb + 1.8f, 1.1f, 1.0f, 1.8f, belly, belly, body);
     } else {
@@ -289,6 +386,22 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
     }
     // legs: front pair at +x, rear pair at -x; diagonal pairs swing together
     const float hipZ = zb - R.tz * 0.5f;
+    if (R.hopper) {
+        // hind legs: a big thigh and a long foot that folds under the body or stretches out behind it; forelegs: short reaches
+        const float hind = P.limp > 0 ? 0.9f : P.hind, fore = P.limp > 0 ? 0.3f : P.fore;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const bool near_ = sd < 0;
+            const u32 lc = near_ ? body : dk;
+            const float hx0 = bx + R.legBx, hy = sd * R.legY * 1.35f, ground = P.air * 0.9f + (P.limp > 0 ? P.limp * 0.6f : 0.f);
+            ell(hx0, hy, zb - 0.6f - pz * 0.6f, R.tx * 0.45f, 1.2f, R.tz * 0.6f, light, body, dk);  // thigh
+            stroke(hx0 + 0.4f, hy, zb - 1.6f, hx0 + 2.4f - 4.8f * hind, hy, ground + 0.4f + 0.8f * hind, lc, dk, 1);
+            stroke(hx0 + 2.4f - 4.8f * hind, hy, ground + 0.4f + 0.8f * hind, hx0 + 3.4f - 5.4f * hind, hy, ground + 0.2f, lc, dk, 1);
+            dot(hx0 + 3.4f - 5.4f * hind, hy, ground + 0.1f, hoof);
+            const float fx0 = bx + R.legFx + 0.4f, fy = sd * R.legY * 0.9f;
+            stroke(fx0, fy, zb - 1.4f + pz * 0.8f, fx0 + 1.9f * fore, fy, ground + 0.3f + 0.7f * std::max(0.f, fore), lc, dk, 1);
+            dot(fx0 + 1.9f * fore, fy, ground + 0.2f + 0.7f * std::max(0.f, fore), hoof);
+        }
+    } else
     for (int leg = 0; leg < 4; leg++) {
         const bool front = leg < 2, left = (leg & 1) == 0;
         const float lx = bx + (front ? R.legFx : R.legBx), ly = left ? R.legY : -R.legY;
@@ -392,7 +505,7 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
 // Build every form / tier / view / state / pose of every species that has a full animation set.
 template <class AssetsT>
 inline void buildRichAnimals(SDL_Renderer* r, AssetsT& a) {
-    for (int kind : {(int)A_BOAR, (int)A_WOLF, (int)A_DEER}) {
+    for (int kind : RICH_KINDS) {
         auto bank = std::make_shared<RichAnimal>();
         const AnimalClips& C = *animalClips(kind);
         for (int form = 0; form < ANIMAL[kind].forms; form++) {
@@ -403,7 +516,7 @@ inline void buildRichAnimals(SDL_Renderer* r, AssetsT& a) {
                 for (int v = 0; v < AV_VIEWS; v++)
                     for (int st = 0; st < AN_COUNT; st++)
                         for (int i = 0; i < C.poses[st]; i++) {
-                            Img im = paintQuad(sp, R, k, v, quadPose(st, i));
+                            Img im = paintQuad(sp, R, k, v, R.hopper ? hopPose(st, i) : quadPose(st, i));
                             styleActor(im, OUT, 0);  // dark contour tinted from the fill, as in the style reference (the hunter uses the same pass)
                             bank->s[form + 2 * tier][v][st][i] = makeSpr(r, im, im.w / 2, (int)(im.h - 6.f * k), true);
                         }
