@@ -451,7 +451,19 @@ void Game::renderWorld(bool) {
             if (a.st == AS_FEED && !a.dead) hop = fabsf(sinf(timeAcc * 4.f + a.animT)) * 1.2f;  // head-down bob
             hop += a.air + (a.air > 0 ? sinf(timeAcc * 3.f + a.animT) * 1.5f : 0.f);
             int fr = (a.st == AS_REST || a.st == AS_FEED) ? 0 : (spd > 1 ? ((int)a.animT) & 3 : 0);
-            const Spr& s = A.animal[a.kind][a.variant + 2 * a.tier][a.dead ? 4 : fr];
+            // species with a full animation set draw from their own bank (8 facings, six states); the rest use the walk cycle
+            const RichAnimal* rich = A.rich[a.kind].get();
+            bool mirror = a.face < 0;
+            const Spr* sp = &A.animal[a.kind][a.variant + 2 * a.tier][a.dead ? 4 : fr];
+            if (rich) {
+                const AnimalClips* ac = animalClips(a.kind);
+                const int st = std::max(0, std::min((int)AN_COUNT - 1, a.anim.state));
+                const FacingView fv = facingView(a.face8);
+                sp = &rich->s[a.variant + 2 * a.tier][fv.view][st][std::min(a.anim.frame(), ac->poses[st] - 1)];
+                mirror = fv.mirror;
+                hop = 0.f;
+            }
+            const Spr& s = *sp;
             if (a.tier == TR_LEGENDARY && !a.dead) {  // golden pulse so a legendary is easy to spot
                 float pulse = 0.35f + 0.2f * sinf(timeAcc * 3.f);
                 sprW(A.shadow[2], a.pos.x, a.pos.y - a.bodyH * 0.6f, false, pulse);
@@ -459,11 +471,11 @@ void Game::renderWorld(bool) {
                     fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
             }
             sprW(A.shadow[std::min(2, D.shadow)], a.pos.x, a.pos.y, false, 0.9f);
-            sprW(s, a.pos.x, a.pos.y - hop, a.face < 0);
+            sprW(s, a.pos.x, a.pos.y - hop, mirror);
             if (a.flash > 0) {
                 Spr f = s;
                 f.t = s.flash;
-                sprW(f, a.pos.x, a.pos.y - hop, a.face < 0, a.flash / 0.16f * 0.85f);
+                sprW(f, a.pos.x, a.pos.y - hop, mirror, a.flash / 0.16f * 0.85f);
             }
             if (a.st == AS_REST && !a.dead && ((int)(timeAcc * 1.5f) & 1))
                 text((int)a.pos.x - camX + 4, (int)a.pos.y - camY - (int)(a.bodyH * 2 + 6), "Z", C_DIM, 1, true);

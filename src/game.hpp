@@ -52,6 +52,11 @@ struct Animal {
     int tier = 0;         // 0 common .. 3 legendary (see fauna.hpp)
     float scale = 1.f;    // body scale (tier)
     float air = 0.f;      // height above the ground (flyers)
+    // ---- animation (only used by species with a full animation set, see animal_anim.hpp)
+    Animator anim;
+    int face8 = F_E;      // 8-way facing
+    float atkT = 0;       // > 0 while the attack animation plays
+    float hurtT = 0;      // > 0 while the hurt animation plays
 };
 
 struct Player {
@@ -297,6 +302,7 @@ struct Game {
     void update(float dt);
     void updatePlay(float dt);
     void updatePlayer(float dt);
+    void updateAnimalAnim(Animal& a, float dt);
     void updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac);
     void updateAnimals(float dt);
     void updateProjectiles(float dt);
