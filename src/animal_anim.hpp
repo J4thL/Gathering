@@ -1,4 +1,4 @@
-// animal_anim.hpp - animation states and clips for animals that have a full animation set.
+// animal_anim.hpp - animation states and clips for animals that have a full animation set (boar, wolf, deer so far).
 //
 // A species opts in by returning clips from animalClips(kind) and a painter in sprites_boar.hpp style (see buildRichAnimals).
 // Every other species keeps the older four-frame walk cycle. The states follow what the animal's AI is doing:
@@ -15,7 +15,7 @@ struct AnimalClips {
     Clip clip[AN_COUNT];
 };
 
-inline const AnimalClips& boarClipSet() {
+inline const AnimalClips& quadClipSet() {
     static const AnimalClips C = {
         {4, 6, 5, 5, 4, 6},
         {
@@ -30,4 +30,4 @@ inline const AnimalClips& boarClipSet() {
 }
 
 // Clips for the species that have a full animation set; nullptr for the others (they keep the four-frame walk cycle).
-inline const AnimalClips* animalClips(int kind) { return kind == A_BOAR ? &boarClipSet() : nullptr; }
+inline const AnimalClips* animalClips(int kind) { return (kind == A_BOAR || kind == A_WOLF || kind == A_DEER) ? &quadClipSet() : nullptr; }

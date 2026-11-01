@@ -504,15 +504,16 @@ static void spriteSheet(Game& g, const std::string& dir) {
             for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
         page(("animals" + std::to_string(pg)).c_str(), list, 12, 33, 50);
     }
-    // the boar: one page per state, a row per facing (S SE E NE N), a column per pose
-    if (g.A.rich[A_BOAR]) {
+    // the animals with a full animation set: one page per species and state, a row per facing (S SE E NE N), a column per pose
+    for (int kind : {(int)A_BOAR, (int)A_WOLF, (int)A_DEER}) {
+        if (!g.A.rich[kind]) continue;
         static const char* BN[AN_COUNT] = {"idle", "walk", "run", "attack", "hurt", "death"};
         for (int st = 0; st < AN_COUNT; st++) {
             std::vector<const Spr*> list;
-            const int n = animalClips(A_BOAR)->poses[st];
+            const int n = animalClips(kind)->poses[st];
             for (int v = 0; v < AV_VIEWS; v++)
-                for (int i = 0; i < AN_MAXF; i++) list.push_back(&g.A.rich[A_BOAR]->s[0][v][st][std::min(i, n - 1)]);
-            page((std::string("boar_") + BN[st]).c_str(), list, AN_MAXF, 50, 40);
+                for (int i = 0; i < AN_MAXF; i++) list.push_back(&g.A.rich[kind]->s[0][v][st][std::min(i, n - 1)]);
+            page((std::string(ANIMAL[kind].name) + "_" + BN[st]).c_str(), list, AN_MAXF, 56, 52);
         }
     }
     // the hunter standing in the world in every facing / a few states (shadow, depth, view mirroring)
@@ -3030,21 +3031,22 @@ static int selfTest(Game& g) {
     }
     {  // ---- the boar's full animation set
         const AnimalClips* bc = animalClips(A_BOAR);
-        check(bc && !animalClips(A_RABBIT) && g.A.rich[A_BOAR] && !g.A.rich[A_RABBIT], "only the boar has a full animation set so far");
+        check(bc && animalClips(A_WOLF) && animalClips(A_DEER) && !animalClips(A_RABBIT) && g.A.rich[A_BOAR] && g.A.rich[A_WOLF] && g.A.rich[A_DEER] && !g.A.rich[A_RABBIT], "boar, wolf and deer have a full animation set; the others keep the walk cycle");
         bool bankOk = bc != nullptr, clipsOk = bc != nullptr;
         if (bc) {
-            for (int form = 0; form < ANIMAL[A_BOAR].forms; form++)
-                for (int tier = 0; tier < TR_COUNT; tier++)
-                    for (int v = 0; v < AV_VIEWS; v++)
-                        for (int st = 0; st < AN_COUNT; st++)
-                            for (int i = 0; i < bc->poses[st]; i++) bankOk = bankOk && g.A.rich[A_BOAR]->s[form + 2 * tier][v][st][i].ok();
+            for (int kind : {(int)A_BOAR, (int)A_WOLF, (int)A_DEER})
+                for (int form = 0; form < ANIMAL[kind].forms; form++)
+                    for (int tier = 0; tier < TR_COUNT; tier++)
+                        for (int v = 0; v < AV_VIEWS; v++)
+                            for (int st = 0; st < AN_COUNT; st++)
+                                for (int i = 0; i < bc->poses[st]; i++) bankOk = bankOk && g.A.rich[kind]->s[form + 2 * tier][v][st][i].ok();
             for (int st = 0; st < AN_COUNT; st++) {
                 clipsOk = clipsOk && bc->poses[st] <= AN_MAXF && bc->clip[st].n > 0;
                 for (int i = 0; i < bc->clip[st].n; i++) clipsOk = clipsOk && bc->clip[st].frame[i] < bc->poses[st];
             }
             clipsOk = clipsOk && bc->clip[AN_IDLE].loop && bc->clip[AN_WALK].loop && bc->clip[AN_RUN].loop && !bc->clip[AN_ATTACK].loop && !bc->clip[AN_HURT].loop && !bc->clip[AN_DEATH].loop;
         }
-        check(bankOk, "every boar form / rarity / view / state / pose is drawn");
+        check(bankOk, "every boar, wolf and deer form / rarity / view / state / pose is drawn");
         check(clipsOk, "boar clips only use poses that exist; idle, walk and run loop, attack, hurt and death play once");
         if (bc) {
             g.newGame();

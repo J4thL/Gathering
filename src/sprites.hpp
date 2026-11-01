@@ -762,7 +762,7 @@ inline QuadSpec specWolf() {
 }
 
 #include "sprites_fauna.hpp"
-#include "sprites_boar.hpp"
+#include "sprites_rig.hpp"
 
 // ================================================================= icons & UI art
 inline Img mkIconMat(int m) {
@@ -1255,7 +1255,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 2; i++) a.quester[i] = makeSpr(r, mkQuestGiver(i), 9, 24);
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
-    buildBoar(r, a);
+    buildRichAnimals(r, a);
     for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
