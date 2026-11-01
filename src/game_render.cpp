@@ -397,12 +397,18 @@ void Game::renderWorld(bool) {
             sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
             sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
         } else if (e.t == 2) {
-            sprW(A.shadow[0], p.pos.x, p.pos.y);
-            int fr = ((int)p.animT) & 3;
-            const Spr& s = A.player[p.dir][fr];
-            bool fl = p.dir == 2 && p.flip;
+            const FacingView fv = facingView(p.face8);
+            const int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));
+            const int pose = std::min(p.anim.frame(), hunterPoseCount(st) - 1);
+            const Spr& s = A.hunter[fv.view][st][pose];
+            const bool fl = fv.mirror;
+            // the light comes from the upper left: one shadow shape for every pose, falling to the lower right
+            if (p.dead) sprW(A.shadow[1], p.pos.x, p.pos.y, false, 0.6f);
+            else sprW(A.shadowCast, p.pos.x - 1, p.pos.y, false, st == HS_RUN ? 0.85f : 1.f);
             if (p.dead) {
-                sprW(s, p.pos.x, p.pos.y, fl, 0.9f, fl ? -90 : 90, true);
+                // stagger, sink to the knees, then topple over
+                const float fall = clampf((p.deadT - 0.32f) / 0.22f, 0.f, 1.f);
+                sprW(s, p.pos.x, p.pos.y, fl, 0.9f, (fl ? -90.0 : 90.0) * fall, true);
             } else {
                 sprW(s, p.pos.x, p.pos.y, fl);
                 if (p.invuln > 0 && (((int)(timeAcc * 18)) & 1)) {

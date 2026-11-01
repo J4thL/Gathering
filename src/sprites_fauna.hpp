@@ -455,7 +455,10 @@ inline void buildFauna(SDL_Renderer* r, AssetsT& a) {
             for (int tier = 0; tier < TR_COUNT; tier++) {
                 QuadSpec sp = fauSpec(k, form, tier);
                 Spr* out = a.animal[k][form + 2 * tier];
-                for (int f = 0; f < 4; f++) out[f] = makeSpr(r, paintAnimal(k, sp, f, false), (int)sp.cx, sp.H - 2, true);
-                out[4] = makeSpr(r, paintAnimal(k, sp, 0, true), (int)sp.cx, 1, true);
+                for (int f = 0; f < 5; f++) {
+                    Img im = paintAnimal(k, sp, f < 4 ? f : 0, f == 4);
+                    styleActor(im, OUT, 1);
+                    out[f] = makeSpr(r, im, (int)sp.cx, f < 4 ? sp.H - 2 : 1, true);
+                }
             }
 }

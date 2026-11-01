@@ -476,6 +476,58 @@ static void townTour(Game& g, const std::string& dir) {
     printf("town services: %s (%d failed)\n", bad2 ? "FAILED" : "all passed", bad2);
 }
 
+// ---- sprite sheet (flag: --sprites DIR): the hunter (every direction and frame) and every animal's first form, for judging the art
+static void spriteSheet(Game& g, const std::string& dir) {
+    auto page = [&](const char* name, const std::vector<const Spr*>& list, int cols, int cellW, int cellH) {
+        SDL_SetRenderTarget(g.ren, g.canvas);
+        SDL_SetRenderDrawColor(g.ren, 96, 168, 80, 255);
+        SDL_RenderClear(g.ren);
+        for (size_t i = 0; i < list.size(); i++) {
+            const Spr& s = *list[i];
+            if (!s.ok()) continue;
+            SDL_Rect d{(int)(i % cols) * cellW + cellW / 2 - s.ax, (int)(i / cols) * cellH + cellH - 4 - s.ay, s.w, s.h};
+            SDL_RenderCopy(g.ren, s.t, nullptr, &d);
+        }
+        g.saveCanvas((dir + "/" + name + ".bmp").c_str());
+    };
+    // one page per hunter state: a row per facing (S SE E NE N), a column per pose
+    for (int st = 0; st < HS_COUNT; st++) {
+        std::vector<const Spr*> hero;
+        for (int v = 0; v < FACING_VIEWS; v++)
+            for (int i = 0; i < HS_MAXF; i++) hero.push_back(i < hunterPoseCount(st) ? &g.A.hunter[v][st][i] : &g.A.hunter[v][st][0]);
+        static const char* NAMES[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death"};
+        page((std::string("hunter_") + NAMES[st]).c_str(), hero, HS_MAXF, 28, 36);
+    }
+    for (int pg = 0; pg * 12 < (int)A_COUNT; pg++) {
+        std::vector<const Spr*> list;
+        for (int k = pg * 12; k < std::min((int)A_COUNT, pg * 12 + 12); k++)
+            for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
+        page(("animals" + std::to_string(pg)).c_str(), list, 12, 33, 50);
+    }
+    // the hunter standing in the world in every facing / a few states (shadow, depth, view mirroring)
+    g.newGame();
+    g.state = ST_PLAY;
+    g.animals.clear();
+    g.in.mx = 395;
+    g.in.my = 220;  // the aim cursor out of the way
+    static const int SC_STATE[] = {HS_IDLE, HS_WALK, HS_RUN, HS_SWING, HS_DEATH};
+    for (int sti = 0; sti < 5; sti++)
+        for (int f = 0; f < F_COUNT; f++) {
+            g.p.face8 = f;
+            const int st = SC_STATE[sti];
+            g.p.anim = Animator();
+            g.p.anim.play(st, &hunterClip(st));
+            g.p.anim.t = st == HS_RUN ? 0.1f : st == HS_WALK ? 0.15f : st == HS_SWING ? 0.5f : st == HS_DEATH ? 0.3f : 0.f;
+            g.p.dead = st == HS_DEATH;
+            g.p.deadT = 0.4f;
+            g.setCam(0, true);
+            g.render();
+            g.saveCanvas((dir + "/scene_" + std::to_string(sti) + std::to_string(f) + ".bmp").c_str());
+        }
+    g.p.dead = false;
+    printf("sprite sheets written to %s\n", dir.c_str());
+}
+
 // ---- world verification (flags: --worldcheck, --dumpcore FILE, --tour DIR)
 // Dump of the original home area's interior (tiles, solid flags, props, decor). Written by the old generator
 // and the new one in the same format so the two can be diffed: the start area must be unchanged.
@@ -2876,6 +2928,95 @@ static int selfTest(Game& g) {
         for (int k = 0; k < SK_COUNT; k++) allOne = allOne && g.p.sk.level(k) == 1;
         check(allOne, "an older save without skill lines loads with every skill at level 1");
     }
+    {  // ---- hunter animation: facing, clips, the state machine
+        const float X[8] = {0, 1, 1, 1, 0, -1, -1, -1}, Y[8] = {1, 1, 0, -1, -1, -1, 0, 1};  // S SE E NE N NW W SW
+        bool all8 = true;
+        for (int f = 0; f < 8; f++) all8 = all8 && facingFromDir(X[f], Y[f]) == f;
+        check(all8, "the eight directions map to the eight facings");
+        check(facingView(F_W).view == facingView(F_E).view && facingView(F_W).mirror && !facingView(F_E).mirror, "west is the east view mirrored");
+        check(facingView(F_NW).view == facingView(F_NE).view && facingView(F_NW).mirror && facingView(F_SW).view == facingView(F_SE).view && facingView(F_SW).mirror, "the west diagonals are the east diagonals mirrored");
+        check(facingFromDir(1.f, 0.55f, F_SE) == F_SE && facingFromDir(1.f, 1.5f, F_SE) == F_SE, "a direction wobbling on a sector border keeps the facing (no flicker)");
+        check(facingFromDir(1.f, -0.3f, F_SE) == F_E, "a clear turn changes the facing");
+        {
+            Animator an;
+            const Clip loopC = Clip::run(0, 4, 0.1f, true), once = Clip::run(0, 3, 0.1f, false);
+            an.play(1, &loopC);
+            an.update(0.25f);
+            const float t1 = an.t;
+            an.play(1, &loopC);  // same state again: must not restart
+            check(an.t == t1 && an.frame() == 2, "playing the state that is already playing does not restart it");
+            an.update(0.3f);
+            check(an.frame() < 4 && !an.done, "a looping clip wraps");
+            an.play(2, &once);
+            int firedN = 0;
+            for (int i = 0; i < 20; i++) {
+                an.update(0.05f);
+                if (an.justDone) firedN++;
+            }
+            check(firedN == 1 && an.done && an.frame() == 2, "a one-shot clip finishes once and holds its last frame");
+            an.play(2, &once, true);
+            an.scrub(0.5f);
+            check(an.frame() == 1, "scrub picks the frame by progress");
+        }
+        bool clipsOk = true, spritesOk = true;
+        for (int st = 0; st < HS_COUNT; st++) {
+            const Clip& c = hunterClip(st);
+            clipsOk = clipsOk && c.n > 0 && hunterPoseCount(st) <= HS_MAXF;
+            for (int i = 0; i < c.n; i++) clipsOk = clipsOk && c.frame[i] >= 0 && c.frame[i] < hunterPoseCount(st);
+            for (int v = 0; v < FACING_VIEWS; v++)
+                for (int i = 0; i < hunterPoseCount(st); i++) spritesOk = spritesOk && g.A.hunter[v][st][i].ok();
+        }
+        check(clipsOk, "every hunter clip only uses poses that exist");
+        check(spritesOk, "every hunter pose is drawn in all five views");
+        // the state machine in play
+        g.newGame();
+        g.state = ST_PLAY;
+        g.animals.clear();
+        g.p.inv.clear();
+        auto run = [&](int n) { for (int i = 0; i < n; i++) g.updatePlayer(0.02f); };
+        g.in = Input();
+        run(10);
+        check(g.p.anim.state == HS_IDLE, "standing still plays idle");
+        g.in.right = true;
+        run(10);
+        check(g.p.anim.state == HS_WALK && g.p.face8 == F_E, "walking right plays walk facing east");
+        g.in.down = true;
+        run(10);
+        check(g.p.face8 == F_SE, "right + down faces south-east");
+        g.in.right = false;
+        g.in.left = true;
+        run(10);
+        check(g.p.face8 == F_SW && facingView(g.p.face8).mirror, "left + down faces south-west (mirrored view)");
+        g.in.sprint = true;
+        run(10);
+        check(g.p.anim.state == HS_RUN, "sprinting plays run");
+        g.in = Input();
+        run(10);
+        check(g.p.anim.state == HS_IDLE && g.p.face8 == F_SW, "stopping returns to idle and keeps the facing");
+        g.p.invuln = 0;
+        g.p.hp = g.p.maxhp;
+        g.hurtPlayer(5, g.p.pos + V2(10, 0));
+        run(2);
+        check(g.p.anim.state == HS_HURT, "a hit plays the hurt animation");
+        run(30);
+        check(g.p.anim.state == HS_IDLE, "the hurt animation ends and idle resumes");
+        g.p.hp = 10;
+        g.p.inv.add(itemCons(C_BANDAGE), 1);
+        g.useConsumable(C_BANDAGE);
+        run(2);
+        check(g.p.anim.state == HS_USE, "using a bandage plays the use animation");
+        run(40);
+        g.p.invuln = 0;
+        g.p.sinceHurt = 99;
+        g.p.hp = 1;
+        g.hurtPlayer(50, g.p.pos + V2(10, 0));
+        run(2);
+        check(g.p.dead && g.p.anim.state == HS_DEATH, "being knocked out plays the death animation");
+        for (int i = 0; i < 400 && g.p.dead; i++) g.updatePlayer(0.02f);
+        check(!g.p.dead, "the hunter gets back up after the death animation");
+        run(2);
+        check(g.p.anim.state == HS_IDLE, "idle resumes after respawning");
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out << savedBytes;
@@ -2887,7 +3028,7 @@ static int selfTest(Game& g) {
 
 int main(int argc, char** argv) {
     bool headless = false;
-    std::string shots, tourDir, townDir, dumpFile, wildDir;
+    std::string shots, tourDir, townDir, spriteDir, dumpFile, wildDir;
     bool wtest = false, stest = false;
     bool wcheck = false;
     for (int i = 1; i < argc; i++) {
@@ -2895,6 +3036,7 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
         if (!strcmp(argv[i], "--tour") && i + 1 < argc) tourDir = argv[++i];
         if (!strcmp(argv[i], "--town") && i + 1 < argc) townDir = argv[++i];
+        if (!strcmp(argv[i], "--sprites") && i + 1 < argc) spriteDir = argv[++i];
         if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
         if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
         if (!strcmp(argv[i], "--weapons")) wtest = true;
@@ -2931,6 +3073,10 @@ int main(int argc, char** argv) {
     if (!wildDir.empty()) {
         wildlife(g, wildDir);
         g.audio.shutdown();
+        return 0;
+    }
+    if (!spriteDir.empty()) {
+        spriteSheet(g, spriteDir);
         return 0;
     }
     if (!townDir.empty()) {
