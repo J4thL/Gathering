@@ -56,6 +56,7 @@ struct Animal {
     Animator anim;
     int face8 = F_E;      // 8-way facing
     float atkT = 0;       // > 0 while the attack animation plays
+    float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
 };
 
@@ -83,6 +84,7 @@ struct Player {
     int up[U_COUNT] = {0};
     SkillSet sk;  // skill XP (skills.hpp); saved as "skill <key> <xp>" lines
     float gatherT = 0;
+    float impactT = 0;    // > 0 for a moment after a harvest swing lands: the hunter shows the recovery pose
     bool gathering = false;
     float swiftT = 0, nightT = 0;  // velvet tonic (faster) / nightsight tonic (see in the dark); not saved
     float warmT = 0, coolT = 0;  // seconds left of a warm brew (no cold drain) / cactus water (no heat drain); not saved
@@ -303,7 +305,7 @@ struct Game {
     void updatePlay(float dt);
     void updatePlayer(float dt);
     void updateAnimalAnim(Animal& a, float dt);
-    void updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac);
+    void updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac, int resCls = -1);
     void updateAnimals(float dt);
     void updateProjectiles(float dt);
     void checkWeaponSafetyNet(float dt);

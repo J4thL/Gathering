@@ -11,6 +11,7 @@
 #include <algorithm>
 #include <fstream>
 #include "game.hpp"
+#include "export_sprites.hpp"
 
 #ifdef _WIN32
 static int setenv(const char* k, const char* v, int) { return _putenv_s(k, v); }
@@ -495,7 +496,7 @@ static void spriteSheet(Game& g, const std::string& dir) {
         std::vector<const Spr*> hero;
         for (int v = 0; v < FACING_VIEWS; v++)
             for (int i = 0; i < HS_MAXF; i++) hero.push_back(i < hunterPoseCount(st) ? &g.A.hunter[v][st][i] : &g.A.hunter[v][st][0]);
-        static const char* NAMES[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death"};
+        static const char* NAMES[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death", "mine", "forage"};
         page((std::string("hunter_") + NAMES[st]).c_str(), hero, HS_MAXF, 28, 36);
     }
     for (int pg = 0; pg * 12 < (int)A_COUNT; pg++) {
@@ -507,10 +508,11 @@ static void spriteSheet(Game& g, const std::string& dir) {
     // the animals with a full animation set: one page per species and state, a row per facing (S SE E NE N), a column per pose
     for (int kind : RICH_KINDS) {
         if (!g.A.rich[kind]) continue;
-        static const char* BN[AN_COUNT] = {"idle", "walk", "run", "attack", "hurt", "death"};
+        static const char* BN[AN_COUNT] = {"idle", "walk", "run", "attack", "hurt", "death", "fly", "takeoff", "land", "eat", "rest", "alert"};
         for (int st = 0; st < AN_COUNT; st++) {
             std::vector<const Spr*> list;
             const int n = animalClips(kind)->poses[st];
+            if (n <= 0) continue;  // a state this species does not have (the flight states belong to birds)
             for (int v = 0; v < AV_VIEWS; v++)
                 for (int i = 0; i < AN_MAXF; i++) list.push_back(&g.A.rich[kind]->s[0][v][st][std::min(i, n - 1)]);
             page((std::string(ANIMAL[kind].name) + "_" + BN[st]).c_str(), list, AN_MAXF, 56, 52);
@@ -2242,6 +2244,7 @@ static int selfTest(Game& g) {
             check(g.world.solid[ty][tx], "a standing oak is a solid tile");
             const int woodBefore = g.p.mat(M_WOOD);
             check(swingUntilGone(node, idx, steps), "an oak can be chopped down");
+            check(g.p.impactT > 0, "the blow that lands starts the hunter's impact / recovery pose");
             check(g.p.mat(M_WOOD) > woodBefore, "felling an oak gives wood");
             check(g.p.sk.s[SK_WOODCUTTING].xp == 2 + RES[RS_OAK].hits * 2 + RES[RS_OAK].minTier * 4, "felling an oak earns Woodcutting XP once");
             check(!g.world.solid[ty][tx], "a felled tree no longer blocks the way");
@@ -3028,6 +3031,35 @@ static int selfTest(Game& g) {
         check(!g.p.dead, "the hunter gets back up after the death animation");
         run(2);
         check(g.p.anim.state == HS_IDLE, "idle resumes after respawning");
+        {  // gathering: one animation per kind of work, timed to the swing
+            g.p.dead = false;
+            g.p.hp = g.p.maxhp;
+            g.p.impactT = 0;
+            g.p.anim = Animator();
+            g.updateHunterAnim(0.02f, false, false, false, true, 0, 0.f, RCL_TREE);
+            check(g.p.anim.state == HS_SWING, "an axe on a tree plays the chopping stroke");
+            g.updateHunterAnim(0.02f, false, false, false, true, 4, 0.f, RCL_ROCK);
+            check(g.p.anim.state == HS_MINE, "a pickaxe on rock plays the mining stroke");
+            g.updateHunterAnim(0.02f, false, false, false, true, 4, 0.f, RCL_ORE);
+            check(g.p.anim.state == HS_MINE, "a pickaxe on ore plays the mining stroke");
+            g.updateHunterAnim(0.02f, false, false, false, true, -1, 0.f, RCL_PLANT);
+            check(g.p.anim.state == HS_FORAGE, "picking a plant by hand plays the foraging motion");
+            g.updateHunterAnim(0.02f, false, false, true, false, -1, 0.f, -1);
+            check(g.p.anim.state == HS_GATHER, "kneeling at a carcass plays the skinning motion");
+            // the swing follows the harvest timer: the raise at the start, the strike just before the hit, the recovery after it
+            g.updateHunterAnim(0.02f, false, false, false, true, 0, 0.f, RCL_TREE);
+            check(g.p.anim.frame() == 0, "the swing starts with the raise");
+            g.updateHunterAnim(0.02f, false, false, false, true, 0, 0.98f, RCL_TREE);
+            check(g.p.anim.frame() == 3, "the hit lands on the impact frame");
+            g.p.impactT = 0.1f;
+            g.updateHunterAnim(0.02f, false, false, false, true, 0, 0.f, RCL_TREE);
+            check(g.p.anim.frame() == 4, "the recovery pose follows the hit");
+            g.p.impactT = 0;
+            g.updateHunterAnim(0.02f, false, false, false, true, 0, 0.f, RCL_TREE);
+            check(g.p.anim.frame() == 0 && g.p.anim.state == HS_SWING, "and the next swing starts again from the raise");
+            g.updateHunterAnim(0.02f, false, false, false, false, -1, 0.f, -1);
+            check(g.p.anim.state == HS_IDLE, "stopping returns to idle");
+        }
     }
     {  // ---- the boar's full animation set
         const AnimalClips* bc = animalClips(A_BOAR);
@@ -3043,13 +3075,141 @@ static int selfTest(Game& g) {
             for (int kind : RICH_KINDS) {
                 const AnimalClips* kc = animalClips(kind);
                 for (int st = 0; st < AN_COUNT; st++) {
-                    clipsOk = clipsOk && kc->poses[st] <= AN_MAXF && kc->clip[st].n > 0;
+                    clipsOk = clipsOk && kc->poses[st] <= AN_MAXF && (kc->poses[st] == 0) == (kc->clip[st].n == 0);  // a state has a clip exactly when it has poses
                     for (int i = 0; i < kc->clip[st].n; i++) clipsOk = clipsOk && kc->clip[st].frame[i] < kc->poses[st];
                 }
             }
             clipsOk = clipsOk && bc->clip[AN_IDLE].loop && bc->clip[AN_WALK].loop && bc->clip[AN_RUN].loop && !bc->clip[AN_ATTACK].loop && !bc->clip[AN_HURT].loop && !bc->clip[AN_DEATH].loop;
         }
         check(bankOk, "every boar, wolf, deer, rabbit and hare form / rarity / view / state / pose is drawn");
+        {  // birds: the flight states and the air logic
+            check(animalClips(A_DUCK) && animalClips(A_EAGLE) && animalClips(A_ROADRUNNER) && g.A.rich[A_EAGLE] && animalClips(A_EAGLE)->poses[AN_FLY] == 6 && animalClips(A_EAGLE)->clip[AN_FLY].loop && !animalClips(A_EAGLE)->clip[AN_TAKEOFF].loop && !animalClips(A_EAGLE)->clip[AN_LAND].loop, "duck, eagle and roadrunner have bird sets with looping flight and one-shot takeoff / landing");
+            g.animals.clear();
+            g.p.pos = V2(0, 0);
+            Animal d;
+            d.kind = A_DUCK;
+            d.hp = d.maxhp = 12;
+            d.pos = d.target = V2(300, 300);
+            d.bodyH = ANIMAL[A_DUCK].bodyH;
+            d.st = AS_WANDER;
+            g.animals.push_back(d);
+            auto D_ = [&]() -> Animal& { return g.animals[0]; };
+            for (int i = 0; i < 20; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().air == 0.f && D_().anim.state == AN_IDLE, "a resting duck stands on the ground");
+            D_().vel = V2(20, 0);
+            for (int i = 0; i < 5; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().air == 0.f && D_().anim.state == AN_WALK, "a wandering duck walks");
+            D_().st = AS_FLEE;
+            D_().vel = V2(100, 0);
+            g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().anim.state == AN_TAKEOFF && D_().air > 0.f, "a fleeing duck takes off");
+            float prevAir = D_().air;
+            bool rises = true;
+            for (int i = 0; i < 12; i++) {
+                g.updateAnimalAnim(D_(), 0.02f);
+                rises = rises && D_().air >= prevAir;
+                prevAir = D_().air;
+            }
+            check(rises, "it climbs smoothly");
+            for (int i = 0; i < 60; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().air == FLY_HEIGHT && D_().anim.state == AN_FLY, "then cruises with the wing-beat cycle");
+            D_().st = AS_WANDER;
+            D_().vel = V2();
+            g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().anim.state == AN_LAND, "once calm it lands");
+            for (int i = 0; i < 80; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().air == 0.f && D_().anim.state == AN_IDLE, "and is back to standing on the ground");
+            D_().st = AS_FLEE;
+            for (int i = 0; i < 80; i++) g.updateAnimalAnim(D_(), 0.02f);
+            g.hitAnimal(D_(), 1.f, V2(1, 0), false);
+            g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().anim.state == AN_HURT && D_().air > 0.f, "a hit flyer flinches in the air");
+            g.animals[0].kind = A_EAGLE;
+            g.animals[0].st = AS_WANDER;
+            g.animals[0].vel = V2(30, 0);
+            g.animals[0].hurtT = 0;
+            for (int i = 0; i < 80; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().anim.state == AN_FLY && D_().air == FLY_HEIGHT, "a soaring eagle stays aloft while it moves");
+            D_().st = AS_REST;
+            D_().vel = V2();
+            for (int i = 0; i < 80; i++) g.updateAnimalAnim(D_(), 0.02f);
+            check(D_().air == 0.f, "and lands to rest");
+            g.animals.clear();
+        }
+        {  // the exporter: PNG sheets for all eight directions of every state, plus JSON metadata
+            const std::string dir = (std::filesystem::temp_directory_path() / "wildwood_export_test").string();
+            std::filesystem::remove_all(dir);
+            const int n = sprexp::exportAll(dir);
+            check(n > 0, "the sprite exporter writes its files");
+            int pngs = 0, bad = 0;
+            for (auto& e : std::filesystem::recursive_directory_iterator(dir))
+                if (e.path().extension() == ".png") {
+                    pngs++;
+                    FILE* f = fopen(e.path().string().c_str(), "rb");
+                    unsigned char h[24] = {0};
+                    if (!f || fread(h, 1, 24, f) != 24 || memcmp(h, "\x89PNG\r\n\x1a\n", 8) != 0 || ((h[16] << 24) | (h[17] << 16) | (h[18] << 8) | h[19]) < 8) bad++;
+                    if (f) fclose(f);
+                }
+            int expect = 0;
+            for (int st = 0; st < HS_COUNT; st++) expect += F_COUNT;
+            for (int kind : RICH_KINDS)
+                for (int st = 0; st < AN_COUNT; st++)
+                    if (animalClips(kind)->poses[st] > 0) expect += F_COUNT;
+            check(pngs == expect && bad == 0, "one valid PNG per state and direction (8 directions each)");
+            check(std::filesystem::exists(dir + "/sprites/animals/wild_duck/wild_duck_fly_northwest.png") && std::filesystem::exists(dir + "/animations/animals/deer_walk.json") &&
+                      std::filesystem::exists(dir + "/sprites/player/gathering/chopping/player_swing_east.png") && std::filesystem::exists(dir + "/animations/manifest.json"),
+                  "files are named species_state_direction and have metadata");
+            std::filesystem::remove_all(dir);
+        }
+        {  // calm states (graze, rest) and the startle before a prey animal bolts
+            g.animals.clear();
+            g.p.dead = false;
+            Animal d;
+            d.kind = A_DEER;
+            d.hp = d.maxhp = ANIMAL[A_DEER].hp;
+            d.bodyH = ANIMAL[A_DEER].bodyH;
+            d.pos = d.target = g.p.pos + V2(400, 0);
+            d.st = AS_FEED;
+            g.animals.push_back(d);
+            auto E_ = [&]() -> Animal& { return g.animals[0]; };
+            g.updateAnimalAnim(E_(), 0.02f);
+            check(E_().anim.state == AN_EAT, "a grazing animal plays the eating animation");
+            E_().st = AS_REST;
+            g.updateAnimalAnim(E_(), 0.02f);
+            check(E_().anim.state == AN_REST, "a resting animal lies down");
+            bool poses = true;
+            for (int kind : RICH_KINDS)
+                for (int st : {AN_EAT, AN_REST, AN_ALERT}) poses = poses && animalClips(kind)->poses[st] > 0 && animalClips(kind)->clip[st].n > 0;
+            check(poses, "every species with a full set can eat, rest and be alert");
+            // try a few spots around the hunter (the first may be walled in): the first one it can run from is checked
+            bool startled = false, froze = true, bolted = false, dust = false;
+            for (const V2 off : {V2(40, 0), V2(-40, 0), V2(0, 40), V2(0, -40), V2(60, 60), V2(-60, -60)}) {
+                if (bolted) break;
+                E_().st = AS_WANDER;
+                E_().alertT = 0;
+                E_().vel = V2();
+                E_().pos = E_().target = g.p.pos + off;
+                E_().anim = Animator();
+                const V2 p0 = E_().pos;
+                g.updateAnimals(0.02f);
+                startled = E_().st == AS_FLEE && E_().alertT > 0 && E_().anim.state == AN_ALERT;
+                if (!startled) continue;
+                for (int i = 0; i < 10; i++) g.updateAnimals(0.02f);
+                froze = dist(p0, E_().pos) < 0.5f && E_().anim.state == AN_ALERT;
+                for (int i = 0; i < 60; i++) g.updateAnimals(0.02f);
+                bolted = E_().alertT <= 0 && dist(p0, E_().pos) > 4.f && E_().anim.state == AN_RUN;
+                if (bolted) {  // a running animal kicks up dust
+                    g.parts.clear();
+                    for (int i = 0; i < 150; i++) g.updateAnimals(0.02f);
+                    dust = !g.parts.empty();
+                }
+            }
+            check(dust, "a running animal kicks up dust");
+            check(startled, "a deer that notices the hunter is startled first");
+            check(froze, "it freezes and looks while the alert plays");
+            check(bolted, "then it bolts");
+            g.animals.clear();
+        }
         check(clipsOk, "every species' clips only use poses that exist; the boar's idle, walk and run loop, attack, hurt and death play once");
         if (bc) {
             g.newGame();
@@ -3095,6 +3255,28 @@ static int selfTest(Game& g) {
                 g.killAnimal(A_());
                 for (int i = 0; i < 80; i++) g.updateAnimalAnim(A_(), 0.02f);
                 check(A_().dead && A_().anim.state == AN_DEATH && A_().anim.done && A_().anim.frame() == bc->poses[AN_DEATH] - 1, "a dead boar plays death once and stays on the last pose");
+                {  // the death slide: momentum carries the body a short way, slows smoothly and stops; the corpse stays
+                    Animal& b = A_();
+                    const V2 p0 = b.pos;
+                    const float sp0 = b.kb.len();
+                    float prev = sp0, spMid = 0;
+                    bool mono = true;
+                    for (int i = 0; i < 300 && b.kb.len() > 0; i++) {
+                        g.updateAnimals(0.02f);
+                        const float s = b.kb.len();
+                        mono = mono && s <= prev + 1e-3f;
+                        prev = s;
+                        if (i == 10) spMid = s;
+                    }
+                    const float d = dist(p0, b.pos);
+                    check(sp0 > 50.f, "the killing blow starts a slide");
+                    check(d > 6.f && d < 60.f, "the corpse slides a short distance");
+                    check(mono && spMid > 0.f && spMid < sp0, "the slide slows down smoothly");
+                    check(b.kb.len() == 0.f, "the slide comes to a complete stop");
+                    const V2 pStop = b.pos;
+                    for (int i = 0; i < 50; i++) g.updateAnimals(0.02f);
+                    check(dist(pStop, b.pos) == 0.f && !b.gone && b.totalRemain > 0 && b.anim.state == AN_DEATH && b.anim.done, "the stopped corpse stays put, gatherable, on its last death pose");
+                }
             }
         }
     }
@@ -3109,7 +3291,7 @@ static int selfTest(Game& g) {
 
 int main(int argc, char** argv) {
     bool headless = false;
-    std::string shots, tourDir, townDir, spriteDir, dumpFile, wildDir;
+    std::string shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
     bool wcheck = false;
     for (int i = 1; i < argc; i++) {
@@ -3118,6 +3300,7 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--tour") && i + 1 < argc) tourDir = argv[++i];
         if (!strcmp(argv[i], "--town") && i + 1 < argc) townDir = argv[++i];
         if (!strcmp(argv[i], "--sprites") && i + 1 < argc) spriteDir = argv[++i];
+        if (!strcmp(argv[i], "--export-sprites") && i + 1 < argc) exportDir = argv[++i];
         if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
         if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
         if (!strcmp(argv[i], "--weapons")) wtest = true;
@@ -3155,6 +3338,13 @@ int main(int argc, char** argv) {
         wildlife(g, wildDir);
         g.audio.shutdown();
         return 0;
+    }
+    if (!exportDir.empty()) {  // PNG sprite sheets + JSON animation metadata (export_sprites.hpp)
+        const int n = sprexp::exportAll(exportDir);
+        if (n < 0) fprintf(stderr, "sprite export failed: could not write some files under %s\n", exportDir.c_str());
+        else printf("exported %d files to %s\n", n, exportDir.c_str());
+        g.audio.shutdown();
+        return n < 0 ? 2 : 0;
     }
     if (!spriteDir.empty()) {
         spriteSheet(g, spriteDir);

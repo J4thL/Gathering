@@ -14,13 +14,16 @@ enum Kind {
     A_COUNT
 };
 
+constexpr float FLY_HEIGHT = 13.f, FLY_CLIMB = 28.f, FLY_DESCEND = 22.f;  // px above the ground, px/s up, px/s down
+
 enum Art { ART_QUAD, ART_BIRD, ART_SNAKE, ART_FROG, ART_LIZARD, ART_GATOR };
 
 // behaviour flags
 enum {
     BH_AMBUSH = 1,      // lies still ("lurks") until you come close, then strikes and backs off
     BH_NIGHT_AGGRO = 2, // only hunts the player at night; by day it behaves like prey
-    BH_FLIES = 4        // lifts off the ground while fleeing (harder to hit)
+    BH_FLIES = 4,       // lifts off the ground while fleeing (harder to hit)
+    BH_SOARS = 8        // a flyer that stays airborne while it moves about and only lands to rest or feed (eagle)
 };
 
 // How a rarity tier recolours a species. Which look each tier uses is data (AnimalDef::looks).
@@ -210,7 +213,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     }
     {
         auto& d = S(A_EAGLE, {"GOLDEN EAGLE", 22, 18, 135, 150, 8, false, 0, 0, 0.40f, {{1, 1}, {0, 0}, {1, 2}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}});
-        d.art = ART_BIRD; d.flags = BH_FLIES; d.bodyH = 8; d.decal = 0; d.shadow = 1; d.restChance = 0.35f; d.animK = 0.1f; d.hpBarY = 12;
+        d.art = ART_BIRD; d.flags = BH_FLIES | BH_SOARS; d.bodyH = 8; d.decal = 0; d.shadow = 1; d.restChance = 0.35f; d.animK = 0.1f; d.hpBarY = 12;
         d.looks[0] = LK_DARK; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD; d.legendName = "SKY KING";
     }
     {

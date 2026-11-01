@@ -533,7 +533,7 @@ Animal* Game::spawnAnimal(int kind, V2 pos, int form, int tier) {
     a.idleT = frng.range(0, 3);
     a.animT = frng.range(0, 4);
     a.bodyH = D.bodyH * a.scale;
-    if (D.flags & BH_FLIES) a.air = 13.f;
+    if (D.flags & BH_SOARS) a.air = FLY_HEIGHT;  // soaring birds spawn already airborne; the others start on the ground
     animals.push_back(a);
     return &animals.back();
 }
@@ -635,9 +635,13 @@ void Game::updateAnimals(float dt) {
         if (a.flash > 0) a.flash -= dt;
         if (a.hpShow > 0) a.hpShow -= dt;
         if (a.atkCd > 0) a.atkCd -= dt;
-        if (a.kb.len() > 3) {
+        // knockback dies away fast on a living animal; a dying one keeps its momentum and slides to a stop (friction, not a cut-off)
+        if (a.kb.len() > (a.dead ? 2.f : 3.f)) {
+            const V2 from = a.pos;
             moveEnt(world, a.pos, a.kb * dt, 5.f);
-            a.kb = a.kb * expf(-9 * dt);
+            if (a.dead && a.kb.len() > 25.f && rng.chance(dt * 7.f)) decals.push_back({a.pos + V2(rng.range(-2, 2), 2), 0, 0, 40});  // a smear along the slide
+            if (a.dead && dist(from, a.pos) < a.kb.len() * dt * 0.3f) a.kb = a.kb * 0.5f;  // ran into something: scrub the speed off
+            a.kb = a.kb * expf((a.dead ? -3.4f : -9.f) * dt);
         } else
             a.kb = V2();
         if (a.dead) {
@@ -657,6 +661,12 @@ void Game::updateAnimals(float dt) {
         float notice = D.notice * T.notice * (D.aggro ? 1.f + 0.3f * night : 1.f);
         a.stT -= dt;
         a.vel = V2();
+        if (a.alertT > 0) {  // startled: freeze and look at the hunter, then bolt (the state change was made when it noticed)
+            a.alertT -= dt;
+            if (dd < 9000.f) a.face8 = facingFromDir(dp.x, dp.y, a.face8);
+            updateAnimalAnim(a, dt);
+            continue;
+        }
         switch (a.st) {
             case AS_WANDER:
             case AS_FEED:
@@ -678,6 +688,8 @@ void Game::updateAnimals(float dt) {
                     } else {
                         a.st = AS_FLEE;
                         a.stT = rng.range(2.5f, 4.f);
+                        if (const AnimalClips* ac = animalClips(a.kind))
+                            if (ac->poses[AN_ALERT] > 0) a.alertT = ac->clip[AN_ALERT].total();  // a moment of alert before it bolts
                         ftext(a.pos + V2(0, -a.bodyH - 12), "!", C_TEXT, 0.7f);
                     }
                     break;
@@ -747,7 +759,12 @@ void Game::updateAnimals(float dt) {
         float spd = a.vel.len();
         if (spd > 1) a.animT += spd * dt * D.animK;
         a.noticeT += dt;
+        const int prevAnim = a.anim.state;
         updateAnimalAnim(a, dt);
+        if (animalClips(a.kind) && a.air < 1.f) {  // dust kicked up by a running animal, and a puff as a bird launches itself
+            if (a.anim.state == AN_RUN && rng.chance(dt * 9.f)) puff(a.pos + V2(-a.vel.x * 0.04f, -1), 1, HEX(0xcdb98f));
+            if (a.anim.state == AN_TAKEOFF && prevAnim != AN_TAKEOFF) puff(a.pos + V2(0, -1), 4, HEX(0xd8c8a8));
+        }
     }
     animals.erase(std::remove_if(animals.begin(), animals.end(), [](const Animal& a) { return a.gone; }), animals.end());
 }
@@ -764,14 +781,29 @@ void Game::updateAnimalAnim(Animal& a, float dt) {
     a.atkT = std::max(0.f, a.atkT - dt);
     int st;
     float rate = 1.f;
+    // flyers climb to FLY_HEIGHT while fleeing (soarers while moving about) and come down to rest or feed: air eases between the two
+    int flight = 0;  // 1 climbing, 2 cruising, 3 descending
+    if ((D.flags & BH_FLIES) && !a.dead && a.alertT <= 0) {
+        const bool soar = (D.flags & BH_SOARS) && a.st != AS_REST && a.st != AS_FEED && (spd > 1.f || a.st == AS_CHASE);
+        const float goal = (a.st == AS_FLEE || soar) ? FLY_HEIGHT : 0.f;
+        if (a.air < goal) a.air = std::min(goal, a.air + FLY_CLIMB * dt);
+        else if (a.air > goal) a.air = std::max(goal, a.air - FLY_DESCEND * dt);
+        flight = a.air < goal ? 1 : (a.air > goal ? 3 : (a.air > 0.5f ? 2 : 0));
+    }
     if (a.dead) st = AN_DEATH;
     else if (a.hurtT > 0) st = AN_HURT;
     else if (a.atkT > 0) st = AN_ATTACK;
+    else if (a.alertT > 0) st = AN_ALERT;
+    else if (flight == 1) st = (a.anim.state == AN_TAKEOFF && a.anim.done) ? AN_FLY : AN_TAKEOFF;
+    else if (flight == 2) st = AN_FLY;
+    else if (flight == 3) st = AN_LAND;  // holds its last pose until the feet touch down
     else if (spd > 1.f) {
         const bool fast = a.st == AS_CHASE || a.st == AS_FLEE;
         st = fast ? AN_RUN : AN_WALK;
         rate = clampf(spd / (fast ? D.run : D.wander), 0.5f, 1.8f);
-    } else st = AN_IDLE;
+    } else if (a.st == AS_FEED && ac->poses[AN_EAT] > 0) st = AN_EAT;
+    else if (a.st == AS_REST && ac->poses[AN_REST] > 0) st = AN_REST;
+    else st = AN_IDLE;
     if (!a.dead) {
         if (a.st == AS_CHASE && dist(a.pos, p.pos) < D.hitR + 30) a.face8 = facingFromDir(p.pos.x - a.pos.x, p.pos.y - a.pos.y, a.face8);
         else if (spd > 1.f) a.face8 = facingFromDir(a.vel.x, a.vel.y, a.face8);
@@ -783,6 +815,7 @@ void Game::updateAnimalAnim(Animal& a, float dt) {
 void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     int d = std::max(1, (int)roundf(dmg));
     a.hp -= d;
+    a.alertT = 0;  // a hit ends any startle: it bolts at once
     a.flash = 0.16f;
     a.hpShow = 3.0f;
     if (const AnimalClips* ac = animalClips(a.kind)) {
@@ -812,6 +845,12 @@ void Game::killAnimal(Animal& a) {
     a.dead = true;
     a.deadT = 0;
     a.hp = 0;
+    {  // the death slide: the killing blow's push plus what is left of the animal's own run carries the body along
+        const V2 carry = a.vel * 0.7f;
+        V2 m = a.kb + carry;
+        const float ml = m.len();
+        if (ml > 1e-3f) a.kb = m * (std::min(std::max(ml, 80.f), 190.f) / ml);
+    }
     a.vel = V2();
     kills++;
     questEvent(Q_KILL, a.kind, 1);
@@ -1101,16 +1140,15 @@ void Game::updatePlayer(float dt) {
     else if (moving) setDir(mv);
     if (moving && !wantGather && !wantHarvest) P.animT += dt * (sprinting ? 12.f : 8.5f);
     {
-        int swingTool = -1;
+        int swingTool = -1, resCls = -1;
         float swingFrac = 0;
-        if (wantHarvest && RES[ht.res].tool >= 0) {
+        if (wantHarvest) {
             int ti = -1;
-            if (bestTool(RES[ht.res].tool, &ti) > 0) {
-                swingTool = ti;
-                swingFrac = clampf(P.gatherT / RES[ht.res].swing, 0.f, 1.f);
-            }
+            if (RES[ht.res].tool >= 0 && bestTool(RES[ht.res].tool, &ti) > 0) swingTool = ti;
+            resCls = RES[ht.res].cls;
+            swingFrac = clampf(P.gatherT / RES[ht.res].swing, 0.f, 1.f);  // the swing's progress: the strike lands when it reaches 1
         }
-        updateHunterAnim(dt, moving, sprinting, wantGather, wantHarvest, swingTool, swingFrac);
+        updateHunterAnim(dt, moving, sprinting, wantGather, wantHarvest, swingTool, swingFrac, resCls);
     }
     if (sprinting && rng.chance(0.25f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
 
@@ -1235,7 +1273,7 @@ void Game::updatePlayer(float dt) {
 
 // Pick the hunter's animation state from what the hunter is doing and advance it. Priority: death, a fresh hit, using an item,
 // a throw, winding one up, a tool stroke / skinning, running, walking, idle.
-void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac) {
+void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac, int resCls) {
     Player& P = p;
     bool hit = false;
     if (P.sinceHurt < P.animSince) hit = true;  // sinceHurt was reset: a new hit
@@ -1247,13 +1285,15 @@ void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGath
     else if (P.useT > 0) st = HS_USE;
     else if (P.throwAnim > 0) st = HS_THROW;
     else if (P.charging) st = HS_AIM;
-    else if (wantHarvest && swingTool >= 0) st = HS_SWING;
-    else if (wantGather || wantHarvest) st = HS_GATHER;
+    else if (wantHarvest) st = resCls == RCL_TREE ? HS_SWING : (resCls == RCL_ROCK || resCls == RCL_ORE) ? HS_MINE : HS_FORAGE;  // axe / pickaxe / hands on a plant
+    else if (wantGather) st = HS_GATHER;  // kneeling at a carcass: skinning
     else if (moving) st = sprinting ? HS_RUN : HS_WALK;
     else st = HS_IDLE;
+    (void)swingTool;
+    P.impactT = std::max(0.f, P.impactT - dt);
     P.anim.play(st, &hunterClip(st), restart);
     P.anim.update(dt);
-    if (st == HS_SWING) P.anim.scrub(swingFrac);
+    if (isToolStroke(st)) P.anim.scrub(P.impactT > 0 ? 1.f : swingFrac * hunterSwingSpan(st));  // the recovery right after a hit, else follow the swing
     else if (st == HS_AIM) P.anim.scrub(clampf(P.charge, 0.f, 1.f));
 }
 

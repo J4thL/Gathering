@@ -437,6 +437,7 @@ void Game::renderWorld(bool) {
                                 const float ease = f < 0.7f ? f / 0.7f * 0.35f : 0.35f + (f - 0.7f) / 0.3f * 0.65f;  // slow wind-up, fast strike
                                 const bool left = ht.pos.x < p.pos.x;
                                 float ang = -75.f + 125.f * ease;
+                                if (p.impactT > 0) ang = 50.f - 35.f * (1.f - p.impactT / 0.16f);  // the tool rests on the target, then lifts as the hunter recovers
                                 sprW(A.R.toolSwing[ti], p.pos.x + (left ? -3 : 3), p.pos.y - 9, left, 1.f, left ? -ang : ang, true);
                             }
                         }
@@ -461,7 +462,7 @@ void Game::renderWorld(bool) {
                 const FacingView fv = facingView(a.face8);
                 sp = &rich->s[a.variant + 2 * a.tier][fv.view][st][std::min(a.anim.frame(), ac->poses[st] - 1)];
                 mirror = fv.mirror;
-                hop = 0.f;
+                hop = (D.flags & BH_FLIES) ? a.air : 0.f;  // flyers keep their height; the wing beat is in the sprite
             }
             const Spr& s = *sp;
             if (a.tier == TR_LEGENDARY && !a.dead) {  // golden pulse so a legendary is easy to spot
@@ -470,7 +471,7 @@ void Game::renderWorld(bool) {
                 if (((int)(timeAcc * 6) + e.i) % 5 == 0)
                     fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
             }
-            sprW(A.shadow[std::min(2, D.shadow)], a.pos.x, a.pos.y, false, 0.9f);
+            sprW(A.shadow[std::min(2, D.shadow)], a.pos.x, a.pos.y, false, 0.9f * (1.f - clampf(a.air / 30.f, 0.f, 0.4f)));  // a high flyer's shadow is fainter
             sprW(s, a.pos.x, a.pos.y - hop, mirror);
             if (a.flash > 0) {
                 Spr f = s;
