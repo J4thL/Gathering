@@ -2,6 +2,8 @@
 #pragma once
 #include "data.hpp"
 #include "appearance.hpp"
+#include "sprite_style.hpp"
+#include "hunter_pose.hpp"
 #include <cstring>
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
@@ -381,7 +383,8 @@ inline Img mkQuestGiver(int frame) {
 }
 
 // ================================================================= hunter
-inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) {
+// dir: 0 south, 1 north, 2 east (the west views are mirrors), 3 south-east, 4 north-east.
+inline Img mkPlayerPose(int dir, const HPose& P, const HunterLook& look = HunterLook()) {
     Img im(18, 26);
     const HunterLook L = clampLook(look);
     const OutfitCol& oc = OUTFITCOL[L.outfit];
@@ -389,136 +392,144 @@ inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) {
               capL = HEX(0x5ba05c), tun = oc.base, tunD = oc.dark, belt = HEX(0x3b2616),
               pants = HEX(0x5a4a3a), boots = HEX(0x2e2118), hair = HAIRCOL[L.color], eye = HEX(0x2a1c1c),
               leather = HEX(0x6b4423);
-    int bob = (f == 1 || f == 3) ? 1 : 0;
-    int ox = 1;  // canvas margin
-    if (dir == 0 || dir == 1) {
+    const int bob = P.bob;
+    const bool fr = dir == 0 || dir == 3, bk = dir == 1 || dir == 4, tq = dir >= 3;  // front / back family, three-quarter view
+    const int ox = 1;                               // canvas margin
+    const int bx = ox + (dir == 2 ? P.lean : 0);    // body and head x (legs stay at ox)
+    const int hx = bx + (tq ? 1 : 0);               // the head turns a pixel towards the facing side in the three-quarter views
+    const u32 eyeC = P.blink ? skinS : eye;
+    if (dir != 2) {
         // legs
-        int liftL = (f == 3) ? 2 : 0, liftR = (f == 1) ? 2 : 0;
+        const int liftL = P.liftL, liftR = P.liftR;
         im.rect(ox + 5, 19, 3, 4 - liftL, pants);
         im.rect(ox + 8, 19, 3, 4 - liftR, pants);
         im.rect(ox + 5, 22 - liftL, 3, 2, boots);
         im.rect(ox + 8, 22 - liftR, 3, 2, boots);
         // arms
-        int aL = (f == 1) ? -1 : (f == 3 ? 1 : 0);
+        const int aL = P.aL, aR = P.aR;
         im.rect(ox + 3, 12 - bob + aL, 2, 5, tunD);
-        im.rect(ox + 11, 12 - bob - aL, 2, 5, tunD);
+        im.rect(ox + 11, 12 - bob + aR, 2, 5, tunD);
         im.set(ox + 3, 17 - bob + aL, skin);
         im.set(ox + 4, 17 - bob + aL, skin);
-        im.set(ox + 11, 17 - bob - aL, skin);
-        im.set(ox + 12, 17 - bob - aL, skin);
+        im.set(ox + 11, 17 - bob + aR, skin);
+        im.set(ox + 12, 17 - bob + aR, skin);
         // torso
         im.rect(ox + 5, 11 - bob, 6, 8, tun);
         im.rect(ox + 5, 11 - bob, 6, 1, oc.hi);
         im.rect(ox + 5, 18 - bob, 6, 1, tunD);
         im.rect(ox + 5, 15 - bob, 6, 1, belt);
         im.set(ox + 8, 15 - bob, HEX(0xf2c94c));
+        // keep the body joined to the legs while it is lifted
+        if (bob > 0) im.rect(ox + 5, 19 - bob, 6, bob, tunD);
         // head
-        im.ellipse(ox + 8, 7 - bob, 3.5f, 3.5f, skin);
-        if (dir == 0) {
+        im.ellipse(hx + 8, 7 - bob, 3.5f, 3.5f, skin);
+        if (fr) {
             im.line(ox + 5, 12 - bob, ox + 10, 17 - bob, leather);  // strap
             im.rect(ox + 9, 16 - bob, 3, 3, leather);               // pouch
             im.set(ox + 10, 17 - bob, HEX(0x8d5e33));
             // cap
             for (int y = 3; y <= 6; y++)
                 for (int x = 4; x <= 11; x++)
-                    if (cA(im.get(ox + x, y - bob))) im.set(ox + x, y - bob, y == 6 ? capD : cap);
-            im.set(ox + 6, 4 - bob, capL);
-            im.set(ox + 7, 4 - bob, capL);
-            im.set(ox + 5, 6 - bob, capD);
-            im.set(ox + 6, 8 - bob, eye);
-            im.set(ox + 9, 8 - bob, eye);
-            im.set(ox + 5, 8 - bob, skinS);
-            im.set(ox + 10, 8 - bob, skinS);
+                    if (cA(im.get(hx + x, y - bob))) im.set(hx + x, y - bob, y == 6 ? capD : cap);
+            im.set(hx + 6, 4 - bob, capL);
+            im.set(hx + 7, 4 - bob, capL);
+            im.set(hx + 5, 6 - bob, capD);
+            if (tq) im.rect(hx + 9, 6 - bob, 3, 1, capD);  // the visor shows which way the hunter is turned
+            im.set(hx + (tq ? 7 : 6), 8 - bob, eyeC);
+            im.set(hx + 9, 8 - bob, eyeC);
+            im.set(hx + 5, 8 - bob, skinS);
+            if (!tq) im.set(hx + 10, 8 - bob, skinS);
         } else {
             im.rect(ox + 6, 12 - bob, 4, 5, leather);  // satchel on back
             im.rect(ox + 6, 12 - bob, 4, 1, HEX(0x8d5e33));
             for (int y = 3; y <= 7; y++)
                 for (int x = 4; x <= 11; x++)
-                    if (cA(im.get(ox + x, y - bob))) im.set(ox + x, y - bob, y >= 7 ? capD : cap);
-            im.set(ox + 8, 8 - bob, hair);
-            im.set(ox + 7, 8 - bob, hair);
-            im.set(ox + 9, 8 - bob, hair);
-            im.set(ox + 6, 4 - bob, capL);
+                    if (cA(im.get(hx + x, y - bob))) im.set(hx + x, y - bob, y >= 7 ? capD : cap);
+            im.set(hx + 8, 8 - bob, hair);
+            im.set(hx + 7, 8 - bob, hair);
+            im.set(hx + 9, 8 - bob, hair);
+            im.set(hx + 6, 4 - bob, capL);
+            if (tq) im.set(hx + 11, 9 - bob, skinS);  // the cheek that turns into view
         }
     } else {
         // side view facing right
-        int a = (f == 0 || f == 2) ? 7 : (f == 1 ? 5 : 10);
-        int b = (f == 0 || f == 2) ? 8 : (f == 1 ? 10 : 5);
-        im.rect(ox + a - 1, 19, 3, 4, pants);
-        im.rect(ox + b - 1, 19, 3, 4, HEX(0x6b5a46));
-        im.rect(ox + a - 1, 22, 3, 2, boots);
-        im.rect(ox + b - 1, 22, 4, 2, boots);
-        im.rect(ox + 5, 11 - bob, 6, 8, tun);
-        im.rect(ox + 5, 11 - bob, 6, 1, oc.hi);
-        im.rect(ox + 5, 18 - bob, 6, 1, tunD);
-        im.rect(ox + 5, 15 - bob, 6, 1, belt);
-        im.rect(ox + 3, 12 - bob, 3, 5, leather);  // satchel
-        im.rect(ox + 3, 12 - bob, 3, 1, HEX(0x8d5e33));
-        int sw = (f == 1) ? 2 : (f == 3 ? -2 : 0);
-        im.rect(ox + 7 + sw, 12 - bob, 2, 5, tunD);
-        im.set(ox + 7 + sw, 17 - bob, skin);
-        im.set(ox + 8 + sw, 17 - bob, skin);
-        im.ellipse(ox + 8, 7 - bob, 3.5f, 3.5f, skin);
+        const int a = P.sa, b = P.sb;
+        im.rect(ox + a - 1, 19, 3, 4 - P.slA, pants);
+        im.rect(ox + b - 1, 19, 3, 4 - P.slB, HEX(0x6b5a46));
+        im.rect(ox + a - 1, 22 - P.slA, 3, 2, boots);
+        im.rect(ox + b - 1, 22 - P.slB, 4, 2, boots);
+        im.rect(bx + 5, 11 - bob, 6, 8, tun);
+        im.rect(bx + 5, 11 - bob, 6, 1, oc.hi);
+        im.rect(bx + 5, 18 - bob, 6, 1, tunD);
+        im.rect(bx + 5, 15 - bob, 6, 1, belt);
+        if (bob > 0) im.rect(bx + 5, 19 - bob, 6, bob, tunD);
+        im.rect(bx + 3, 12 - bob, 3, 5, leather);  // satchel
+        im.rect(bx + 3, 12 - bob, 3, 1, HEX(0x8d5e33));
+        const int sw = P.sw, sdy = P.sdy;
+        im.rect(bx + 7 + sw, 12 - bob + sdy, 2, 5, tunD);
+        im.set(bx + 7 + sw, 17 - bob + sdy, skin);
+        im.set(bx + 8 + sw, 17 - bob + sdy, skin);
+        im.ellipse(bx + 8, 7 - bob, 3.5f, 3.5f, skin);
         for (int y = 3; y <= 6; y++)
             for (int x = 4; x <= 11; x++)
-                if (cA(im.get(ox + x, y - bob))) im.set(ox + x, y - bob, y == 6 ? capD : cap);
-        im.rect(ox + 10, 6 - bob, 3, 1, capD);  // visor
-        im.set(ox + 6, 4 - bob, capL);
-        im.set(ox + 7, 4 - bob, capL);
-        im.set(ox + 5, 8 - bob, hair);
-        im.set(ox + 5, 9 - bob, hair);
-        im.set(ox + 4, 8 - bob, hair);
-        im.set(ox + 10, 8 - bob, eye);
-        im.set(ox + 11, 9 - bob, skinS);
+                if (cA(im.get(bx + x, y - bob))) im.set(bx + x, y - bob, y == 6 ? capD : cap);
+        im.rect(bx + 10, 6 - bob, 3, 1, capD);  // visor
+        im.set(bx + 6, 4 - bob, capL);
+        im.set(bx + 7, 4 - bob, capL);
+        im.set(bx + 5, 8 - bob, hair);
+        im.set(bx + 5, 9 - bob, hair);
+        im.set(bx + 4, 8 - bob, hair);
+        im.set(bx + 10, 8 - bob, eyeC);
+        im.set(bx + 11, 9 - bob, skinS);
     }
     // ---- hairstyle (the default SHORT adds nothing: the cap and the few strands above are the original look)
     {
         const u32 hd = shadeC(hair, 0.75f), hl = shadeC(hair, 1.2f);
-        const int sw = (f == 1) ? 1 : (f == 3 ? -1 : 0);
+        const int sw = P.sway;
         switch (L.hair) {
             case 1:  // long: falls past the shoulders
-                if (dir == 0) {
-                    im.rect(ox + 4, 7 - bob, 1, 7, hair);
-                    im.rect(ox + 11, 7 - bob, 1, 7, hair);
-                    im.set(ox + 4, 8 - bob, hl);
-                } else if (dir == 1) {
-                    im.rect(ox + 4, 8 - bob, 8, 7, hair);
-                    im.rect(ox + 7, 8 - bob, 1, 7, hd);
+                if (fr) {
+                    im.rect(hx + 4, 7 - bob, 1, 7, hair);
+                    im.rect(hx + 11, 7 - bob, 1, 7, hair);
+                    im.set(hx + 4, 8 - bob, hl);
+                } else if (bk) {
+                    im.rect(hx + 4, 8 - bob, 8, 7, hair);
+                    im.rect(hx + 7, 8 - bob, 1, 7, hd);
                 } else {
-                    im.rect(ox + 3, 7 - bob, 3, 8, hair);
-                    im.set(ox + 3, 8 - bob, hl);
+                    im.rect(hx + 3, 7 - bob, 3, 8, hair);
+                    im.set(hx + 3, 8 - bob, hl);
                 }
                 break;
             case 2:  // ponytail
-                if (dir == 0) {
-                    im.rect(ox + 11, 6 - bob, 1, 3, hair);
-                    im.set(ox + 11, 6 - bob, HEX(0xe8584f));
-                } else if (dir == 1) {
-                    im.rect(ox + 7, 8 - bob, 2, 7, hair);
-                    im.set(ox + 7, 8 - bob, HEX(0xe8584f));
-                    im.set(ox + 8, 14 - bob, hd);
+                if (fr) {
+                    im.rect(hx + 11, 6 - bob, 1, 3, hair);
+                    im.set(hx + 11, 6 - bob, HEX(0xe8584f));
+                } else if (bk) {
+                    im.rect(hx + 7, 8 - bob, 2, 7, hair);
+                    im.set(hx + 7, 8 - bob, HEX(0xe8584f));
+                    im.set(hx + 8, 14 - bob, hd);
                 } else {
-                    im.rect(ox + 3 + sw, 7 - bob, 2, 6, hair);
-                    im.set(ox + 4 + sw, 7 - bob, HEX(0xe8584f));
+                    im.rect(hx + 3 + sw, 7 - bob, 2, 6, hair);
+                    im.set(hx + 4 + sw, 7 - bob, HEX(0xe8584f));
                 }
                 break;
             case 3:  // two braids
                 for (int y = 0; y < 6; y++) {
                     const u32 c = (y & 1) ? hair : hd;
                     if (dir == 2) {
-                        im.set(ox + 4, 8 + y - bob, c);
-                        im.set(ox + 3, 8 + y - bob, (y & 1) ? hd : hair);
+                        im.set(hx + 4, 8 + y - bob, c);
+                        im.set(hx + 3, 8 + y - bob, (y & 1) ? hd : hair);
                     } else {
-                        im.set(ox + 4, 8 + y - bob, c);
-                        im.set(ox + 11, 8 + y - bob, c);
+                        im.set(hx + 4, 8 + y - bob, c);
+                        im.set(hx + 11, 8 + y - bob, c);
                     }
                 }
-                im.set(ox + 4, 14 - bob, HEX(0xe8584f));
-                if (dir != 2) im.set(ox + 11, 14 - bob, HEX(0xe8584f));
+                im.set(hx + 4, 14 - bob, HEX(0xe8584f));
+                if (dir != 2) im.set(hx + 11, 14 - bob, HEX(0xe8584f));
                 break;
             case 4:  // a bun on top of the head
-                im.ellipse(ox + 8, 2 - bob, 2.2f, 1.8f, hair);
-                im.set(ox + 7, 1 - bob, hl);
+                im.ellipse(hx + 8, 2 - bob, 2.2f, 1.8f, hair);
+                im.set(hx + 7, 1 - bob, hl);
                 break;
             default: break;
         }
@@ -526,6 +537,9 @@ inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) {
     im.outline(OUT);
     return im;
 }
+// the original four-frame walk of the three base views (still used by the salon preview and the appearance tests)
+inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) { return mkPlayerPose(dir, walkPose(f), look); }
+
 
 // ================================================================= animals
 struct QuadSpec {
@@ -1063,6 +1077,15 @@ inline Img mkShadow(int w, int h) {
     im.ellipse(w / 2.f, h / 2.f, w / 2.f - 1.5f, h / 2.f - 1.f, RGBA(0, 0, 0, 40));
     return im;
 }
+// A shadow for a standing figure with the light coming from the upper left: a dark patch under the feet and a lighter tail
+// stretched down and to the right. Not mirrored with the figure, so every actor's shadow falls the same way.
+inline Img mkCastShadow() {
+    Img im(24, 9);
+    im.ellipse(12.f, 5.f, 6.5f, 2.f, RGBA(0, 0, 0, 80));    // the tail first, so the darker patch is drawn over it
+    im.ellipse(6.f, 4.5f, 5.5f, 2.6f, RGBA(0, 0, 0, 130));
+    return im;
+}
+
 inline Img mkBlood(int w, int h) {
     Img im(w, h);
     im.ellipse(w / 2.f, h / 2.f, w / 2.f, h / 2.f, RGBA(120, 24, 28, 150));
@@ -1175,29 +1198,34 @@ struct Assets {
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
     Spr oak[2], pine, rock[2];
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
-    Spr player[3][4];
+    Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S SE E NE N][state][pose]; the west views are mirrors
     HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][6], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
-    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], blood[3], vignette;
+    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, blood[3], vignette;
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     TownAssets T;   // the central town: building exteriors, street furniture, paving, interiors (sprites_town.hpp)
     ResAssets R;    // tools, consumables, placeables, depleted resources (sprites_res.hpp)
     SDL_Texture* font = nullptr;
 };
 
-// Redraw the hunter's sprites for a new appearance (the salon). Frees the old textures first.
-inline void rebuildPlayerSprites(SDL_Renderer* r, Assets& a, const HunterLook& look) {
-    for (int d = 0; d < 3; d++)
-        for (int f = 0; f < 4; f++) {
-            Spr& s = a.player[d][f];
-            if (s.t) SDL_DestroyTexture(s.t);
-            if (s.flash) SDL_DestroyTexture(s.flash);
-            s = makeSpr(r, mkPlayer(d, f, look), 9, 24, true);
-        }
+// Draw every hunter pose in every view for one appearance (the salon redraws them all). Frees any old textures first.
+inline void buildHunterSprites(SDL_Renderer* r, Assets& a, const HunterLook& look) {
+    static const int DIR_OF_VIEW[FACING_VIEWS] = {0, 3, 2, 4, 1};  // S, SE, E, NE, N -> mkPlayerPose dir
+    for (int v = 0; v < FACING_VIEWS; v++)
+        for (int st = 0; st < HS_COUNT; st++)
+            for (int i = 0; i < hunterPoseCount(st); i++) {
+                Spr& s = a.hunter[v][st][i];
+                if (s.t) SDL_DestroyTexture(s.t);
+                if (s.flash) SDL_DestroyTexture(s.flash);
+                Img im = mkPlayerPose(DIR_OF_VIEW[v], hunterPose(st, i), look);
+                styleActor(im, OUT, 0);
+                s = makeSpr(r, im, 9, 24, true);
+            }
     a.look = look;
 }
+inline void rebuildPlayerSprites(SDL_Renderer* r, Assets& a, const HunterLook& look) { buildHunterSprites(r, a, look); }
 
 inline void buildAssets(SDL_Renderer* r, Assets& a) {
     Rng rg(1234567);
@@ -1223,8 +1251,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 3; i++) a.fire[i] = makeSpr(r, mkFire(i), 9, 17);
     for (int i = 0; i < 2; i++) a.keeper[i] = makeSpr(r, mkShopkeeper(i), 9, 24);
     for (int i = 0; i < 2; i++) a.quester[i] = makeSpr(r, mkQuestGiver(i), 9, 24);
-    for (int d = 0; d < 3; d++)
-        for (int f = 0; f < 4; f++) a.player[d][f] = makeSpr(r, mkPlayer(d, f), 9, 24, true);
+    buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
     for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
@@ -1268,6 +1295,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.shadow[0] = makeSpr(r, mkShadow(14, 6), 7, 3);
     a.shadow[1] = makeSpr(r, mkShadow(26, 8), 13, 4);
     a.shadow[2] = makeSpr(r, mkShadow(40, 12), 20, 6);
+    a.shadowCast = makeSpr(r, mkCastShadow(), 6, 4);
     a.blood[0] = makeSpr(r, mkBlood(12, 7), 6, 3);
     a.blood[1] = makeSpr(r, mkBlood(20, 10), 10, 5);
     a.blood[2] = makeSpr(r, mkBlood(30, 14), 15, 7);

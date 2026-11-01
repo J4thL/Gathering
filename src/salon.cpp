@@ -52,7 +52,7 @@ void Game::drawSalon() {
                 if (s.flash) SDL_DestroyTexture(s.flash);
                 s = Spr();
             }
-            for (int d = 0; d < 3; d++) salonPrev[d] = makeSpr(ren, mkPlayer(d, 0, salonLook), 9, 24, false);
+            for (int d = 0; d < 3; d++) { Img im = mkPlayer(d, 0, salonLook); styleActor(im, OUT, 0); salonPrev[d] = makeSpr(ren, im, 9, 24, false); }
             salonPrevLook = salonLook;
         }
         const int d = ((int)(timeAcc * 0.5f)) % 4;  // front, side, back, side

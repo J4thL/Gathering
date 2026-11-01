@@ -954,6 +954,7 @@ void Game::updatePlayer(float dt) {
     P.maxhp = newMax;
     if (P.dead) {
         P.deadT += dt;
+        updateHunterAnim(dt, false, false, false, false, -1, 0);
         if (P.deadT > 3.4f) {
             P.pos = world.spawn;
             P.hp = P.maxhp;
@@ -973,6 +974,7 @@ void Game::updatePlayer(float dt) {
     P.invuln = std::max(0.f, P.invuln - dt);
     P.sinceHurt += dt;
     P.throwAnim = std::max(0.f, P.throwAnim - dt);
+    P.useT = std::max(0.f, P.useT - dt);
 
     if (in.selectKey >= 0 && in.selectKey < HOT_N) hotUse(in.selectKey);  // number keys = hotbar slots
     if (in.wheel != 0) {  // the wheel cycles through the weapons equipped on the hotbar
@@ -1051,17 +1053,29 @@ void Game::updatePlayer(float dt) {
     P.pos.y = clampf(P.pos.y, 20, world.pixH() - 20);
 
     auto setDir = [&](V2 d) {
-        if (fabsf(d.x) > fabsf(d.y) * 0.9f) {
-            P.dir = 2;
-            P.flip = d.x < 0;
-        } else
-            P.dir = d.y > 0 ? 0 : 1;
+        P.face8 = facingFromDir(d.x, d.y, P.face8);
+        // the 4-way facing other systems use (placement, the salon): the diagonals count as side views, as they always did
+        const FacingView fv = facingView(P.face8);
+        P.dir = fv.view == 0 ? 0 : fv.view == 4 ? 1 : 2;
+        if (P.dir == 2) P.flip = fv.mirror;
     };
     if (wantGather) setDir(c->pos - P.pos);
     else if (wantHarvest) setDir(ht.pos - P.pos);
     else if (P.charging || P.throwAnim > 0) setDir(P.aim);
     else if (moving) setDir(mv);
     if (moving && !wantGather && !wantHarvest) P.animT += dt * (sprinting ? 12.f : 8.5f);
+    {
+        int swingTool = -1;
+        float swingFrac = 0;
+        if (wantHarvest && RES[ht.res].tool >= 0) {
+            int ti = -1;
+            if (bestTool(RES[ht.res].tool, &ti) > 0) {
+                swingTool = ti;
+                swingFrac = clampf(P.gatherT / RES[ht.res].swing, 0.f, 1.f);
+            }
+        }
+        updateHunterAnim(dt, moving, sprinting, wantGather, wantHarvest, swingTool, swingFrac);
+    }
     if (sprinting && rng.chance(0.25f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
 
     // --- throwing
@@ -1181,6 +1195,30 @@ void Game::updatePlayer(float dt) {
         }
     }
     if (P.sinceHurt > 6.f) P.hp = std::min(P.maxhp, P.hp + (nearShop() ? 12.f : 1.6f) * dt);
+}
+
+// Pick the hunter's animation state from what the hunter is doing and advance it. Priority: death, a fresh hit, using an item,
+// a throw, winding one up, a tool stroke / skinning, running, walking, idle.
+void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac) {
+    Player& P = p;
+    bool hit = false;
+    if (P.sinceHurt < P.animSince) hit = true;  // sinceHurt was reset: a new hit
+    P.animSince = P.sinceHurt;
+    int st;
+    bool restart = false;
+    if (P.dead) st = HS_DEATH;
+    else if (hit || (P.anim.state == HS_HURT && !P.anim.done)) { st = HS_HURT; restart = hit; }  // only a fresh hit starts it (not a respawn)
+    else if (P.useT > 0) st = HS_USE;
+    else if (P.throwAnim > 0) st = HS_THROW;
+    else if (P.charging) st = HS_AIM;
+    else if (wantHarvest && swingTool >= 0) st = HS_SWING;
+    else if (wantGather || wantHarvest) st = HS_GATHER;
+    else if (moving) st = sprinting ? HS_RUN : HS_WALK;
+    else st = HS_IDLE;
+    P.anim.play(st, &hunterClip(st), restart);
+    P.anim.update(dt);
+    if (st == HS_SWING) P.anim.scrub(swingFrac);
+    else if (st == HS_AIM) P.anim.scrub(clampf(P.charge, 0.f, 1.f));
 }
 
 void Game::updateProjectiles(float dt) {
@@ -1624,6 +1662,7 @@ bool Game::useConsumable(int c) {
         default: return false;
     }
     p.inv.remove(id, 1);
+    p.useT = hunterClip(HS_USE).total();  // plays the use animation
     audio.play(S_PICKUP);
     grantXp(SK_SURVIVAL, 2);  // only reached when the item really took effect (refusals return earlier)
     return true;

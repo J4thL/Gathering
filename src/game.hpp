@@ -56,9 +56,13 @@ struct Animal {
 
 struct Player {
     V2 pos, kb, iceV;  // iceV: momentum while sliding on ice
-    int dir = 0;
+    int dir = 0;          // 4-way facing kept for placement and the salon: 0 down, 1 up, 2 side (see flip); derived from face8
     bool flip = false;
     float animT = 0;
+    int face8 = F_S;      // 8-way facing (anim.hpp)
+    Animator anim;        // the hunter's current animation (state HState), driven by Game::updateHunterAnim
+    float useT = 0;       // > 0 while using an item (bandage, food): plays the use animation
+    float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit
     float hp = 100, maxhp = 100, stamina = 100;
     bool exhausted = false;
     float staDelay = 0;
@@ -293,6 +297,7 @@ struct Game {
     void update(float dt);
     void updatePlay(float dt);
     void updatePlayer(float dt);
+    void updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGather, bool wantHarvest, int swingTool, float swingFrac);
     void updateAnimals(float dt);
     void updateProjectiles(float dt);
     void checkWeaponSafetyNet(float dt);
