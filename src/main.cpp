@@ -3064,6 +3064,15 @@ static int selfTest(Game& g) {
     {  // ---- the boar's full animation set
         const AnimalClips* bc = animalClips(A_BOAR);
         check(bc && animalClips(A_WOLF) && animalClips(A_DEER) && animalClips(A_RABBIT) && animalClips(A_HARE) && animalClips(A_SNOWHARE) && !animalClips(A_FENNEC) && g.A.rich[A_BOAR] && g.A.rich[A_RABBIT] && !g.A.rich[A_FENNEC], "boar, wolf, deer, rabbit and the hares have a full animation set; the others keep the walk cycle");
+        check(g.A.rich[A_BOAR]->built[0] && g.A.rich[A_EAGLE]->built[0], "the common sprites of every full-set species are drawn at start-up");
+        {  // rarer tiers are drawn when the first one spawns
+            const int legIdx = 2 * TR_LEGENDARY;
+            g.animals.clear();
+            Animal* an = g.spawnAnimal(A_EAGLE, g.p.pos + V2(100, 0), 0, TR_LEGENDARY);
+            check(an && g.A.rich[A_EAGLE]->built[legIdx] && g.A.rich[A_EAGLE]->s[legIdx][0][AN_FLY][0].ok(), "a legendary spawning draws its sprites on demand");
+            g.animals.clear();
+        }
+        buildAllRichBanks(g.ren, g.A);  // the rarer tiers are drawn lazily; the completeness check wants them all
         bool bankOk = bc != nullptr, clipsOk = bc != nullptr;
         if (bc) {
             for (int kind : RICH_KINDS)
