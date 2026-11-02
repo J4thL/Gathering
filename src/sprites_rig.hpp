@@ -370,7 +370,7 @@ struct RigShape {
     int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
     float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
     float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
-    bool ref;                  // drawn from the pixel-art reference (deer_ref.hpp) in the SE / E / NE views
+    int ref;                   // 0 drawn by the 3D rig; 1 deer, 2 wolf, 3 boar: drawn from pixel art (deer_ref.hpp / ref_art_wolfboar.hpp) in all views
     bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
     bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
     float strideMul, liftMul, airMul;
@@ -386,6 +386,7 @@ inline RigShape boarShape() {
     r.ear = 0; r.earH = 1.9f; r.neck = 0; r.tail = 0;
     r.tusks = true; r.mane = true;
     r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.flat = true; r.ref = 3;  // hand-drawn art (ref_art_wolfboar.hpp), the same flat finish as the deer
     r.W = 46; r.H = 36;
     return r;
 }
@@ -398,6 +399,7 @@ inline RigShape wolfShape() {
     r.ear = 1; r.earH = 2.6f; r.neck = 0; r.tail = 1;
     r.ridge = true;
     r.strideMul = 1.25f; r.liftMul = 1.2f; r.airMul = 1.2f;
+    r.flat = true; r.ref = 2;
     r.W = 52; r.H = 42;
     return r;
 }
@@ -413,7 +415,7 @@ inline RigShape deerShape(bool stag) {
     r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
     r.antlers = stag; r.spots = false;
     r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
-    r.scale = 1.75f; r.flat = true; r.ref = true;
+    r.scale = 1.75f; r.flat = true; r.ref = 1;
     r.W = 54; r.H = 58;
     return r;
 }
