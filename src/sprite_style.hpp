@@ -7,8 +7,14 @@
 
 constexpr u32 ANIMAL_RIM = 0xfff4efe6;  // warm white
 
-// mode 0: contour = darkened colour of what it surrounds (characters); mode 1: contour = white rim with a dark inner line (animals)
+// mode 0: contour = darkened colour of what it surrounds (characters); mode 1: contour = white rim with a dark inner line (animals);
+// mode 2: no contour (the flat reference look)
 inline void styleActor(Img& im, u32 outCol, int mode) {
+    if (mode == 2) {  // flat pixel-art finish: no contour at all - the shapes and the colour contrast carry the silhouette
+        for (auto& c : im.p)
+            if (c == outCol) c = 0u;
+        return;
+    }
     auto isOut = [&](int x, int y) { return im.in(x, y) && im.get(x, y) == outCol; };
     auto isFill = [&](int x, int y) { return im.in(x, y) && cA(im.get(x, y)) && im.get(x, y) != outCol; };
     Img o = im;

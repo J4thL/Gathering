@@ -6,7 +6,7 @@
 //   sprites/animals/<species>/<species>_<state>_<direction>.png
 //   animations/player/<state>.json, animations/animals/<species>_<state>.json, animations/manifest.json
 // A sheet is one row of frames (frame width x frame height each, in pose order). All eight directions are written: the west-side
-// ones are the mirrored east-side art, exactly as the game draws them. Common form / common rarity of each species.
+// ones are the mirrored east-side art, exactly as the game draws them. Common rarity of each species; a second form (stag, arctic wolf) is written under <species>_form1.
 // PNGs are written uncompressed (stored deflate blocks) by a small encoder below, so there is no new dependency.
 #pragma once
 #include <cstdint>
@@ -166,24 +166,25 @@ inline int exportAll(const std::string& root) {
     }
     // ---- animals with a full animation set
     static const char* AN[AN_COUNT] = {"idle", "walk", "run", "attack", "hurt", "death", "fly", "takeoff", "land", "eat", "rest", "alert"};
-    for (int kind : RICH_KINDS) {
-        const AnimalClips& C = *animalClips(kind);
-        const std::string sp = slug(ANIMAL[kind].name);
-        const RigShape R = rigShape(kind, 0);
-        const QuadSpec spec = fauSpec(kind, 0, 0);
-        const float k = TIER[0].scale;
-        for (int st = 0; st < AN_COUNT; st++) {
-            if (C.poses[st] <= 0) continue;
-            std::vector<std::vector<Img>> fr(AV_VIEWS);
-            for (int v = 0; v < AV_VIEWS; v++)
-                for (int i = 0; i < C.poses[st]; i++) {
-                    Img im = paintQuad(spec, R, k, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
-                    styleActor(im, OUT, 0);
-                    fr[v].push_back(im);
-                }
-            exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], fr[0][0].w / 2, (int)(fr[0][0].h - 6.f * k), cnt);
+    for (int kind : RICH_KINDS)
+        for (int form = 0; form < ANIMAL[kind].forms; form++) {  // form 0 keeps the plain name, a second form (stag, arctic wolf ...) gets _form1
+            const AnimalClips& C = *animalClips(kind);
+            const std::string sp = slug(ANIMAL[kind].name) + (form ? "_form" + std::to_string(form) : "");
+            const RigShape R = rigShape(kind, form);
+            const QuadSpec spec = fauSpec(kind, form, 0);
+            const float k = TIER[0].scale * rigScale(R);
+            for (int st = 0; st < AN_COUNT; st++) {
+                if (C.poses[st] <= 0) continue;
+                std::vector<std::vector<Img>> fr(AV_VIEWS);
+                for (int v = 0; v < AV_VIEWS; v++)
+                    for (int i = 0; i < C.poses[st]; i++) {
+                        Img im = paintQuad(spec, R, TIER[0].scale, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
+                        styleActor(im, OUT, R.flat ? 2 : 0);
+                        fr[v].push_back(im);
+                    }
+                exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], fr[0][0].w / 2, (int)(fr[0][0].h - 6.f * k), cnt);
+            }
         }
-    }
     const std::string mp = root + "/animations/manifest.json";
     if (FILE* f = fopen(mp.c_str(), "wb")) {
         const std::string s = "{\n  \"files\":[" + cnt.manifest + "]\n}\n";
