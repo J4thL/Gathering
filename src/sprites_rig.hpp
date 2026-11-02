@@ -370,6 +370,7 @@ struct RigShape {
     int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
     float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
     float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
+    bool ref;                  // drawn from the pixel-art reference (deer_ref.hpp) in the SE / E / NE views
     bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
     bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
     float strideMul, liftMul, airMul;
@@ -405,14 +406,14 @@ inline RigShape wolfShape() {
 // no outline. Form 0 is the doe, form 1 the stag with branching antlers.
 inline RigShape deerShape(bool stag) {
     RigShape r{};
-    r.tx = 8.3f; r.ty = 3.1f; r.tz = 4.0f; r.zb = 14.8f;
+    r.tx = 8.3f; r.ty = 3.1f; r.tz = 4.3f; r.zb = 15.8f;
     r.legFx = 5.6f; r.legBx = -5.4f; r.legY = 2.1f; r.legW = 3;
-    r.hdx = 5.2f; r.hdz = 8.8f; r.hrx = 2.9f; r.hry = 2.0f; r.hrz = 2.3f;
-    r.snx = 4.4f; r.snz = -1.0f; r.snr = 0.66f;
+    r.hdx = 3.0f; r.hdz = 8.8f; r.hrx = 2.9f; r.hry = 2.0f; r.hrz = 2.3f;
+    r.snx = 3.7f; r.snz = -1.0f; r.snr = 0.66f;
     r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
     r.antlers = stag; r.spots = false;
     r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
-    r.scale = 1.8f; r.flat = true;
+    r.scale = 1.75f; r.flat = true; r.ref = true;
     r.W = 54; r.H = 58;
     return r;
 }
@@ -483,6 +484,8 @@ inline RigShape rigShape(int kind, int form) {
     }
 }
 
+#include "deer_ref.hpp"
+
 // Paint one animal for one view (0 S, 1 SE, 2 E, 3 NE, 4 N) and pose. `k` is the tier's body scale.
 inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P0) {
     const float k = tierK * rigScale(R);  // tier scale x the species' own scale
@@ -495,6 +498,7 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
     const float phi = 0.70f, cph = cosf(phi), sph = sinf(phi);  // the camera looks down at 40 degrees
     const int CW = (int)ceilf(R.W * k), CH = (int)ceilf(R.H * k);
     const float ax = CW / 2.f, ay = CH - 6.f * k;                // where the ground point under the boar lands
+    if (R.ref) return deerref::paint(sp, R, tierK * 1.f, view, P0, CW, CH, ax, ay);
     Img im(CW, CH);
 
     const u32 body = tintC(sp.body, P.tint), light = tintC(sp.light, P.tint), belly = tintC(sp.belly, P.tint),
@@ -601,8 +605,8 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
     const float sqz = P.squash;
     const float pz = P.pitch;
     ell(bx, 0, zb, R.tx, R.ty, R.tz - sqz + P.breathe, light, body, dk);                                              // torso
-    ell(bx - R.tx * 0.51f, 0, zb - 0.5f - pz * 0.8f, R.tx * (R.hopper ? 0.8f : 0.62f), R.ty * (R.hopper ? 1.15f : 0.96f), R.tz * 0.92f - sqz, light, body, dk);  // haunch
-    ell(bx + R.tx * 0.36f, 0, zb + 0.7f + pz * 1.0f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);  // shoulder
+    ell(bx - R.tx * 0.51f, 0, zb - (R.flat ? 0.f : 0.5f) - pz * 0.8f, R.tx * (R.hopper ? 0.8f : 0.62f), R.ty * (R.hopper ? 1.15f : 0.96f), R.tz * 0.92f - sqz, light, body, dk);  // haunch
+    ell(bx + R.tx * 0.36f, 0, zb + (R.flat ? 0.2f : 0.7f) + pz * 1.0f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);  // shoulder
     if (R.flat) {  // a deep brown barrel with a dark underside and just a thin cream strip along the belly
         ell(bx + 0.5f, 0, zb - R.tz * 0.62f, R.tx * 0.78f, R.ty * 0.72f, R.tz * 0.3f, dk, dk, dk);
         ell(bx + 1.0f, 0, zb - R.tz * 0.74f, R.tx * 0.5f, R.ty * 0.6f, R.tz * 0.14f, belly, belly, belly);
