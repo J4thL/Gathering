@@ -737,10 +737,11 @@ inline QuadSpec specRabbit() {
 inline QuadSpec specDeer(bool stag) {
     QuadSpec s{};
     s.W = 36; s.H = 36; s.cx = 14; s.bw = 18; s.bh = 8.5f; s.legLen = 11; s.legW = 2;
-    s.body = HEX(0xa9744a); s.light = HEX(0xc08a5c); s.belly = HEX(0xe3cfae); s.dark = HEX(0x7b5233);
-    s.hoof = HEX(0x2e2118); s.snout = HEX(0xd9bd96); s.eye = HEX(0x241a14);
+    // the pixel-art reference: two close warm browns, maroon far legs and shade, a cream belly, near-black hooves and nose
+    s.body = HEX(0x823e19); s.light = HEX(0x8f4620); s.belly = HEX(0xd8a284); s.dark = HEX(0x5b131b);
+    s.hoof = HEX(0x3d0d12); s.snout = HEX(0x793819); s.eye = HEX(0x2a0a0e);
     s.hr = 3.2f; s.hdx = 3.5f; s.hdy = -6.5f; s.snoutLen = 3.5f; s.ear = 2; s.tail = 2;
-    s.antlers = stag; s.spots = !stag;
+    s.antlers = stag; s.spots = false;
     return s;
 }
 inline QuadSpec specBoar() {

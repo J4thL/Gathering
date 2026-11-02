@@ -3162,8 +3162,9 @@ static int selfTest(Game& g) {
             int expect = 0;
             for (int st = 0; st < HS_COUNT; st++) expect += F_COUNT;
             for (int kind : RICH_KINDS)
-                for (int st = 0; st < AN_COUNT; st++)
-                    if (animalClips(kind)->poses[st] > 0) expect += F_COUNT;
+                for (int form = 0; form < ANIMAL[kind].forms; form++)
+                    for (int st = 0; st < AN_COUNT; st++)
+                        if (animalClips(kind)->poses[st] > 0) expect += F_COUNT;
             check(pngs == expect && bad == 0, "one valid PNG per state and direction (8 directions each)");
             check(std::filesystem::exists(dir + "/sprites/animals/wild_duck/wild_duck_fly_northwest.png") && std::filesystem::exists(dir + "/animations/animals/deer_walk.json") &&
                       std::filesystem::exists(dir + "/sprites/player/gathering/chopping/player_swing_east.png") && std::filesystem::exists(dir + "/animations/manifest.json"),

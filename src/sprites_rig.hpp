@@ -369,6 +369,8 @@ struct RigShape {
     bool tusks, mane, ridge, antlers, spots;
     int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
     float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
+    float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
+    bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
     bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
     float strideMul, liftMul, airMul;
     int W, H;                  // canvas at scale 1
@@ -398,15 +400,19 @@ inline RigShape wolfShape() {
     r.W = 52; r.H = 42;
     return r;
 }
+// The deer follows the pixel-art reference (a doe and a stag in profile): about 47 px tall, a long neck and small pointed head, big leaf
+// ears with a pink inside, slim legs with dark hooves, a cream throat / belly / tail underside, flat two-tone brown with dark far legs and
+// no outline. Form 0 is the doe, form 1 the stag with branching antlers.
 inline RigShape deerShape(bool stag) {
     RigShape r{};
-    r.tx = 8.3f; r.ty = 3.5f; r.tz = 4.f; r.zb = 14.4f;
-    r.legFx = 5.4f; r.legBx = -5.2f; r.legY = 2.3f; r.legW = 1;
-    r.hdx = 3.2f; r.hdz = 6.4f; r.hrx = 3.3f; r.hry = 2.5f; r.hrz = 2.7f;
-    r.snx = 3.2f; r.snz = -0.9f; r.snr = 0.8f;
-    r.ear = 2; r.earH = 2.1f; r.neck = 2.3f; r.tail = 2;
-    r.antlers = stag; r.spots = !stag;
+    r.tx = 8.3f; r.ty = 3.1f; r.tz = 4.0f; r.zb = 14.8f;
+    r.legFx = 5.6f; r.legBx = -5.4f; r.legY = 2.1f; r.legW = 3;
+    r.hdx = 5.2f; r.hdz = 8.8f; r.hrx = 2.9f; r.hry = 2.0f; r.hrz = 2.3f;
+    r.snx = 4.4f; r.snz = -1.0f; r.snr = 0.66f;
+    r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
+    r.antlers = stag; r.spots = false;
     r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
+    r.scale = 1.8f; r.flat = true;
     r.W = 54; r.H = 58;
     return r;
 }
@@ -432,6 +438,8 @@ inline RigShape hareShape() {  // leaner, longer in the leg and ear
     r.W = 34; r.H = 34;
     return r;
 }
+inline float rigScale(const RigShape& R) { return R.scale > 0.f ? R.scale : 1.f; }
+
 inline RigShape duckShape() {
     RigShape r{};
     r.tx = 4.0f; r.ty = 2.7f; r.tz = 2.5f; r.zb = 3.0f;
@@ -476,7 +484,8 @@ inline RigShape rigShape(int kind, int form) {
 }
 
 // Paint one animal for one view (0 S, 1 SE, 2 E, 3 NE, 4 N) and pose. `k` is the tier's body scale.
-inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, const BPose& P0) {
+inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P0) {
+    const float k = tierK * rigScale(R);  // tier scale x the species' own scale
     BPose P = P0;
     P.stride *= R.strideMul;
     P.lift *= R.liftMul;
@@ -594,6 +603,10 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
     ell(bx, 0, zb, R.tx, R.ty, R.tz - sqz + P.breathe, light, body, dk);                                              // torso
     ell(bx - R.tx * 0.51f, 0, zb - 0.5f - pz * 0.8f, R.tx * (R.hopper ? 0.8f : 0.62f), R.ty * (R.hopper ? 1.15f : 0.96f), R.tz * 0.92f - sqz, light, body, dk);  // haunch
     ell(bx + R.tx * 0.36f, 0, zb + 0.7f + pz * 1.0f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);  // shoulder
+    if (R.flat) {  // a deep brown barrel with a dark underside and just a thin cream strip along the belly
+        ell(bx + 0.5f, 0, zb - R.tz * 0.62f, R.tx * 0.78f, R.ty * 0.72f, R.tz * 0.3f, dk, dk, dk);
+        ell(bx + 1.0f, 0, zb - R.tz * 0.74f, R.tx * 0.5f, R.ty * 0.6f, R.tz * 0.14f, belly, belly, belly);
+    } else
     ell(bx, 0, zb - R.tz * 0.52f, R.tx * 0.82f, R.ty * 0.8f, R.tz * 0.4f, belly, belly, dk);                          // belly
     if (R.neck > 0) {  // a long neck: two overlapping blobs from the shoulders up to the head
         const float sx0 = bx + R.tx * 0.6f, sz0 = zb + R.tz * 0.5f;
@@ -606,8 +619,17 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
     ell(hx + R.snx, 0, hz + R.snz, 2.9f * R.snr, 2.4f * R.snr, 2.1f * R.snr, tintC(mixc(sp.snout, sp.body, 0.15f), P.tint), snout, dk);  // snout
     dot(hx + R.snx + 2.6f * R.snr, 0.9f * R.snr, hz + R.snz + 0.2f, dk);                                               // nostrils
     dot(hx + R.snx + 2.6f * R.snr, -0.9f * R.snr, hz + R.snz + 0.2f, dk);
+    if (R.flat) ell(hx - 0.9f, 0, hz - R.hrz * 0.85f, R.hrx * 0.55f, R.hry * 0.85f, R.hrz * 0.5f, belly, belly, dk);  // cream throat
     const float earUp = P.ear * 0.9f;
-    if (R.ear == 3) {  // long upright ears: they lean back when running and lie flat after a hit
+    if (R.ear == 4) {  // big leaf ears held up and swept back, pink on the inside: a base, a wide middle and a tip curving back
+        const float e0 = hz + R.hrz + 0.6f + earUp * 0.5f, eh = R.earH / 4.f;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            ell(hx - 0.7f, sd * 1.7f, e0 + eh * 0.8f, 1.1f, 0.8f, eh * 1.2f, body, body, dk);
+            ell(hx - 1.4f, sd * 1.9f, e0 + eh * 2.2f, 1.3f, 0.8f, eh * 1.3f, body, body, dk);
+            ell(hx - 2.3f, sd * 1.9f, e0 + eh * 3.5f, 0.9f, 0.7f, eh * 1.1f, body, body, dk);
+            ell(hx - 1.2f, sd * 2.25f, e0 + eh * 2.0f, 0.6f, 0.35f, eh * 1.5f, HEX(0xd4776c), HEX(0xd4776c), HEX(0xb65656));
+        }
+    } else if (R.ear == 3) {  // long upright ears: they lean back when running and lie flat after a hit
         const float lean = (P.stride > 3.f || P.air > 2.5f) ? -1.6f : 0.f, up = P.ear * 0.7f;
         for (int sd = -1; sd <= 1; sd += 2) {
             ell(hx - 0.8f + lean, sd * 1.5f, hz + R.hrz + R.earH * 0.5f + up, 0.9f, 0.7f, R.earH * 0.62f, body, body, dk);
@@ -645,12 +667,17 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
         }
     }
     if (R.antlers) {  // a stag's antlers: a main beam and two tines each side
-        const u32 ant = tintC(HEX(0xcdb98a), P.tint * 0.5f), antD = tintC(HEX(0xa08c5e), P.tint * 0.5f);
+        const u32 ant = tintC(R.flat ? HEX(0xd8a284) : HEX(0xcdb98a), P.tint * 0.5f), antD = tintC(R.flat ? HEX(0xba7d5b) : HEX(0xa08c5e), P.tint * 0.5f);
         for (int sd = -1; sd <= 1; sd += 2) {
             const float y0 = sd * 1.4f;
             stroke(hx - 0.6f, y0, hz + R.hrz - 0.4f, hx - 1.6f, sd * 3.6f, hz + R.hrz + 5.2f, ant, antD, 1);
             stroke(hx - 1.1f, sd * 2.5f, hz + R.hrz + 2.0f, hx + 1.2f, sd * 3.4f, hz + R.hrz + 4.2f, ant, antD, 1);
             stroke(hx - 1.5f, sd * 3.3f, hz + R.hrz + 4.0f, hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, ant, antD, 1);
+            if (R.flat) {  // a fuller rack: two more tines and a forked tip
+                stroke(hx - 1.4f, sd * 3.0f, hz + R.hrz + 3.2f, hx + 0.6f, sd * 4.4f, hz + R.hrz + 5.8f, ant, antD, 1);
+                stroke(hx - 2.4f, sd * 4.0f, hz + R.hrz + 5.0f, hx - 2.0f, sd * 5.4f, hz + R.hrz + 8.0f, ant, antD, 1);
+                stroke(hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, hx - 4.4f, sd * 5.6f, hz + R.hrz + 8.6f, ant, antD, 1);
+            }
         }
     }
     if (R.spots) {  // a fawn's coat: cream flecks on the back
@@ -701,7 +728,13 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
             fx = lx + (front ? 1.2f : -1.2f) * P.limp;
             fz = 0.f + P.limp * 1.2f;
         }
-        stroke(lx, ly, hipZ, fx, ly * (1.f + 0.15f * P.limp), fz + 0.6f, left ? body : dk, dk, R.legW);
+        // flat finish: the leg nearer the camera is brown like the body, the far one the dark maroon (as in the reference); otherwise left / right
+        const bool nearLeg = R.flat ? (ly * cp <= 0.f) : left;
+        stroke(lx, ly, hipZ, fx, ly * (1.f + 0.15f * P.limp), fz + 0.6f, nearLeg ? body : dk, dk, R.legW);
+        if (R.flat) {  // a muscular upper leg tapering to a slim shank, and a two-pixel hoof
+            ell(lx + (fx - lx) * 0.12f, ly, hipZ - 0.8f, front ? 1.9f : 2.5f, 1.15f, 3.1f, nearLeg ? light : dk, nearLeg ? body : dk, dk);
+            dot(fx + 0.8f, ly, fz, hoof);
+        }
         dot(fx, ly, fz, hoof);
     }
 
@@ -769,7 +802,7 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float k, int view, c
                 proj(p.rx, p.ry, p.rz, x2, y2, d2);
                 const int a = (int)floorf(p.sx), b = (int)floorf(p.sy), c = (int)floorf(x2), d = (int)floorf(y2);
                 im.line(a, b, c, d, p.c0);
-                if (p.w > 1) im.line(a + 1, b, c + 1, d, p.c1);
+                for (int o = 1; o < p.w; o++) im.line(a + o, b, c + o, d, o == p.w - 1 ? p.c1 : p.c0);  // thicker strokes: the shaded edge on the right
                 break;
             }
             default: im.set((int)floorf(p.sx), (int)floorf(p.sy), p.c0); break;
@@ -802,13 +835,30 @@ inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form
     const AnimalClips& C = *animalClips(kind);
     const RigShape R = rigShape(kind, form);
     const QuadSpec sp = fauSpec(kind, form, tier);
-    const float k = TIER[tier].scale;
+    const float k = TIER[tier].scale * rigScale(R);
     for (int v = 0; v < AV_VIEWS; v++)
         for (int st = 0; st < AN_COUNT; st++)
             for (int i = 0; i < C.poses[st]; i++) {
-                Img im = paintQuad(sp, R, k, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
-                styleActor(im, OUT, 0);  // dark contour tinted from the fill, as in the style reference (the hunter uses the same pass)
-                bank.s[idx][v][st][i] = makeSpr(r, im, im.w / 2, (int)(im.h - 6.f * k), true);
+                Img im = paintQuad(sp, R, TIER[tier].scale, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
+                styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
+                int ax = im.w / 2, ay = (int)(im.h - 6.f * k);
+                // crop to the drawn pixels (the canvas has room for every pose, most poses use much less): the same picture, far less texture memory
+                int x0 = im.w, y0 = im.h, x1 = -1, y1 = -1;
+                for (int y = 0; y < im.h; y++)
+                    for (int x = 0; x < im.w; x++)
+                        if (cA(im.p[(size_t)y * im.w + x])) {
+                            x0 = std::min(x0, x); x1 = std::max(x1, x);
+                            y0 = std::min(y0, y); y1 = std::max(y1, y);
+                        }
+                if (x1 >= x0 && y1 >= y0 && (x1 - x0 + 1 < im.w || y1 - y0 + 1 < im.h)) {
+                    Img c(x1 - x0 + 1, y1 - y0 + 1);
+                    for (int y = y0; y <= y1; y++)
+                        for (int x = x0; x <= x1; x++) c.p[(size_t)(y - y0) * c.w + (x - x0)] = im.p[(size_t)y * im.w + x];
+                    im = c;
+                    ax -= x0;
+                    ay -= y0;
+                }
+                bank.s[idx][v][st][i] = makeSpr(r, im, ax, ay, true);
             }
     bank.built[idx] = true;
 }

@@ -73,7 +73,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     }
     {
         auto& d = S(A_DEER, {"DEER", 46, 24, 90, 115, 9, false, 0, 0, 0.60f, {{3, 4}, {2, 2}, {2, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}}});
-        d.forms = 2; d.bodyH = 12; d.decal = 2; d.hpBarY = 14;
+        d.forms = 2; d.bodyH = 22; d.decal = 2; d.hpBarY = 12; d.shadow = 2; d.hitR = 17;  // drawn ~1.8x larger (the reference size): a bigger body and target
         d.formDrop[0] = M_ANTLER; d.formDrop[1] = 1; d.formDrop[2] = 2;
         d.looks[0] = LK_RUSTY; d.looks[2] = LK_GOLD; d.legendName = "GOLDEN STAG";
     }
