@@ -79,13 +79,13 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     }
     {
         auto& d = S(A_BOAR, {"BOAR", 78, 20, 108, 75, 10, true, 15, 1.1f, 0.65f, {{3, 5}, {2, 3}, {2, 2}, {1, 2}, {0, 0}, {1, 2}, {0, 0}}});
-        d.alertMul = 0.62f; d.bodyH = 7; d.decal = 1;
+        d.alertMul = 0.62f; d.bodyH = 9; d.decal = 1; d.hpBarY = 10.f;  // drawn ~1.25x larger (hand-drawn flat art)
         d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_EMBER; d.legendName = "IRONTUSK BOAR";
         d.legendDrop[0] = M_TUSK; d.legendDrop[1] = 2; d.legendDrop[2] = 3;
     }
     {
         auto& d = S(A_WOLF, {"WOLF", 58, 28, 104, 125, 9, true, 11, 0.85f, 0.55f, {{2, 3}, {0, 0}, {2, 2}, {1, 1}, {2, 3}, {0, 0}, {0, 0}}});
-        d.forms = 2; d.fleeHp = 0.25f; d.leash = 300; d.bodyH = 9; d.decal = 1;  // form 1 = arctic (white) wolf
+        d.forms = 2; d.fleeHp = 0.25f; d.leash = 300; d.bodyH = 11; d.decal = 1; d.hpBarY = 11.f;  // form 1 = arctic (white) wolf
         d.looks[0] = LK_DARK; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_GHOST; d.legendName = "SPIRIT WOLF";
         d.legendDrop[0] = M_FUR; d.legendDrop[1] = 3; d.legendDrop[2] = 4;
     }

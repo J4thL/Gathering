@@ -9,6 +9,7 @@
 #include <cmath>
 #include <string>
 #include <vector>
+#include "ref_art_wolfboar.hpp"
 
 namespace deerref {
 
@@ -352,34 +353,63 @@ struct Cut {
     char at(int x, int y) const { return (x < 0 || y < 0 || x >= w || y >= h) ? '.' : g[(size_t)y * w + x]; }
 };
 
-inline Cut makeCut(bool stag, int kind) {
+// One species / form drawn from art: the three views, where the legs / head / tail are cut, and the colour of each letter.
+struct PalEnt { char ch; int role; float t; u32 fixed; };  // role: 0 fixed colour, 1 body, 2 light, 3 belly, 4 dark, 5 hoof, 6 snout, 7 eye, 8 mix(body, dark, t), 9 mix(belly, body, t)
+struct Def {
+    const char* const* side; int sw, sh; bool flip;                       // side view; `flip`: drawn facing left, mirrored to face right
+    int legTop, headRow, headX0; float headPx, headPy, neckLen;           // legs start at legTop; head + neck = rows <= headRow, columns >= headX0, turning round (headPx, headPy)
+    int tailX1, tailY0, tailY1; float tailPx, tailPy;                     // tail = columns <= tailX1 in those rows
+    const char* const* front; const char* const* back; int fw, fh;        // front / back views
+    int fbLegTop, fbHeadRow; float fbHeadPy; int nodMax;
+    u32 exactBody, exactDark;                                             // the tier-0 spec colours (0: always use the roles)
+    std::vector<PalEnt> pal;
+};
+inline const std::vector<Def>& defs() {
+    static const std::vector<Def> D = {
+        // 0 doe
+        {DOE_ROWS, DOE_W, DOE_H, false, 34, 21, 31, 34.f, 22.f, 10.f, 7, 14, 28, 8.f, 19.5f, DOE_FRONT, DOE_BACK, FB_W, DOE_FB_H, 31, 14, 15.f, 12,
+         HEX(0x823e19), HEX(0x5b131b),
+         {{'a', 1, 0, HEX(0x823e19)}, {'b', 8, .12f, HEX(0x793819)}, {'m', 4, 0, HEX(0x5b131b)}, {'d', 8, .55f, HEX(0x682412)}, {'c', 3, 0, HEX(0xd8a284)},
+          {'t', 9, .45f, HEX(0xba7d5b)}, {'k', 5, 0, HEX(0x3d0d12)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
+        // 1 stag (the art faces left)
+        {STAG_ROWS, STAG_W, STAG_H, true, 38, 21, 28, 35.f, 22.f, 10.f, 8, 22, 33, 9.f, 28.f, STAG_FRONT, STAG_BACK, FB_W, STAG_FB_H, 41, 24, 25.f, 12,
+         HEX(0x823e19), HEX(0x5b131b),
+         {{'a', 1, 0, HEX(0x823e19)}, {'b', 8, .12f, HEX(0x793819)}, {'m', 4, 0, HEX(0x5b131b)}, {'d', 8, .55f, HEX(0x682412)}, {'c', 3, 0, HEX(0xd8a284)},
+          {'t', 9, .45f, HEX(0xba7d5b)}, {'k', 5, 0, HEX(0x3d0d12)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
+        // 2 wolf (also the arctic wolf: the roles take the spec's colours)
+        {WOLF_SIDE, WOLF_W, WOLF_H, false, 19, 14, 31, 31.f, 12.f, 6.f, 10, 7, 24, 10.5f, 11.f, WOLF_FRONT, WOLF_BACK, WOLF_FW, WOLF_FH, 18, 12, 13.f, 5,
+         0, 0,
+         {{'a', 1, 0, 0}, {'b', 2, 0, 0}, {'c', 3, 0, 0}, {'m', 4, 0, 0}, {'k', 5, 0, 0}, {'t', 6, 0, 0}, {'e', 7, 0, 0}, {'d', 8, .5f, 0}}},
+        // 3 boar
+        {BOAR_SIDE, BOAR_W, BOAR_H, false, 18, 19, 28, 28.f, 13.f, 0.f, 4, 3, 9, 4.f, 7.f, BOAR_FRONT, BOAR_BACK, BOAR_FW, BOAR_FH, 17, 11, 12.f, 4,
+         0, 0,
+         {{'a', 1, 0, 0}, {'b', 2, 0, 0}, {'c', 3, 0, 0}, {'m', 4, 0, 0}, {'k', 5, 0, 0}, {'t', 6, 0, 0}, {'e', 7, 0, 0}, {'d', 8, .5f, 0}, {'w', 0, 0, HEX(0xf2ead2)}}},
+    };
+    return D;
+}
+inline int defId(const RigShape& R) { return R.ref == 1 ? (R.antlers ? 1 : 0) : (R.ref == 2 ? 2 : 3); }
+
+inline Cut makeCut(const Def& D, int kind) {
     Cut c;
     c.kind = kind;
     if (kind != 0) {  // the hand-drawn front / back views
-        const char* const* rows = kind == 1 ? (stag ? STAG_FRONT : DOE_FRONT) : (stag ? STAG_BACK : DOE_BACK);
-        c.w = FB_W;
-        c.h = stag ? STAG_FB_H : DOE_FB_H;
+        const char* const* rows = kind == 1 ? D.front : D.back;
+        c.w = D.fw;
+        c.h = D.fh;
         c.g.assign((size_t)c.w * c.h, '.');
         for (int y = 0; y < c.h; y++)
             for (int x = 0; x < c.w; x++) c.g[(size_t)y * c.w + x] = rows[y][x];
-        const int top = stag ? 10 : 0;  // the stag has ten rows of antlers above the doe's head
-        c.legTop = top + 31; c.headRow = top + 14; c.headX0 = 0; c.headPx = 9.f; c.headPy = (float)(top + 15);
+        c.legTop = D.fbLegTop; c.headRow = D.fbHeadRow; c.headX0 = 0; c.headPx = c.w * 0.5f; c.headPy = D.fbHeadPy;
         c.tailX1 = -1; c.tailY0 = 0; c.tailY1 = -1; c.tailPx = 0.f; c.tailPy = 0.f;
         return c;
     }
-    const char* const* rows = stag ? STAG_ROWS : DOE_ROWS;
-    c.w = stag ? STAG_W : DOE_W;
-    c.h = stag ? STAG_H : DOE_H;
+    c.w = D.sw;
+    c.h = D.sh;
     c.g.assign((size_t)c.w * c.h, '.');
     for (int y = 0; y < c.h; y++)
-        for (int x = 0; x < c.w; x++) c.g[(size_t)y * c.w + x] = stag ? rows[y][c.w - 1 - x] : rows[y][x];  // the stag is mirrored to face right
-    if (stag) {
-        c.legTop = 38; c.headRow = 21; c.headX0 = 28; c.headPx = 35.f; c.headPy = 22.f; c.neckLen = 10.f;
-        c.tailX1 = 8; c.tailY0 = 22; c.tailY1 = 33; c.tailPx = 9.f; c.tailPy = 28.f;
-    } else {
-        c.legTop = 34; c.headRow = 21; c.headX0 = 31; c.headPx = 34.f; c.headPy = 22.f; c.neckLen = 10.f;
-        c.tailX1 = 7; c.tailY0 = 14; c.tailY1 = 28; c.tailPx = 8.f; c.tailPy = 19.5f;
-    }
+        for (int x = 0; x < c.w; x++) c.g[(size_t)y * c.w + x] = D.flip ? D.side[y][c.w - 1 - x] : D.side[y][x];
+    c.legTop = D.legTop; c.headRow = D.headRow; c.headX0 = D.headX0; c.headPx = D.headPx; c.headPy = D.headPy; c.neckLen = D.neckLen;
+    c.tailX1 = D.tailX1; c.tailY0 = D.tailY0; c.tailY1 = D.tailY1; c.tailPx = D.tailPx; c.tailPy = D.tailPy;
     return c;
 }
 
@@ -411,8 +441,15 @@ inline void turnPart(const std::vector<Cell>& src, float px, float py, float ang
 }
 
 inline Img paint(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P, int CW, int CH, float ax, float ay) {
-    static const Cut CUT[2][3] = {{makeCut(false, 0), makeCut(false, 1), makeCut(false, 2)}, {makeCut(true, 0), makeCut(true, 1), makeCut(true, 2)}};
-    const Cut& C = CUT[R.antlers ? 1 : 0][view == 0 ? 1 : (view == 4 ? 2 : 0)];
+    static const std::vector<Cut> CUTS = [] {
+        std::vector<Cut> v;
+        for (const Def& d : defs())
+            for (int k = 0; k < 3; k++) v.push_back(makeCut(d, k));
+        return v;
+    }();
+    const int id = defId(R);
+    const Def& D = defs()[id];
+    const Cut& C = CUTS[id * 3 + (view == 0 ? 1 : (view == 4 ? 2 : 0))];
     const bool sideView = C.kind == 0;
     const float u = rigScale(R);  // one rig unit in art pixels
     const int WW = C.w + 2 * PAD, WH = C.h + 2 * PAD;
@@ -530,7 +567,7 @@ inline Img paint(const QuadSpec& sp, const RigShape& R, float tierK, int view, c
         for (const Cell& c : head) h2.push_back({c.x, c.y + dyH, c.c});
         turnPart(h2, C.headPx, C.headPy + dyH, ang, C.neckLen, sv, [&](int x, int y, char ch) { put(x + bodyDx, y, ch); });
     } else {  // seen from the front / back the head nods: it moves down (grazing) or up (alert), the neck follows
-        const int dh = std::max(-4, std::min(12, (int)lroundf(-P.headDz * 1.2f) + frontDrop));
+        const int dh = std::max(-4, std::min(D.nodMax, (int)lroundf(-P.headDz * 1.2f) + frontDrop));
         const int dyB = -bobPx + lieDrop;
         for (int y = C.headRow + 1 + std::min(0, dh); y <= C.headRow; y++)
             for (int x = 0; x < C.w; x++) {  // the neck stretches when the head goes up
@@ -541,17 +578,26 @@ inline Img paint(const QuadSpec& sp, const RigShape& R, float tierK, int view, c
     }
 
     // ---- colours
-    const bool exact = sp.body == HEX(0x823e19) && sp.dark == HEX(0x5b131b);
+    const bool exact = D.exactBody && sp.body == D.exactBody && sp.dark == D.exactDark;  // the plain tier: the art's own colours; a rarer tier / form: the spec's
     u32 pal[128];
     for (int i = 0; i < 128; i++) pal[i] = 0;
-    if (exact) {
-        pal['a'] = HEX(0x823e19); pal['b'] = HEX(0x793819); pal['m'] = HEX(0x5b131b); pal['d'] = HEX(0x682412);
-        pal['c'] = HEX(0xd8a284); pal['t'] = HEX(0xba7d5b); pal['k'] = HEX(0x3d0d12);
-    } else {  // a rarer tier: the same art in that tier's colours
-        pal['a'] = sp.body; pal['b'] = mixc(sp.body, sp.dark, 0.12f); pal['m'] = sp.dark; pal['d'] = mixc(sp.body, sp.dark, 0.55f);
-        pal['c'] = sp.belly; pal['t'] = mixc(sp.belly, sp.body, 0.45f); pal['k'] = sp.hoof;
+    for (const PalEnt& e : D.pal) {
+        u32 c = e.fixed;
+        if (!exact || !e.fixed)
+            switch (e.role) {
+                case 1: c = sp.body; break;
+                case 2: c = sp.light; break;
+                case 3: c = sp.belly; break;
+                case 4: c = sp.dark; break;
+                case 5: c = sp.hoof; break;
+                case 6: c = sp.snout; break;
+                case 7: c = sp.eye; break;
+                case 8: c = mixc(sp.body, sp.dark, e.t); break;
+                case 9: c = mixc(sp.belly, sp.body, e.t); break;
+                default: break;
+            }
+        pal[(int)e.ch] = c;
     }
-    pal['p'] = HEX(0xd4776c); pal['q'] = HEX(0xb65656);
     if (P.tint > 0.f)
         for (int i = 0; i < 128; i++)
             if (pal[i]) pal[i] = tintC(pal[i], P.tint);
