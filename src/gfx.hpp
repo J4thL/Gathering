@@ -196,6 +196,7 @@ struct Spr {
     SDL_Texture* t = nullptr;
     SDL_Texture* flash = nullptr;  // solid-white silhouette used for hit flashes
     int w = 0, h = 0, ax = 0, ay = 0;
+    float sc = 1.f;  // drawn at this scale (detailed 64x64 animal sprites are shown smaller than their texture)
     bool ok() const { return t != nullptr; }
 };
 

@@ -15,8 +15,9 @@ void Game::fillRect(int x, int y, int w, int h, u32 c) {
 void Game::sprS(const Spr& s, int sx, int sy, bool flip, float alpha, double angle, bool pivot) {
     if (!s.t) return;
     int ax = flip ? s.w - 1 - s.ax : s.ax;
-    SDL_Rect d{sx - ax, sy - s.ay, s.w, s.h};
-    SDL_Point c{ax, s.ay};
+    const int dax = (int)lroundf(ax * s.sc), day = (int)lroundf(s.ay * s.sc);
+    SDL_Rect d{sx - dax, sy - day, (int)lroundf(s.w * s.sc), (int)lroundf(s.h * s.sc)};
+    SDL_Point c{dax, day};
     SDL_SetTextureAlphaMod(s.t, (Uint8)(clampf(alpha, 0, 1) * 255));
     SDL_RenderCopyEx(ren, s.t, nullptr, &d, angle, pivot ? &c : nullptr, flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
     SDL_SetTextureAlphaMod(s.t, 255);
@@ -460,9 +461,8 @@ void Game::renderWorld(bool) {
             if (rich) {
                 const AnimalClips* ac = animalClips(a.kind);
                 const int st = std::max(0, std::min((int)AN_COUNT - 1, a.anim.state));
-                const FacingView fv = facingView(a.face8);
-                sp = &rich->s[a.variant + 2 * a.tier][fv.view][st][std::min(a.anim.frame(), ac->poses[st] - 1)];
-                mirror = fv.mirror;
+                sp = &rich->s[a.variant + 2 * a.tier][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][st][std::min(a.anim.frame(), ac->poses[st] - 1)];
+                mirror = false;  // all eight directions are drawn, none is a mirror
                 hop = (D.flags & BH_FLIES) ? a.air : 0.f;  // flyers keep their height; the wing beat is in the sprite
             }
             const Spr& s = *sp;
