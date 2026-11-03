@@ -114,11 +114,11 @@ struct Counter {
 
 // Writes all eight directions of one animation state and its metadata. `frames[view][pose]`, views in the game's order S, SE, E, NE, N.
 inline void exportState(const std::string& root, const std::string& group, const std::string& spriteDir, const std::string& baseName, const std::string& metaName,
-                        const std::vector<std::vector<Img>>& frames, const Clip& clip, int ax, int ay, Counter& cnt) {
+                        const std::vector<std::vector<Img>>& frames, const Clip& clip, int ax, int ay, Counter& cnt, bool direct = false, float disp = 1.f) {  // direct: frames[] holds all eight directions, none mirrored
     const int fw = frames[0][0].w, fh = frames[0][0].h;
     std::string files;
     for (int f = 0; f < F_COUNT; f++) {
-        const FacingView fv = facingView(f);
+        const FacingView fv = direct ? FacingView{f, false} : facingView(f);
         const std::string rel = "sprites/" + spriteDir + "/" + baseName + "_" + DIR_NAME[f] + ".png";
         if (writePng(root + "/" + rel, sheet(frames[fv.view], fv.mirror))) cnt.files++;
         else cnt.failed++;
@@ -134,7 +134,7 @@ inline void exportState(const std::string& root, const std::string& group, const
     snprintf(head, sizeof head, "{\n  \"name\":\"%s\",\n  \"group\":\"%s\",\n  \"frameWidth\":%d,\n  \"frameHeight\":%d,\n  \"frameCount\":%d,\n  \"loop\":%s,\n", baseName.c_str(),
              group.c_str(), fw, fh, (int)frames[0].size(), clip.loop ? "true" : "false");
     char anc[160];
-    snprintf(anc, sizeof anc, "  \"anchor\":{\"x\":%d,\"y\":%d},\n  \"anchorMirrored\":{\"x\":%d,\"y\":%d},\n", ax, ay, fw - 1 - ax, ay);
+    snprintf(anc, sizeof anc, "  \"anchor\":{\"x\":%d,\"y\":%d},\n  \"anchorMirrored\":{\"x\":%d,\"y\":%d},\n  \"displayScale\":%.4f,\n", ax, ay, fw - 1 - ax, ay, disp);
     const std::string json = std::string(head) + anc + "  \"orientation\":\"sheet is one row of frames, left to right\",\n  \"sequence\":[" + seq + "],\n  \"files\":{" + files + "}\n}\n";
     const std::string metaPath = root + "/animations/" + metaName + ".json";
     std::filesystem::create_directories(std::filesystem::path(metaPath).parent_path());
@@ -176,13 +176,23 @@ inline int exportAll(const std::string& root) {
             for (int st = 0; st < AN_COUNT; st++) {
                 if (C.poses[st] <= 0) continue;
                 std::vector<std::vector<Img>> fr(AV_VIEWS);
+                int ma = 0, mb = 0;
+                float md = 1.f;
                 for (int v = 0; v < AV_VIEWS; v++)
                     for (int i = 0; i < C.poses[st]; i++) {
+                        if (R.model) {  // a 3D model rendered into a 64x64 cell, drawn in the game at displayScale
+                            ModelOut mo = paintModel(spec, R, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
+                            styleActor(mo.im, OUT, 0);
+                            ma = mo.ax; mb = mo.ay; md = mo.disp;
+                            fr[v].push_back(mo.im);
+                            continue;
+                        }
                         Img im = paintQuad(spec, R, TIER[0].scale, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
                         styleActor(im, OUT, R.flat ? 2 : 0);
                         fr[v].push_back(im);
                     }
-                exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], fr[0][0].w / 2, (int)(fr[0][0].h - 6.f * k), cnt);
+                exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], R.model ? ma : fr[0][0].w / 2,
+                            R.model ? mb : (int)(fr[0][0].h - 6.f * k), cnt, true, R.model ? md : 1.f);
             }
         }
     const std::string mp = root + "/animations/manifest.json";

@@ -8,6 +8,9 @@ endif()
 
 add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp)
 
+find_package(Threads REQUIRED)  # the 3D animal models are drawn on several threads at start-up
+target_link_libraries(wildwood PRIVATE Threads::Threads)
+
 find_package(SDL2 CONFIG QUIET)
 if(TARGET SDL2::SDL2)
   # modern SDL2 config package (vcpkg, MSYS2, SDL2 dev zip, Linux distro packages)
