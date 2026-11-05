@@ -17,7 +17,7 @@ inline int enc(bool node, int idx) { return (node ? NODE_FLAG : 0) | idx; }
 inline bool isNodeId(int id) { return (id & NODE_FLAG) != 0; }
 inline int idxOf(int id) { return id & (NODE_FLAG - 1); }
 // ore and cactus nodes are solid tiles (placed that way by worldgen); they stay solid when finished
-inline bool nodeIsSolid(int kind) { return kind == RN_CACTUS || kind == RN_ORE || kind == RN_COPPER || kind == RN_GOLD; }
+inline bool nodeIsSolid(int kind) { return kind == RN_CACTUS || kind == RN_ORE || kind == RN_COPPER || kind == RN_GOLD || kind >= RN_COAL; }
 }  // namespace
 
 // ------------------------------------------------------------------ state
@@ -131,7 +131,7 @@ void Game::harvestStep(const HTarget& t, float dt) {
     int tier = R.tool >= 0 ? bestTool(R.tool, &toolIdx) : 0;
     float speed = R.tool < 0 ? 1.f : (tier > 0 ? TOOLDEF[toolIdx].speed : HAND_SPEED);
     if (R.cls == RCL_TREE) speed *= 1.f + skillBonus(SK_WOODCUTTING);
-    else if (R.cls == RCL_ROCK || R.cls == RCL_ORE) speed *= 1.f + skillBonus(SK_MINING);
+    else if (R.cls == RCL_ROCK || R.cls == RCL_ORE) speed *= (1.f + skillBonus(SK_MINING)) * (p.has(CG_GEMRING) ? 1.15f : 1.f);  // the gemset ring: +15% mining speed
     if (t.key() != hvKey) {  // a different resource: the swing starts over
         hvKey = t.key();
         p.gatherT = 0;
@@ -173,6 +173,10 @@ void Game::harvestFinish(const HTarget& t) {
         n[0]++;
         bonus = true;
     }
+    if (n[0] > 0 && R.cls == RCL_ORE && p.has(CG_GEMRING) && grng.chance(0.12f)) {  // ...and a 12% chance of an extra piece of ore
+        n[0]++;
+        bonus = true;
+    }
     if (n[0] > 0 && toolIdx >= 0 && grng.chance(TOOLDEF[toolIdx].bonus)) {
         n[0]++;
         bonus = true;
@@ -194,7 +198,7 @@ void Game::harvestFinish(const HTarget& t) {
     }
     if (bonus) ftext(t.pos + V2(0, -12 - lineY), "BONUS!", C_GOLD, 1.2f);
     // skill XP: only here, after the pack check passed and the yield was delivered; harder resources pay more
-    grantXp(R.cls == RCL_TREE ? SK_WOODCUTTING : R.cls == RCL_PLANT ? SK_FORAGING : SK_MINING, 2 + R.hits * 2 + R.minTier * 4);
+    grantXp(R.cls == RCL_TREE ? SK_WOODCUTTING : R.cls == RCL_PLANT ? SK_FORAGING : SK_MINING, 2 + R.hits * 2 + R.minTier * 4 + R.minLv);  // rare deposits (silver, crystal, gems) pay extra
     // finished: depleted state + regrow timer
     HState& s = hstate(t.node, t.idx);
     s.gone = true;
@@ -323,7 +327,8 @@ void Game::drawHarvestPrompt() {
     const ResDef& R = RES[t.res];
     int toolIdx = -1;
     int tier = R.tool >= 0 ? bestTool(R.tool, &toolIdx) : 0;
-    const bool ok = R.tool < 0 || tier >= R.minTier;
+    const bool lvOk = p.sk.level(SK_MINING) >= R.minLv;
+    const bool ok = (R.tool < 0 || tier >= R.minTier) && lvOk;
     const HState& s = hstate(t.node, t.idx);
     const int sx = (int)t.pos.x - camX, sy = (int)t.pos.y - camY;
 
@@ -342,7 +347,7 @@ void Game::drawHarvestPrompt() {
         fillRect(px + pw - 5 - (R.hits - h) * 5 + 1, py + 13, 4, 5, left ? C_GREEN : HEX(0x4a3524));
     }
     if (!ok) {
-        std::string need = std::string("NEED ") + TOOLDEF[R.tool * 4 + R.minTier - 1].name;
+        std::string need = !lvOk && (R.tool < 0 || tier >= R.minTier) ? "NEED MINING LV " + S(R.minLv) : std::string("NEED ") + TOOLDEF[R.tool * 4 + R.minTier - 1].name;
         int w = 12 + textW(need);
         panel(sx - w / 2, sy - 36, w, 13, HEX(0x4a2020));
         textC(sx, sy - 33, need, C_RED, 1, true);

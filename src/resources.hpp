@@ -17,6 +17,8 @@ enum ResId {
     RS_ROCK, RS_SANDROCK, RS_SNOWROCK, RS_BOULDER, RS_CRYSTAL,
     // ore veins (pickaxe)
     RS_COPPER, RS_IRON, RS_GOLD, RS_AMBER,
+    // mine and dungeon deposits (pickaxe; they also need a Mining level)
+    RS_COAL, RS_SILVER, RS_CAVECRYSTAL, RS_GEM, RS_ETERNALICE,
     // plants (by hand)
     RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_NIGHTSHADE,
     RS_COUNT
@@ -41,6 +43,7 @@ struct ResDef {
     int hurt;          // HP lost when it is finished (thorns, poison)
     int safeArmor;     // armor level that protects from `hurt`
     u32 chip;          // particle colour
+    int minLv = 0;     // Mining level needed (0 = none); the deposits of the mine and the dungeon use it
 };
 
 static const ResDef RES[RS_COUNT] = {
@@ -64,6 +67,11 @@ static const ResDef RES[RS_COUNT] = {
     {"IRON ORE",      RCL_ORE,   TT_PICK, 2, 5, 1.00f, {{M_IRON, 1, 2, 1.f, 0}, {M_STONE, 1, 1, 0.4f, 0}, {-1, 0, 0, 0, 0}},           480, 0, 0, 0xf0953a},
     {"GOLD VEIN",     RCL_ORE,   TT_PICK, 3, 7, 1.10f, {{M_GOLD, 1, 2, 1.f, 0}, {M_STONE, 1, 1, 0.3f, 0}, {-1, 0, 0, 0, 0}},           720, 0, 0, 0xf2c94c},
     {"BOG AMBER",     RCL_ORE,   TT_PICK, 1, 3, 0.90f, {{M_AMBER, 1, 1, 1.f, 0}, {M_AMBER, 1, 1, 0.25f, 0}, {-1, 0, 0, 0, 0}},         900, 0, 0, 0xf0b040},
+    {"COAL SEAM",     RCL_ORE,   TT_PICK, 1, 3, 0.85f, {{M_COAL, 2, 4, 1.f, 0}, {M_STONE, 1, 1, 0.3f, 0}, {-1, 0, 0, 0, 0}},           300, 0, 0, 0x34343c, 1},
+    {"SILVER VEIN",   RCL_ORE,   TT_PICK, 2, 5, 1.00f, {{M_SILVER, 1, 2, 1.f, 0}, {M_STONE, 1, 1, 0.3f, 0}, {-1, 0, 0, 0, 0}},        600, 0, 0, 0xdfe6f2, 8},
+    {"CAVE CRYSTAL",  RCL_ORE,   TT_PICK, 3, 6, 1.05f, {{M_RARECRYSTAL, 1, 2, 1.f, 0}, {M_GEM, 1, 1, 0.12f, 3}, {-1, 0, 0, 0, 0}},   900, 0, 0, 0xc890ff, 15},
+    {"GEM DEPOSIT",   RCL_ORE,   TT_PICK, 4, 8, 1.20f, {{M_GEM, 1, 2, 1.f, 0}, {M_RARECRYSTAL, 1, 1, 0.25f, 3}, {-1, 0, 0, 0, 0}},   1200, 0, 0, 0xff6a9a, 25},
+    {"ETERNAL ICE",   RCL_ORE,   TT_PICK, 3, 7, 1.10f, {{M_ETERNALICE, 1, 1, 1.f, 0}, {M_ICESHARD, 1, 2, 0.6f, 0}, {-1, 0, 0, 0, 0}},  1500, 0, 0, 0x9ad8ff, 20},
 
     {"PRICKLY PEAR",  RCL_PLANT, -1,      0, 1, 1.00f, {{M_PULP, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                   150, 2, 1, 0x72bb62},
     {"SAGEBRUSH",     RCL_PLANT, -1,      0, 1, 0.70f, {{M_SAGE, 1, 2, 1.f, 0}, {M_SAGE, 1, 1, 0.25f, 0}, {-1, 0, 0, 0, 0}},          120, 0, 0, 0xa8c2a0},
@@ -82,7 +90,8 @@ static const ResDef RES[RS_COUNT] = {
 // resource of a world node kind (always one)
 inline int nodeRes(int nodeKind) {
     static const int T[RN_COUNT] = {RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_IRON,
-                                    RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_COPPER, RS_NIGHTSHADE, RS_AMBER, RS_GOLD};
+                                    RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_COPPER, RS_NIGHTSHADE, RS_AMBER, RS_GOLD,
+                                    RS_COAL, RS_SILVER, RS_CAVECRYSTAL, RS_GEM, RS_ETERNALICE};
     return T[nodeKind];
 }
 // resource of a prop kind, or -1 when the prop is scenery (huts, signs, ruins, the edge wall's rocks ...)

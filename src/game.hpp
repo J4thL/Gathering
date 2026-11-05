@@ -13,6 +13,7 @@
 #include "resources.hpp"
 #include "skills.hpp"
 #include "spawns.hpp"
+#include "monsters.hpp"
 
 // ----------------------------------------------------------------- palette
 const u32 C_TEXT = HEX(0xf3e9d2), C_DIM = HEX(0xa8977a), C_GOLD = HEX(0xf2c94c), C_RED = HEX(0xe8605a),
@@ -286,6 +287,30 @@ struct Game {
     HunterLook salonLook;                    // the salon's preview (not applied until CONFIRM)
     Spr salonPrev[3];                  // preview sprites [dir], drawn for salonPrevLook
     HunterLook salonPrevLook;
+
+    // delves (delve.cpp, monsters.cpp): the Abandoned Mine and the four levels of the Frozen Dungeon are maps of their own (world.mapId >= B_COUNT)
+    int delve = -1;                    // DelveId the hunter is in, -1 = not in a delve (the way out reuses extMap / extPos above)
+    struct DelveMem {                  // what is remembered of each level between visits
+        bool visited = false;
+        std::vector<std::string> hv;   // harvested ore and the like, as save lines
+        uint32_t chests = 0;           // bit per chest id: already opened
+        bool bossDead = false;         // the Frostbound King (level 4 only)
+        float bossTimer = 0;           // seconds until he returns
+        float chestT = 0;              // seconds until the opened chests are refilled
+    } delveMem[DV_COUNT];
+    std::vector<Monster> mons;
+    std::vector<Hazard> hazards;
+    std::vector<MProj> mprojs;
+    std::vector<DTrap> dtraps;
+    std::vector<DChest> dchests;
+    std::vector<int16_t> flow;         // flow field: steps to the hunter, around the walls (monsters.cpp)
+    int flowTx = -1, flowTy = -1;
+    float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
+    float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
+    SDL_Texture* darkTex = nullptr;    // the delve darkness (a small alpha grid scaled up)
+    int bossIdx = -1;                  // index in mons of the awake boss, -1 = none
+    bool monsArtReady = false;
+    int delveKills = 0;
     // test hooks
     bool botOn = false;
     bool craftAnywhere = false;  // the crafting tests run away from the town buildings; real play never sets this
@@ -351,6 +376,45 @@ struct Game {
     void bloodBurst(V2 p, V2 dir, int n);
     void puff(V2 p, int n, u32 col);
     void addItem(int m, int n);
+    // ---- delves (delve.cpp)
+    bool delveReq(int id, std::string* why = nullptr) const;  // armour / frost-ward needed for a level
+    bool enterDelve(int id);        // from the entrance on the overworld
+    bool leaveDelve();              // back to the overworld, at the entrance the hunter came in by
+    bool delveGo(int id, bool down);  // stairs between the dungeon's levels
+    int delveNear(V2* at = nullptr) const;  // what E would use: 1 entrance, 2 exit, 3 stairs down, 4 stairs up, 5 boss door, 6 chest (index in dchests via delveNearIdx)
+    int delveNearIdx = -1;
+    bool delveInteract();
+    bool delvePrompt();
+    void spawnDelve();              // fills mons / dchests / dtraps from world.dsp
+    void updateDelve(float dt);     // everything that happens inside a delve (monsters, hazards, traps, rockfall, boss respawn)
+    void tickDelveTimers(float dt); // boss and chest timers run everywhere
+    void resetDelveRuntime();
+    void openDelveChest(int i);
+    void buildFlow();
+    std::string delveSaveLines();
+    // ---- monsters (monsters.cpp)
+    Monster* spawnMonster(int kind, V2 pos, float depth, bool elite, int id);
+    void updateMonsters(float dt);
+    void updateHazards(float dt);
+    void updateMProjs(float dt);
+    void updateTraps(float dt);
+    bool hitMonster(Monster& m, float dmg, V2 dir, bool crit, int wpn);  // false = the hit was blocked
+    void killMonster(Monster& m);
+    void monsterAttack(Monster& m, float dt);
+    void bossThink(Monster& m, float dt);
+    void addHazard(int kind, V2 pos, float r, float delay, float dmg, bool slow = false);
+    void shootBolt(V2 from, V2 dir, float dmg, float speed = 110.f);
+    bool monsterStep(Monster& m, V2 dir, float speed, float dt);
+    void dropLoot(const Monster& m);
+    void playerPoison(float secs);
+    void drawDelveFloor();                       // delve_render.cpp: trap plates and the warning circles
+    void drawDChest(const DChest& c);
+    void drawMonster(const Monster& m);
+    void drawDelveOverlay();                     // ice bolts
+    void drawDelveDark();                        // darkness and light pools
+    void drawBossBar();
+    void drawDelveBanner();
+    void ensureMonsterArt();
     // ---- maps (maps.cpp)
     bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
     void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)

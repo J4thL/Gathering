@@ -759,6 +759,88 @@ static int mapCheck(Game& g, int map, long nodeTotals[]) {
     return bad;
 }
 
+// The mine and the dungeon: every level must be connected from its entrance to its exits, stairs, chests, ores and monsters, and the
+// two overworld entrances must be reachable on foot from the map's own entry.
+static int delveCheck(Game& g) {
+    int bad = 0;
+    auto flood = [&](const World& w, V2 from, std::vector<char>& seen) {
+        seen.assign((size_t)MW * MH, 0);
+        std::vector<int> q;
+        const int sx = (int)(from.x / TS), sy = (int)(from.y / TS);
+        q.push_back(sy * MW + sx);
+        seen[sy * MW + sx] = 1;
+        for (size_t h = 0; h < q.size(); h++) {
+            const int c = q[h], x = c % MW, y = c / MW;
+            const int DX[4] = {1, -1, 0, 0}, DY[4] = {0, 0, 1, -1};
+            for (int k = 0; k < 4; k++) {
+                const int nx = x + DX[k], ny = y + DY[k];
+                if (nx < 1 || ny < 1 || nx >= MW - 1 || ny >= MH - 1 || seen[ny * MW + nx] || w.solidTile(nx, ny)) continue;
+                seen[ny * MW + nx] = 1;
+                q.push_back(ny * MW + nx);
+            }
+        }
+    };
+    long ores[RN_COUNT] = {0};
+    std::vector<char> seen;
+    for (int id = 0; id < DV_COUNT; id++) {
+        World w;
+        w.generateDelve(id);
+        if (id == DV_FROST3) for (int x = 64; x <= 66; x++) w.solid[92][x] = false;  // (the king's door is opened by the hunter)
+        flood(w, w.spawn, seen);
+        auto reach = [&](V2 v) { return v.x >= 0 && seen[(int)(v.y / TS) * MW + (int)(v.x / TS)]; };
+        int mon = 0, chest = 0, trap = 0, unreach = 0, boss = 0;
+        for (const DSpawn& s : w.dsp) {
+            const bool ok = reach(V2(s.x, s.y));
+            if (!ok) { unreach++; if (getenv("DELVE_DEBUG")) printf("   spawn type %d kind %d at %d,%d\n", s.type, s.kind, (int)(s.x / TS), (int)(s.y / TS)); }
+            if (s.type == DS_MONSTER) mon++;
+            else if (s.type == DS_CHEST) chest++;
+            else if (s.type == DS_TRAP) trap++;
+            else boss++;
+        }
+        for (auto& n : w.nodes) {
+            ores[n.kind]++;
+            const int nx = (int)(n.x / TS), ny = (int)(n.y / TS);
+            bool ok = false;
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (seen[(ny + dy) * MW + nx + dx]) ok = true;
+            if (!ok) { unreach++; if (getenv("DELVE_DEBUG")) printf("   node kind %d at %d,%d\n", n.kind, nx, ny); }
+        }
+        printf("delve %d %-18s: %d monsters, %d chests, %d traps, %d nodes, %d boss, lights %d, exit %s, stairs down %s, up %s, %d unreachable\n", id, DELVE_NAME[id], mon, chest, trap,
+               (int)w.nodes.size(), boss, (int)w.lights.size(), reach(w.exitPos) ? "ok" : "NO", w.stairsDn.x < 0 ? "-" : (reach(w.stairsDn) ? "ok" : "NO"), w.stairsUp.x < 0 ? "-" : (reach(w.stairsUp) ? "ok" : "NO"), unreach);
+        if (!reach(w.exitPos) || unreach) { printf("  PROBLEM: part of %s cannot be reached\n", DELVE_NAME[id]); bad++; }
+        if (id != DV_FROST3 && id != DV_MINE && w.stairsDn.x < 0) { printf("  PROBLEM: no way down from %s\n", DELVE_NAME[id]); bad++; }
+        if (id == DV_FROST3 && (boss != 1 || w.bossDoor.x < 0)) { printf("  PROBLEM: the throne room has no king or no door\n"); bad++; }
+        if (id == DV_FROST3) {  // the throne hall is behind the door: open the door tiles and the king must become reachable
+            for (int x = 64; x <= 66; x++) w.solid[92][x] = false;
+            flood(w, w.spawn, seen);
+            if (!seen[(int)(w.bossPos.y / TS) * MW + (int)(w.bossPos.x / TS)]) { printf("  PROBLEM: the king cannot be reached even with the door open\n"); bad++; }
+        }
+        if (mon < 4 && id != DV_FROST3) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
+    }
+    for (int k = RN_COAL; k < RN_COUNT; k++)
+        if (!ores[k]) { printf("  PROBLEM: no %s in any delve\n", NODE_NAME[k]); bad++; }
+    // the entrances on the overworld
+    for (int m : {B_MOUNTAIN, B_SNOW}) {
+        g.loadMapWorld(m);
+        flood(g.world, g.freeSpot(MAPS[m].entryTx, MAPS[m].entryTy), seen);
+        const V2 gt = g.world.gate;
+        bool ok = gt.x >= 0;
+        if (ok) {  // some walkable tile right next to the gate must be reachable
+            ok = false;
+            for (int dy = -2; dy <= 2 && !ok; dy++)
+                for (int dx = -2; dx <= 2; dx++) {
+                    const int tx = (int)(gt.x / TS) + dx, ty = (int)(gt.y / TS) + dy;
+                    if (tx > 0 && ty > 0 && tx < MW && ty < MH && seen[ty * MW + tx]) { ok = true; break; }
+                }
+        }
+        printf("entrance on map %d at (%d,%d): %s\n", m, (int)(gt.x / TS), (int)(gt.y / TS), ok ? "reachable" : "NOT REACHABLE");
+        if (!ok) { printf("  PROBLEM: the delve entrance on map %d cannot be walked to\n", m); bad++; }
+    }
+    g.loadMapWorld(B_HOME);
+    return bad;
+}
+
 static int worldCheck(Game& g) {
     int bad = 0;
     long nodeTotals[RN_COUNT] = {0};
@@ -768,12 +850,13 @@ static int worldCheck(Game& g) {
         printf("all resource nodes over the five maps:");
         for (int k = 0; k < RN_COUNT; k++) printf(" %s=%ld", NODE_NAME[k], nodeTotals[k]);
         printf("\n");
-        for (int k = 0; k < RN_COUNT; k++)
+        for (int k = 0; k < RN_COAL; k++)  // (the mine / dungeon ores live in the delves, checked below)
             if (!nodeTotals[k]) {
                 printf("  PROBLEM: no %s anywhere\n", NODE_NAME[k]);
                 bad++;
             }
     }
+    bad += delveCheck(g);
     // travel test: walk through every gate with the real player, check the arrival, then walk back through the gate home
     for (int m = B_DESERT; m < B_COUNT; m++) {
         enterMap(g, B_HOME);
@@ -2346,6 +2429,9 @@ static int selfTest(Game& g) {
             for (int a = 0; a < A_COUNT; a++)
                 for (int m = 0; m < M_COUNT; m++)
                     if (ANIMAL[a].drop[m][1] > 0) producible[m] = true;
+            for (int k = 0; k < MK_COUNT; k++)  // the delve creatures' drops
+                for (const MonDrop& d : MONDEF(k).drops)
+                    if (d.chance > 0) producible[d.mat] = true;
             for (int r = 0; r < RECIPE_N; r++)
                 if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
             for (int m : {M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER}) producible[m] = true;  // bought at the flower shop
@@ -2816,7 +2902,7 @@ static int selfTest(Game& g) {
         check(noStray, "no species drops another species' trophy");
         bool tables = true, ranges = true;
         for (int m = 0; m < M_COUNT; m++) {
-            tables = tables && MAT_NAME[m] && *MAT_NAME[m] && MAT_BLURB[m] && *MAT_BLURB[m] && MAT_PRICE[m] > 0;
+            tables = tables && MAT_NAME[m] && *MAT_NAME[m] && MAT_BLURB[m] && *MAT_BLURB[m] && (MAT_PRICE[m] > 0 || m == M_CRYPTKEY); /* the crypt key is not for sale */
             for (int k = 0; k < A_COUNT; k++) ranges = ranges && ANIMAL[k].drop[m][0] >= 0 && ANIMAL[k].drop[m][0] <= ANIMAL[k].drop[m][1];
         }
         check(tables, "every material has a name, a blurb and a sell price (no table is short)");
@@ -3299,11 +3385,14 @@ static int selfTest(Game& g) {
     return bad;
 }
 
+int delveTest(Game& g);  // delve_tests.cpp
+void delveShots(Game& g, const std::string& dir);
+
 int main(int argc, char** argv) {
     bool headless = false;
-    std::string shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
+    std::string delveDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false;
+    bool wcheck = false, dtest = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
         if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
@@ -3316,6 +3405,8 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--weapons")) wtest = true;
         if (!strcmp(argv[i], "--selftest")) stest = true;
         if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
+        if (!strcmp(argv[i], "--delve")) dtest = true;
+        if (!strcmp(argv[i], "--delveshots") && i + 1 < argc) delveDir = argv[++i];
     }
     if (headless) {
         setenv("SDL_VIDEODRIVER", "dummy", 1);
@@ -3331,6 +3422,16 @@ int main(int argc, char** argv) {
     }
     if (wcheck) {
         int bad = worldCheck(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
+    }
+    if (!delveDir.empty()) {
+        delveShots(g, delveDir);
+        g.audio.shutdown();
+        return 0;
+    }
+    if (dtest) {
+        int bad = delveTest(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
     }

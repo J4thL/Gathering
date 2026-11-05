@@ -20,13 +20,17 @@ static const WpnArt WPN_ART[W_COUNT - W_FANGDAGGER] = {
     {HEX(0x4a5a34), HEX(0x2f3a20), HEX(0xd8a8f0), HEX(0xa060d0), HEX(0x4a2a6a), HEX(0x6ab04a)},  // bogbane spear: green haft, venom tip
     {HEX(0xe8e0c8), HEX(0xb8ae90), HEX(0xf0fbff), HEX(0xa8e4ff), HEX(0x5a98c0), HEX(0x4a3e40)},  // frost harpoon: bone haft, ice barbs
     {HEX(0x8d5e33), HEX(0x6b4423), HEX(0xdfe4f0), HEX(0x8a90a8), HEX(0x4e5470), HEX(0xefe4cc)},  // cliffsplitter axe: grey stone head
+    {HEX(0x6a4a30), HEX(0x4a3220), HEX(0xf4f8ff), HEX(0xc2cad8), HEX(0x6a7488), HEX(0xd8a23c)},  // steel spear: bright tempered head, brass collar
+    {HEX(0x5a4a3a), HEX(0x3a2e24), HEX(0xffffff), HEX(0xdfe6f2), HEX(0x8a94aa), HEX(0xa8c8f0)},  // silver dagger: silver blade
+    {HEX(0xcfe6f6), HEX(0x8fb4d0), HEX(0xf4fdff), HEX(0x8fe0ff), HEX(0x3a88c0), HEX(0xe8fbff)},  // frostbrand glaive: ice-blue blade
 };
 
 inline Img mkIconWpnGear(int w) {
     Img im(16, 16);
     const WpnArt& A = WPN_ART[w - W_FANGDAGGER];
     switch (w) {
-        case W_FANGDAGGER:  // a short curved blade made from a fang, wrapped grip
+        case W_FANGDAGGER:
+        case W_SILVERDAGGER:  // a short curved blade made from a fang, wrapped grip
             im.line(5, 10, 13, 2, A.headM);
             im.line(6, 10, 13, 3, A.headD);
             im.line(4, 10, 12, 2, A.headL);
@@ -36,6 +40,7 @@ inline Img mkIconWpnGear(int w) {
             im.line(3, 14, 6, 11, A.haftDark);
             im.set(2, 14, A.accent);
             break;
+        case W_STEELSPEAR:
         case W_RSPEAR:  // steel head, tusk barbs, bone lashings
             im.line(2, 14, 11, 5, A.haftDark);
             im.line(3, 14, 12, 5, A.haft);
@@ -99,6 +104,19 @@ inline Img mkIconWpnGear(int w) {
             im.set(15, 0, A.headL); im.set(9, 3, A.headD); im.set(13, 7, A.headD);
             im.set(3, 12, A.accent);
             break;
+        case W_FROSTBRAND:  // a long ice-blue glaive blade on a pale haft
+            im.line(2, 14, 10, 6, A.haftDark);
+            im.line(3, 14, 11, 6, A.haft);
+            for (int i = 0; i < 8; i++) {
+                const int w2 = i < 2 ? 1 : (i < 6 ? 2 : 1);
+                im.set(9 + i, 6 - i, A.headL);
+                im.set(10 + i, 6 - i, A.headM);
+                if (w2 > 1) im.set(10 + i, 7 - i, A.headD);
+                if (i > 0 && i < 7) im.set(9 + i, 5 - i, A.accent);
+            }
+            im.set(15, 0, HEX(0xffffff));
+            im.set(9, 8, A.accent); im.set(8, 9, A.accent);
+            break;
         case W_CLIFFAXE:  // a grey stone head lashed to a wooden haft
             im.line(3, 14, 11, 5, A.haftDark);
             im.line(4, 14, 12, 5, A.haft);
@@ -116,7 +134,8 @@ inline Img mkIconWpnGear(int w) {
 inline Img mkWpnWorldGear(int w) {
     const WpnArt& A = WPN_ART[w - W_FANGDAGGER];
     switch (w) {
-        case W_FANGDAGGER: {
+        case W_FANGDAGGER:
+        case W_SILVERDAGGER: {
             Img im(14, 5);
             im.rect(1, 2, 4, 1, A.haft);
             im.rect(1, 1, 4, 1, A.haftDark);
@@ -161,6 +180,8 @@ inline Img mkWpnWorldGear(int w) {
             im.set(15, 3, A.accent); im.set(16, 3, A.accent);
             if (w == W_HARPOON) { im.set(16, 0, A.headM); im.set(16, 4, A.headM); }
             if (w == W_SUNJAV) { im.rect(0, 1, 2, 3, A.accent); }
+            if (w == W_FROSTBRAND) { im.rect(17, 0, 5, 1, A.headL); im.rect(17, 4, 5, 1, A.headD); im.set(21, 2, A.accent); }
+            if (w == W_STEELSPEAR) { im.rect(15, 1, 1, 3, A.accent); }
             im.outline(OUT);
             return im;
         }
