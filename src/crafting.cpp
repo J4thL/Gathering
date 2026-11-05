@@ -182,7 +182,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         const bool can = why.empty();
         panel(x, y, w, rowH - 1, can ? HEX(0x3f3220) : HEX(0x33261a));
         if (inRect(x, y, w, rowH - 1)) hover = r;
-        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(5, R.count)], x + 11, y + 10, 16);
+        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(8, R.count)], x + 11, y + 10, 16);
         else icon(itemIcon(recipeItem(R)), x + 11, y + 10, 16);
         text(x + 24, y + 3, recipeName(R) + (R.count > 1 && R.kind != RK_GEAR ? "  X" + S(R.count) : std::string("")), can ? C_GOLD : HEX(0xa89060));
         if (R.kind != RK_GEAR) {

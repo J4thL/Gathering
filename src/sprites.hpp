@@ -10,6 +10,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 #include "sprites_res.hpp"
 #include "sprites_trophy.hpp"
 #include "sprites_gear.hpp"
+#include "sprites_delve.hpp"
 #include "sprites_biome.hpp"
 #include "sprites_town.hpp"
 
@@ -764,6 +765,7 @@ inline QuadSpec specWolf() {
 
 #include "sprites_fauna.hpp"
 #include "sprites_rig.hpp"
+#include "monster_art.hpp"
 
 // ================================================================= icons & UI art
 inline Img mkIconMat(int m) {
@@ -998,7 +1000,7 @@ inline Img mkIconGear(int up, int tier) {
             break;
         }
         case U_ARMOR: {
-            u32 c[6] = {HEX(0x9b6b3a), HEX(0xb08a5a), HEX(0xcfd3d8), HEX(0x6a4a30), HEX(0x5a3a22), HEX(0x4a2e1c)};
+            u32 c[9] = {HEX(0x9b6b3a), HEX(0xb08a5a), HEX(0xcfd3d8), HEX(0x6a4a30), HEX(0x5a3a22), HEX(0x4a2e1c), HEX(0x8a7a6a), HEX(0x8ec8e8), HEX(0x5a78c8)};
             im.rect(3, 3, 10, 11, c[tier]);
             im.rect(1, 3, 3, 4, c[tier]);
             im.rect(12, 3, 3, 4, c[tier]);
@@ -1204,9 +1206,11 @@ struct Assets {
     HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
     std::shared_ptr<RichAnimal> rich[A_COUNT];  // full animation sets (animal_anim.hpp): only species that have one are set
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
-    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][6], carryIcon[CG_COUNT], bandage;
+    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, blood[3], vignette;
+    DelveAssets D;
+    MonsterBank M;  // the delve creatures: built on first entry (buildMonsterBank)  // the Abandoned Mine and the Frozen Dungeon (sprites_delve.hpp)
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     TownAssets T;   // the central town: building exteriors, street furniture, paving, interiors (sprites_town.hpp)
     ResAssets R;    // tools, consumables, placeables, depleted resources (sprites_res.hpp)
@@ -1257,7 +1261,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
     buildRichAnimals(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
         Img t = mkIconTool(k);
@@ -1274,8 +1278,8 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.R.stub = makeSpr(r, mkStub(), 6, 6);
     a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
-        for (int t = 0; t < 6; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, std::min(t, UP_MAX[u])), 8, 8);
-    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, mkIconCarry(c), 8, 8);
+        for (int t = 0; t < 9; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, std::min(t, UP_MAX[u])), 8, 8);
+    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, c >= 7 ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
         Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));
@@ -1287,6 +1291,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         a.ammoWorld[k] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
     buildBiomeAssets(r, a.B);
+    buildDelveAssets(r, a.D);
     buildTownAssets(r, a.T);
     a.coin = makeSpr(r, mkCoin(), 5, 5);
     a.heart = makeSpr(r, mkHeart(), 5, 5);

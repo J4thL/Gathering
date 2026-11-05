@@ -47,7 +47,8 @@ enum PlaceId { PL_CAMPFIRE, PL_CHEST, PL_COUNT };
 constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
 constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 // Carried gear works while it is in the pack (like a tool: no equip step, it just has to be on you). Each takes a pack slot.
-enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER, CG_COUNT };
+enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
+                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_COUNT };  // the last six: mine and dungeon gear
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
 constexpr int ITEM_COUNT = ITEM_CARRY0 + CG_COUNT;
 constexpr int itemCarry(int c) { return ITEM_CARRY0 + c; }
@@ -92,11 +93,14 @@ inline float matWeight(int m) {
         0.2f, 0.3f, 0.4f, 0.3f,  0.1f, 0.1f, 0.2f, 0.2f, 0.1f, 0.2f, 0.4f,  0.2f, 0.1f, 0.4f, 0.2f, 0.3f, 0.3f,  0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.3f,  0.3f, 0.4f, 0.1f, 0.3f, 0.2f,
         /*FAT*/ 0.5f,
         /*PLANK*/ 1.5f, /*LEATHER*/ 1.0f, /*BONEFRAG*/ 0.2f, /*EXTRACT*/ 0.1f, /*GREASE*/ 0.3f,
-        /*ROSE*/ 0.05f, /*TULIP*/ 0.05f, /*LAVENDER*/ 0.05f, /*SUNFLOWER*/ 0.1f, /*BOUQUET*/ 0.3f};
+        /*ROSE*/ 0.05f, /*TULIP*/ 0.05f, /*LAVENDER*/ 0.05f, /*SUNFLOWER*/ 0.1f, /*BOUQUET*/ 0.3f,
+        /*COAL*/ 1.5f, /*SILVER*/ 2.8f, /*CAVECRYSTAL*/ 0.6f, /*GEM*/ 0.2f, /*STEELBAR*/ 2.5f, /*SILVERBAR*/ 2.0f,
+        /*BATWING*/ 0.1f, /*SILK*/ 0.1f, /*SPIDERFANG*/ 0.15f, /*GOLEMCORE*/ 3.0f, /*CAVEPELT*/ 1.2f,
+        /*ICEBONE*/ 0.6f, /*FROSTFANG*/ 0.2f, /*ICESHARD*/ 0.3f, /*KNIGHTPLATE*/ 2.0f, /*FROSTRUNE*/ 0.3f, /*ETERNALICE*/ 0.8f, /*CRYPTKEY*/ 0.1f};
     return W[m];
 }
 inline float wpnWeight(int w) {
-    static const float W[W_COUNT] = {0.3f, 0.5f, 2.0f, 1.5f, 1.5f, 3.5f, 2.0f, 3.0f, 2.0f, 0.6f, 2.5f, 2.0f, 3.5f, 1.5f, 2.5f, 2.5f, 3.5f};
+    static const float W[W_COUNT] = {0.3f, 0.5f, 2.0f, 1.5f, 1.5f, 3.5f, 2.0f, 3.0f, 2.0f, 0.6f, 2.5f, 2.0f, 3.5f, 1.5f, 2.5f, 2.5f, 3.5f, 3.0f, 0.6f, 3.0f};
     return W[w];
 }
 
@@ -137,6 +141,12 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"BOG WADERS", "CARRIED: MUD AND MURK NO LONGER SLOW YOU", 1},
             {"CLIMBER'S HARNESS", "CARRIED: 60% LESS THIN-AIR DRAIN IN THE MOUNTAINS", 1},
             {"REINFORCED QUIVER", "CARRIED: HALF AS MANY ARROWS AND BOLTS ARE LOST", 1},
+            {"MINER'S LANTERN", "CARRIED: LIGHTS THE DARK FAR WIDER IN MINES AND DUNGEONS", 1},
+            {"GEMSET RING", "CARRIED: 15% FASTER MINING AND A CHANCE OF EXTRA ORE", 2},
+            {"FROSTWARD CLOAK", "CARRIED: NO COLD DRAIN, -30% DAMAGE FROM ICE ATTACKS", 2},
+            {"SILVER CHARM", "CARRIED: +12% DAMAGE AGAINST THE FROZEN DEAD", 2},
+            {"CROWN OF THE FROSTBOUND KING", "CARRIED: +15% DAMAGE DEALT, -10% DAMAGE TAKEN", 3},
+            {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
         };
         for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, 1, 0, ct[k].rarity, ct[k].blurb, k, 0};
         // weights: one table per category (materials / weapons above); the rest by kind
@@ -148,7 +158,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : 2.5f + 0.25f * TOOLDEF[k].tier;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
         t[itemPlace(PL_CHEST)].weight = 8.0f;
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : 1.5f;
+        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : (k >= CG_LANTERN ? 0.8f : 1.5f);
         return t;
     }();
     return T;

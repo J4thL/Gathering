@@ -20,12 +20,16 @@ enum Mat {
     M_FAT,                                                                                                           // shared carcass fat (grease, fuel)
     M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,                                                             // processed from the above (crafting components)
     M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,                                                             // the flower shop: cut flowers (bought) and the bouquet made from them
+    // the Abandoned Mine and the Frozen Dungeon (delve.hpp / monsters.hpp)
+    M_COAL, M_SILVER, M_RARECRYSTAL, M_GEM, M_STEELBAR, M_SILVERBAR,                                                 // ore, cave crystal, gems and what they smelt into
+    M_BATWING, M_SILK, M_SPIDERFANG, M_GOLEMCORE, M_CAVEPELT,                                                        // cave creature drops
+    M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY,                       // frozen dungeon drops (the key opens a locked treasure room)
     M_COUNT
 };
 constexpr int M_CARCASS_N = M_CLAW + 1;  // the ORIGINAL carcass materials (a contiguous block); trophies and fat come from carcasses too
 constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_COUGARFANG - M_RABBITFOOT + 1;
 inline bool isTrophy(int m) { return m >= M_TROPHY0 && m < M_TROPHY0 + M_TROPHY_N; }
-inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE); }  // made by crafting: SELL EVERYTHING keeps these
+inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE) || m == M_STEELBAR || m == M_SILVERBAR; }  // made by crafting: SELL EVERYTHING keeps these
 inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m <= M_FAT); }  // can appear in a carcass (hunting) rather than on the land
 [[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {
     "RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER", "FEATHER", "HORN", "SCALE", "CLAW",
@@ -40,7 +44,10 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "GOAT BEARD", "RAM FLEECE", "GOLDEN PLUME", "MARMOT PELT", "COUGAR FANG",
     "ANIMAL FAT",
     "PLANK", "LEATHER", "BONE FRAGMENTS", "HERBAL EXTRACT", "GREASE",
-    "ROSE", "TULIP", "LAVENDER", "SUNFLOWER", "BOUQUET"};
+    "ROSE", "TULIP", "LAVENDER", "SUNFLOWER", "BOUQUET",
+    "COAL", "SILVER ORE", "CAVE CRYSTAL", "PRECIOUS GEM", "STEEL BAR", "SILVER BAR",
+    "BAT WING", "SPIDER SILK", "SPIDER FANG", "GOLEM CORE", "CAVE WOLF PELT",
+    "FROZEN BONE", "FROST FANG", "ICE SHARD", "KNIGHT'S PLATE", "FROST RUNE", "ETERNAL ICE", "CRYPT KEY"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -53,7 +60,10 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        14, 22, 28, 8, 30,
                                        4,
                                        4, 12, 1, 12, 5,
-                                       4, 3, 5, 2, 40};
+                                       4, 3, 5, 2, 40,
+                                       6, 44, 60, 90, 70, 110,
+                                       12, 10, 20, 42, 28,
+                                       14, 26, 18, 38, 50, 140, 0};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -72,7 +82,12 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "RENDERED FROM BIG GAME - A SLOW-BURNING FUEL",
     "SAWN BOARDS - BOWS, SPEARS, HAFTS", "TANNED HIDE - ARMOR, PACKS AND GEAR", "CRUSHED BONE - ARROWHEADS, BLADES, FITTINGS", "PRESSED FROM HERBS - MEDICINES", "RENDERED FAT - TANNING, COOKING, WATERPROOFING",
     "A CUT ROSE FROM THE FLOWER SHOP - BOUQUETS", "A CUT TULIP FROM THE FLOWER SHOP - BOUQUETS", "SWEET-SCENTED SPRIGS FROM THE FLOWER SHOP - BOUQUETS", "A BIG SUNNY BLOOM - BOUQUETS",
-    "A HAND-TIED BOUQUET - A LOVELY GIFT, PRIZED BY TRADERS"};
+    "A HAND-TIED BOUQUET - A LOVELY GIFT, PRIZED BY TRADERS",
+    "BLACK FUEL - SMELTS IRON INTO STEEL", "PALE ORE - SMELT INTO SILVER BARS", "A GLOWING VEIN OF THE DEEP - ENCHANTED GEAR", "A CUT STONE OF THE DEEP - LOVED BY JEWELLERS",
+    "TEMPERED IN THE FIRE - DUNGEON WEAPONS AND ARMOR", "BRIGHT METAL - CHARMS AND FINE BLADES",
+    "LEATHERY WING FROM A CAVE BAT", "STRONG, STICKY THREAD", "VENOMOUS FANG OF A CAVE SPIDER", "A HUMMING HEART OF STONE", "THICK PELT OF AN UNDERGROUND WOLF",
+    "BONES THAT NEVER THAWED", "A FANG COLD AS WINTER", "A SPLINTER OF ANCIENT ICE", "PLATE OF A FROZEN KNIGHT", "A RUNE STONE HUMMING WITH COLD", "ICE THAT WILL NEVER MELT",
+    "OPENS ONE LOCKED TREASURE ROOM IN THE ANCIENT CRYPT"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -81,12 +96,15 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_LIZARDTAIL, M_LIONMANE, M_FROGGLAND, M_DUCKDOWN, M_BOGHOOF, M_VENOMSAC, M_GATORTOOTH, M_PANTHEREYE, M_FOXBRUSH,
                                           M_SNOWFOOT, M_VELVET, M_MARROW, M_LYNXTUFT, M_BEARGALL, M_GOATBEARD, M_RAMFLEECE, M_GOLDPLUME, M_MARMOTPELT,
                                           M_COUGARFANG, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,
-                                          M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET};
+                                          M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,
+                                          M_COAL, M_SILVER, M_RARECRYSTAL, M_GEM, M_STEELBAR, M_SILVERBAR, M_BATWING, M_SILK, M_SPIDERFANG, M_GOLEMCORE, M_CAVEPELT,
+                                          M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
            W_FANGDAGGER, W_RSPEAR, W_RECURVE, W_HVYAXE,           // crafted from trophies (recipes.hpp)
            W_SUNJAV, W_BOGSPEAR, W_HARPOON, W_CLIFFAXE,           // biome weapons: desert, swamp, snow, mountain
+           W_STEELSPEAR, W_SILVERDAGGER, W_FROSTBRAND,           // mine and dungeon weapons (FROSTBRAND is the Frostbound King's legendary reward)
            W_COUNT };
 enum { BIOME_NONE_W = -1 };
 enum Ammo { AM_ARROW, AM_BOLT, AM_COUNT };
@@ -117,6 +135,9 @@ static const WpnDef WPN[W_COUNT] = {
     {"BOGBANE SPEAR", 31, 310, 215, 0.60f, 0.07f, "+30% DAMAGE IN THE SWAMP", -1, 0.f, 2, 1.3f},
     {"FROST HARPOON", 34, 320, 225, 0.62f, 0.07f, "+30% DAMAGE IN THE SNOWFIELDS", -1, 0.f, 3, 1.3f},
     {"CLIFFSPLITTER AXE", 34, 230, 140, 0.55f, 0.05f, "+30% DAMAGE IN THE MOUNTAINS", -1, 0.f, 4, 1.3f},
+    {"STEEL SPEAR", 54, 350, 260, 0.62f, 0.03f, "TEMPERED STEEL - HEAVY, RARELY BREAKS"},
+    {"SILVER DAGGER", 30, 320, 180, 0.22f, 0.04f, "QUICK, BRIGHT BLADE - BITES UNDEAD DEEP"},
+    {"FROSTBRAND GLAIVE", 82, 380, 280, 0.55f, 0.01f, "LEGENDARY - ICE THAT CUTS, RARELY BREAKS"},
 };
 struct AmmoDef {
     const char* name;
@@ -156,11 +177,12 @@ enum NodeKind {
     RN_DRYWOOD, RN_COPPER,                                                                      // desert (copper also in the mountains)
     RN_NIGHTSHADE, RN_AMBER,                                                                    // swamp
     RN_GOLD,                                                                                    // mountain rare vein
+    RN_COAL, RN_SILVER, RN_CAVECRYSTAL, RN_GEM, RN_ETERNALICE,                                  // the mine and the frozen dungeon
     RN_COUNT
 };
 [[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"PRICKLY PEAR", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE",
                                                            "WILD HERB", "MUSHROOMS", "FALLEN BRANCH", "WILD FLAX", "DRY WOOD", "COPPER ORE",
-                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN"};
+                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE"};
 
 // ---- crafting
 // RK_ITEM: `out` is a registry item id (tools, consumables, placeables, processed materials).
@@ -209,21 +231,27 @@ static const UpDef UPS[U_COUNT] = {
 static const float TOOL_SPEED[3] = {1.0f, 1.6f, 2.4f};
 static const float TOOL_BONUS[3] = {0.0f, 0.25f, 0.5f};
 static const float BOOT_MUL[4] = {1.0f, 1.12f, 1.25f, 1.35f};  // level 3 (swiftfoot boots) can only be crafted
-static const int ARMOR_HP[6] = {100, 120, 145, 175, 200, 230};  // levels 3-5 (scale mail, reinforced leather, bear hide) can only be crafted
-static const float ARMOR_RED[6] = {0.0f, 0.15f, 0.30f, 0.42f, 0.48f, 0.55f};
+static const int ARMOR_HP[9] = {100, 120, 145, 175, 200, 230, 255, 285, 330};  // levels 6-8: miner's plate, frostward armor, frostbound plate  // levels 3-5 (scale mail, reinforced leather, bear hide) can only be crafted
+static const float ARMOR_RED[9] = {0.0f, 0.15f, 0.30f, 0.42f, 0.48f, 0.55f, 0.60f, 0.66f, 0.72f};
 // highest level of each gear line: the shop sells levels 1-2, the rest is crafted
-constexpr int UP_MAX[4] = {2, 4, 3, 5};  // U_TOOL, U_BAG (legacy: old saves' bag level, icons only), U_BOOTS, U_ARMOR
+constexpr int UP_MAX[4] = {2, 4, 3, 8};  // U_TOOL, U_BAG (legacy: old saves' bag level, icons only), U_BOOTS, U_ARMOR
 
 // name / description of gear level `lv` (1-based) - levels 1-2 are the shop's, the rest are crafted only
 inline const char* gearName(int u, int lv) {
     static const char* X[4][4] = {{"", "", "", ""}, {"", "", "EXPLORER PACK", ""}, {"", "", "SWIFTFOOT BOOTS", ""}, {"", "", "SCALE MAIL", "REINFORCED LEATHER"}};
     if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].name;
     if (u == U_ARMOR && lv == 5) return "BEAR HIDE ARMOR";
+    if (u == U_ARMOR && lv == 6) return "MINER'S PLATE";
+    if (u == U_ARMOR && lv == 7) return "FROSTWARD ARMOR";
+    if (u == U_ARMOR && lv == 8) return "FROSTBOUND PLATE";
     return u >= 0 && u < 4 && lv >= 3 && lv <= 4 && X[u][lv - 1][0] ? X[u][lv - 1] : "";
 }
 inline const char* gearDesc(int u, int lv) {
     if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].desc;
-    if (u == U_ARMOR) return lv == 3 ? "+75 HP, -42% DAMAGE" : lv == 4 ? "+100 HP, -48% DAMAGE" : "+130 HP, -55% DAMAGE";
+    if (u == U_ARMOR) {
+        static const char* D[9] = {"", "", "", "+75 HP, -42% DAMAGE", "+100 HP, -48% DAMAGE", "+130 HP, -55% DAMAGE", "+155 HP, -60% DAMAGE", "+185 HP, -66% DAMAGE, NO COLD", "+230 HP, -72% DAMAGE, NO COLD"};
+        return D[std::max(0, std::min(8, lv))];
+    }
     if (u == U_BOOTS) return "MOVE 35% FASTER";
     return "";
 }
@@ -238,3 +266,6 @@ constexpr int BANDAGE_HEAL = 45;
 constexpr int BANDAGE_MAX = 9;
 
 #include "items.hpp"
+
+// Cave creatures first, then the frozen dead (monsters.hpp has their stats)
+enum MonsterKind { MK_BAT, MK_SPIDER, MK_GOLEM, MK_CAVEWOLF, MK_ICESKEL, MK_FROSTWOLF, MK_ICEGOLEM, MK_KNIGHT, MK_MAGE, MK_KING, MK_COUNT };

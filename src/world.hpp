@@ -39,10 +39,12 @@ enum Tile : uint8_t {
     T_SAND, T_DUNE, T_MUD, T_MURK, T_BOG, T_SNOW, T_SNOWP, T_ICE, T_STONE, T_CLIFF,
     T_COBBLE,                                                   // town paving (walkable)
     T_VOID, T_WALL, T_WALLT,                                    // building interiors: outside the room, wall face, wall cap (all solid)
-    T_FLOORW, T_FLOORS, T_FLOORT, T_RUG, T_MAT                  // interior floors: wood, flagstone, tile; rug; doormat (walkable)
+    T_FLOORW, T_FLOORS, T_FLOORT, T_RUG, T_MAT,                 // interior floors: wood, flagstone, tile; rug; doormat (walkable)
+    T_CFLOOR, T_CWALL, T_RAIL,                                  // the Abandoned Mine: cave floor, rock wall (solid), mine track (walkable)
+    T_IFLOOR, T_IWALL, T_BRICK, T_CARPET                        // the Frozen Dungeon: ice-flag floor, ice wall (solid), frozen brick, royal carpet
 };
 // terrain properties, one place for all of them
-inline bool tileSolid(uint8_t t) { return t == T_WATER || t == T_BOG || t == T_CLIFF || t == T_VOID || t == T_WALL || t == T_WALLT; }
+inline bool tileSolid(uint8_t t) { return t == T_WATER || t == T_BOG || t == T_CLIFF || t == T_VOID || t == T_WALL || t == T_WALLT || t == T_CWALL || t == T_IWALL; }
 inline bool tileDeep(uint8_t t) { return t == T_WATER || t == T_BOG; }  // projectiles splash, foam is drawn
 inline float tileSpeed(uint8_t t) {
     switch (t) {
@@ -65,7 +67,11 @@ enum PropKind {
     P_BSIGN0, P_BSIGN1, P_BSIGN2, P_BSIGN3,                                                 // biome gate signs
     P_BLD0, P_BLD1, P_BLD2, P_BLD3, P_BLD4, P_BLD5,                                         // town buildings (BuildingKind order)
     P_LAMP, P_FENCE, P_BENCH, P_PLANTER, P_WELL,                                            // town street furniture
-    P_FURN                                                                                  // interior furniture (Prop::ph = furniture id, interiors.hpp)
+    P_FURN,                                                                                 // interior furniture (Prop::ph = furniture id, interiors.hpp)
+    // the Abandoned Mine and the Frozen Dungeon (delve.hpp; art in sprites_delve.hpp)
+    P_MINEGATE, P_FROSTGATE,                                                                // the two entrances on the overworld maps
+    P_BEAM, P_MINECART, P_TORCH, P_CAVECRYSTAL, P_ICECRYSTAL, P_STATUE, P_PILLAR, P_CHEST, P_STAIRS, P_EXIT,
+    P_BOSSDOOR, P_EQUIP, P_DEBRIS, P_SARCO, P_THRONE, P_BRAZIER, P_BONES, P_BANNER, P_ICICLE
 };
 struct Prop {
     int kind;
@@ -93,6 +99,20 @@ struct Landmark {
 struct Lantern {
     float x, y;  // warm night glow
     float r;
+};
+// what the generator of a delve (mine / dungeon level) asks the game to spawn: monsters, chests, traps (delve.hpp)
+enum DSpawnType { DS_MONSTER, DS_CHEST, DS_TRAP, DS_BOSS };
+struct DSpawn {
+    int type, kind;  // kind: MonsterKind / chest tier / trap kind
+    float x, y;
+    int id;          // chests: its index (the opened-chests bit mask), monsters: room number
+    float depth;     // 0 (the entrance) .. 1 (the deepest part): scales monsters
+    bool elite;
+};
+// a light in the dark of a delve (warm torch, cold ice glow, violet crystal); drawn by Game::drawDelveDark
+struct DLight {
+    float x, y, rad;
+    int tone;  // 0 warm, 1 ice, 2 violet
 };
 
 inline float vnoise(float x, float y, uint32_t seed) {
@@ -130,8 +150,17 @@ struct World {
     std::vector<V2> stations;  // spots that open the building's service (besides the NPC): anvil, tanning rack, workbench...
     V2 exitPos;                // the doormat: standing here offers LEAVE
     V2 roomCenter;             // the camera is fixed on this while inside
-    bool isInterior() const { return mapId >= B_COUNT; }
+    bool isInterior() const { return mapId >= B_COUNT; }  // a building interior or a delve: no outside state of its own
     int interiorKind() const { return mapId - B_COUNT; }
+    // ---- delves (delve.hpp): the Abandoned Mine and the four levels of the Frozen Dungeon, instance maps in the same arrays
+    bool isDelve() const { return mapId >= B_COUNT + 8; }
+    int delveId() const { return mapId - (B_COUNT + 8); }
+    std::vector<DSpawn> dsp;
+    std::vector<DLight> lights;
+    V2 stairsDn, stairsUp;     // the stairs of a dungeon level
+    V2 gate;                   // on the mountain / snow maps: where E enters the mine / the dungeon (x < 0: none)
+    V2 bossPos;                // the Frostbound King's spot in the throne room
+    V2 bossDoor;               // the door of the throne room (opens once the antechamber is crossed)
 
     float pixW() const { return MW * TS; }
     float pixH() const { return MH * TS; }
@@ -183,6 +212,9 @@ struct World {
         lanterns.clear();
         npcs.clear();
         stations.clear();
+        dsp.clear();
+        lights.clear();
+        gate = stairsDn = stairsUp = bossPos = bossDoor = V2(-1, -1);
         memset(solid, 0, sizeof(solid));
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
@@ -307,6 +339,7 @@ struct World {
     void generateMap(int map);  // worldgen.hpp
     void generateTown();        // worldgen.hpp: the central town on the home map
     void generateInterior(int kind);  // interiors.hpp: the inside of one town building
+    void generateDelve(int id);       // delve.hpp: the mine / one dungeon level
 
     // colour of a tile / prop on the minimap
     static u32 miniTileColor(uint8_t t) {
@@ -372,3 +405,4 @@ struct World {
 #include "maps.hpp"
 #include "worldgen.hpp"
 #include "interiors.hpp"
+#include "delve.hpp"

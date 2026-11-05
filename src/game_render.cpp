@@ -152,6 +152,22 @@ void Game::renderWorld(bool) {
                 case T_STONE: sprS(A.B.stone[h % 3], sx, sy); break;
                 case T_COBBLE: sprS(A.T.cobble[h % 3], sx, sy); break;
                 case T_VOID: break;  // outside the room: the canvas is cleared to black first
+                // ---- the delves (sprites_delve.hpp)
+                case T_CFLOOR: sprS(A.D.cfloor[h % 4], sx, sy); break;
+                case T_IFLOOR: sprS(A.D.ifloor[h % 4], sx, sy); break;
+                case T_BRICK: sprS(A.D.brick[h % 3], sx, sy); break;
+                case T_CARPET: sprS(A.D.carpet[(tx + ty) & 1], sx, sy); break;
+                case T_RAIL:
+                    sprS(A.D.cfloor[h % 4], sx, sy);
+                    sprS(A.D.rail[(world.tileIs(tx, ty - 1, T_RAIL) || world.tileIs(tx, ty + 1, T_RAIL)) ? 1 : 0], sx, sy);
+                    break;
+                case T_CWALL: case T_IWALL: {
+                    const uint8_t below = ty + 1 < MH ? world.tile[ty + 1][tx] : (uint8_t)T_VOID;
+                    const bool face = below != T_CWALL && below != T_IWALL && below != T_VOID;  // the wall seen from the front where floor lies below it
+                    if (world.tile[ty][tx] == T_CWALL) sprS(face ? A.D.cwallFace[h % 3] : A.D.cwallTop[h % 3], sx, sy);
+                    else sprS(face ? A.D.iwallFace[h % 3] : A.D.iwallTop[h % 3], sx, sy);
+                    break;
+                }
                 case T_WALL: sprS(A.T.wallFace[std::max(0, interior)], sx, sy); break;
                 case T_WALLT: sprS(A.T.wallCap[std::max(0, interior)], sx, sy); break;
                 case T_FLOORW: sprS(A.T.floorW[(tx * 3 + ty) % 3], sx, sy); break;
@@ -193,6 +209,7 @@ void Game::renderWorld(bool) {
             fillRect(gx - 1, gy, 3, 1, RGBA(255, 255, 255, 220));
         }
     }
+    if (delve >= 0) drawDelveFloor();
     // carcasses
     for (auto& a : animals) {
         if (!a.dead) continue;
@@ -252,8 +269,8 @@ void Game::renderWorld(bool) {
         const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
         const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
         sprW(A.shadow[0], n.x + shk, n.y, false, 0.55f * grow);
-        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD;
-        sprW(A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && n.kind < RN_COAL;
+        sprW(n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
         if (hs.fade <= 0 && g < 0.22f) {
             int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
@@ -277,6 +294,10 @@ void Game::renderWorld(bool) {
     dl.push_back({world.questGiver.y, 4, 0});
     for (size_t i = 0; i < world.npcs.size(); i++) dl.push_back({world.npcs[i].pos.y, 6, (int)i});
     dl.push_back({p.pos.y, 2, 0});
+    if (delve >= 0) {
+        for (size_t i = 0; i < mons.size(); i++) dl.push_back({mons[i].pos.y - (mons[i].state == MN_DEAD ? 4.f : 0.f), 7, (int)i});
+        for (size_t i = 0; i < dchests.size(); i++) dl.push_back({dchests[i].pos.y, 8, (int)i});
+    }
     for (size_t i = 0; i < animals.size(); i++)
         if (!animals[i].dead) dl.push_back({animals[i].pos.y, 3, (int)i});
     std::sort(dl.begin(), dl.end(), [](const DL& a, const DL& b) { return a.y < b.y; });
@@ -379,8 +400,33 @@ void Game::renderWorld(bool) {
                     break;
                 }
                 case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
+                // ---- the mine and the frozen dungeon
+                case P_MINEGATE: sprW(A.D.mineGate, pr.x, pr.y); break;
+                case P_FROSTGATE: sprW(A.D.frostGate, pr.x, pr.y); break;
+                case P_BEAM: break;  // drawn over the heads (below)
+                case P_MINECART: sprW(A.shadow[1], pr.x, pr.y, false, 0.6f); sprW(A.D.cart, pr.x, pr.y); break;
+                case P_TORCH: sprW(A.D.torch[((int)(timeAcc * 8.f + pr.ph * 3.f)) % 3], pr.x, pr.y); break;
+                case P_CAVECRYSTAL: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.crystalViolet[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_ICECRYSTAL: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.crystalIce[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_STATUE: sprW(A.shadow[0], pr.x + 2, pr.y, false, 0.7f); sprW(A.D.statue[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_PILLAR: sprW(A.shadow[0], pr.x + 3, pr.y, false, 0.7f); sprW(A.D.pillar, pr.x, pr.y); break;
+                case P_STAIRS: sprW(A.D.stairs[(int)pr.ph & 1], pr.x, pr.y); break;
+                case P_EXIT: sprW(A.D.exitDoor[(int)pr.ph & 1], pr.x, pr.y); break;
+                case P_BOSSDOOR: sprW(A.D.bossDoor[pr.ph > 0.5f ? 1 : 0], pr.x, pr.y); break;
+                case P_EQUIP: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.equip[(int)pr.ph & 3], pr.x, pr.y); break;
+                case P_DEBRIS: sprW(A.D.debris[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_SARCO: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.D.sarco, pr.x, pr.y); break;
+                case P_THRONE: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.D.throne, pr.x, pr.y); break;
+                case P_BRAZIER: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.brazier[((int)(timeAcc * 8.f + pr.ph * 2.f)) % 3], pr.x, pr.y); break;
+                case P_BONES: sprW(A.D.bones[(int)pr.ph & 1], pr.x, pr.y); break;
+                case P_BANNER: sprW(A.D.banner, pr.x, pr.y); break;
+                case P_ICICLE: sprW(A.D.icicles, pr.x, pr.y); break;
             }
             camX = camSave;
+        } else if (e.t == 7) {
+            drawMonster(mons[e.i]);
+        } else if (e.t == 8) {
+            drawDChest(dchests[e.i]);
         } else if (e.t == 5) {
             const Structure& st = structs[e.i];
             const V2 c = st.pos();
@@ -489,6 +535,11 @@ void Game::renderWorld(bool) {
         }
     }
 
+    if (delve >= 0) {  // support beams over the corridors: the hunter walks under them
+        for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 20.f, yLess); it != world.props.end() && it->y <= camY + LH + 90; ++it)
+            if (it->kind == P_BEAM && it->x > camX - 60 && it->x < camX + LW + 60) sprW(it->ph < 0.5f ? A.D.beamArch : A.D.beamSide, it->x, it->y);
+        drawDelveOverlay();
+    }
     // projectiles
     for (auto& pr : projs) {
         sprW(A.shadow[0], pr.pos.x, pr.pos.y + 9, false, 0.45f);
@@ -504,6 +555,9 @@ void Game::renderWorld(bool) {
     }
 
     // ---- lighting: day/night tint, warm glows, vignette
+    if (delve >= 0) {
+        drawDelveDark();
+    } else {
     float night2 = p.nightT > 0 ? night * 0.3f : night;  // a nightsight tonic turns night into dusk
     if (night2 > 0.01f) fillRect(0, 0, LW, LH, RGBA(14, 22, 70, (int)(night2 * 128)));
     float sun = sinf(tod() * 6.2832f);
@@ -547,12 +601,14 @@ void Game::renderWorld(bool) {
         }
         SDL_SetTextureAlphaMod(g, 255);
     }
-    if (interior < 0) drawBiomeFx();
+    }  // (not a delve)
+    if (interior < 0 && delve < 0) drawBiomeFx();
+    float night2 = delve >= 0 ? 1.f : (p.nightT > 0 ? night * 0.3f : night);
     // fireflies at night / pollen by day
     // (none in the desert or the snow: it is too dry / too cold for them)
     float flyW = bw[B_HOME] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.4f;
     for (auto& f : flies) {
-        if (interior >= 0) break;
+        if (interior >= 0 || delve >= 0) break;
         if (night2 > 0.25f) {
             float b = (0.5f + 0.5f * sinf(timeAcc * 3.f * f.sp + f.ph)) * flyW;
             if (b < 0.02f) continue;
@@ -619,7 +675,7 @@ void Game::drawBiomeFx() {
 }
 
 void Game::drawBiomeBanner() {
-    if (bannerT <= 0 || state != ST_PLAY) return;
+    if (bannerT <= 0 || state != ST_PLAY || delve >= 0) return;  // delves have their own banner
     float k = std::min(1.f, (3.2f - bannerT) * 5.f);  // slide in
     float out = std::min(1.f, bannerT * 2.f);         // and fade out
     if (out < 0.35f) return;
@@ -741,6 +797,7 @@ void Game::drawHud() {
             HTarget ht;
             if (findHarvest(ht)) drawHarvestPrompt();
             else if (townPrompt()) {}
+            else if (delvePrompt()) {}
             else if (nearQuestGiver()) drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
         }
     }
@@ -780,9 +837,10 @@ void Game::drawHud() {
             y += 8;
         }
     }
-    if (showMap && interior < 0) drawMinimap();
+    if (showMap && interior < 0 && delve < 0) drawMinimap();
     drawBiomeBanner();
-    if (state == ST_PLAY && interior < 0) drawPortalLabels();
+    if (state == ST_PLAY && interior < 0 && delve < 0) drawPortalLabels();
+    if (delve >= 0) { drawDelveBanner(); drawBossBar(); }
 
     // ---- timed effects under the vitals
     {

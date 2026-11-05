@@ -371,6 +371,22 @@ inline void World::generateMap(int map) {
         addP(P_SNOWROCK, cx + 3, cy - 1, 1, 8, 14);
         spur(60, 47, 4, 1);
         spur((float)cx, (float)cy, 3, 2);
+        // the Frozen Dungeon: an ancient fortress of ice, reached by a trail from the hut (delve.hpp)
+        const int fx = 186, fy = 114;
+        addLandmark("FROZEN FORTRESS", B_SNOW, fx, fy + 4);
+        clearDisc(fx, fy, 10, 2);
+        for (int y = fy - 3; y <= fy; y++)
+            for (int x = fx - 3; x <= fx + 3; x++) {
+                if (!inMap(x, y)) continue;
+                tile[y][x] = T_SNOWP;
+                solid[y][x] = true;
+                K(x, y) = 3;
+            }
+        props.push_back({P_FROSTGATE, fx * TS + 8.f, (fy + 1) * TS + 0.f, 0});
+        gate = V2(fx * TS + 8.f, (fy + 3) * TS + 4.f);
+        lanterns.push_back({fx * TS + 8.f - 40, (fy + 1) * TS - 4.f, 0.7f});
+        lanterns.push_back({fx * TS + 8.f + 40, (fy + 1) * TS - 4.f, 0.7f});
+        spur((float)fx, (float)(fy + 3), 2, 3);
     } else if (map == B_MOUNTAIN) {
         const int hx = MD.hubTx, hy = MD.hubTy;
         addLandmark("MOUNTAIN PASS", B_MOUNTAIN, hx, hy);
@@ -378,7 +394,7 @@ inline void World::generateMap(int map) {
         const int st[6][2] = {{-6, -3}, {-6, 3}, {6, -3}, {6, 3}, {0, -6}, {0, 6}};
         for (auto& s : st) addP(P_STANDING, hx + s[0], hy + s[1]);
         // caves: a cliff outcrop with a mouth in its south face and a trail to the foot of it
-        auto makeCave = [&](int tx, int ty, const char* name, int sk) {
+        auto makeCave = [&](int tx, int ty, const char* name, int sk, bool mine = false) {
             int y1 = ty;
             clearDisc(tx, ty + 1, 8, 2);
             for (int y = ty - 3; y <= y1; y++)
@@ -389,14 +405,15 @@ inline void World::generateMap(int map) {
                     solid[y][x] = true;
                     K(x, y) = 3;
                 }
-            props.push_back({P_CAVE, tx * TS + 8.f, (y1 + 1) * TS + 0.f, 0});
+            props.push_back({mine ? P_MINEGATE : P_CAVE, tx * TS + 8.f, (y1 + 1) * TS + 0.f, 0});
+            if (mine) gate = V2(tx * TS + 8.f, (y1 + 2) * TS + 6.f);  // E here goes down into the Abandoned Mine (delve.hpp)
             addLandmark(name, B_MOUNTAIN, tx, y1 + 2);
             // trail: hub -> a waypoint south of the outcrop -> the cave mouth
             carveLine((float)hx, (float)hy, (float)tx, (float)(y1 + 5), 1.4f, sk);
             carveLine((float)tx, (float)(y1 + 5), (float)tx, (float)(y1 + 1), 0.f, sk);
         };
         makeCave(130, 40, "ECHO CAVE", 1);
-        makeCave(130, 128, "HOLLOW CAVE", 2);
+        makeCave(130, 128, "ABANDONED MINE", 2, true);
         // summit cairn
         const int sx = 30, sy = 84;
         addLandmark("SUMMIT CAIRN", B_MOUNTAIN, sx, sy + 2);

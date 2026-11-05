@@ -57,7 +57,7 @@ void Game::drawUpgradeRows(int x0, int Y, int cw, const int* list, int n) {
         const int y = Y + 4 + row * 44;
         const int lv = p.up[u];
         panel(x0, y, cw, 40, HEX(0x3a2a1a));
-        icon(A.gearIcon[u][std::min(5, lv)], x0 + 20, y + 20, 28, lv >= 2 ? 0.8f : 1.f);
+        icon(A.gearIcon[u][std::min(8, lv)], x0 + 20, y + 20, 28, lv >= 2 ? 0.8f : 1.f);
         text(x0 + 40, y + 4, UPS[u].title, C_DIM);
         for (int i = 0; i < 2; i++) fillRect(x0 + cw - 20 + i * 8, y + 4, 6, 5, i < lv ? C_GOLD : HEX(0x1a120b));
         if (lv >= 2) {

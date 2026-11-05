@@ -98,7 +98,9 @@ void Game::save() {
         // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
         // builds simply ignore, so the save version stays 2.
         snapshotMap();  // (does nothing indoors: the outside map was parked in mapMem when the hunter went in)
-        f << "at " << (interior >= 0 ? extMap : world.mapId) << "\n";
+        f << "at " << (interior >= 0 || delve >= 0 ? extMap : world.mapId) << "\n";
+        f << delveSaveLines();
+        if (delve >= 0) f << "atpos " << (int)extPos.x << ' ' << (int)extPos.y << "\n";  // saved inside a delve: the next load stands at its entrance
         if (interior >= 0) f << "atpos " << (int)extPos.x << ' ' << (int)extPos.y << "\n";  // saved inside a building: the next load stands at its door
         for (int m = 0; m < B_COUNT; m++) {
             const MapMem& mm = mapMem[m];
@@ -183,6 +185,27 @@ bool Game::load() {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
             sawMapBlock = true;
+        } else if (k == "delve") {  // "delve <id> <opened chests mask> <king dead> <seconds to his return> <seconds to chest refill>"
+            int id = -1, bd = 0, bt = 0, ct = 0;
+            unsigned long mask = 0;
+            ss >> id >> mask >> bd >> bt >> ct;
+            if (ss && id >= 0 && id < DV_COUNT) {
+                delveMem[id].visited = true;
+                delveMem[id].chests = (uint32_t)mask;
+                delveMem[id].bossDead = bd != 0;
+                delveMem[id].bossTimer = (float)bt;
+                delveMem[id].chestT = (float)ct;
+            }
+        } else if (k == "dhv") {  // "dhv <id> hv n x y res t": a harvested resource of that level
+            int id = -1;
+            ss >> id;
+            std::string rest;
+            std::getline(ss, rest);
+            if (ss.fail() && rest.empty()) continue;
+            if (id >= 0 && id < DV_COUNT) {
+                delveMem[id].visited = true;
+                delveMem[id].hv.push_back(rest.size() && rest[0] == ' ' ? rest.substr(1) : rest);
+            }
         } else if (k == "atpos") {
             ss >> atPosX >> atPosY;
             if (!ss) atPosX = atPosY = -1;
@@ -369,13 +392,17 @@ bool Game::load() {
                 p.sel = w;
                 break;
             }
-    if (atMap != B_HOME) travelTo(atMap, MAPS[atMap].entryTx, MAPS[atMap].entryTy, false);  // saved out in a biome: continue there
-    else if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);          // saved inside a town building: back outside its door
+    if (atMap != B_HOME) {
+        travelTo(atMap, MAPS[atMap].entryTx, MAPS[atMap].entryTy, false);  // saved out in a biome: continue there
+        if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a delve: back at its entrance
+    } else if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a town building: back outside its door
     return true;
 }
 
 // ================================================================= helpers
 void Game::newGame() {
+    resetDelveRuntime();
+    for (auto& d : delveMem) d = DelveMem();
     for (auto& m : mapMem) m = MapMem();
     travelFade = travelCd = 0;
     interior = -1;
@@ -954,7 +981,7 @@ void Game::throwWeapon() {
     pr.travelled = 0;
     pr.wpn = w;
     pr.angle = atan2f(dir.y, dir.x);
-    const bool spearLike = w == W_JAVELIN || w == W_SPEAR || w == W_IRONSPEAR || w == W_RSPEAR || w == W_SUNJAV || w == W_BOGSPEAR || w == W_HARPOON;
+    const bool spearLike = w == W_JAVELIN || w == W_SPEAR || w == W_IRONSPEAR || w == W_RSPEAR || w == W_SUNJAV || w == W_BOGSPEAR || w == W_HARPOON || w == W_STEELSPEAR || w == W_FROSTBRAND;
     const bool axeLike = w == W_AXE || w == W_HVYAXE || w == W_CLIFFAXE;
     pr.spin = (spearLike || launcher) ? 0.f : (axeLike ? 17.f : 26.f);
     const float biomeMul = (D.biome >= 0 && curBiome == D.biome) ? D.biomeMul : 1.f;  // biome weapons: +30% at home
@@ -968,6 +995,7 @@ void Game::throwWeapon() {
         pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
         pr.ammo = D.ammo;
     }
+    if (p.has(CG_CROWN)) pr.dmg *= 1.15f;  // the crown of the Frostbound King
     projs.push_back(pr);
     p.cd = D.cd;
     p.throwAnim = 0.3f;
@@ -1032,7 +1060,8 @@ void Game::updatePlayer(float dt) {
         P.deadT += dt;
         updateHunterAnim(dt, false, false, false, false, -1, 0);
         if (P.deadT > 3.4f) {
-            P.pos = world.spawn;
+            if (delve >= 0) leaveDelve();  // knocked out underground: carried back out to the entrance (the king keeps his health only if he lives)
+            else P.pos = world.spawn;
             P.hp = P.maxhp;
             P.dead = false;
             P.invuln = 2.f;
@@ -1081,9 +1110,10 @@ void Game::updatePlayer(float dt) {
     bool harvestOk = false;
     if (ht.valid) {
         const ResDef& RD = RES[ht.res];
-        harvestOk = RD.tool < 0 || bestTool(RD.tool) >= RD.minTier;
+        const bool toolOk = RD.tool < 0 || bestTool(RD.tool) >= RD.minTier;
+        harvestOk = toolOk && p.sk.level(SK_MINING) >= RD.minLv;
         if (!harvestOk && in.ePressed && hvMsgT <= 0) {
-            msg(std::string("NEED A ") + TOOLDEF[RD.tool * 4 + RD.minTier - 1].name + " FOR " + RD.name, C_RED);
+            msg(toolOk ? std::string("NEED MINING LEVEL ") + S(RD.minLv) + " FOR " + RD.name : std::string("NEED A ") + TOOLDEF[RD.tool * 4 + RD.minTier - 1].name + " FOR " + RD.name, C_RED);
             audio.play(S_ERROR, 0.5f);
             hvMsgT = 1.5f;
         }
@@ -1115,6 +1145,7 @@ void Game::updatePlayer(float dt) {
         if (P.exhausted && P.stamina > 30) P.exhausted = false;
     }
     if (P.charging) spd *= 0.6f;
+    if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
     if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
     if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
@@ -1250,7 +1281,8 @@ void Game::updatePlayer(float dt) {
     // --- shop / bandage / regen
     if (in.ePressed && !c && !structBusy && !ht.valid) {
         if (townInteract()) {
-        } else if (interior < 0 && nearQuestGiver()) {
+        } else if (delveInteract()) {
+        } else if (interior < 0 && delve < 0 && nearQuestGiver()) {
             state = ST_QUEST;
             audio.play(S_CLICK);
         }
@@ -1327,9 +1359,27 @@ void Game::updateProjectiles(float dt) {
                 }
             }
             if (done) break;
+            for (auto& m : mons) {  // the creatures of a delve
+                if (m.state == MN_DEAD) continue;
+                const MonsterDef& MD = MONDEF(m.kind);
+                const V2 c = m.pos + V2(0, -MD.bodyH - ((MD.flags & MF_FLY) ? 12.f : 0.f));
+                if (dist(pr.pos, c) < MD.hitR + 3) {
+                    const bool landed = hitMonster(m, pr.dmg, pr.dir, pr.crit, pr.wpn);
+                    if (landed && rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
+                        for (int q = 0; q < 6; q++)
+                            parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
+                        audio.play(S_BREAK, 0.6f);
+                    } else {
+                        items.push_back({m.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo});
+                    }
+                    done = true;
+                    break;
+                }
+            }
+            if (done) break;
             V2 g = pr.pos + V2(0, 9);
             int tx = (int)floorf(g.x / TS), ty = (int)floorf(g.y / TS);
-            bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF;
+            bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF || (delve >= 0 && world.solidTile(tx, ty));
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
                 items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo});
@@ -1375,7 +1425,7 @@ void Game::climateMods(float& drain, float& regen) const {
         }
         case B_SNOW: {
             float exposed = p.up[U_ARMOR] >= 2 ? 0.f : (p.up[U_ARMOR] == 1 ? 0.5f : 1.f);
-            if (p.has(CG_PARKA)) exposed = 0.f;
+            if (p.has(CG_PARKA) || p.has(CG_FROSTWARD)) exposed = 0.f;
             else if (p.has(CG_WOLFCLOAK)) exposed *= 0.5f;
             if (p.warmT > 0 || warmthAt(p.pos) > 0.3f) exposed = 0.f;  // a warm brew or standing by a campfire
             drain = 1.f + 0.25f * exposed;
@@ -1560,7 +1610,7 @@ void Game::updatePlay(float dt) {
     if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;
-    updateBiome(dt);
+    if (delve < 0) updateBiome(dt);
     updatePlayer(dt);
     updateHarvest(dt);
     updateStructures(dt);
@@ -1570,13 +1620,15 @@ void Game::updatePlay(float dt) {
     p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
     updateProjectiles(dt);
+    tickDelveTimers(dt);
+    if (delve >= 0) updateDelve(dt);
     checkWeaponSafetyNet(dt);
     updateFx(dt);
     updateWeather(dt);
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;
-    if (respawnT <= 0 && (interior >= 0 || world.biomeAtPos(p.pos.x, p.pos.y) != B_HOME)) respawnT = 4.f;  // home herds only refill while you are home
+    if (respawnT <= 0 && (interior >= 0 || delve >= 0 || world.biomeAtPos(p.pos.x, p.pos.y) != B_HOME)) respawnT = 4.f;  // home herds only refill while you are home
     if (respawnT <= 0) {
         respawnT = 4.f;
         int alive[A_COUNT] = {0};
@@ -1586,7 +1638,7 @@ void Game::updatePlay(float dt) {
         for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }
-    if (interior < 0) streamSpawns(dt);
+    if (interior < 0 && delve < 0) streamSpawns(dt);
     checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
 }
 
