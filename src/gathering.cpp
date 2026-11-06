@@ -17,7 +17,7 @@ inline int enc(bool node, int idx) { return (node ? NODE_FLAG : 0) | idx; }
 inline bool isNodeId(int id) { return (id & NODE_FLAG) != 0; }
 inline int idxOf(int id) { return id & (NODE_FLAG - 1); }
 // ore and cactus nodes are solid tiles (placed that way by worldgen); they stay solid when finished
-inline bool nodeIsSolid(int kind) { return kind == RN_CACTUS || kind == RN_ORE || kind == RN_COPPER || kind == RN_GOLD || kind >= RN_COAL; }
+inline bool nodeIsSolid(int kind) { return kind == RN_CACTUS || kind == RN_ORE || kind == RN_COPPER || kind == RN_GOLD || (kind >= RN_COAL && kind < RN_BERRY); }
 }  // namespace
 
 // ------------------------------------------------------------------ state

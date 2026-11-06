@@ -129,7 +129,7 @@ void recipeInfo(const Recipe& R, std::vector<std::string>& lines) {
             lines.push_back(D.blurb);
             if (D.kind == IK_TOOL) {
                 const ToolDef& T = TOOLDEF[D.ref];
-                lines.push_back(std::string(T.type == TT_AXE ? "CHOPS" : "MINES") + " TIER " + S(T.tier) + "  SPEED X" + S((int)lroundf(T.speed * 10) / 10) + "." + S((int)lroundf(T.speed * 10) % 10) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%");
+                lines.push_back(std::string(T.type == TT_AXE ? "CHOPS" : T.type == TT_HOE ? "TILLS AND DIGS" : T.type == TT_CAN ? "WATERS CROPS" : T.type == TT_SICKLE ? "CUTS GRAIN" : "MINES") + " TIER " + S(T.tier) + "  SPEED X" + S((int)lroundf(T.speed * 10) / 10) + "." + S((int)lroundf(T.speed * 10) % 10) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%");
             }
             break;
         }

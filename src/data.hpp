@@ -24,8 +24,13 @@ enum Mat {
     M_COAL, M_SILVER, M_RARECRYSTAL, M_GEM, M_STEELBAR, M_SILVERBAR,                                                 // ore, cave crystal, gems and what they smelt into
     M_BATWING, M_SILK, M_SPIDERFANG, M_GOLEMCORE, M_CAVEPELT,                                                        // cave creature drops
     M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY,                       // frozen dungeon drops (the key opens a locked treasure room)
+    // the Homestead (homestead.hpp): wild berries, crops, seeds and what the farm animals give
+    M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,                      // produce
+    M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,  // seeds (same order)
+    M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,                                                              // animal products and feed
     M_COUNT
 };
+constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N = 8;  // crop i: produce M_CROP0 + i, seed M_SEED0 + i
 constexpr int M_CARCASS_N = M_CLAW + 1;  // the ORIGINAL carcass materials (a contiguous block); trophies and fat come from carcasses too
 constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_COUGARFANG - M_RABBITFOOT + 1;
 inline bool isTrophy(int m) { return m >= M_TROPHY0 && m < M_TROPHY0 + M_TROPHY_N; }
@@ -47,7 +52,10 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "ROSE", "TULIP", "LAVENDER", "SUNFLOWER", "BOUQUET",
     "COAL", "SILVER ORE", "CAVE CRYSTAL", "PRECIOUS GEM", "STEEL BAR", "SILVER BAR",
     "BAT WING", "SPIDER SILK", "SPIDER FANG", "GOLEM CORE", "CAVE WOLF PELT",
-    "FROZEN BONE", "FROST FANG", "ICE SHARD", "KNIGHT'S PLATE", "FROST RUNE", "ETERNAL ICE", "CRYPT KEY"};
+    "FROZEN BONE", "FROST FANG", "ICE SHARD", "KNIGHT'S PLATE", "FROST RUNE", "ETERNAL ICE", "CRYPT KEY",
+    "WILD BERRIES", "WHEAT", "CARROT", "POTATO", "CABBAGE", "CORN", "TOMATO", "PUMPKIN", "STRAWBERRY",
+    "WHEAT SEEDS", "CARROT SEEDS", "POTATO EYES", "CABBAGE SEEDS", "CORN SEEDS", "TOMATO SEEDS", "PUMPKIN SEEDS", "STRAWBERRY RUNNERS",
+    "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -63,7 +71,10 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 3, 5, 2, 40,
                                        6, 44, 60, 90, 70, 110,
                                        12, 10, 20, 42, 28,
-                                       14, 26, 18, 38, 50, 140, 0};
+                                       14, 26, 18, 38, 50, 140, 0,
+                                       3, 4, 4, 4, 6, 5, 6, 12, 8,
+                                       1, 1, 1, 1, 1, 1, 2, 2,
+                                       4, 5, 6, 10, 30, 2};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -87,7 +98,12 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "TEMPERED IN THE FIRE - DUNGEON WEAPONS AND ARMOR", "BRIGHT METAL - CHARMS AND FINE BLADES",
     "LEATHERY WING FROM A CAVE BAT", "STRONG, STICKY THREAD", "VENOMOUS FANG OF A CAVE SPIDER", "A HUMMING HEART OF STONE", "THICK PELT OF AN UNDERGROUND WOLF",
     "BONES THAT NEVER THAWED", "A FANG COLD AS WINTER", "A SPLINTER OF ANCIENT ICE", "PLATE OF A FROZEN KNIGHT", "A RUNE STONE HUMMING WITH COLD", "ICE THAT WILL NEVER MELT",
-    "OPENS ONE LOCKED TREASURE ROOM IN THE ANCIENT CRYPT"};
+    "OPENS ONE LOCKED TREASURE ROOM IN THE ANCIENT CRYPT",
+    "SWEET AND WILD - FOOD AND TRADE", "GOLDEN GRAIN - FLOUR, FEED AND TRADE", "CRUNCHY ROOT - FOOD AND ANIMAL FEED", "STARCHY TUBER - FOOD AND TRADE",
+    "LEAFY HEAD - FOOD AND ANIMAL FEED", "SWEET KERNELS - FOOD AND FEED", "JUICY RED FRUIT", "A HEAVY AUTUMN GIANT - WORTH A GOOD PRICE", "RIPE RED BERRIES - A FINE TRADE GOOD",
+    "PLANT IN TILLED SOIL - GROWS INTO WHEAT", "PLANT IN TILLED SOIL - GROWS INTO CARROTS", "PLANT IN TILLED SOIL - GROWS INTO POTATOES", "PLANT IN TILLED SOIL - GROWS INTO CABBAGE",
+    "PLANT IN TILLED SOIL - GROWS INTO CORN", "PLANT IN TILLED SOIL - GROWS INTO TOMATOES", "PLANT IN TILLED SOIL - GROWS INTO A PUMPKIN", "PLANT IN TILLED SOIL - GROWS INTO STRAWBERRIES",
+    "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -98,7 +114,10 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_COUGARFANG, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,
                                           M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,
                                           M_COAL, M_SILVER, M_RARECRYSTAL, M_GEM, M_STEELBAR, M_SILVERBAR, M_BATWING, M_SILK, M_SPIDERFANG, M_GOLEMCORE, M_CAVEPELT,
-                                          M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY};
+                                          M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY,
+                                          M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,
+                                          M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,
+                                          M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
@@ -155,7 +174,7 @@ inline bool isLauncher(int w) { return WPN[w].ammo >= 0; }
 #include "fauna.hpp"
 
 // ---- biomes (the original map is B_HOME; the four new regions surround it)
-enum Biome { B_HOME, B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN, B_COUNT };
+enum Biome { B_HOME, B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN, B_HOMESTEAD, B_COUNT };
 struct BiomeDef {
     const char* name;
     const char* climate;  // short HUD tag for the biome's stamina/movement effect ("" = none)
@@ -168,6 +187,7 @@ static const BiomeDef BIOME[B_COUNT] = {
     {"SWAMP", "MUD", HEX(0x8cc06a)},
     {"SNOWFIELDS", "COLD", HEX(0xbfe3ff)},
     {"MOUNTAINS", "THIN AIR", HEX(0xc4c6d4)},
+    {"HOMESTEAD", "", HEX(0xa8e06a)},
 };
 
 // ---- resource nodes placed in the world (what each one gives is the table in resources.hpp)
@@ -178,11 +198,12 @@ enum NodeKind {
     RN_NIGHTSHADE, RN_AMBER,                                                                    // swamp
     RN_GOLD,                                                                                    // mountain rare vein
     RN_COAL, RN_SILVER, RN_CAVECRYSTAL, RN_GEM, RN_ETERNALICE,                                  // the mine and the frozen dungeon
+    RN_BERRY, RN_WILDFLOWER,                                                                    // the homestead's berry bushes and wild flowers
     RN_COUNT
 };
 [[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"PRICKLY PEAR", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE",
                                                            "WILD HERB", "MUSHROOMS", "FALLEN BRANCH", "WILD FLAX", "DRY WOOD", "COPPER ORE",
-                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE"};
+                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE", "BERRY BUSH", "WILD FLOWERS"};
 
 // ---- crafting
 // RK_ITEM: `out` is a registry item id (tools, consumables, placeables, processed materials).

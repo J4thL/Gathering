@@ -71,7 +71,8 @@ enum PropKind {
     // the Abandoned Mine and the Frozen Dungeon (delve.hpp; art in sprites_delve.hpp)
     P_MINEGATE, P_FROSTGATE,                                                                // the two entrances on the overworld maps
     P_BEAM, P_MINECART, P_TORCH, P_CAVECRYSTAL, P_ICECRYSTAL, P_STATUE, P_PILLAR, P_CHEST, P_STAIRS, P_EXIT,
-    P_BOSSDOOR, P_EQUIP, P_DEBRIS, P_SARCO, P_THRONE, P_BRAZIER, P_BONES, P_BANNER, P_ICICLE
+    P_BOSSDOOR, P_EQUIP, P_DEBRIS, P_SARCO, P_THRONE, P_BRAZIER, P_BONES, P_BANNER, P_ICICLE,
+    P_HPORTAL, P_HMARKET                                                                    // the Homestead Portal (town and homestead) and the homestead's market stall
 };
 struct Prop {
     int kind;
@@ -159,6 +160,7 @@ struct World {
     std::vector<DLight> lights;
     V2 stairsDn, stairsUp;     // the stairs of a dungeon level
     V2 gate;                   // on the mountain / snow maps: where E enters the mine / the dungeon (x < 0: none)
+    V2 hportal = V2(-99999.f, -99999.f), hmarket = V2(-99999.f, -99999.f);  // the Homestead Portal (town: the way in, homestead: the way back) and the market stall
     V2 bossPos;                // the Frostbound King's spot in the throne room
     V2 bossDoor;               // the door of the throne room (opens once the antechamber is crossed)
 
@@ -215,6 +217,7 @@ struct World {
         dsp.clear();
         lights.clear();
         gate = stairsDn = stairsUp = bossPos = bossDoor = V2(-1, -1);
+        hportal = hmarket = V2(-99999.f, -99999.f);
         memset(solid, 0, sizeof(solid));
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
@@ -338,6 +341,7 @@ struct World {
 
     void generateMap(int map);  // worldgen.hpp
     void generateTown();        // worldgen.hpp: the central town on the home map
+    void generateHomestead();   // homestead_gen.hpp: the player's sandbox map
     void generateInterior(int kind);  // interiors.hpp: the inside of one town building
     void generateDelve(int id);       // delve.hpp: the mine / one dungeon level
 

@@ -6,7 +6,7 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp src/delve.cpp src/monsters.cpp src/delve_render.cpp src/delve_tests.cpp)
+add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp src/delve.cpp src/monsters.cpp src/delve_render.cpp src/delve_tests.cpp src/homestead.cpp src/homestead_ui.cpp src/homestead_render.cpp src/homestead_tests.cpp)
 
 find_package(Threads REQUIRED)  # the 3D animal models are drawn on several threads at start-up
 target_link_libraries(wildwood PRIVATE Threads::Threads)

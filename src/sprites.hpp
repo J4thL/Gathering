@@ -11,6 +11,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 #include "sprites_trophy.hpp"
 #include "sprites_gear.hpp"
 #include "sprites_delve.hpp"
+#include "sprites_homestead.hpp"
 #include "sprites_biome.hpp"
 #include "sprites_town.hpp"
 
@@ -766,6 +767,7 @@ inline QuadSpec specWolf() {
 #include "sprites_fauna.hpp"
 #include "sprites_rig.hpp"
 #include "monster_art.hpp"
+#include "dom_art.hpp"
 
 // ================================================================= icons & UI art
 inline Img mkIconMat(int m) {
@@ -1210,6 +1212,8 @@ struct Assets {
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, blood[3], vignette;
     DelveAssets D;
+    hart::HomeAssets H;  // the Homestead: building pieces, crops, portal and market (sprites_homestead.hpp)
+    DomBank Dom;    // the farm animals of the Homestead: built on first entry (buildDomBank)
     MonsterBank M;  // the delve creatures: built on first entry (buildMonsterBank)  // the Abandoned Mine and the Frozen Dungeon (sprites_delve.hpp)
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     TownAssets T;   // the central town: building exteriors, street furniture, paving, interiors (sprites_town.hpp)
@@ -1261,10 +1265,10 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
     buildRichAnimals(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_BERRY ? hart::iconMat(m) : m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
-        Img t = mkIconTool(k);
+        Img t = k >= TL_HOE ? hart::iconTool(k) : mkIconTool(k);
         a.R.toolIcon[k] = makeSpr(r, t, 8, 8);
         a.R.toolSwing[k] = makeSpr(r, t, 2, 14);
     }
@@ -1292,6 +1296,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     }
     buildBiomeAssets(r, a.B);
     buildDelveAssets(r, a.D);
+    hart::buildHomeAssets(r, a.H);
     buildTownAssets(r, a.T);
     a.coin = makeSpr(r, mkCoin(), 5, 5);
     a.heart = makeSpr(r, mkHeart(), 5, 5);

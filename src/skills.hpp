@@ -14,6 +14,7 @@ enum SkillId {
     SK_CRAFTING, SK_SMITHING, SK_LEATHER, SK_COOKING, SK_ALCHEMY,  // processing
     SK_RANGED, SK_DEFENSE,                           // combat
     SK_SURVIVAL, SK_BUILDING,                        // other
+    SK_FARMING,                                      // the homestead: crops and farm animals
     SK_COUNT
 };
 
@@ -41,6 +42,7 @@ static const SkillDef SKILL[SK_COUNT] = {
     {"alchemy", "ALCHEMY", "CRAFTING", "CHANCE OF SAVING A CRAFT", 0.25f},
     {"ranged", "RANGED", "COMBAT", "CHANCE TO KEEP AMMO", 0.30f}, {"defense", "DEFENSE", "COMBAT", "DAMAGE TAKEN LESS", 0.15f},
     {"survival", "SURVIVAL", "SURVIVAL", "STRONGER HEALING", 0.30f}, {"building", "BUILDING", "CRAFTING", "CHANCE OF SAVING A CRAFT", 0.25f},
+    {"farming", "FARMING", "GATHERING", "CHANCE OF EXTRA CROPS AND PRODUCE", 0.30f},
 };
 
 

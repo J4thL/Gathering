@@ -37,7 +37,7 @@ static void pollInput(Game& g) {
                     in.l = true;
                     in.lPressed = true;
                     in.uiClick = true;
-                }
+                } else if (e.button.button == SDL_BUTTON_RIGHT) in.rPressed = true;
                 break;
             case SDL_MOUSEBUTTONUP:
                 mapMouse(g, e.button.x, e.button.y);
@@ -58,6 +58,9 @@ static void pollInput(Game& g) {
                     case SDLK_m: in.mapToggle = true; break;
                     case SDLK_h: in.helpToggle = true; break;
                     case SDLK_i: in.invToggle = true; break;
+                    case SDLK_b: in.buildToggle = true; break;
+                    case SDLK_r: in.rotPressed = true; break;
+                    case SDLK_x: in.delPressed = true; break;
                     case SDLK_1: in.selectKey = 0; break;
                     case SDLK_2: in.selectKey = 1; break;
                     case SDLK_3: in.selectKey = 2; break;
@@ -97,6 +100,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.enterPressed = g.in.tabPressed = false;
             g.in.selectKey = -1;
             g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
+            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
         }
         g.render();
     };
@@ -818,7 +822,7 @@ static int delveCheck(Game& g) {
         }
         if (mon < 4 && id != DV_FROST3) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
     }
-    for (int k = RN_COAL; k < RN_COUNT; k++)
+    for (int k = RN_COAL; k < RN_BERRY; k++)
         if (!ores[k]) { printf("  PROBLEM: no %s in any delve\n", NODE_NAME[k]); bad++; }
     // the entrances on the overworld
     for (int m : {B_MOUNTAIN, B_SNOW}) {
@@ -858,7 +862,7 @@ static int worldCheck(Game& g) {
     }
     bad += delveCheck(g);
     // travel test: walk through every gate with the real player, check the arrival, then walk back through the gate home
-    for (int m = B_DESERT; m < B_COUNT; m++) {
+    for (int m = B_DESERT; m < B_HOMESTEAD; m++) {
         enterMap(g, B_HOME);
         g.p.pos = g.world.spawn;
         g.p.coins = 777;
@@ -3386,13 +3390,14 @@ static int selfTest(Game& g) {
 }
 
 int delveTest(Game& g);  // delve_tests.cpp
+int homesteadTest(Game& g);  // homestead_tests.cpp
 void delveShots(Game& g, const std::string& dir);
 
 int main(int argc, char** argv) {
     bool headless = false;
     std::string delveDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false, dtest = false;
+    bool wcheck = false, dtest = false, htest = false;
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
         if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
@@ -3406,6 +3411,7 @@ int main(int argc, char** argv) {
         if (!strcmp(argv[i], "--selftest")) stest = true;
         if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
         if (!strcmp(argv[i], "--delve")) dtest = true;
+        if (!strcmp(argv[i], "--homestead")) htest = true;
         if (!strcmp(argv[i], "--delveshots") && i + 1 < argc) delveDir = argv[++i];
     }
     if (headless) {
@@ -3429,6 +3435,11 @@ int main(int argc, char** argv) {
         delveShots(g, delveDir);
         g.audio.shutdown();
         return 0;
+    }
+    if (htest) {
+        int bad = homesteadTest(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
     }
     if (dtest) {
         int bad = delveTest(g);
@@ -3494,6 +3505,8 @@ int main(int argc, char** argv) {
             if (first) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
                 g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
+                g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
+            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
                 first = false;

@@ -100,6 +100,7 @@ void Game::save() {
         snapshotMap();  // (does nothing indoors: the outside map was parked in mapMem when the hunter went in)
         f << "at " << (interior >= 0 || delve >= 0 ? extMap : world.mapId) << "\n";
         f << delveSaveLines();
+        f << hsSaveLines();
         if (delve >= 0) f << "atpos " << (int)extPos.x << ' ' << (int)extPos.y << "\n";  // saved inside a delve: the next load stands at its entrance
         if (interior >= 0) f << "atpos " << (int)extPos.x << ' ' << (int)extPos.y << "\n";  // saved inside a building: the next load stands at its door
         for (int m = 0; m < B_COUNT; m++) {
@@ -206,6 +207,8 @@ bool Game::load() {
                 delveMem[id].visited = true;
                 delveMem[id].hv.push_back(rest.size() && rest[0] == ' ' ? rest.substr(1) : rest);
             }
+        } else if (k == "hs" || k == "hsp" || k == "hsi" || k == "hsa") {
+            hsLoadLine(k, ss);
         } else if (k == "atpos") {
             ss >> atPosX >> atPosY;
             if (!ss) atPosX = atPosY = -1;
@@ -392,6 +395,7 @@ bool Game::load() {
                 p.sel = w;
                 break;
             }
+    hsReindex();
     if (atMap != B_HOME) {
         travelTo(atMap, MAPS[atMap].entryTx, MAPS[atMap].entryTy, false);  // saved out in a biome: continue there
         if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a delve: back at its entrance
@@ -405,6 +409,7 @@ void Game::newGame() {
     for (auto& d : delveMem) d = DelveMem();
     for (auto& m : mapMem) m = MapMem();
     travelFade = travelCd = 0;
+    hsReset();
     interior = -1;
     svc = -1;
     craftBld = -1;
@@ -1280,7 +1285,8 @@ void Game::updatePlayer(float dt) {
 
     // --- shop / bandage / regen
     if (in.ePressed && !c && !structBusy && !ht.valid) {
-        if (townInteract()) {
+        if (homesteadInteract()) {
+        } else if (townInteract()) {
         } else if (delveInteract()) {
         } else if (interior < 0 && delve < 0 && nearQuestGiver()) {
             state = ST_QUEST;
@@ -1610,6 +1616,8 @@ void Game::updatePlay(float dt) {
     if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;
+    updateHomestead(dt);
+    if (bm.on && inHomestead()) updateBuildMode();
     if (delve < 0) updateBiome(dt);
     updatePlayer(dt);
     updateHarvest(dt);
@@ -1664,8 +1672,19 @@ void Game::update(float dt) {
             break;
         }
         case ST_PLAY:
+            if (in.escPressed && bm.on) {
+                bm.on = false;
+                break;
+            }
             if (in.escPressed) {
                 state = ST_PAUSE;
+                break;
+            }
+            if (in.buildToggle && !p.dead && !bm.on) {
+                if (inHomestead() && interior < 0) {
+                    state = ST_BUILD;
+                    audio.play(S_CLICK);
+                } else msg("YOU CAN ONLY BUILD AT YOUR HOMESTEAD", C_DIM);
                 break;
             }
             if (in.mapToggle) showMap = !showMap;
@@ -1700,6 +1719,10 @@ void Game::update(float dt) {
         case ST_SERVICE:
             updateService(dt);
             break;
+        case ST_BUILD: updateBuildMenu(dt); break;
+        case ST_FARM: updateFarmMenu(dt); break;
+        case ST_ANIMAL: updateAnimalMenu(dt); break;
+        case ST_MARKET: updateMarket(dt); break;
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
             break;

@@ -69,4 +69,6 @@ static const std::vector<SpawnDef> SPAWNS[B_COUNT] = {
         {A_WOLF, 2, 25, 1.0f, TM(T_STONE) | TM(T_GRASS) | TM(T_DARK), 0, false, 2},
         {A_MTLION, 1, 240, 0.12f, TM(T_STONE), 0, false, 0},
     },
+    // ---- homestead: a peaceful valley, no wild animals (the farm animals are the player's: homestead.cpp)
+    {},
 };

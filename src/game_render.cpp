@@ -193,6 +193,7 @@ void Game::renderWorld(bool) {
             }
         }
     // blood stains
+    if (inHomestead()) drawHomesteadGround();
     for (auto& d : decals) {
         float a = std::min(1.f, (d.life - d.t) / 8.f) * 0.9f;
         sprW(A.blood[d.size], d.p.x, d.p.y, false, a);
@@ -269,8 +270,8 @@ void Game::renderWorld(bool) {
         const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
         const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
         sprW(A.shadow[0], n.x + shk, n.y, false, 0.55f * grow);
-        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && n.kind < RN_COAL;
-        sprW(n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && (n.kind < RN_COAL || n.kind >= RN_BERRY);
+        sprW(n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
         if (hs.fade <= 0 && g < 0.22f) {
             int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
@@ -283,6 +284,7 @@ void Game::renderWorld(bool) {
     struct DL {
         float y;
         int t, i;
+        int j = 0;
     };
     std::vector<DL> dl;
     for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 20.f, yLess); it != world.props.end() && it->y <= camY + LH + 90; ++it) {
@@ -300,6 +302,22 @@ void Game::renderWorld(bool) {
     }
     for (size_t i = 0; i < animals.size(); i++)
         if (!animals[i].dead) dl.push_back({animals[i].pos.y, 3, (int)i});
+    if (inHomestead()) {
+        for (size_t i = 0; i < this->hs.pieces.size(); i++) {
+            const HPiece& pc = this->hs.pieces[i];
+            const HPieceDef& D = HPDEF[pc.kind];
+            if (!(pc.tx + pc.w() >= camX / TS - 2 && pc.tx <= (camX + LW) / TS + 2 && pc.ty + pc.h() >= camY / TS - 3 && pc.ty <= (camY + LH) / TS + 5)) continue;
+            if (pc.kind == HP_PLOT) {
+                if (pc.crop >= 0) dl.push_back({pc.ty * (float)TS + 12.f, 10, (int)i});
+            } else if (pc.kind == HP_PEN) {
+                for (int y = pc.ty; y < pc.ty + pc.h(); y++)
+                    for (int x = pc.tx; x < pc.tx + pc.w(); x++)
+                        if (x == pc.tx || y == pc.ty || x == pc.tx + pc.w() - 1 || y == pc.ty + pc.h() - 1) dl.push_back({(y + 1) * (float)TS, 9, (int)i, 1 + y * MW + x});
+            } else if (D.layer == HL_OBJECT)
+                dl.push_back({(pc.ty + pc.h()) * (float)TS - (pc.kind == HP_GREENHOUSE ? 6.f : 0.f), 9, (int)i});
+        }
+        for (size_t i = 0; i < this->hs.animals.size(); i++) dl.push_back({this->hs.animals[i].py, 11, (int)i});
+    }
     std::sort(dl.begin(), dl.end(), [](const DL& a, const DL& b) { return a.y < b.y; });
 
     float night = interior >= 0 ? 0.f : 1.f - daylight();
@@ -401,6 +419,8 @@ void Game::renderWorld(bool) {
                 }
                 case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
                 // ---- the mine and the frozen dungeon
+                case P_HPORTAL: sprW(A.shadow[2], pr.x, pr.y, false, 0.5f); sprW(A.H.portal[((int)(timeAcc * 6.f)) & 3], pr.x, pr.y); break;
+                case P_HMARKET: sprW(A.shadow[2], pr.x + 4, pr.y, false, 0.5f); sprW(A.H.market, pr.x, pr.y); break;
                 case P_MINEGATE: sprW(A.D.mineGate, pr.x, pr.y); break;
                 case P_FROSTGATE: sprW(A.D.frostGate, pr.x, pr.y); break;
                 case P_BEAM: break;  // drawn over the heads (below)
@@ -423,6 +443,12 @@ void Game::renderWorld(bool) {
                 case P_ICICLE: sprW(A.D.icicles, pr.x, pr.y); break;
             }
             camX = camSave;
+        } else if (e.t == 9) {
+            drawHsPiece(this->hs.pieces[e.i], e.j);
+        } else if (e.t == 10) {
+            drawHsCrop(this->hs.pieces[e.i]);
+        } else if (e.t == 11) {
+            drawHsAnimal(this->hs.animals[e.i]);
         } else if (e.t == 7) {
             drawMonster(mons[e.i]);
         } else if (e.t == 8) {
@@ -540,6 +566,8 @@ void Game::renderWorld(bool) {
             if (it->kind == P_BEAM && it->x > camX - 60 && it->x < camX + LW + 60) sprW(it->ph < 0.5f ? A.D.beamArch : A.D.beamSide, it->x, it->y);
         drawDelveOverlay();
     }
+    drawHsRoofs();
+    drawHsOverlay();
     // projectiles
     for (auto& pr : projs) {
         sprW(A.shadow[0], pr.pos.x, pr.pos.y + 9, false, 0.45f);
@@ -599,6 +627,7 @@ void Game::renderWorld(bool) {
             SDL_Rect d{(int)c.x - camX - sz / 2, (int)c.y - 8 - camY - sz / 2, sz, sz};
             SDL_RenderCopy(ren, g, nullptr, &d);
         }
+        drawHsLights(night2);
         SDL_SetTextureAlphaMod(g, 255);
     }
     }  // (not a delve)
@@ -796,6 +825,7 @@ void Game::drawHud() {
         } else {
             HTarget ht;
             if (findHarvest(ht)) drawHarvestPrompt();
+            else if (homesteadPrompt()) {}
             else if (townPrompt()) {}
             else if (delvePrompt()) {}
             else if (nearQuestGiver()) drawPrompt(world.questGiver.x, world.questGiver.y - 44, "E", "TALK");
@@ -1291,7 +1321,7 @@ void Game::drawInventory() {
             } else if (D.kind == IK_TOOL) {
                 const ToolDef& T = TOOLDEF[D.ref];
                 wrap(D.blurb, C_DIM);
-                wrap(std::string(T.type == TT_AXE ? "CHOPS" : "MINES") + " TIER " + S(T.tier) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%", C_TEXT);
+                wrap(std::string(T.type == TT_AXE ? "CHOPS" : T.type == TT_HOE ? "TILLS AND DIGS" : T.type == TT_CAN ? "WATERS CROPS" : T.type == TT_SICKLE ? "CUTS GRAIN" : "MINES") + " TIER " + S(T.tier) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%", C_TEXT);
             } else {
                 wrap(D.blurb, C_DIM);
                 if (D.kind == IK_CONSUMABLE && p.hotSlotOf(sl.item) >= 0) wrap("EQUIPPED ON THE HOTBAR", C_GREEN);
@@ -1402,7 +1432,11 @@ void Game::render() {
     renderWorld(true);
     switch (state) {
         case ST_TITLE: drawTitle(); break;
-        case ST_PLAY: drawHud(); break;
+        case ST_PLAY: drawHud(); drawHsHud(); drawPortalFx(); break;
+        case ST_BUILD: drawHud(); drawBuildMenu(); break;
+        case ST_FARM: drawHud(); drawFarmMenu(); break;
+        case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
+        case ST_MARKET: drawHud(); drawMarket(); break;
         case ST_SHOP: drawHud(); drawShop(); break;
         case ST_SERVICE: drawHud(); drawService(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;

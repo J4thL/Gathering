@@ -21,6 +21,7 @@ enum ResId {
     RS_COAL, RS_SILVER, RS_CAVECRYSTAL, RS_GEM, RS_ETERNALICE,
     // plants (by hand)
     RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_NIGHTSHADE,
+    RS_BERRY, RS_WILDFLOWER,  // the homestead
     RS_COUNT
 };
 enum ResClass { RCL_PLANT, RCL_TREE, RCL_ROCK, RCL_ORE };  // decides the sound, the particles and how the depleted state looks
@@ -85,13 +86,15 @@ static const ResDef RES[RS_COUNT] = {
     {"WILD FLAX",     RCL_PLANT, -1,      0, 1, 0.70f, {{M_FIBER, 1, 3, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                   120, 0, 0, 0xb8c878},
     {"DRY WOOD",      RCL_PLANT, -1,      0, 2, 0.60f, {{M_WOOD, 1, 2, 1.f, 0}, {M_BRANCH, 1, 1, 0.5f, 0}, {-1, 0, 0, 0, 0}},           260, 0, 0, 0xc8a878},
     {"NIGHTSHADE",    RCL_PLANT, -1,      0, 1, 1.00f, {{M_NIGHTSHADE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},               200, 5, 2, 0x6a2a8a},
+    {"BERRY BUSH",    RCL_PLANT, -1,      0, 2, 0.60f, {{M_BERRY, 2, 4, 1.f, 0}, {M_BERRY, 1, 2, 0.35f, 0}, {-1, 0, 0, 0, 0}},             220, 0, 0, 0x7a3ad8},
+    {"WILD FLOWERS",  RCL_PLANT, -1,      0, 1, 0.60f, {{M_TULIP, 1, 2, 0.7f, 0}, {M_ROSE, 1, 1, 0.35f, 0}, {M_LAVENDER, 1, 1, 0.3f, 0}},    200, 0, 0, 0xff7a8a},
 };
 
 // resource of a world node kind (always one)
 inline int nodeRes(int nodeKind) {
     static const int T[RN_COUNT] = {RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_IRON,
                                     RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_COPPER, RS_NIGHTSHADE, RS_AMBER, RS_GOLD,
-                                    RS_COAL, RS_SILVER, RS_CAVECRYSTAL, RS_GEM, RS_ETERNALICE};
+                                    RS_COAL, RS_SILVER, RS_CAVECRYSTAL, RS_GEM, RS_ETERNALICE, RS_BERRY, RS_WILDFLOWER};
     return T[nodeKind];
 }
 // resource of a prop kind, or -1 when the prop is scenery (huts, signs, ruins, the edge wall's rocks ...)

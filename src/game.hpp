@@ -14,6 +14,7 @@
 #include "skills.hpp"
 #include "spawns.hpp"
 #include "monsters.hpp"
+#include "homestead.hpp"
 
 // ----------------------------------------------------------------- palette
 const u32 C_TEXT = HEX(0xf3e9d2), C_DIM = HEX(0xa8977a), C_GOLD = HEX(0xf2c94c), C_RED = HEX(0xe8605a),
@@ -30,6 +31,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false;  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -189,7 +191,8 @@ struct Structure {
     V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
 };
 
-enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE };
+enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
+               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET };  // the Homestead's menus (homestead_ui.cpp)
 
 struct Game {
     // platform
@@ -376,6 +379,73 @@ struct Game {
     void bloodBurst(V2 p, V2 dir, int n);
     void puff(V2 p, int n, u32 col);
     void addItem(int m, int n);
+    // ---- the Homestead (homestead.cpp: state and rules, homestead_ui.cpp: menus, homestead_render.cpp: drawing)
+    Homestead hs;
+    struct BuildMode {
+        bool on = false, demolish = false, valid = false;
+        int kind = HP_FENCE, rot = 0, tx = 0, ty = 0, cat = 0, scroll = 0;
+        std::string why;
+    } bm;
+    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0, hsTileHit = -1;
+    float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
+    std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
+    bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
+    void hsReset();                                                   // new game: an empty homestead
+    void hsReindex();                                                 // rebuild hsGrid after the piece list changed
+    void hsApplyWorld();                                              // the pieces' solid tiles and bridges on the freshly generated map
+    HPiece* hsPiece(int id);
+    HPiece* hsAt(int tx, int ty, int layer);
+    bool hsCanBuild(int kind, int tx, int ty, int rot, std::string* why = nullptr);
+    bool hsPlace(int kind, int tx, int ty, int rot);
+    bool hsDemolish(int tx, int ty);
+    void hsSetSolid(const HPiece& pc, bool on);
+    bool hsCost(int kind, std::string* lack = nullptr) const;       // does the hunter carry the materials?
+    bool hsEnter();
+    bool hsLeave();
+    void hsGiveStarter();
+    bool homesteadInteract();
+    bool homesteadPrompt();
+    struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
+    bool hsFindTarget(HTarget2& t);
+    void updateHomestead(float dt);                                   // crops, animals, build-mode input
+    void hsTickCrops(float dt);
+    void hsTickAnimals(float dt);
+    void hsFarmPlot(HPiece& pc);                                      // E on a plot: harvest, water or open the seed menu
+    bool hsPlant(HPiece& pc, int crop);
+    bool hsHarvest(HPiece& pc);
+    bool hsWater(HPiece& pc);
+    void hsAddAnimal(int kind, V2 at, bool baby, int home = -1);
+    bool hsAssign(HAnimal& a, int pieceId);
+    int hsHousingCount(int pieceId) const;
+    bool hsFeed(HAnimal& a);
+    int hsCollect(HAnimal& a);
+    int hsFeedItem(const HAnimal& a) const;
+    bool hsYard(const HAnimal& a, float& x0, float& y0, float& x1, float& y1) const;
+    void ensureDomArt();
+    std::string hsSaveLines();
+    void hsLoadLine(const std::string& key, std::istringstream& ss);
+    Inventory* openInv();                                             // the inventory of the chest / storage building the chest screen shows
+    int hsChestPiece = -1;
+    void updateBuildMode();
+    void updateBuildMenu(float dt);
+    void updateFarmMenu(float dt);
+    void updateAnimalMenu(float dt);
+    void updateMarket(float dt);
+    void drawBuildMenu();
+    void drawFarmMenu();
+    void drawAnimalMenu();
+    void drawMarket();
+    void drawHomesteadGround();                                       // floors, foundations, plots, pen yards
+    void drawHsPiece(const HPiece& pc, int sub, float alpha = 1.f);   // one object-layer piece (sub: ring tile of a pen)
+    void drawHsCrop(const HPiece& pc);
+    void drawHsAnimal(const HAnimal& a);
+    void drawHsRoofs();
+    void drawHsOverlay();                                             // build ghost, grid, demolish highlight
+    void drawHsLights(float night);
+    void drawHsHud();
+    void drawPortalFx();
+    void hsRefillCan();
+
     // ---- delves (delve.cpp)
     bool delveReq(int id, std::string* why = nullptr) const;  // armour / frost-ward needed for a level
     bool enterDelve(int id);        // from the entrance on the overworld

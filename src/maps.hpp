@@ -42,6 +42,8 @@ static const MapDef MAPS[B_COUNT] = {
     {"SWAMP", "SWAMP", B_SWAMP, 1, {{{118, 0, 122, 1}, B_HOME, 120, MH - 6, 2}}, 120, 5, 120, 40},
     {"SNOW", "SNOW", B_SNOW, 1, {{{118, MH - 2, 122, MH - 1}, B_HOME, 120, 5, 1}}, 120, MH - 6, 120, 128},
     {"MOUNTAIN", "MOUNTAIN", B_MOUNTAIN, 1, {{{MW - 2, 82, MW - 1, 86}, B_HOME, 5, 84, 0}}, MW - 6, 84, 190, 84},
+    // the Homestead has no edge gates: it is entered through the Homestead Portal in town and left through the portal on its plaza (homestead.cpp)
+    {"HOMESTEAD", "HOMESTEAD", B_HOMESTEAD, 0, {}, 120, 86, 120, 84},
 };
 
 // the portal whose zone contains the tile, or nullptr
