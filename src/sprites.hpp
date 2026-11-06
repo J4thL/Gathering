@@ -12,6 +12,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 #include "sprites_gear.hpp"
 #include "sprites_delve.hpp"
 #include "sprites_homestead.hpp"
+#include "hunter_chibi.hpp"
 #include "sprites_biome.hpp"
 #include "sprites_town.hpp"
 
@@ -386,7 +387,7 @@ inline Img mkQuestGiver(int frame) {
 
 // ================================================================= hunter
 // dir: 0 south, 1 north, 2 east (the west views are mirrors), 3 south-east, 4 north-east.
-inline Img mkPlayerPose(int dir, const HPose& P, const HunterLook& look = HunterLook()) {
+inline Img mkPlayerPoseLegacy(int dir, const HPose& P, const HunterLook& look = HunterLook()) {
     Img im(18, 26);
     const HunterLook L = clampLook(look);
     const OutfitCol& oc = OUTFITCOL[L.outfit];
@@ -540,6 +541,7 @@ inline Img mkPlayerPose(int dir, const HPose& P, const HunterLook& look = Hunter
     return im;
 }
 // the original four-frame walk of the three base views (still used by the salon preview and the appearance tests)
+inline Img mkPlayerPose(int dir, const HPose& P, const HunterLook& look = HunterLook()) { return mkChibiPose(dir, P, look); }  // the chibi hunter (hunter_chibi.hpp)
 inline Img mkPlayer(int dir, int f, const HunterLook& look = HunterLook()) { return mkPlayerPose(dir, walkPose(f), look); }
 
 

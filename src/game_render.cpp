@@ -492,14 +492,14 @@ void Game::renderWorld(bool) {
                 // weapon in hand while winding up
                 if (p.charging && p.wpn(p.sel) > 0) {
                     float back = p.charge * 3.f;
-                    V2 hp = p.pos + V2(0, -10) + p.aim * (7.f - back);
+                    V2 hp = p.pos + V2(0, -7) + p.aim * (6.f - back);
                     sprW(A.wpnWorld[p.sel], hp.x, hp.y, false, 1.f, atan2f(p.aim.y, p.aim.x) * 57.2958, true);
                 }
                 if (p.gathering) {
                     Animal* c = nearestCarcass(30);
                     if (c) {
                         float a = -50.f + sinf(timeAcc * 22.f) * 45.f;
-                        sprW(A.wpnWorld[W_FLINT], c->pos.x + (p.pos.x < c->pos.x ? -5 : 5), c->pos.y - 9, false, 1.f, a + (p.pos.x < c->pos.x ? 0 : 180), true);
+                        sprW(A.wpnWorld[W_FLINT], c->pos.x + (p.pos.x < c->pos.x ? -5 : 5), c->pos.y - 7, false, 1.f, a + (p.pos.x < c->pos.x ? 0 : 180), true);
                     } else {
                         // swinging the axe / pickaxe at a tree, rock or ore: the tool arcs back and down once per swing
                         HTarget ht;
@@ -511,7 +511,7 @@ void Game::renderWorld(bool) {
                                 const bool left = ht.pos.x < p.pos.x;
                                 float ang = -75.f + 125.f * ease;
                                 if (p.impactT > 0) ang = 50.f - 35.f * (1.f - p.impactT / 0.16f);  // the tool rests on the target, then lifts as the hunter recovers
-                                sprW(A.R.toolSwing[ti], p.pos.x + (left ? -3 : 3), p.pos.y - 9, left, 1.f, left ? -ang : ang, true);
+                                sprW(A.R.toolSwing[ti], p.pos.x + (left ? -3 : 3), p.pos.y - 6, left, 1.f, left ? -ang : ang, true);
                             }
                         }
                     }
