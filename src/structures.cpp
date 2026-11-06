@@ -70,6 +70,9 @@ bool Game::nearFire() const {
     if (dist(p.pos, world.fire) < FIRE_RANGE) return true;  // the village campfire counts
     for (auto& s : structs)
         if (s.kind == PL_CAMPFIRE && dist(p.pos, s.pos()) < FIRE_RANGE) return true;
+    if (world.mapId == B_HOMESTEAD)  // a built campfire or workshop forge counts too
+        for (auto& pc : hs.pieces)
+            if ((pc.kind == HP_CAMPFIRE || pc.kind == HP_WORKSHOP) && dist(p.pos, V2((pc.tx + pc.w() / 2.f) * TS, (pc.ty + pc.h() / 2.f) * TS)) < FIRE_RANGE + pc.w() * 4.f) return true;
     return false;
 }
 
@@ -203,8 +206,9 @@ int moveStack(Slot& src, Inventory& dst) {
 
 // fromPack: 1 = from the backpack into the chest, 0 = from the chest into the backpack
 bool Game::chestMove(int fromPack, int slot) {
-    if (chestOpen < 0 || chestOpen >= (int)structs.size()) return false;
-    Inventory& chest = structs[chestOpen].inv;
+    Inventory* cp = openInv();
+    if (!cp) return false;
+    Inventory& chest = *cp;
     Inventory& pack = p.inv;
     Inventory& from = fromPack ? pack : chest;
     Inventory& to = fromPack ? chest : pack;
@@ -221,28 +225,31 @@ bool Game::chestMove(int fromPack, int slot) {
 
 void Game::updateChest(float dt) {
     updateFx(dt);  // time stands still while the chest is open
-    if (in.escPressed || in.ePressed || chestOpen < 0 || chestOpen >= (int)structs.size()) {
+    if (in.escPressed || in.ePressed || !openInv()) {
         state = ST_PLAY;
         chestOpen = -1;
+        hsChestPiece = -1;
         save();
         audio.play(S_CLICK);
     }
 }
 
 void Game::drawChest() {
-    if (chestOpen < 0 || chestOpen >= (int)structs.size()) return;
-    Structure& ch = structs[chestOpen];
+    Inventory* cinv = openInv();
+    if (!cinv) return;
+    const bool hsBld = hsChestPiece > 0;
+    struct { Inventory& inv; } ch{*cinv};
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
     const int X = 24, Y = 12, W = 352, H = 200;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
-    text(X + 8, Y + 7, "STORAGE CHEST", C_GOLD);
+    text(X + 8, Y + 7, hsBld ? (hsPiece(hsChestPiece) ? HPDEF[hsPiece(hsChestPiece)->kind].name : "STORAGE") : "STORAGE CHEST", C_GOLD);
     const int cap = p.bagCap();
     textC(X + W / 2 + 40, Y + 7, "CLICK AN ITEM TO MOVE ITS WHOLE STACK", C_DIM, 1, false);
     const int cy = Y + 34;
     const int cgx = X + 8, cgy = cy + 12;                       // chest grid
     const int pgx = X + W - 8 - PK_COLS * CELL, pgy = cy + 12;  // pack grid
-    text(cgx, cy + 2, "CHEST " + S(ch.inv.usedSlots()) + "/" + S(CHEST_SLOTS), C_TEXT);
+    text(cgx, cy + 2, "STORED " + S(ch.inv.usedSlots()) + "/" + S(ch.inv.capacity()), C_TEXT);
     text(pgx, cy + 2, "PACK " + S(p.bagUsed()) + "/" + S(cap), p.bagUsed() >= cap ? C_RED : C_TEXT);
     auto cell = [&](Inventory& inv, int i, int gx, int gy, int cols, bool toPack) {
         int x = gx + (i % cols) * CELL, y = gy + (i / cols) * CELL;
@@ -264,8 +271,11 @@ void Game::drawChest() {
         return hov;
     };
     int hoverItem = -1;
-    for (int i = 0; i < ch.inv.capacity(); i++)
-        if (cell(ch.inv, i, cgx, cgy, CH_COLS, true) && !ch.inv.slots[i].empty()) hoverItem = ch.inv.slots[i].item;
+    static int chScroll = 0;  // big storage buildings (60 slots) scroll with the wheel: six rows are visible
+    const int chCap = ch.inv.capacity(), chRows = (chCap + CH_COLS - 1) / CH_COLS;
+    chScroll = chRows > 6 ? std::max(0, std::min(chRows - 6, chScroll - in.wheel)) : 0;
+    for (int i = chScroll * CH_COLS; i < std::min(chCap, (chScroll + 6) * CH_COLS); i++)
+        if (cell(ch.inv, i, cgx, cgy - chScroll * CELL, CH_COLS, true) && !ch.inv.slots[i].empty()) hoverItem = ch.inv.slots[i].item;
     for (int i = 0; i < cap; i++)
         if (cell(p.inv, i, pgx, pgy, PK_COLS, false) && !p.inv.slots[i].empty()) hoverItem = p.inv.slots[i].item;
     // buttons in the middle
@@ -293,13 +303,13 @@ void Game::drawChest() {
     }
     by += 17;
     const bool empty = ch.inv.usedSlots() == 0;
-    if (button(bx, by, bw, 14, "PICK UP", empty, HEX(0x7a3a2a))) {
+    if (!hsBld && button(bx, by, bw, 14, "PICK UP", empty, HEX(0x7a3a2a))) {
         if (!p.inv.canAdd(itemPlace(PL_CHEST), 1)) {
             msg("BAG FULL - CANNOT PICK UP THE CHEST", C_RED);
             audio.play(S_ERROR);
         } else {
             p.inv.add(itemPlace(PL_CHEST), 1);
-            world.solid[ch.ty][ch.tx] = false;
+            world.solid[structs[chestOpen].ty][structs[chestOpen].tx] = false;
             structs.erase(structs.begin() + chestOpen);
             chestOpen = -1;
             state = ST_PLAY;
@@ -309,7 +319,7 @@ void Game::drawChest() {
         }
     }
     by += 17;
-    if (!empty) text(bx, by + 1, "EMPTY IT TO", C_DIM, 1, false), text(bx, by + 9, "PICK IT UP", C_DIM, 1, false);
+    if (!empty && !hsBld) text(bx, by + 1, "EMPTY IT TO", C_DIM, 1, false), text(bx, by + 9, "PICK IT UP", C_DIM, 1, false);
     // hovered item name
     if (hoverItem >= 0) {
         const ItemDef& D = item(hoverItem);

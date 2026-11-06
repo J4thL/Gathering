@@ -12,6 +12,10 @@
 #include "maps.hpp"
 
 inline void World::generateMap(int map) {
+    if (map == B_HOMESTEAD) {  // the player's sandbox has its own generator (homestead_gen.hpp)
+        generateHomestead();
+        return;
+    }
     Rng r(seed * 104729u + 977u + (uint32_t)map * 7919u);
     const uint32_t S = seed + (uint32_t)map * 31u;  // per-map salt for the noise fields
     const bool home = map == B_HOME;
@@ -749,6 +753,13 @@ inline void World::generateTown() {
         props.push_back({P_WELL, a.x + 8.f, a.y, 0});
         solid[COY + 31][COX + 38] = solid[COY + 31][COX + 39] = true;
     }
+    {   // the Homestead Portal: a standing-stone gate on the west side of the plaza, between the flower shop and the well
+        const V2 a = at(33, 31.9f);
+        props.push_back({P_HPORTAL, a.x, a.y, 0});
+        for (int i = 0; i < 3; i++) solid[COY + 31][COX + 32 + i] = true;
+        hportal = a;
+        lanterns.push_back({a.x, a.y - 22.f, 0.9f});
+    }
     {   // town signs where the streets leave the town
         const V2 w = at(TOWN_X0 - 1, 28.6f), e = at(TOWN_X1, 28.6f);
         props.push_back({P_SIGN, w.x, w.y, 0});
@@ -775,3 +786,5 @@ inline void World::generateTown() {
     hut = keeper = V2(-99999.f, -99999.f);
     door = V2(bldDoorX(BLD_SHOP, COX), bldDoorY(BLD_SHOP, COY));
 }
+
+#include "homestead_gen.hpp"

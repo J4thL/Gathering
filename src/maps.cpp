@@ -19,6 +19,7 @@ std::vector<std::string> splitLines(const std::string& s) {
 
 void Game::loadMapWorld(int map) {
     world.generate(WORLD_SEED, map);
+    if (map == B_HOMESTEAD) hsApplyWorld();
     initHarvest();
     if (ren) {  // the minimap shows the active map
         if (miniTex) SDL_DestroyTexture(miniTex);

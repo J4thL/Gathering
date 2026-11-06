@@ -24,8 +24,8 @@ constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
 // gathering tools: axes cut trees, pickaxes break rock and ore; a higher tier is faster and gives more (see resources.hpp for what needs which tier)
-enum ToolType { TT_AXE, TT_PICK, TT_COUNT };
-enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_COUNT };
+enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
+enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_COUNT };
 struct ToolDef {
     const char* name;
     int type, tier;      // tier 1..4: stone, copper, iron, gilded
@@ -42,6 +42,9 @@ static const ToolDef TOOLDEF[TL_COUNT] = {
     {"COPPER PICKAXE", TT_PICK, 2, 1.4f, 0.10f, "CAN CRACK IRON ORE"},
     {"IRON PICKAXE", TT_PICK, 3, 1.9f, 0.20f, "OPENS GOLD VEINS AND CRYSTAL"},
     {"GILDED PICKAXE", TT_PICK, 4, 2.5f, 0.35f, "THE BEST PICKAXE - FASTEST, MOST ORE"},
+    {"FARMER'S HOE", TT_HOE, 1, 1.0f, 0.00f, "TILLS SOIL FOR FARM PLOTS - DIGS UP ROOT CROPS"},
+    {"WATERING CAN", TT_CAN, 1, 1.0f, 0.00f, "WATERS CROPS - REFILL AT A WELL OR THE WATER'S EDGE"},
+    {"SICKLE", TT_SICKLE, 1, 1.0f, 0.00f, "CUTS WHEAT AND CORN"},
 };
 enum PlaceId { PL_CAMPFIRE, PL_CHEST, PL_COUNT };
 constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
@@ -96,7 +99,10 @@ inline float matWeight(int m) {
         /*ROSE*/ 0.05f, /*TULIP*/ 0.05f, /*LAVENDER*/ 0.05f, /*SUNFLOWER*/ 0.1f, /*BOUQUET*/ 0.3f,
         /*COAL*/ 1.5f, /*SILVER*/ 2.8f, /*CAVECRYSTAL*/ 0.6f, /*GEM*/ 0.2f, /*STEELBAR*/ 2.5f, /*SILVERBAR*/ 2.0f,
         /*BATWING*/ 0.1f, /*SILK*/ 0.1f, /*SPIDERFANG*/ 0.15f, /*GOLEMCORE*/ 3.0f, /*CAVEPELT*/ 1.2f,
-        /*ICEBONE*/ 0.6f, /*FROSTFANG*/ 0.2f, /*ICESHARD*/ 0.3f, /*KNIGHTPLATE*/ 2.0f, /*FROSTRUNE*/ 0.3f, /*ETERNALICE*/ 0.8f, /*CRYPTKEY*/ 0.1f};
+        /*ICEBONE*/ 0.6f, /*FROSTFANG*/ 0.2f, /*ICESHARD*/ 0.3f, /*KNIGHTPLATE*/ 2.0f, /*FROSTRUNE*/ 0.3f, /*ETERNALICE*/ 0.8f, /*CRYPTKEY*/ 0.1f,
+        /*BERRY*/ 0.05f, /*WHEAT*/ 0.2f, /*CARROT*/ 0.15f, /*POTATO*/ 0.3f, /*CABBAGE*/ 0.6f, /*CORN*/ 0.25f, /*TOMATO*/ 0.2f, /*PUMPKIN*/ 3.0f, /*STRAWBERRY*/ 0.05f,
+        0.01f, 0.01f, 0.02f, 0.01f, 0.01f, 0.01f, 0.02f, 0.01f,
+        /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f};
     return W[m];
 }
 inline float wpnWeight(int w) {
@@ -155,7 +161,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)].weight = 0.05f;
         static const float cw[C_COUNT] = {0.1f, 0.2f, 0.4f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.3f, 0.6f, 0.3f, 0.3f};
         for (int c = 0; c < C_COUNT; c++) t[ITEM_CONS0 + c].weight = cw[c];
-        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : 2.5f + 0.25f * TOOLDEF[k].tier;
+        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : TOOLDEF[k].type == TT_PICK ? 2.5f + 0.25f * TOOLDEF[k].tier : 1.5f;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
         t[itemPlace(PL_CHEST)].weight = 8.0f;
         for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : (k >= CG_LANTERN ? 0.8f : 1.5f);
