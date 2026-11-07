@@ -683,8 +683,9 @@ void Game::drawBiomeFx() {
         for (int gy = gy0; gy <= gy1; gy++)
             for (int gx = gx0; gx <= gx1; gx++) {
                 uint32_t h = hash2(gx, gy, 4242);
-                float px = gx * cell + (h & 63) + sinf(timeAcc * 0.11f + (h >> 8 & 255) * 0.05f) * 16.f;
-                float py = gy * cell + ((h >> 6) & 31) + cosf(timeAcc * 0.09f + (h >> 4 & 255) * 0.05f) * 6.f;
+                // (int) below: added to an unsigned value a negative cell (the map's left / top edge) wrapped to ~4e9 and the puff was lost
+                float px = gx * cell + (int)(h & 63) + sinf(timeAcc * 0.11f + (h >> 8 & 255) * 0.05f) * 16.f;
+                float py = gy * cell + (int)((h >> 6) & 31) + cosf(timeAcc * 0.09f + (h >> 4 & 255) * 0.05f) * 6.f;
                 float pulse = 0.65f + 0.35f * sinf(timeAcc * 0.25f + (h >> 12 & 255) * 0.1f);
                 float a = clampf(fogK * pulse * (0.55f + 0.45f * (1.f - 0.5f * day)), 0, 1);
                 SDL_SetTextureAlphaMod(A.B.fog.t, (Uint8)(a * 255));

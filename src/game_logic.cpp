@@ -22,6 +22,8 @@ static void moveEnt(const World& w, V2& pos, V2 d, float r) {
 }
 
 // ================================================================= platform bits
+static void recoverSave(const std::string& path);  // (below, with save())
+
 bool Game::init(bool headless) {
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
@@ -48,6 +50,7 @@ bool Game::init(bool headless) {
     SDL_ShowCursor(SDL_DISABLE);
     for (int i = 0; i < 110; i++) flakes.push_back({wrng.range(0, LW), wrng.range(0, LH), 0, 0, wrng.range(0, 6.28f), wrng.range(0.f, 1.f)});
     for (int i = 0; i < 30; i++) flies.push_back({rng.range(0, LW), rng.range(0, LH), rng.range(0, 6.28f), rng.range(0.6f, 1.4f)});
+    recoverSave(savePath());
     std::ifstream t(savePath());
     hasSave = t.good();
     newGame();
@@ -65,6 +68,9 @@ void Game::shutdown() {
 }
 
 std::string Game::savePath() {
+    // WILDWOOD_SAVE_DIR (set by main() for every test / tool run) keeps those runs away from the player's real save
+    if (const char* d = getenv("WILDWOOD_SAVE_DIR"))
+        if (*d) return std::string(d) + "/save.txt";
     char* b = SDL_GetPrefPath("WildwoodGames", "WildwoodHunter");
     std::string s = b ? std::string(b) + "save.txt" : std::string("wildwood_save.txt");
     if (b) SDL_free(b);
@@ -118,12 +124,29 @@ void Game::save() {
             return;
         }
     }
-    std::remove(path.c_str());
-    std::rename(tmp.c_str(), path.c_str());  // write-then-rename: a crash mid-save cannot leave a half-written file
+    // Replace the old save without a moment where no save exists: the old file becomes save.txt.bak, the new one takes its place, and
+    // if that last step fails the old file is put back. (A plain remove-then-rename loses the save if anything goes wrong in between;
+    // std::rename cannot overwrite an existing file on Windows, which is why the old file is moved aside rather than overwritten.)
+    const std::string bak = path + ".bak";
+    std::remove(bak.c_str());
+    const bool hadOld = std::rename(path.c_str(), bak.c_str()) == 0;
+    if (std::rename(tmp.c_str(), path.c_str()) != 0) {
+        if (hadOld) std::rename(bak.c_str(), path.c_str());
+        std::remove(tmp.c_str());
+        return;
+    }
     hasSave = true;
 }
 
+// If the main save is missing but the previous one (save.txt.bak) is there - the game stopped between the two renames in save() - put it back.
+static void recoverSave(const std::string& path) {
+    if (std::ifstream(path)) return;
+    const std::string bak = path + ".bak";
+    if (std::ifstream(bak)) std::rename(bak.c_str(), path.c_str());
+}
+
 bool Game::load() {
+    recoverSave(savePath());
     std::ifstream f(savePath());
     if (!f) return false;
     newGame();
@@ -234,8 +257,13 @@ bool Game::load() {
             sawLegacy = true;
             legacyBandages = (int)readCount(ss);
         } else if (k == "up") for (int i = 0; i < U_COUNT; i++) ss >> p.up[i];
-        else if (k == "day") ss >> dayT;
-        else if (k == "kills") ss >> kills;
+        else if (k == "day") {  // a hand-edited or damaged value (negative, huge) must not break the clock and the day counter
+            float d = 0.f;
+            if (ss >> d && std::isfinite(d)) dayT = std::min(1.0e8f, std::max(0.f, d));
+        } else if (k == "kills") {
+            long long n = 0;
+            if (ss >> n) kills = (int)std::max(0LL, std::min(1000000000LL, n));
+        }
         else if (k == "skill") skillLoadLine(ss);
         else if (k == "disc") {
             std::string bits;
@@ -245,6 +273,7 @@ bool Game::load() {
         } else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
             int active = 0;
             ss >> questIdx >> active >> questProg;
+            questIdx = std::max(0, std::min(1000000, questIdx));  // (0 when the numbers are unreadable)
             questActive = active != 0;
         }
     }

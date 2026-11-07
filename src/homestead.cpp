@@ -488,8 +488,9 @@ bool Game::hsFeed(HAnimal& a) {
 int Game::hsCollect(HAnimal& a) {
     const DomDef& D = DOMS[a.kind];
     if (a.stock <= 0 || D.product < 0) return 0;
-    const int n = a.stock;
+    int n = a.stock;
     a.stock = 0;
+    if (grng.chance(skillBonus(SK_FARMING))) n++;  // the FARMING bonus is "extra crops AND produce": crops get it in hsPick, produce here
     hsGive(*this, D.product, n);
     grantXp(SK_FARMING, 2 * n);
     ftext(V2(a.px, a.py - 16), "+" + S(n) + " " + D.prodName, C_GOLD);

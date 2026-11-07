@@ -7,6 +7,7 @@
 #include <cstring>
 #include <string>
 #include <cstdlib>
+#include <filesystem>
 #include <queue>
 #include <algorithm>
 #include <fstream>
@@ -2139,6 +2140,7 @@ static int selfTest(Game& g) {
     }
     // ---- saving
     printf("saving and migration\n");
+    check(!std::getenv("WILDWOOD_SAVE_DIR") || g.savePath().rfind(std::getenv("WILDWOOD_SAVE_DIR"), 0) == 0, "the suites use their own save folder, not the player's real save");
     auto writeFile = [&](const std::string& text) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out << text;
@@ -2147,6 +2149,7 @@ static int selfTest(Game& g) {
         std::remove(g.savePath().c_str());
         std::remove((g.savePath() + ".v1.bak").c_str());
         std::remove((g.savePath() + ".tmp").c_str());
+        std::remove((g.savePath() + ".bak").c_str());
     };
     removeAll();
     {   // v2 round trip, including a non-default backpack, partial stacks and several stacks of one item
@@ -2215,6 +2218,28 @@ static int selfTest(Game& g) {
         sane = sane && g.p.mat(M_MEAT) == 4 && g.p.mat(M_BONE) == 0 && g.p.mat(M_ORGAN) == 0;  // "abc" stops that line; the rest stay zero
         check(sane, "a damaged v1 save loads without crashing, no negative counts, and never overfills the bag");
         check(g.loadReport.dropped > 0, "items that cannot fit (absurd counts) are reported as dropped instead of lost silently");
+        removeAll();
+    }
+    {   // saving twice keeps the previous save; a save lost between the two renames is recovered; odd day / kills / quest numbers are clamped
+        removeAll();
+        g.newGame();
+        g.p.coins = 111;
+        g.save();
+        g.p.coins = 222;
+        g.save();
+        std::ifstream b(g.savePath() + ".bak");
+        std::string bs((std::istreambuf_iterator<char>(b)), std::istreambuf_iterator<char>());
+        check(bs.find("coins 111") != std::string::npos && !std::ifstream(g.savePath() + ".tmp"), "a second save keeps the first as save.txt.bak (and leaves no .tmp)");
+        std::remove(g.savePath().c_str());  // as if the game stopped between the two renames
+        check(g.load() && g.p.coins == 111, "a missing save is recovered from save.txt.bak");
+        removeAll();
+        writeFile("version 2\ncoins 5\nup 0 0 0 0\nday 1e30\nkills -9\nquest -4 1 -7\n");
+        bool ld = g.load();
+        check(ld && std::isfinite(g.dayT) && g.dayT >= 0.f && g.dayT <= 1.0e8f && g.kills == 0 && g.questIdx == 0, "absurd day / kills / quest values load as safe numbers");
+        removeAll();
+        writeFile("version 2\ncoins 5\nup 0 0 0 0\nday -50\nkills 99999999999\nquest 99999999 1 3\n");
+        ld = g.load();
+        check(ld && g.dayT == 0.f && g.kills == 1000000000 && g.questIdx == 1000000, "negative day and enormous kills / quest index are clamped");
         removeAll();
     }
     {   // v2 with an item from the future, and more slots than the pack has
@@ -3392,13 +3417,14 @@ static int selfTest(Game& g) {
 
 int delveTest(Game& g);  // delve_tests.cpp
 int homesteadTest(Game& g);  // homestead_tests.cpp
+int soakTest(Game& g);       // soak_tests.cpp
 void delveShots(Game& g, const std::string& dir);
 
 int main(int argc, char** argv) {
     bool headless = false;
     std::string delveDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false, dtest = false, htest = false;
+    bool wcheck = false, dtest = false, htest = false, soak = false;
     // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
     auto takes = [&](int& i, const char* flag, std::string& dst) {
         if (strcmp(argv[i], flag)) return false;
@@ -3419,6 +3445,20 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
         else if (!strcmp(argv[i], "--delve")) dtest = true;
         else if (!strcmp(argv[i], "--homestead")) htest = true;
+        else if (!strcmp(argv[i], "--soak")) soak = true;
+    }
+    // The test suites and tool modes save, load and delete save files: they get their own folder, never the player's real save.
+    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() ||
+                         !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty();
+    if (toolRun && !(getenv("WILDWOOD_SAVE_DIR") && *getenv("WILDWOOD_SAVE_DIR"))) {
+        std::error_code ec;
+        const std::string dir = (std::filesystem::temp_directory_path(ec) / "wildwood_test_save").string();
+        std::filesystem::create_directories(dir, ec);
+        if (!ec) setenv("WILDWOOD_SAVE_DIR", dir.c_str(), 1);
+        else {
+            fprintf(stderr, "wildwood: cannot make a separate save folder for this run (%s); stopping so the real save is not touched\n", ec.message().c_str());
+            return 2;
+        }
     }
     if (headless) {
         setenv("SDL_VIDEODRIVER", "dummy", 1);
@@ -3441,6 +3481,11 @@ int main(int argc, char** argv) {
         delveShots(g, delveDir);
         g.audio.shutdown();
         return 0;
+    }
+    if (soak) {
+        int bad = soakTest(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
     }
     if (htest) {
         int bad = homesteadTest(g);
@@ -3512,7 +3557,6 @@ int main(int argc, char** argv) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
                 g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
                 g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
-            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
                 first = false;

@@ -7,6 +7,9 @@
 #include <cstring>
 
 static const u32 OUT = HEX(0x241a14);  // universal outline colour
+// The pixel-pattern hash of (x, y). Multiplied as unsigned so it cannot overflow (signed overflow is undefined behaviour); the int
+// result wraps exactly as the old signed multiply did in practice, so every pattern stays pixel-for-pixel the same.
+inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)((uint32_t)y * 19349663u); }
 #include "sprites_res.hpp"
 #include "sprites_trophy.hpp"
 #include "sprites_gear.hpp"
@@ -607,7 +610,7 @@ inline Img drawQuad(const QuadSpec& s, int frame, bool dead) {
             u32 c = s.body;
             if (t < 0.26f) c = s.light;
             else if (t > 0.72f) c = s.belly;
-            if (((x * 73856093) ^ (y * 19349663)) % 13 == 0 && t < 0.72f) c = s.dark;
+            if (patHash(x, y) % 13 == 0 && t < 0.72f) c = s.dark;
             im.set(x, y, c);
         }
     if (s.spots) {

@@ -253,7 +253,7 @@ inline Img drawBird(const QuadSpec& s, int frame, bool dead) {
             u32 c = s.body;
             if (t < 0.28f) c = s.light;
             else if (t > 0.7f) c = s.belly;
-            if (s.spots && (((x * 73856093) ^ (y * 19349663)) % 7 == 0) && t < 0.7f) c = s.dark;  // streaks
+            if (s.spots && (patHash(x, y) % 7 == 0) && t < 0.7f) c = s.dark;  // streaks
             im.set(x, y, c);
         }
     // wing (lifts on the odd frames)
