@@ -153,7 +153,6 @@ inline void bird(std::vector<Prim>& o, int kind, int st, int f) {
     const float bob = st == DS_WALK ? 0.55f * std::fabs(std::sin(ph)) : 0.f;
     const float peck = st == DS_EAT ? (f ? 1.f : 0.35f) : 0.f;
     const float bz = duck ? 4.6f : 7.2f;
-    const float nz = peck > 0 ? 0.f : 1.f;
     o.push_back(ball({0, 0, bz + bob}, duck ? V{6.6f, 4.1f, 3.8f} : V{5.4f, 3.7f, 4.3f}, BM_BODY));
     o.push_back(ball({duck ? 3.0f : 2.7f, 0, bz - 0.5f + bob}, duck ? V{3.8f, 3.4f, 3.4f} : V{3.4f, 3.2f, 3.8f}, BM_LIGHT));  // breast
     o.push_back(ball({-0.5f, 0, bz - 1.4f + bob}, {4.6f, 3.2f, 2.2f}, BM_LIGHT));                                              // belly

@@ -200,7 +200,7 @@ inline void biped(std::vector<Prim>& o, int kind, const Pose& P) {
     const float lean = P.lean;
     const float cl = cosf(lean), sl = sinf(lean);
     auto atTorso = [&](float x, float y, float z) { return V{x * cl + z * sl, y, tz + (-x * sl + z * cl)}; };  // a point in torso space, leaned
-    const int MBc = MB, MDc = MD;
+    const int MDc = MD;
     // legs
     if (!robe) {
         for (int s = -1; s <= 1; s += 2) {
@@ -510,7 +510,6 @@ inline void paintMonsterFrame(int k, int v, int st, int i, MonsterImg& o) {
     }
 
 inline void buildMonsterBank(SDL_Renderer* r, MonsterBank& bank) {
-    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.7854f, 0.f, -0.7854f, -1.5708f, -2.3562f, 3.14159f, 2.3562f};
     struct Job { int k, v, st, i; };
     struct Out { Img im; int ax = 0, ay = 0; float sc = 1.f; };
     std::vector<Job> jobs;

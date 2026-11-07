@@ -2727,6 +2727,7 @@ static int selfTest(Game& g) {
         const int homeTx = g.structs[0].tx, homeTy = g.structs[0].ty;
         g.p.inv.add(itemPlace(PL_CAMPFIRE), 0);
         const long packMid = packTotal();
+        check(packMid <= packBefore, "(setup) placing a structure never adds items to the pack");
         check(g.travelTo(B_DESERT, MAPS[B_DESERT].entryTx, MAPS[B_DESERT].entryTy, false) && g.world.mapId == B_DESERT && g.curBiome == B_DESERT, "travelling loads the desert map");
         check(spotOk(), "the hunter arrives on a free tile inside the map");
         check(packTotal() == packMid && g.p.coins == 500 && (int)g.p.hp == 55 && g.p.sk.s[SK_HUNTING].xp == 300 && g.questIdx == 2 && g.dayT == 77.f, "pack, coins, health, skills, quest and time are unchanged by a trip");
@@ -3398,21 +3399,26 @@ int main(int argc, char** argv) {
     std::string delveDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
     bool wcheck = false, dtest = false, htest = false;
+    // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
+    auto takes = [&](int& i, const char* flag, std::string& dst) {
+        if (strcmp(argv[i], flag)) return false;
+        if (i + 1 >= argc || !strncmp(argv[i + 1], "--", 2)) {
+            fprintf(stderr, "wildwood: %s needs a folder or file argument, e.g. %s <path>\n", flag, flag);
+            exit(2);
+        }
+        dst = argv[++i];
+        return true;
+    };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
-        if (!strcmp(argv[i], "--shots") && i + 1 < argc) shots = argv[++i];
-        if (!strcmp(argv[i], "--tour") && i + 1 < argc) tourDir = argv[++i];
-        if (!strcmp(argv[i], "--town") && i + 1 < argc) townDir = argv[++i];
-        if (!strcmp(argv[i], "--sprites") && i + 1 < argc) spriteDir = argv[++i];
-        if (!strcmp(argv[i], "--export-sprites") && i + 1 < argc) exportDir = argv[++i];
-        if (!strcmp(argv[i], "--dumpcore") && i + 1 < argc) dumpFile = argv[++i];
-        if (!strcmp(argv[i], "--wildlife") && i + 1 < argc) wildDir = argv[++i];
-        if (!strcmp(argv[i], "--weapons")) wtest = true;
-        if (!strcmp(argv[i], "--selftest")) stest = true;
-        if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
-        if (!strcmp(argv[i], "--delve")) dtest = true;
-        if (!strcmp(argv[i], "--homestead")) htest = true;
-        if (!strcmp(argv[i], "--delveshots") && i + 1 < argc) delveDir = argv[++i];
+        else if (takes(i, "--shots", shots) || takes(i, "--tour", tourDir) || takes(i, "--town", townDir) || takes(i, "--sprites", spriteDir) ||
+                 takes(i, "--export-sprites", exportDir) || takes(i, "--dumpcore", dumpFile) || takes(i, "--wildlife", wildDir) ||
+                 takes(i, "--delveshots", delveDir)) {}
+        else if (!strcmp(argv[i], "--weapons")) wtest = true;
+        else if (!strcmp(argv[i], "--selftest")) stest = true;
+        else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
+        else if (!strcmp(argv[i], "--delve")) dtest = true;
+        else if (!strcmp(argv[i], "--homestead")) htest = true;
     }
     if (headless) {
         setenv("SDL_VIDEODRIVER", "dummy", 1);
