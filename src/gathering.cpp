@@ -53,6 +53,11 @@ bool Game::harvestUp(bool node, int idx) const {
 
 int Game::bestTool(int type, int* toolIdx) const {
     int best = 0, bi = -1;
+    if (isFarmType(type)) {  // farming tools only work while equipped
+        if (p.tool[type] >= 0) best = TOOLDEF[p.tool[type]].tier, bi = p.tool[type];
+        if (toolIdx) *toolIdx = bi;
+        return best;
+    }
     for (int k = 0; k < TL_COUNT; k++)
         if (TOOLDEF[k].type == type && TOOLDEF[k].tier > best && p.inv.count(itemTool(k)) > 0) best = TOOLDEF[k].tier, bi = k;
     if (toolIdx) *toolIdx = bi;

@@ -95,7 +95,9 @@ void Game::save() {
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
         // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
         f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
-        f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nhotbar";
+        f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nfarmtools";
+        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        f << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
         for (auto& sl : p.inv.slots)
@@ -157,7 +159,8 @@ bool Game::load() {
         return std::max(0L, std::min(lim, v));
     };
     std::string bagKey = "-", hotKeys[HOT_N];
-    bool sawBag = false, sawHotbar = false;
+    bool sawBag = false, sawHotbar = false, sawFarm = false;
+    std::vector<std::string> farmKeys;
     struct DropLine { std::string key; int n, x, y; };
     std::vector<DropLine> dropLines[B_COUNT];
     std::vector<std::pair<std::string, int>> slotLines;  // v2
@@ -193,6 +196,10 @@ bool Game::load() {
         } else if (k == "bag") {
             ss >> bagKey;
             sawBag = true;
+        } else if (k == "farmtools") {
+            sawFarm = true;
+            std::string key;
+            while (ss >> key) farmKeys.push_back(key);
         } else if (k == "hotbar") {
             sawHotbar = true;
             for (int i = 0; i < HOT_N; i++) {
@@ -325,6 +332,20 @@ bool Game::load() {
             dst << src.rdbuf();
         }
     }
+    // Farming tools: the equipped ones are saved by key. An older save has no such line, so the hoe / can / sickle it carried are equipped
+    // (they used to work from the pack), which keeps every old save's farm working.
+    for (int t = 0; t < TT_COUNT; t++) p.tool[t] = -1;
+    if (sawFarm) {
+        for (auto& key : farmKeys) {
+            const int id = itemFromKey(key);
+            if (id >= 0 && item(id).kind == IK_TOOL && isFarmType(TOOLDEF[item(id).ref].type)) p.tool[TOOLDEF[item(id).ref].type] = item(id).ref;
+        }
+    } else
+        for (int k = 0; k < TL_COUNT; k++)
+            if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
+                p.inv.remove(itemTool(k), 1);
+                p.tool[TOOLDEF[k].type] = k;
+            }
     applyLook(lookLoaded);
     refreshQuest();
     // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is
@@ -492,6 +513,11 @@ float Game::tod() const { return fmodf(dayT / 300.f + 0.05f, 1.f); }
 float Game::daylight() const { return smoothf(-0.25f, 0.35f, sinf(tod() * 6.2832f)); }
 
 void Game::msg(const std::string& s, u32 col) {
+    if (!msgs.empty() && msgs.back().s == s && msgs.back().col == col) {  // the same message again: count it instead of stacking it
+        msgs.back().n++;
+        msgs.back().t = 4.2f;
+        return;
+    }
     msgs.push_back({s, col, 4.2f});
     if (msgs.size() > 4) msgs.pop_front();
 }
@@ -693,7 +719,40 @@ bool Game::stepAnimal(Animal& a, V2 dir, float speed, float dt) {
 
 void Game::updateAnimals(float dt) {
     float night = 1.f - daylight();
+    // ---- the food chain: predators that are stalking prey this frame, and who counts as their prey
+    int hunters[64], nh = 0;
+    for (size_t i = 0; i < animals.size() && nh < 64; i++)
+        if (!animals[i].dead && !animals[i].gone && animals[i].st == AS_HUNT && ANIMAL[animals[i].kind].preyMask) hunters[nh++] = (int)i;
+    // pr is prey of h: same biome, alive, and never a rare or legendary specimen (those are the hunter's trophies)
+    auto preyOf = [&](const Animal& pr, const Animal& h) {
+        return &pr != &h && !pr.dead && !pr.gone && pr.tier < TR_RARE && pr.biome == h.biome && ((ANIMAL[h.kind].preyMask >> pr.kind) & 1u);
+    };
+    // v bolts from `from` (a predator), and its herd mates close by bolt with it
+    auto fleePredator = [&](Animal& v, V2 from) {
+        for (auto& o : animals) {
+            if (o.dead || o.gone || o.kind != v.kind || o.biome != v.biome) continue;
+            if (&o != &v && (dist(o.pos, v.pos) > 75.f || (o.st != AS_WANDER && o.st != AS_FEED && o.st != AS_REST))) continue;
+            o.st = AS_FLEE;
+            o.fleeAnimal = true;
+            o.threat = from;
+            o.stT = frng.range(2.5f, 4.f);
+            o.alertT = 0;
+        }
+    };
+    // a startled animal warns the same species close by: they bolt from the hunter too
+    auto alarmHerd = [&](Animal& v) {
+        for (auto& o : animals) {
+            if (&o == &v || o.dead || o.gone || o.kind != v.kind || o.biome != v.biome || dist(o.pos, v.pos) > 70.f) continue;
+            if (o.st != AS_WANDER && o.st != AS_FEED && o.st != AS_REST) continue;
+            if (ANIMAL[o.kind].aggro) continue;  // fighters do not scatter
+            o.st = AS_FLEE;
+            o.fleeAnimal = false;
+            o.stT = frng.range(2.5f, 4.f);
+        }
+    };
     for (auto& a : animals) {
+        if (a.st != AS_FLEE) a.fleeAnimal = false;
+        if (a.huntCd > 0) a.huntCd -= dt;
         if (a.flash > 0) a.flash -= dt;
         if (a.hpShow > 0) a.hpShow -= dt;
         if (a.atkCd > 0) a.atkCd -= dt;
@@ -734,6 +793,15 @@ void Game::updateAnimals(float dt) {
             case AS_FEED:
             case AS_REST: {
                 bool alert = dd < (D.aggro ? notice * D.alertMul : notice);
+                if (!alert)
+                    for (int hi = 0; hi < nh; hi++) {  // prey notice a predator that is hunting close by
+                        const Animal& h = animals[hunters[hi]];
+                        if (preyOf(a, h) && dist(a.pos, h.pos) < D.notice * T.notice * 0.9f) {
+                            fleePredator(a, h.pos);
+                            break;
+                        }
+                    }
+                if (a.st == AS_FLEE) break;
                 if (a.st != AS_WANDER) {
                     if (a.st == AS_REST) a.vel = V2();
                     if (!alert && a.stT <= 0) {
@@ -750,11 +818,25 @@ void Game::updateAnimals(float dt) {
                     } else {
                         a.st = AS_FLEE;
                         a.stT = rng.range(2.5f, 4.f);
+                        alarmHerd(a);
                         if (const AnimalClips* ac = animalClips(a.kind))
                             if (ac->poses[AN_ALERT] > 0) a.alertT = ac->clip[AN_ALERT].total();  // a moment of alert before it bolts
                         ftext(a.pos + V2(0, -a.bodyH - 12), "!", C_TEXT, 0.7f);
                     }
                     break;
+                }
+                if (a.st == AS_WANDER && D.preyMask && a.huntCd <= 0) {  // a predator that sees prey may stalk it
+                    bool sees = false;
+                    for (auto& pr : animals)
+                        if (preyOf(pr, a) && dist(pr.pos, a.pos) < D.notice * T.notice * 0.9f) {
+                            sees = true;
+                            break;
+                        }
+                    if (sees && frng.chance(dt * 0.6f)) {
+                        a.st = AS_HUNT;
+                        a.stT = 10.f;
+                        break;
+                    }
                 }
                 if (a.idleT > 0) {
                     a.idleT -= dt;
@@ -777,17 +859,78 @@ void Game::updateAnimals(float dt) {
                 break;
             }
             case AS_FLEE: {
-                V2 away = (a.pos - p.pos).norm();
+                V2 src = p.pos;
+                bool hunted = false;  // a predator is still close (when fleeing from one)
+                if (a.fleeAnimal) {
+                    float best = D.notice * T.notice * 1.5f;
+                    src = a.threat;
+                    for (int hi = 0; hi < nh; hi++) {
+                        const Animal& h = animals[hunters[hi]];
+                        const float d = dist(a.pos, h.pos);
+                        if (preyOf(a, h) && d < best) best = d, src = h.pos, hunted = true;
+                    }
+                    a.threat = src;
+                }
+                V2 away = (a.pos - src).norm();
                 if (away.len() < 0.1f) away = V2(1, 0);
                 V2 perp(-away.y, away.x);
                 float j = sinf(timeAcc * 2.3f + a.animT) * 0.35f;
                 V2 dir = (away + perp * j).norm();
                 stepAnimal(a, dir, D.run * T.speed * (a.hp < a.maxhp ? 1.08f : 1.f), dt);
-                if (a.stT <= 0 && dd > notice * 1.4f) {
+                if (a.stT <= 0 && (a.fleeAnimal ? !hunted : dd > notice * 1.4f)) {
                     a.st = AS_WANDER;
                     a.idleT = 1;
                     a.target = a.pos;
                 }
+                break;
+            }
+            case AS_HUNT: {
+                if (dd < (D.aggro ? notice * D.alertMul : notice)) {  // the hunter outranks any prey
+                    a.st = agg ? AS_CHASE : AS_FLEE;
+                    a.stT = agg ? 12.f : rng.range(2.5f, 4.f);
+                    a.fleeAnimal = false;
+                    break;
+                }
+                int best = -1;
+                float bd = 220.f;
+                for (size_t j = 0; j < animals.size(); j++) {
+                    if (!preyOf(animals[j], a)) continue;
+                    const float d = dist(animals[j].pos, a.pos);
+                    if (d < bd) bd = d, best = (int)j;
+                }
+                if (best < 0 || a.stT <= 0) {  // nothing left to chase, or out of breath: rest before the next hunt
+                    a.st = AS_WANDER;
+                    a.huntCd = frng.range(30.f, 70.f);
+                    a.idleT = 1.5f;
+                    a.target = a.pos;
+                    break;
+                }
+                Animal& pr = animals[best];
+                const V2 toPrey = (pr.pos - a.pos).norm();
+                if (bd < D.hitR + 8.f) {
+                    if (a.atkCd <= 0) {  // a bite
+                        pr.hp -= std::max(1, (int)lroundf(D.dmg * T.dmg * 0.7f));
+                        pr.flash = 0.16f;
+                        pr.kb += toPrey * 60.f;
+                        pr.alertT = 0;
+                        bloodBurst(pr.pos + V2(0, -pr.bodyH), toPrey, 5);
+                        if (const AnimalClips* ac = animalClips(a.kind)) a.atkT = ac->clip[AN_ATTACK].total();
+                        if (const AnimalClips* pc = animalClips(pr.kind)) {
+                            pr.hurtT = pc->clip[AN_HURT].total();
+                            pr.anim.play(AN_HURT, &pc->clip[AN_HURT], true);
+                        }
+                        a.atkCd = D.atkCd * 1.2f;
+                        a.face8 = facingFromDir(toPrey.x, toPrey.y, a.face8);
+                        if (pr.hp <= 0) {  // the kill: the carcass stays for the hunter to find; the predator feeds and then rests
+                            killAnimal(pr, false);
+                            a.st = AS_FEED;
+                            a.stT = frng.range(6.f, 10.f);
+                            a.huntCd = frng.range(50.f, 90.f);
+                        } else
+                            fleePredator(pr, a.pos);
+                    }
+                } else
+                    stepAnimal(a, toPrey, D.run * T.speed * 0.92f, dt);
                 break;
             }
             case AS_CHASE: {
@@ -860,7 +1003,7 @@ void Game::updateAnimalAnim(Animal& a, float dt) {
     else if (flight == 2) st = AN_FLY;
     else if (flight == 3) st = AN_LAND;  // holds its last pose until the feet touch down
     else if (spd > 1.f) {
-        const bool fast = a.st == AS_CHASE || a.st == AS_FLEE;
+        const bool fast = a.st == AS_CHASE || a.st == AS_FLEE || a.st == AS_HUNT;
         st = fast ? AN_RUN : AN_WALK;
         rate = clampf(spd / (fast ? D.run : D.wander), 0.5f, 1.8f);
     } else if (a.st == AS_FEED && ac->poses[AN_EAT] > 0) st = AN_EAT;
@@ -899,11 +1042,12 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     } else {
         a.st = AS_FLEE;
         a.stT = 7;
+        a.fleeAnimal = false;  // it flees from the hunter now
     }
     if (a.hp <= 0) killAnimal(a);
 }
 
-void Game::killAnimal(Animal& a) {
+void Game::killAnimal(Animal& a, bool byHunter) {
     a.dead = true;
     a.deadT = 0;
     a.hp = 0;
@@ -914,16 +1058,19 @@ void Game::killAnimal(Animal& a) {
         if (ml > 1e-3f) a.kb = m * (std::min(std::max(ml, 80.f), 190.f) / ml);
     }
     a.vel = V2();
-    kills++;
-    questEvent(Q_KILL, a.kind, 1);
+    if (byHunter) {
+        kills++;
+        questEvent(Q_KILL, a.kind, 1);
+    }
+    Rng& dropRng = byHunter ? rng : frng;  // a predator's kill must not disturb the original random sequence
     const AnimalDef& D = ANIMAL[a.kind];
     int total = 0;
     for (int m = 0; m < M_COUNT; m++) {
-        a.remain[m] = D.drop[m][1] > 0 ? rng.irange(D.drop[m][0], D.drop[m][1]) : 0;
+        a.remain[m] = D.drop[m][1] > 0 ? dropRng.irange(D.drop[m][0], D.drop[m][1]) : 0;
         total += a.remain[m];
     }
     if (D.formDrop[0] >= 0 && a.variant == 1) {  // e.g. a buck's antlers
-        int n = rng.irange(D.formDrop[1], D.formDrop[2]);
+        int n = dropRng.irange(D.formDrop[1], D.formDrop[2]);
         a.remain[D.formDrop[0]] += n;
         total += n;
     }
@@ -938,11 +1085,11 @@ void Game::killAnimal(Animal& a) {
             a.remain[D.legendDrop[0]] += n;
             total += n;
         }
-        if (TIER[a.tier].bounty > 0) {
+        if (byHunter && TIER[a.tier].bounty > 0) {
             p.coins += TIER[a.tier].bounty;
             ftext(a.pos + V2(0, -a.bodyH - 30), "+" + S(TIER[a.tier].bounty) + "C", C_GOLD, 1.6f);
         }
-        msg(std::string(TIER[a.tier].name) + " " + animalName(a.kind, a.tier) + " HUNTED!", TIER[a.tier].col);
+        if (byHunter) msg(std::string(TIER[a.tier].name) + " " + animalName(a.kind, a.tier) + " HUNTED!", TIER[a.tier].col);
     }
     a.air = 0;
     if (total == 0) {
@@ -952,6 +1099,7 @@ void Game::killAnimal(Animal& a) {
     a.totalRemain = total;
     decals.push_back({a.pos + V2(0, 3), D.decal, 0, 80});
     bloodBurst(a.pos + V2(0, -a.bodyH), a.kb.norm(), 16);
+    if (!byHunter) return;  // killed by a predator: the carcass is there to find, but there is no kill credit, fanfare or XP
     audio.play(S_KILL);
     shakeAmt = std::max(shakeAmt, 4.f);
     ftext(a.pos + V2(0, -a.bodyH - 18), "HUNTED!", C_GOLD, 1.4f);
@@ -1140,7 +1288,7 @@ void Game::updatePlayer(float dt) {
     // E priority: a carcass, then a placed structure (chest / campfire), then a tree, plant or rock within reach
     const bool structBusy = !c && structInteract(dt);
     HTarget ht;
-    if (!c && !structBusy) findHarvest(ht);
+    if (!c && !structBusy && !hsOutranksHarvest()) findHarvest(ht);
     bool harvestOk = false;
     if (ht.valid) {
         const ResDef& RD = RES[ht.res];
@@ -1204,7 +1352,14 @@ void Game::updatePlayer(float dt) {
     else if (wantHarvest) setDir(ht.pos - P.pos);
     else if (P.charging || P.throwAnim > 0) setDir(P.aim);
     else if (moving) setDir(mv);
-    if (moving && !wantGather && !wantHarvest) P.animT += dt * (sprinting ? 12.f : 8.5f);
+    if (moving && !wantGather && !wantHarvest) {
+        P.animT += dt * (sprinting ? 12.f : 8.5f);
+        const int half = (int)(P.animT / 3.14159f);  // one footstep per half walk cycle
+        if (half != lastStep) {
+            lastStep = half;
+            playFootstep();
+        }
+    }
     {
         int swingTool = -1, resCls = -1;
         float swingFrac = 0;
@@ -1679,8 +1834,49 @@ void Game::updatePlay(float dt) {
     checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
 }
 
+// ---- ambience and footsteps (sound beds are synthesised in audio.hpp)
+int Game::ambienceFor(float& vol) const {
+    int kind = AMB_NONE;
+    vol = 1.f;
+    const bool night = interior < 0 && daylight() < 0.35f;
+    if (world.isDelve()) kind = AMB_CAVE;
+    else if (interior >= 0) kind = AMB_NONE;  // a room is quiet
+    else {
+        switch (inHomestead() ? (int)B_HOME : curBiome) {
+            case B_DESERT: kind = AMB_DESERT; break;
+            case B_SWAMP: kind = AMB_SWAMP; break;
+            case B_SNOW: kind = AMB_SNOW; break;
+            case B_MOUNTAIN: kind = AMB_MOUNTAIN; break;
+            default: kind = night ? AMB_NIGHT : AMB_DAY; break;
+        }
+        if (night && kind == AMB_DESERT) vol = 0.6f;
+    }
+    return kind;
+}
+
+void Game::updateAmbience() {
+    float vol = 1.f;
+    const int kind = ambienceFor(vol);
+    audio.setAmbience(kind, state == ST_PAUSE ? vol * 0.4f : vol);
+}
+
+void Game::playFootstep() {
+    Sfx s = S_STEP_GRASS;
+    switch (world.tileAt(p.pos.x, p.pos.y)) {
+        case T_STONE: case T_COBBLE: case T_FLOORS: case T_FLOORT: case T_CFLOOR: case T_RAIL: case T_IFLOOR: case T_BRICK: case T_ICE: s = S_STEP_STONE; break;
+        case T_FLOORW: s = S_STEP_WOOD; break;
+        case T_SAND: case T_DUNE: s = S_STEP_SAND; break;
+        case T_SNOW: case T_SNOWP: s = S_STEP_SNOW; break;
+        case T_MUD: case T_MURK: s = S_STEP_MUD; break;
+        default: break;
+    }
+    audio.play(s, p.charging ? 0.12f : 0.22f);
+}
+
 void Game::update(float dt) {
     timeAcc += dt;
+    if (state == ST_TITLE) audio.setAmbience(AMB_NONE, 0.f);
+    else updateAmbience();
     switch (state) {
         case ST_TITLE: {
             titleT += dt;
@@ -1882,6 +2078,7 @@ bool Game::useSlot(int slot) {
             return false;
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
+            if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
             msg("TOOLS WORK AUTOMATICALLY - THE BEST ONE IN YOUR PACK IS USED", C_DIM);
             return false;
         case IK_PLACEABLE:

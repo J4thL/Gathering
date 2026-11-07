@@ -35,7 +35,7 @@ struct Input {
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
-enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST };
+enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST, AS_HUNT };  // AS_HUNT: a predator stalking prey (AS_CHASE is after the hunter)
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
@@ -59,6 +59,9 @@ struct Animal {
     Animator anim;
     int face8 = F_E;      // 8-way facing
     float atkT = 0;       // > 0 while the attack animation plays
+    float huntCd = 0;     // predators: time before it hunts again after a hunt
+    bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
+    V2 threat;
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
 };
@@ -82,6 +85,7 @@ struct Player {
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
+    int tool[TT_COUNT] = {-1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
     int up[U_COUNT] = {0};
@@ -157,6 +161,7 @@ struct Msg {
     std::string s;
     u32 col;
     float t;
+    int n = 1;  // how many times in a row this same message was posted (shown as "x3")
 };
 struct Fly {
     float x, y, ph, sp;
@@ -250,6 +255,7 @@ struct Game {
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
+    int lastStep = 0;  // the walk-cycle half-step the last footstep sound was played for
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
     float stuckCheckT = 0;  // timer for the out-of-weapons safety net
     V2 cam;
@@ -348,6 +354,10 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
+    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot (the one it replaces goes back into the pack)
+    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off (needs a free pack slot)
+    bool ownsTool(int toolId) const;    // equipped or in the pack
+    static bool isFarmType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
     bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
     void unequipHot(int hotSlot);
     bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)
@@ -359,7 +369,7 @@ struct Game {
     bool useConsumable(int c);
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
-    void killAnimal(Animal& a);
+    void killAnimal(Animal& a, bool byHunter = true);  // byHunter=false: a predator made the kill (no XP, quest, bounty or kill count)
     float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)); }  // see skills.hpp
     void hurtPlayer(float dmg, V2 from, int srcKind = -1);
     void gatherStep(Animal& c);
@@ -374,6 +384,9 @@ struct Game {
     Animal* nearestCarcass(float maxD);
     float tod() const;
     float daylight() const;
+    int ambienceFor(float& vol) const;  // the ambient bed (AMB_*) and volume for the current scene
+    void updateAmbience();   // picks the ambient sound bed for where the hunter is (audio.hpp: Ambience)
+    void playFootstep();     // a footstep sound for the surface under the hunter
     void msg(const std::string& s, u32 col = C_TEXT);
     void ftext(V2 p, const std::string& s, u32 col, float life = 1.1f);
     void bloodBurst(V2 p, V2 dir, int n);
@@ -407,6 +420,7 @@ struct Game {
     bool homesteadPrompt();
     struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
     bool hsFindTarget(HTarget2& t);
+    bool hsOutranksHarvest();  // in the Homestead a plot, animal, door, storage... within reach takes E before a tree / rock / plant does
     void updateHomestead(float dt);                                   // crops, animals, build-mode input
     void hsTickCrops(float dt);
     void hsTickAnimals(float dt);

@@ -56,6 +56,7 @@ struct AnimalDef {
     int legendDrop[3] = {-1, 0, 0};  // extra drop for a legendary specimen
     int looks[3] = {LK_DARK, LK_ALBINO, LK_GOLD};  // look of uncommon / rare / legendary specimens
     const char* legendName = nullptr;              // special name for the legendary one
+    unsigned preyMask = 0;                         // predators: bit k set = this species hunts species k (see the table at the end of makeAnimals)
 };
 
 inline std::array<AnimalDef, A_COUNT> makeAnimals() {
@@ -257,6 +258,20 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
         if (t[k].hp >= 100) drop(k, M_FAT, 2, 3);
         else if (t[k].hp >= 40) drop(k, M_FAT, 1, 2);
     }
+    // ---- the food chain: who hunts whom (always inside one biome, and never a rare or legendary specimen)
+    auto hunts = [&](int predator, std::initializer_list<int> prey) {
+        for (int k : prey) t[predator].preyMask |= 1u << k;
+    };
+    hunts(A_WOLF, {A_RABBIT, A_DEER});
+    hunts(A_COYOTE, {A_HARE, A_LIZARD, A_FENNEC});
+    hunts(A_DUNELION, {A_HARE, A_FENNEC, A_ROADRUNNER, A_COYOTE});
+    hunts(A_RATTLER, {A_LIZARD});
+    hunts(A_GATOR, {A_FROG, A_DUCK});
+    hunts(A_MOCCASIN, {A_FROG});
+    hunts(A_PANTHER, {A_MARSHDEER, A_DUCK, A_FROG});
+    hunts(A_LYNX, {A_SNOWHARE, A_ARCTICFOX});
+    hunts(A_POLARBEAR, {A_SNOWHARE, A_ARCTICFOX, A_REINDEER});
+    hunts(A_MTLION, {A_GOAT, A_MARMOT});
     return t;
 }
 static const std::array<AnimalDef, A_COUNT> ANIMAL = makeAnimals();

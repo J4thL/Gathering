@@ -47,6 +47,45 @@ bool Game::unequipBag() {
     return true;
 }
 
+// Farming tools: one equipped tool per type (hoe, watering can, sickle). The equipped tool leaves the pack (like the worn bag) and is the
+// one the farm code uses; bestTool() ignores farm tools that are only lying in the pack.
+bool Game::ownsTool(int toolId) const {
+    if (toolId < 0 || toolId >= TL_COUNT) return false;
+    return p.tool[TOOLDEF[toolId].type] == toolId || p.inv.count(itemTool(toolId)) > 0;
+}
+
+bool Game::equipFarmTool(int slot) {
+    if (slot < 0 || slot >= p.bagCap() || p.inv.slots[slot].empty()) return false;
+    const int id = p.inv.slots[slot].item;
+    if (item(id).kind != IK_TOOL || !isFarmType(TOOLDEF[item(id).ref].type)) {
+        msg("THAT IS NOT A FARMING TOOL", C_RED);
+        audio.play(S_ERROR);
+        return false;
+    }
+    const int k = item(id).ref, type = TOOLDEF[k].type;
+    p.inv.remove(id, 1);
+    if (p.tool[type] >= 0) p.inv.addIgnoringWeight(itemTool(p.tool[type]), 1);  // the tool it replaces goes back (its slot was just freed)
+    p.tool[type] = k;
+    msg(item(id).name + " EQUIPPED", C_GOLD);
+    audio.play(S_CLICK);
+    return true;
+}
+
+bool Game::unequipFarmTool(int type) {
+    if (!isFarmType(type) || p.tool[type] < 0) return false;
+    const int id = itemTool(p.tool[type]);
+    if (p.inv.slotRoom(id) < 1) {
+        msg("NO FREE SLOT TO PUT THE " + item(id).name + " IN", C_RED);
+        audio.play(S_ERROR);
+        return false;
+    }
+    p.inv.addIgnoringWeight(id, 1);
+    p.tool[type] = -1;
+    msg(item(id).name + " TAKEN OFF", C_DIM);
+    audio.play(S_CLICK);
+    return true;
+}
+
 // Put an item on the hotbar. The item stays in the pack (so it still counts for weight); the hotbar only says it is equipped.
 bool Game::equipHot(int itemId, int hotSlot) {
     if (!itemValid(itemId) || p.inv.count(itemId) <= 0) return false;

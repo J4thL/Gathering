@@ -231,6 +231,8 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.p.inv.add(itemTool(TL_PICK1), 1);
         g.p.inv.add(itemPlace(PL_CAMPFIRE), 1);
         g.p.inv.add(itemCons(C_SALVE), 2);
+        g.p.inv.add(itemTool(TL_HOE), 1);  // a hoe in the pack, the watering can equipped: the pack shot shows both
+        g.p.tool[TT_CAN] = TL_CAN;
         g.p.coins = 250;
         g.state = ST_INVENTORY;
         g.invTab = 0;
@@ -280,6 +282,14 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.state = ST_PAUSE;
     frames(2);
     shot("10_pause.bmp");
+    g.state = ST_PLAY;
+    {  // low health: the red edge pulse
+        const float keep = g.p.hp;
+        g.p.hp = g.p.maxhp * 0.12f;
+        frames(2);
+        shot("11_lowhp.bmp");
+        g.p.hp = keep;
+    }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
 
