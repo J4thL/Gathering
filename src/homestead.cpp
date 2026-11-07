@@ -672,6 +672,11 @@ bool Game::hsFindTarget(HTarget2& t) {
     return t.type != 0;
 }
 
+bool Game::hsOutranksHarvest() {
+    HTarget2 t;
+    return inHomestead() && hsFindTarget(t) && t.type != 6;  // (the water's edge fill must not take E from a tree)
+}
+
 bool Game::homesteadInteract() {
     HTarget2 t;
     if (!hsFindTarget(t)) return false;

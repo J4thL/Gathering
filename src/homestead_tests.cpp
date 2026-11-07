@@ -429,6 +429,57 @@ int homesteadTest(Game& g) {
         g.dayT = 210.f;
         steps(g, 3); shot("j_night.bmp");
     }
+    printf("--- the E key at a farm plot beside a harvestable tree, rock or plant\n");
+    {   // the real key path (update), not the direct call: E used to start harvesting the nearby plant instead of using the plot
+        g.state = ST_PLAY;
+        g.p.coins += 1000;
+        stock(g);
+        int tried = 0, worked = 0;
+        for (size_t i = 0; i < g.world.nodes.size() && tried < 6; i++) {
+            const int ntx = (int)(g.world.nodes[i].x / TS), nty = (int)(g.world.nodes[i].y / TS);
+            for (int d = 0; d < 8 && tried < 6; d++) {
+                const int tx = ntx + (d % 3) - 1 + (d > 3 ? 0 : 0), ty = nty + (d / 3) - 1;
+                if ((tx == ntx && ty == nty) || !g.hsCanBuild(HP_PLOT, tx, ty, 0)) continue;
+                stand(g, V2((tx + .5f) * TS, (ty + .5f) * TS));
+                HTarget h;
+                if (!g.findHarvest(h)) continue;  // not within reach of anything harvestable: not the case under test
+                if (!g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
+                stand(g, V2((tx + .5f) * TS, (ty + .5f) * TS));
+                tried++;
+                g.in.ePressed = true;
+                g.update(1.f / 60.f);
+                g.in.ePressed = false;
+                if (g.state == ST_FARM) worked++;
+                g.state = ST_PLAY;
+                g.hsDemolish(tx, ty);
+                break;
+            }
+        }
+        {   // control: the same key press at a plot with nothing harvestable around
+            int px = 0, py = 0, ok = 0;
+            for (int ty = 100; ty < 150 && !ok; ty++)
+                for (int tx = 70; tx < 200 && !ok; tx++) {
+                    if (!g.hsCanBuild(HP_PLOT, tx, ty, 0)) continue;
+                    stand(g, V2((tx + .5f) * TS, (ty + .5f) * TS));
+                    HTarget h;
+                    if (g.findHarvest(h) || !g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
+                    px = tx; py = ty; ok = 1;
+                }
+            bool opened = false;
+            if (ok) {
+                stand(g, V2((px + .5f) * TS, (py + .5f) * TS));
+                g.in.ePressed = true;
+                g.update(1.f / 60.f);
+                g.in.ePressed = false;
+                opened = g.state == ST_FARM;
+                g.state = ST_PLAY;
+                g.hsDemolish(px, py);
+            }
+            check(ok && opened, "control: E at a plot with nothing harvestable around opens the farm menu");
+        }
+        check(tried > 0, "found a spot for a plot within reach of a harvestable (" + std::to_string(tried) + " tried)");
+        check(tried > 0 && worked == tried, "E at a plot opens the farm menu even with a harvestable in reach (" + std::to_string(worked) + " of " + std::to_string(tried) + ")");
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out.write(savedBytes.data(), (std::streamsize)savedBytes.size());

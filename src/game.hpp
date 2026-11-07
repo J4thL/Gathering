@@ -407,6 +407,7 @@ struct Game {
     bool homesteadPrompt();
     struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
     bool hsFindTarget(HTarget2& t);
+    bool hsOutranksHarvest();  // in the Homestead a plot, animal, door, storage... within reach takes E before a tree / rock / plant does
     void updateHomestead(float dt);                                   // crops, animals, build-mode input
     void hsTickCrops(float dt);
     void hsTickAnimals(float dt);

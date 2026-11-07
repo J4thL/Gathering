@@ -1140,7 +1140,7 @@ void Game::updatePlayer(float dt) {
     // E priority: a carcass, then a placed structure (chest / campfire), then a tree, plant or rock within reach
     const bool structBusy = !c && structInteract(dt);
     HTarget ht;
-    if (!c && !structBusy) findHarvest(ht);
+    if (!c && !structBusy && !hsOutranksHarvest()) findHarvest(ht);
     bool harvestOk = false;
     if (ht.valid) {
         const ResDef& RD = RES[ht.res];

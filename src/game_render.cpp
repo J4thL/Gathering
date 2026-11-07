@@ -825,7 +825,8 @@ void Game::drawHud() {
             drawStructPrompt();
         } else {
             HTarget ht;
-            if (findHarvest(ht)) drawHarvestPrompt();
+            if (hsOutranksHarvest()) homesteadPrompt();
+            else if (findHarvest(ht)) drawHarvestPrompt();
             else if (homesteadPrompt()) {}
             else if (townPrompt()) {}
             else if (delvePrompt()) {}
