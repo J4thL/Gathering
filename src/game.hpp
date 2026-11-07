@@ -251,6 +251,7 @@ struct Game {
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
+    int lastStep = 0;  // the walk-cycle half-step the last footstep sound was played for
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
     float stuckCheckT = 0;  // timer for the out-of-weapons safety net
     V2 cam;
@@ -379,6 +380,9 @@ struct Game {
     Animal* nearestCarcass(float maxD);
     float tod() const;
     float daylight() const;
+    int ambienceFor(float& vol) const;  // the ambient bed (AMB_*) and volume for the current scene
+    void updateAmbience();   // picks the ambient sound bed for where the hunter is (audio.hpp: Ambience)
+    void playFootstep();     // a footstep sound for the surface under the hunter
     void msg(const std::string& s, u32 col = C_TEXT);
     void ftext(V2 p, const std::string& s, u32 col, float life = 1.1f);
     void bloodBurst(V2 p, V2 dir, int n);

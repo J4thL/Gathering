@@ -1225,7 +1225,14 @@ void Game::updatePlayer(float dt) {
     else if (wantHarvest) setDir(ht.pos - P.pos);
     else if (P.charging || P.throwAnim > 0) setDir(P.aim);
     else if (moving) setDir(mv);
-    if (moving && !wantGather && !wantHarvest) P.animT += dt * (sprinting ? 12.f : 8.5f);
+    if (moving && !wantGather && !wantHarvest) {
+        P.animT += dt * (sprinting ? 12.f : 8.5f);
+        const int half = (int)(P.animT / 3.14159f);  // one footstep per half walk cycle
+        if (half != lastStep) {
+            lastStep = half;
+            playFootstep();
+        }
+    }
     {
         int swingTool = -1, resCls = -1;
         float swingFrac = 0;
@@ -1700,8 +1707,49 @@ void Game::updatePlay(float dt) {
     checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
 }
 
+// ---- ambience and footsteps (sound beds are synthesised in audio.hpp)
+int Game::ambienceFor(float& vol) const {
+    int kind = AMB_NONE;
+    vol = 1.f;
+    const bool night = interior < 0 && daylight() < 0.35f;
+    if (world.isDelve()) kind = AMB_CAVE;
+    else if (interior >= 0) kind = AMB_NONE;  // a room is quiet
+    else {
+        switch (inHomestead() ? (int)B_HOME : curBiome) {
+            case B_DESERT: kind = AMB_DESERT; break;
+            case B_SWAMP: kind = AMB_SWAMP; break;
+            case B_SNOW: kind = AMB_SNOW; break;
+            case B_MOUNTAIN: kind = AMB_MOUNTAIN; break;
+            default: kind = night ? AMB_NIGHT : AMB_DAY; break;
+        }
+        if (night && kind == AMB_DESERT) vol = 0.6f;
+    }
+    return kind;
+}
+
+void Game::updateAmbience() {
+    float vol = 1.f;
+    const int kind = ambienceFor(vol);
+    audio.setAmbience(kind, state == ST_PAUSE ? vol * 0.4f : vol);
+}
+
+void Game::playFootstep() {
+    Sfx s = S_STEP_GRASS;
+    switch (world.tileAt(p.pos.x, p.pos.y)) {
+        case T_STONE: case T_COBBLE: case T_FLOORS: case T_FLOORT: case T_CFLOOR: case T_RAIL: case T_IFLOOR: case T_BRICK: case T_ICE: s = S_STEP_STONE; break;
+        case T_FLOORW: s = S_STEP_WOOD; break;
+        case T_SAND: case T_DUNE: s = S_STEP_SAND; break;
+        case T_SNOW: case T_SNOWP: s = S_STEP_SNOW; break;
+        case T_MUD: case T_MURK: s = S_STEP_MUD; break;
+        default: break;
+    }
+    audio.play(s, p.charging ? 0.12f : 0.22f);
+}
+
 void Game::update(float dt) {
     timeAcc += dt;
+    if (state == ST_TITLE) audio.setAmbience(AMB_NONE, 0.f);
+    else updateAmbience();
     switch (state) {
         case ST_TITLE: {
             titleT += dt;

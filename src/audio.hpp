@@ -8,7 +8,11 @@
 #include <functional>
 #include <vector>
 
-enum Sfx { S_THROW, S_HIT, S_CRIT, S_KILL, S_PICKUP, S_COIN, S_GATHER, S_HURT, S_CLICK, S_CRAFT, S_ERROR, S_BREAK, S_CHOP, S_MINE, S_RUSTLE, S_FELL, S_SMELT, S_COUNT };
+enum Sfx { S_THROW, S_HIT, S_CRIT, S_KILL, S_PICKUP, S_COIN, S_GATHER, S_HURT, S_CLICK, S_CRAFT, S_ERROR, S_BREAK, S_CHOP, S_MINE, S_RUSTLE, S_FELL, S_SMELT,
+           S_STEP_GRASS, S_STEP_STONE, S_STEP_WOOD, S_STEP_SAND, S_STEP_SNOW, S_STEP_MUD, S_COUNT };
+
+// Ambient beds (one plays at a time, synthesised live in the audio callback, cross-faded when the scene changes)
+enum Ambience { AMB_NONE, AMB_DAY, AMB_NIGHT, AMB_DESERT, AMB_SWAMP, AMB_SNOW, AMB_MOUNTAIN, AMB_CAVE, AMB_COUNT };
 
 struct Audio {
     struct Voice {
@@ -23,6 +27,74 @@ struct Audio {
     std::vector<Voice> voices;
     int rate = 44100;
     uint32_t seed = 12345;
+    // ---- ambience: the game sets the wanted bed + volume; the callback fades to it and synthesises it sample by sample
+    int ambWant = AMB_NONE, ambNow = AMB_NONE;
+    float ambVolWant = 0, ambGain = 0;
+    uint32_t aSeed = 777;
+    float aLp1 = 0, aLp2 = 0, aLfo = 0, aLfo2 = 0;
+    float aEvT = 1.f, aEvAge = 99.f, aEvF = 3000.f, aEvPh = 0;  // the current one-shot voice (bird chirp, frog, drip) and the time to the next
+    int aEvKind = 0;
+    float aCri = 0;
+    float aNoise() {
+        aSeed ^= aSeed << 13;
+        aSeed ^= aSeed >> 17;
+        aSeed ^= aSeed << 5;
+        return ((aSeed & 0xFFFF) / 32768.0f) - 1.0f;
+    }
+    float aRand() { return (aNoise() + 1.f) * 0.5f; }
+    // one sample of the current ambient bed, at amplitude 1 (the caller scales and fades it)
+    float ambSample() {
+        const float PI2 = 6.2831853f, dt = 1.f / rate;
+        aLfo += dt * 0.11f;
+        aLfo2 += dt * 0.37f;
+        const float gust = 0.55f + 0.45f * sinf(PI2 * aLfo) * (0.7f + 0.3f * sinf(PI2 * aLfo2));
+        float windGain = 0.f, cut = 0.02f;
+        switch (ambNow) {
+            case AMB_DAY: windGain = 0.35f; cut = 0.025f; break;
+            case AMB_NIGHT: windGain = 0.22f; cut = 0.018f; break;
+            case AMB_DESERT: windGain = 0.5f; cut = 0.04f; break;
+            case AMB_SWAMP: windGain = 0.16f; cut = 0.015f; break;
+            case AMB_SNOW: windGain = 0.6f; cut = 0.07f; break;
+            case AMB_MOUNTAIN: windGain = 0.55f; cut = 0.05f; break;
+            case AMB_CAVE: windGain = 0.12f; cut = 0.006f; break;
+            default: return 0.f;
+        }
+        aLp1 += (aNoise() - aLp1) * cut;
+        aLp2 += (aLp1 - aLp2) * cut * 2.f;
+        float v = aLp2 * windGain * gust * 6.f;
+        // one-shot voices
+        aEvT -= dt;
+        if (aEvT <= 0 && aEvAge > 1.f) {
+            aEvAge = 0;
+            aEvPh = 0;
+            switch (ambNow) {
+                case AMB_DAY: case AMB_MOUNTAIN: aEvKind = 1; aEvF = 2400.f + 1800.f * aRand(); aEvT = 2.5f + 6.f * aRand(); break;       // a bird
+                case AMB_SWAMP: aEvKind = 2; aEvF = 150.f + 70.f * aRand(); aEvT = 1.2f + 3.f * aRand(); break;                         // a frog
+                case AMB_CAVE: aEvKind = 3; aEvF = 900.f + 700.f * aRand(); aEvT = 1.5f + 5.f * aRand(); break;                         // a drip
+                default: aEvKind = 0; aEvT = 4.f; break;
+            }
+        }
+        if (aEvAge <= 1.f) {
+            aEvAge += dt;
+            aEvPh += dt;
+            if (aEvKind == 1) {  // two or three quick falling notes
+                const float n = fmodf(aEvPh, 0.14f);
+                if (aEvPh < 0.34f) v += sinf(PI2 * (aEvF - 700.f * n / 0.14f) * aEvPh) * sinf(3.1416f * n / 0.14f) * 0.22f;
+            } else if (aEvKind == 2) {  // a croak: a low tone pulsing quickly
+                if (aEvPh < 0.35f) v += sinf(PI2 * aEvF * aEvPh) * (0.5f + 0.5f * sinf(PI2 * 28.f * aEvPh)) * sinf(3.1416f * aEvPh / 0.35f) * 0.3f;
+            } else if (aEvKind == 3) {  // a drip
+                v += sinf(PI2 * aEvF * aEvPh) * expf(-aEvPh * 22.f) * 0.35f;
+            }
+            if (aEvAge > 0.5f) aEvAge = 99.f;
+        }
+        if (ambNow == AMB_NIGHT || ambNow == AMB_SWAMP) {  // crickets: a high tone chopped fast, swelling slowly
+            aCri += dt;
+            const float pulse = fmodf(aCri * 26.f, 1.f) < 0.45f ? 1.f : 0.f;
+            v += sinf(PI2 * 4300.f * aCri) * pulse * (0.5f + 0.5f * sinf(PI2 * aLfo2 * 0.6f)) * (ambNow == AMB_NIGHT ? 0.07f : 0.04f);
+        }
+        if (ambNow == AMB_CAVE) v += sinf(PI2 * 55.f * aCri) * 0.03f, aCri += dt;
+        return v;
+    }
 
     float noise() {
         seed ^= seed << 13;
@@ -113,6 +185,15 @@ struct Audio {
             lp6 += (noise() - lp6) * 0.5f;
             return (lp6 * expf(-t * 12.f) * 0.5f + sinf(2 * PI * (420.f + 520.f * u) * t) * (1.f - u) * 0.18f);
         });
+        {  // footsteps: a soft thump + a burst of filtered noise, different for each surface
+            float f1 = 0, f2 = 0, f3 = 0, f4 = 0, f5 = 0, f6 = 0;
+            gen(S_STEP_GRASS, 0.09f, [&](float t, float u) { f1 += (noise() - f1) * 0.25f; return f1 * expf(-t * 40.f) * 0.9f + sinf(2 * PI * 90.f * t) * expf(-t * 50.f) * 0.2f; });
+            gen(S_STEP_STONE, 0.08f, [&](float t, float u) { f2 += (noise() - f2) * 0.7f; return f2 * expf(-t * 70.f) * 0.55f + sinf(2 * PI * 420.f * t) * expf(-t * 90.f) * 0.18f; });
+            gen(S_STEP_WOOD, 0.1f, [&](float t, float u) { f3 += (noise() - f3) * 0.35f; return sinf(2 * PI * 150.f * t) * expf(-t * 45.f) * 0.45f + f3 * expf(-t * 60.f) * 0.3f; });
+            gen(S_STEP_SAND, 0.13f, [&](float t, float u) { f4 += (noise() - f4) * 0.45f; return f4 * sinf(PI * std::min(1.f, u * 1.5f)) * expf(-t * 18.f) * 0.5f; });
+            gen(S_STEP_SNOW, 0.12f, [&](float t, float u) { f5 += (noise() - f5) * 0.55f; return f5 * (0.6f + 0.4f * sinf(t * 700.f)) * expf(-t * 22.f) * 0.55f; });
+            gen(S_STEP_MUD, 0.14f, [&](float t, float u) { f6 += (noise() - f6) * 0.12f; return f6 * expf(-t * 16.f) * 1.1f + sinf(2 * PI * (130.f - 400.f * t) * t) * expf(-t * 30.f) * 0.25f; });
+        }
         gen(S_BREAK, 0.16f, [&](float t, float u) { return noise() * expf(-t * 28.f) * (0.5f + 0.5f * sinf(t * 900.f)) * 0.7f; });
     }
 
@@ -121,6 +202,12 @@ struct Audio {
         float* out = (float*)stream;
         int n = len / (int)sizeof(float);
         for (int i = 0; i < n; i++) out[i] = 0;
+        for (int i = 0; i < n; i++) {  // the ambient bed: fade out, switch, fade in
+            const float want = a->muted || a->ambWant != a->ambNow ? 0.f : a->ambVolWant;
+            a->ambGain += (want - a->ambGain) * 0.00008f;
+            if (a->ambWant != a->ambNow && a->ambGain < 0.004f) a->ambNow = a->ambWant, a->aEvAge = 99.f, a->aEvT = 1.f;
+            if (a->ambNow != AMB_NONE && a->ambGain > 0.0005f) out[i] += a->ambSample() * a->ambGain * 0.5f;
+        }
         for (auto& v : a->voices) {
             const auto& b = a->bank[v.snd];
             for (int i = 0; i < n && v.pos < b.size(); i++, v.pos++) out[i] += b[v.pos] * v.vol;
@@ -150,6 +237,14 @@ struct Audio {
         if (!ok || muted) return;
         SDL_LockAudioDevice(dev);
         if (voices.size() < 24) voices.push_back({(int)s, 0, vol});
+        SDL_UnlockAudioDevice(dev);
+    }
+    // choose the ambient bed (AMB_*) and its volume (0..1); the callback cross-fades to it
+    void setAmbience(int kind, float vol) {
+        if (!ok || (kind == ambWant && vol == ambVolWant)) return;
+        SDL_LockAudioDevice(dev);
+        ambWant = kind;
+        ambVolWant = vol;
         SDL_UnlockAudioDevice(dev);
     }
     void shutdown() {

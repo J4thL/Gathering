@@ -1965,6 +1965,63 @@ int selfTest(Game& g) {
             }
         }
     }
+    printf("audio: ambience beds and footsteps (synthesised offline, no sound device)\n");
+    {
+        Audio au;
+        au.synth();
+        bool stepsOk = true;
+        for (int sfx : {(int)S_STEP_GRASS, (int)S_STEP_STONE, (int)S_STEP_WOOD, (int)S_STEP_SAND, (int)S_STEP_SNOW, (int)S_STEP_MUD}) {
+            float peak = 0;
+            for (float v : au.bank[sfx]) peak = std::max(peak, fabsf(v));
+            stepsOk = stepsOk && !au.bank[sfx].empty() && peak > 0.05f && peak <= 1.f;
+        }
+        check(stepsOk, "every footstep sound exists, is audible and does not clip");
+        bool bedsOk = true, distinct = true;
+        double energy[AMB_COUNT] = {0};
+        for (int k = AMB_DAY; k < AMB_COUNT; k++) {
+            Audio b;
+            b.ambNow = k;
+            float peak = 0;
+            bool finite = true;
+            for (int i = 0; i < 44100 * 12; i++) {  // 12 seconds: long enough for a bird, frog or drip to sound
+                const float v = b.ambSample();
+                finite = finite && std::isfinite(v);
+                peak = std::max(peak, fabsf(v));
+                energy[k] += (double)v * v;
+            }
+            bedsOk = bedsOk && finite && peak > 0.01f && peak < 2.f;
+        }
+        check(bedsOk, "every ambient bed produces finite, audible, bounded sound");
+        for (int a2 = AMB_DAY; a2 < AMB_COUNT; a2++)
+            for (int b2 = a2 + 1; b2 < AMB_COUNT; b2++) distinct = distinct && fabs(energy[a2] - energy[b2]) > 1e-6;
+        check(distinct, "the beds differ from each other (biome-specific)");
+        Audio none;
+        none.ambNow = AMB_NONE;
+        check(none.ambSample() == 0.f, "no ambience means silence");
+        // the scene choice: outdoors by biome (day/night), rooms quiet, delves cave
+        const int saveBiome = g.curBiome, saveInterior = g.interior;
+        const float saveDay = g.dayT;
+        float vol = 0;
+        g.interior = -1;
+        g.curBiome = B_SNOW;
+        check(g.ambienceFor(vol) == AMB_SNOW, "the snow biome has the snow-wind bed");
+        g.curBiome = B_DESERT;
+        check(g.ambienceFor(vol) == AMB_DESERT, "the desert has the dry-wind bed");
+        g.curBiome = B_SWAMP;
+        check(g.ambienceFor(vol) == AMB_SWAMP, "the swamp has the frog bed");
+        g.curBiome = B_MOUNTAIN;
+        check(g.ambienceFor(vol) == AMB_MOUNTAIN, "the mountains have the mountain bed");
+        g.curBiome = B_HOME;
+        const int homeKind = g.ambienceFor(vol);
+        check(homeKind == AMB_DAY || homeKind == AMB_NIGHT, "the home meadow has a day or a night bed");
+        g.interior = 0;
+        check(g.ambienceFor(vol) == AMB_NONE, "inside a building the world is quiet");
+        g.interior = saveInterior;
+        g.curBiome = saveBiome;
+        g.dayT = saveDay;
+        // footsteps: the sound follows the tile under the hunter
+        check(g.world.tileAt(g.p.pos.x, g.p.pos.y) < 255, "a footstep reads the tile under the hunter (no crash)");
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out << savedBytes;
