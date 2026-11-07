@@ -574,7 +574,7 @@ inline Img iconTool(int k) {
 }
 inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build menu (24 x 24)
     Img im(24, 24);
-    const Pal P = woodPal(), S = stonePal();
+    const Pal P = woodPal();
     switch (kind) {
         case HP_WALL_WOOD: im.blit(wall(0, true), 4, 1); break;
         case HP_WALL_STONE: im.blit(wall(1, true), 4, 1); break;

@@ -155,7 +155,7 @@ inline Img render(const std::vector<Prim>& prims, const std::vector<Mat>& mats, 
                     continue;
                 }
                 // surface normal (screen space) and local coordinates on the unit sphere
-                V n{0, 0, 0}, lc{0, 0, 0};
+                V n{0, 0, 0};
                 float loc[3];
                 for (int i = 0; i < 3; i++) {
                     loc[i] = (pp[i] + qq[i] * t) / rr[i];

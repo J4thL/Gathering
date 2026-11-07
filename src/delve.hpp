@@ -12,7 +12,7 @@
 enum DelveId { DV_MINE, DV_FROST0, DV_FROST1, DV_FROST2, DV_FROST3, DV_COUNT };
 constexpr int DELVE_MAP0 = B_COUNT + 8;  // keep clear of the town interiors (B_COUNT + BuildingKind)
 inline bool delveIsFrost(int id) { return id >= DV_FROST0; }
-static const char* DELVE_NAME[DV_COUNT] = {"ABANDONED MINE", "FROZEN ENTRANCE", "FROZEN HALLS", "ANCIENT CRYPT", "FROZEN THRONE"};
+inline const char* const DELVE_NAME[DV_COUNT] = {"ABANDONED MINE", "FROZEN ENTRANCE", "FROZEN HALLS", "ANCIENT CRYPT", "FROZEN THRONE"};
 
 enum TrapKind { TR_SPIKE, TR_VENT };
 constexpr int DELVE_BOSS_CHEST = 31;  // chest id of the king's treasure (appears once he has fallen)

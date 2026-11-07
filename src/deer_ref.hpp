@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 #include "ref_art_wolfboar.hpp"
+#include "ref_art_boar32.hpp"
 
 namespace deerref {
 
@@ -381,9 +382,10 @@ inline const std::vector<Def>& defs() {
          0, 0,
          {{'a', 1, 0, 0}, {'b', 2, 0, 0}, {'c', 3, 0, 0}, {'m', 4, 0, 0}, {'k', 5, 0, 0}, {'t', 6, 0, 0}, {'e', 7, 0, 0}, {'d', 8, .5f, 0}}},
         // 3 boar
-        {BOAR_SIDE, BOAR_W, BOAR_H, false, 18, 19, 28, 28.f, 13.f, 0.f, 4, 3, 9, 4.f, 7.f, BOAR_FRONT, BOAR_BACK, BOAR_FW, BOAR_FH, 17, 11, 12.f, 4,
+        {BOAR32_SIDE, BOAR32_W, BOAR32_H, false, 12, 13, 19, 18.f, 11.f, 0.f, 3, 7, 10, 2.f, 8.5f, BOAR32_FRONT, BOAR32_BACK, BOAR32_FW, BOAR32_FH, 13, 10, 8.f, 2,
          0, 0,
-         {{'a', 1, 0, 0}, {'b', 2, 0, 0}, {'c', 3, 0, 0}, {'m', 4, 0, 0}, {'k', 5, 0, 0}, {'t', 6, 0, 0}, {'e', 7, 0, 0}, {'d', 8, .5f, 0}, {'w', 0, 0, HEX(0xf2ead2)}}},
+         {{'a', 0, 0, HEX(0x875c4d)}, {'b', 0, 0, HEX(0x7a534b)}, {'d', 0, 0, HEX(0x6e4744)}, {'m', 0, 0, HEX(0x614242)}, {'k', 0, 0, HEX(0x232729)},
+          {'n', 0, 0, HEX(0x232729)}, {'t', 0, 0, HEX(0x9e7754)}, {'w', 0, 0, HEX(0xccced6)}, {'x', 0, 0, HEX(0xc2c4ce)}, {'y', 0, 0, HEX(0x6e5348)}}},
     };
     return D;
 }
@@ -500,7 +502,7 @@ inline Img paint(const QuadSpec& sp, const RigShape& R, float tierK, int view, c
         for (int y = C.legTop + 3; y < C.h; y++)
             for (int x = runs[i].first; x <= runs[i].second; x++) {
                 const char ch = C.at(x, y);
-                if (ch == 'm') m++; else if (ch != '.' && ch != 'k') o++;
+                if (ch == 'm' || ch == 'n') m++; else if (ch != '.' && ch != 'k') o++;
             }
         farLeg[i] = m > o;
     }

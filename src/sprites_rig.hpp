@@ -391,10 +391,9 @@ inline RigShape boarShape() {
     r.ear = 0; r.earH = 1.9f; r.neck = 0; r.tail = 0;
     r.tusks = true; r.mane = true;
     r.strideMul = r.liftMul = r.airMul = 1.f;
-    r.scale = 1.4f;
-    r.model = 2;  // 3D model, rendered 64x64
-    r.flat = kRefArt; r.ref = kRefArt ? 3 : 0;  // hand-drawn art (ref_art_wolfboar.hpp) when enabled
-    r.W = 46; r.H = 36;
+    r.scale = 1.f;
+    r.flat = true; r.ref = 3;  // the boar is 32x32 pixel art (ref_art_boar32.hpp), drawn in all eight directions
+    r.W = 32; r.H = 32;
     return r;
 }
 inline RigShape wolfShape() {
@@ -555,7 +554,10 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
     const float phi = 0.70f, cph = cosf(phi), sph = sinf(phi);  // the camera looks down at 40 degrees
     const int CW = (int)ceilf(R.W * k), CH = (int)ceilf(R.H * k);
     const float ax = CW / 2.f, ay = CH - 6.f * k;                // where the ground point under the boar lands
-    if (R.ref) return deerref::paint(sp, R, tierK * 1.f, view, P0, CW, CH, ax, ay);
+    if (R.ref) {  // pixel art faces east: the west views are the east / north-east / south-east art mirrored about the anchor column
+        if (view > 4) return deerref::paint(sp, R, tierK * 1.f, 8 - view, P0, CW, CH, ax, ay).flippedH();
+        return deerref::paint(sp, R, tierK * 1.f, view, P0, CW, CH, ax, ay);
+    }
     Img im(CW, CH);
 
     const u32 body = tintC(sp.body, P.tint), light = tintC(sp.light, P.tint), belly = tintC(sp.belly, P.tint),
