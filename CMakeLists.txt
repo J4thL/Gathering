@@ -6,7 +6,11 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp src/delve.cpp src/monsters.cpp src/delve_render.cpp src/delve_tests.cpp src/homestead.cpp src/homestead_ui.cpp src/homestead_render.cpp src/homestead_tests.cpp src/soak_tests.cpp)
+add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp src/delve.cpp src/monsters.cpp src/delve_render.cpp src/delve_tests.cpp src/homestead.cpp src/homestead_ui.cpp src/homestead_render.cpp src/homestead_tests.cpp src/soak_tests.cpp src/selftest.cpp src/weapon_tests.cpp src/world_check.cpp)
+
+if(WIN32)
+  target_sources(wildwood PRIVATE src/win_console.cpp)
+endif()
 
 find_package(Threads REQUIRED)  # the 3D animal models are drawn on several threads at start-up
 target_link_libraries(wildwood PRIVATE Threads::Threads)
@@ -41,3 +45,10 @@ if(WIN32 AND TARGET SDL2::SDL2)
     COMMAND ${CMAKE_COMMAND} -E copy_if_different $<TARGET_FILE:SDL2::SDL2> $<TARGET_FILE_DIR:wildwood>
     VERBATIM)
 endif()
+
+# the headless test suites, runnable with `ctest` (or `ctest --output-on-failure`). They save into a temporary folder, never the player's real save.
+enable_testing()
+foreach(suite selftest weapons worldcheck delve homestead soak)
+  add_test(NAME ${suite} COMMAND wildwood --headless --${suite})
+  set_tests_properties(${suite} PROPERTIES TIMEOUT 900)
+endforeach()
