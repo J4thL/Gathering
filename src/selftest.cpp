@@ -1965,6 +1965,76 @@ int selfTest(Game& g) {
             }
         }
     }
+    printf("wildlife: food chain and herd alarm\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        auto at = [&](V2 v) { return g.freeSpot((int)(v.x / TS), (int)(v.y / TS)); };
+        const V2 far = g.p.pos + V2(420, 0);  // well outside everyone's notice range of the hunter
+        // 1. a wolf stalks a rabbit, the rabbit flees, the wolf bites and kills it
+        g.animals.clear();
+        g.animals.reserve(16);
+        int wi = (int)(g.spawnAnimal(A_WOLF, at(far), 0, 0) - &g.animals[0]);
+        int ri = (int)(g.spawnAnimal(A_RABBIT, at(far + V2(50, 0)), 0, 0) - &g.animals[0]);
+        g.animals[wi].biome = g.animals[ri].biome = B_HOME;
+        g.animals[wi].hp = g.animals[wi].maxhp = 100;
+        bool hunted = false, fled = false, killed = false;
+        const int kills0 = g.kills;
+        const int64_t xp0 = g.p.sk.s[SK_HUNTING].xp, rx0 = g.p.sk.s[SK_RANGED].xp;
+        for (int i = 0; i < 1800 && !killed; i++) {
+            g.updateAnimals(1.f / 30.f);
+            hunted = hunted || g.animals[wi].st == AS_HUNT;
+            fled = fled || (g.animals[ri].st == AS_FLEE && g.animals[ri].fleeAnimal);
+            killed = g.animals[ri].dead;
+        }
+        check(hunted, "a wolf that sees a rabbit starts to hunt it");
+        check(fled, "the rabbit notices the hunting wolf and flees from it (not from the hunter)");
+        check(killed && g.animals[ri].totalRemain > 0, "the wolf catches the rabbit and leaves a carcass to find");
+        check(g.kills == kills0 && g.p.sk.s[SK_HUNTING].xp == xp0 && g.p.sk.s[SK_RANGED].xp == rx0, "a predator's kill gives the hunter no kill count and no XP");
+        check(g.animals[wi].st == AS_FEED && g.animals[wi].huntCd > 20.f, "after the kill the wolf feeds, then rests before hunting again");
+        // 2. rare specimens are never prey; other biomes' animals are not prey either
+        g.animals.clear();
+        wi = (int)(g.spawnAnimal(A_WOLF, at(far), 0, 0) - &g.animals[0]);
+        ri = (int)(g.spawnAnimal(A_RABBIT, at(far + V2(40, 0)), 0, 2) - &g.animals[0]);
+        bool everHunted = false;
+        for (int i = 0; i < 600; i++) {
+            g.updateAnimals(1.f / 30.f);
+            everHunted = everHunted || g.animals[wi].st == AS_HUNT;
+        }
+        check(!everHunted && !g.animals[ri].dead, "a rare rabbit is not hunted by wolves");
+        // 3. a wolf only hunts what is on its menu
+        g.animals.clear();
+        wi = (int)(g.spawnAnimal(A_WOLF, at(far), 0, 0) - &g.animals[0]);
+        g.spawnAnimal(A_BOAR, at(far + V2(40, 0)), 0, 0);
+        everHunted = false;
+        for (int i = 0; i < 600; i++) {
+            g.updateAnimals(1.f / 30.f);
+            everHunted = everHunted || g.animals[wi].st == AS_HUNT;
+        }
+        check(!everHunted, "a wolf does not hunt a boar (not on its menu)");
+        // 4. the hunter outranks prey: a stalking wolf turns on a hunter who comes close
+        g.animals.clear();
+        wi = (int)(g.spawnAnimal(A_WOLF, g.p.pos + V2(60, 0), 0, 0) - &g.animals[0]);
+        g.animals[wi].st = AS_HUNT;
+        g.animals[wi].stT = 8.f;
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st == AS_CHASE, "a hunting wolf that notices the hunter attacks the hunter instead");
+        // 5. herd alarm: one deer startled by the hunter sets its neighbours running
+        g.animals.clear();
+        g.animals.reserve(8);
+        const V2 d1 = g.freeSpot((int)((g.p.pos.x + 60) / TS), (int)(g.p.pos.y / TS));
+        const float deerNotice = ANIMAL[A_DEER].notice;
+        g.spawnAnimal(A_DEER, d1, 0, 0);
+        g.spawnAnimal(A_DEER, d1 + V2(66, 0), 0, 0);
+        g.spawnAnimal(A_DEER, d1 + V2(64, 16), 0, 0);
+        for (auto& an : g.animals) an.biome = B_HOME, an.st = AS_WANDER;
+        const bool setupOk = dist(g.animals[0].pos, g.p.pos) < deerNotice && dist(g.animals[1].pos, g.p.pos) > deerNotice * 1.1f &&
+                             dist(g.animals[2].pos, g.p.pos) > deerNotice * 1.1f && dist(g.animals[0].pos, g.animals[1].pos) < 70.f && dist(g.animals[0].pos, g.animals[2].pos) < 70.f;
+        check(setupOk, "(setup) one deer sees the hunter; its two herd mates are beyond sight but within the alarm radius");
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[0].st == AS_FLEE, "the deer next to the hunter bolts");
+        check(g.animals[1].st == AS_FLEE && g.animals[2].st == AS_FLEE && !g.animals[1].fleeAnimal, "its herd mates, who cannot see the hunter, bolt with it");
+    }
     printf("audio: ambience beds and footsteps (synthesised offline, no sound device)\n");
     {
         Audio au;

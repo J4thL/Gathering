@@ -35,7 +35,7 @@ struct Input {
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
-enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST };
+enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST, AS_HUNT };  // AS_HUNT: a predator stalking prey (AS_CHASE is after the hunter)
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
@@ -59,6 +59,9 @@ struct Animal {
     Animator anim;
     int face8 = F_E;      // 8-way facing
     float atkT = 0;       // > 0 while the attack animation plays
+    float huntCd = 0;     // predators: time before it hunts again after a hunt
+    bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
+    V2 threat;
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
 };
@@ -365,7 +368,7 @@ struct Game {
     bool useConsumable(int c);
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
-    void killAnimal(Animal& a);
+    void killAnimal(Animal& a, bool byHunter = true);  // byHunter=false: a predator made the kill (no XP, quest, bounty or kill count)
     float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)); }  // see skills.hpp
     void hurtPlayer(float dmg, V2 from, int srcKind = -1);
     void gatherStep(Animal& c);
