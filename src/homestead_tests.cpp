@@ -305,6 +305,25 @@ int homesteadTest(Game& g) {
     check(c1.stock > 0, "a fed, happy adult chicken lays eggs");
     const int eggs0 = g.p.mat(M_EGG);
     check(g.hsCollect(c1) > 0 && g.p.mat(M_EGG) > eggs0 && c1.stock == 0, "eggs can be collected into the pack");
+    {   // the farming bonus ("extra crops and produce") also reaches animal produce
+        int extra0 = 0, extra1 = 0;
+        bool exact = true;
+        for (int i = 0; i < 100; i++) {
+            g.p.sk.s[SK_FARMING].xp = 0;
+            c1.stock = 2;
+            if (g.hsCollect(c1) != 2) extra0++;
+        }
+        for (int i = 0; i < 300; i++) {
+            g.p.sk.s[SK_FARMING].xp = SkillState::capXp();
+            c1.stock = 2;
+            const int n = g.hsCollect(c1);
+            if (n == 3) extra1++;
+            else if (n != 2) exact = false;
+        }
+        g.p.sk.s[SK_FARMING].xp = 0;
+        check(extra0 == 0, "at farming level 1 collecting produce gives exactly what the animal stocked");
+        check(exact && extra1 >= 40 && extra1 <= 140, "a master farmer (30% bonus) sometimes collects one extra: " + std::to_string(extra1) + " of 300 (expected ~90)");
+    }
     // breeding and growth
     c0.full = c1.full = 100; c0.happy = c1.happy = 100; c0.health = c1.health = 100; c0.breedCd = c1.breedCd = 0;
     c0.px = c1.px = (cx2 + 4) * TS; c0.py = c1.py = (cy2 + 3) * TS;
