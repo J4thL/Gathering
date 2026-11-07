@@ -82,6 +82,7 @@ struct Player {
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
+    int tool[TT_COUNT] = {-1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
     int up[U_COUNT] = {0};
@@ -348,6 +349,10 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
+    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot (the one it replaces goes back into the pack)
+    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off (needs a free pack slot)
+    bool ownsTool(int toolId) const;    // equipped or in the pack
+    static bool isFarmType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
     bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
     void unequipHot(int hotSlot);
     bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)

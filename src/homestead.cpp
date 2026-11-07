@@ -128,7 +128,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
                     if (a.px > cx - 2 && a.px < cx + TS + 2 && a.py > cy - 2 && a.py < cy + TS + 2) return no("AN ANIMAL IS IN THE WAY");
             }
         }
-    if (needsHoe && bestTool(TT_HOE, nullptr) <= 0) return no("NEED A FARMER'S HOE");
+    if (needsHoe && bestTool(TT_HOE, nullptr) <= 0) return no(p.inv.count(itemTool(TL_HOE)) > 0 ? "EQUIP YOUR HOE FIRST (PACK)" : "NEED A FARMER'S HOE");
     std::string lack;
     if (!hsCost(kind, &lack)) return no(lack.c_str());
     if (why) why->clear();
@@ -221,9 +221,9 @@ void Game::hsGiveStarter() {
     auto give = [&](int item, int n) {
         if (p.inv.add(item, n) < n) p.inv.addIgnoringWeight(item, n);
     };
-    if (bestTool(TT_HOE, nullptr) <= 0) give(itemTool(TL_HOE), 1);
-    if (bestTool(TT_CAN, nullptr) <= 0) give(itemTool(TL_CAN), 1);
-    if (bestTool(TT_SICKLE, nullptr) <= 0) give(itemTool(TL_SICKLE), 1);
+    // the starter tools go straight into the equipment slots (a hunter who already owns one, equipped or not, is not given a second)
+    for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE})
+        if (!ownsTool(k)) p.tool[TOOLDEF[k].type] = k;
     give(itemMat(M_SEED_WHEAT), 6);
     give(itemMat(M_SEED_CARROT), 6);
     give(itemMat(M_SEED_POTATO), 4);

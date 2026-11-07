@@ -1332,7 +1332,7 @@ void Game::drawInventory() {
         // ---- actions on the selected slot
         const Slot& cur = p.inv.slots[std::max(0, std::min(cap - 1, invSel))];
         const ItemDef* cd = cur.empty() ? nullptr : &item(cur.item);
-        const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK);
+        const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK || (cd->kind == IK_TOOL && isFarmType(TOOLDEF[cd->ref].type)));
         const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : cd->kind == IK_PLACEABLE ? "PLACE" : cd->kind == IK_BACKPACK ? "WEAR" : "EQUIP";
         int by = py + ph + 2;
         if (button(dx, by, 50, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);
@@ -1352,6 +1352,7 @@ void Game::drawInventory() {
             msg("PACK SORTED", C_DIM);
         }
         // ---- the hotbar: click a slot to equip the selected item there, or to unequip what is in it
+        const int toolRowY = by;  // the farming tool slots share the row of the SORT button
         by += 14;
         text(dx, by, "HOTBAR", C_DIM, 1, false);
         for (int i = 0; i < HOT_N; i++) {
@@ -1378,6 +1379,34 @@ void Game::drawInventory() {
                     audio.play(S_ERROR, 0.4f);
                 }
             }
+        }
+        // ---- the farming tools: one slot each for the hoe, watering can and sickle. Click a slot to equip the selected tool there, or to take
+        // what is in it off (it goes back into the pack).
+        {
+            const int fy = toolRowY;
+            static const int FT[3] = {TT_HOE, TT_CAN, TT_SICKLE};
+            static const int FT_DEFAULT[3] = {TL_HOE, TL_CAN, TL_SICKLE};
+            std::string info = "FARM TOOLS: CLICK A SLOT";
+            for (int i = 0; i < 3; i++) {
+                const int hx = dx + 108 + i * 21, type = FT[i], id = p.tool[type];
+                const bool fits = cd && cd->kind == IK_TOOL && TOOLDEF[cd->ref].type == type;
+                const bool over = inRect(hx, fy, 19, 13);
+                panel(hx, fy, 19, 13, fits ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
+                if (id >= 0) icon(itemIcon(itemTool(id)), hx + 10, fy + 6, 11);
+                else icon(itemIcon(itemTool(FT_DEFAULT[i])), hx + 10, fy + 6, 11, 0.25f);
+                if (over) info = id >= 0 ? std::string(TOOLDEF[id].name) + " - CLICK TO TAKE OFF" : std::string(TOOLDEF[FT_DEFAULT[i]].name) + " SLOT - EMPTY";
+                if (over && in.uiClick) {
+                    in.uiClick = false;
+                    in.lPressed = false;
+                    if (fits) equipFarmTool(invSel);
+                    else if (id >= 0) unequipFarmTool(type);
+                    else {
+                        msg(std::string("THIS SLOT TAKES THE ") + TOOLDEF[FT_DEFAULT[i]].name, C_DIM);
+                        audio.play(S_ERROR, 0.4f);
+                    }
+                }
+            }
+            text(dx + 40, fy + 14, info, C_DIM, 1, false);  // on the HOTBAR label line
         }
     } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);

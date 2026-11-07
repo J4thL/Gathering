@@ -95,7 +95,9 @@ void Game::save() {
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
         // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
         f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
-        f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nhotbar";
+        f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nfarmtools";
+        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        f << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
         for (auto& sl : p.inv.slots)
@@ -157,7 +159,8 @@ bool Game::load() {
         return std::max(0L, std::min(lim, v));
     };
     std::string bagKey = "-", hotKeys[HOT_N];
-    bool sawBag = false, sawHotbar = false;
+    bool sawBag = false, sawHotbar = false, sawFarm = false;
+    std::vector<std::string> farmKeys;
     struct DropLine { std::string key; int n, x, y; };
     std::vector<DropLine> dropLines[B_COUNT];
     std::vector<std::pair<std::string, int>> slotLines;  // v2
@@ -193,6 +196,10 @@ bool Game::load() {
         } else if (k == "bag") {
             ss >> bagKey;
             sawBag = true;
+        } else if (k == "farmtools") {
+            sawFarm = true;
+            std::string key;
+            while (ss >> key) farmKeys.push_back(key);
         } else if (k == "hotbar") {
             sawHotbar = true;
             for (int i = 0; i < HOT_N; i++) {
@@ -325,6 +332,20 @@ bool Game::load() {
             dst << src.rdbuf();
         }
     }
+    // Farming tools: the equipped ones are saved by key. An older save has no such line, so the hoe / can / sickle it carried are equipped
+    // (they used to work from the pack), which keeps every old save's farm working.
+    for (int t = 0; t < TT_COUNT; t++) p.tool[t] = -1;
+    if (sawFarm) {
+        for (auto& key : farmKeys) {
+            const int id = itemFromKey(key);
+            if (id >= 0 && item(id).kind == IK_TOOL && isFarmType(TOOLDEF[item(id).ref].type)) p.tool[TOOLDEF[item(id).ref].type] = item(id).ref;
+        }
+    } else
+        for (int k = 0; k < TL_COUNT; k++)
+            if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
+                p.inv.remove(itemTool(k), 1);
+                p.tool[TOOLDEF[k].type] = k;
+            }
     applyLook(lookLoaded);
     refreshQuest();
     // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is
@@ -1882,6 +1903,7 @@ bool Game::useSlot(int slot) {
             return false;
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
+            if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
             msg("TOOLS WORK AUTOMATICALLY - THE BEST ONE IN YOUR PACK IS USED", C_DIM);
             return false;
         case IK_PLACEABLE:

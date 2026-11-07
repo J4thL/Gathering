@@ -59,7 +59,7 @@ int homesteadTest(Game& g) {
     check(g.p.coins == 321 && g.p.mat(M_WOOD) == 7 && g.p.sk.s[SK_MINING].xp == 99 && g.p.look.hair == 2, "coins, pack, skills and appearance are kept");
     check(g.portalFx > 0, "the arrival plays the portal effect");
     check(dist(g.p.pos, g.world.hportal) < 60.f && !g.world.blocked(g.p.pos.x, g.p.pos.y, 5.f), "the hunter arrives at the return portal on a free spot");
-    check(g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.inv.count(itemTool(TL_CAN)) == 1 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.mat(M_SEED_WHEAT) >= 6, "the starter kit (hoe, watering can, sickle, seeds) was handed over once");
+    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 0 && g.p.mat(M_SEED_WHEAT) >= 6, "the starter kit (hoe, watering can, sickle, seeds) was handed over once");
     check(MW == 240 && MH == 168, "the sandbox has the same dimensions as the other maps");
     int trees = 0, rocks = 0, berries = 0, herbs = 0, flowers = 0, mush = 0;
     for (size_t i = 0; i < g.world.props.size(); i++) {
@@ -81,8 +81,9 @@ int homesteadTest(Game& g) {
     stand(g, g.world.hportal + V2(0, 16));
     g.travelCd = 0;
     const int hoes = g.p.inv.count(itemTool(TL_HOE));
+    const int hoeEq = g.p.tool[TT_HOE];
     g.homesteadInteract();
-    check(g.world.mapId == B_HOMESTEAD && g.p.inv.count(itemTool(TL_HOE)) == hoes, "entering again does not hand out the starter kit twice");
+    check(g.world.mapId == B_HOMESTEAD && g.p.inv.count(itemTool(TL_HOE)) == hoes && g.p.tool[TT_HOE] == hoeEq, "entering again does not hand out the starter kit twice");
 
     printf("--- stage 2: resources\n");
     {
@@ -201,10 +202,10 @@ int homesteadTest(Game& g) {
     HPiece* plot = g.hsAt(fx, fy, HL_GROUND);
     check(plot && plot->rich, "the plot on dark soil is fertile");
     {
-        const int hoe = g.p.inv.count(itemTool(TL_HOE));
-        for (auto& s : g.p.inv.slots) if (s.item == itemTool(TL_HOE)) s = Slot();
-        check(!g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "NEED A FARMER'S HOE", "plots need the hoe in the pack");
-        g.p.inv.addIgnoringWeight(itemTool(TL_HOE), hoe);
+        const int hoe = g.p.tool[TT_HOE];
+        g.p.tool[TT_HOE] = -1;
+        check(!g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "NEED A FARMER'S HOE", "plots need the hoe equipped");
+        g.p.tool[TT_HOE] = hoe;
     }
     stand(g, V2(fx * TS + 8, fy * TS + 26));
     g.hsFindTarget(t);
@@ -225,13 +226,59 @@ int homesteadTest(Game& g) {
     check(plot->stage == CROP_STAGES - 1 && stagesSeen == CROP_STAGES - 1, "a watered crop grows through every stage to ripe");
     const int wheat0 = g.p.mat(M_WHEAT);
     {
-        const int sick = g.p.inv.count(itemTool(TL_SICKLE));
-        for (auto& s : g.p.inv.slots) if (s.item == itemTool(TL_SICKLE)) s = Slot();
+        const int sick = g.p.tool[TT_SICKLE];
+        g.p.tool[TT_SICKLE] = -1;
         check(!g.hsHarvest(*plot) && plot->crop == CR_WHEAT, "wheat cannot be cut without a sickle");
-        g.p.inv.addIgnoringWeight(itemTool(TL_SICKLE), sick);
+        g.p.tool[TT_SICKLE] = sick;
     }
     check(g.hsHarvest(*plot) && g.p.mat(M_WHEAT) >= wheat0 + 3 && plot->crop == -1, "harvesting with the sickle gives wheat and clears the plot");
     check(g.p.sk.s[SK_FARMING].xp > 0, "farming earns skill XP");
+    // ---- equipping and taking off the farming tools
+    {
+        const int types[3] = {TT_HOE, TT_CAN, TT_SICKLE}, ids[3] = {TL_HOE, TL_CAN, TL_SICKLE};
+        const int used0 = g.p.inv.usedSlots();
+        bool ok = true;
+        for (int i = 0; i < 3; i++) {  // take each one off: it returns to the pack once, and the farm code stops seeing it
+            ok = ok && g.unequipFarmTool(types[i]) && g.p.tool[types[i]] < 0 && g.p.inv.count(itemTool(ids[i])) == 1 && g.bestTool(types[i]) == 0;
+        }
+        check(ok && g.p.inv.usedSlots() == used0 + 3, "taking off the hoe, can and sickle returns each to the pack exactly once");
+        check(!g.unequipFarmTool(TT_HOE) && !g.unequipFarmTool(TT_AXE), "taking off an empty or non-farm slot does nothing");
+        check(!g.hsWater(*plot) && !g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "EQUIP YOUR HOE FIRST (PACK)", "a tool lying in the pack is not used, and the message says to equip it");
+        auto slotOf = [&](int tool) { for (int s = 0; s < g.p.bagCap(); s++) if (g.p.inv.slots[s].item == itemTool(tool)) return s; return -1; };
+        ok = true;
+        for (int i = 0; i < 3; i++) {  // equip each one through the inventory action
+            ok = ok && g.useSlot(slotOf(ids[i])) && g.p.tool[types[i]] == ids[i] && g.p.inv.count(itemTool(ids[i])) == 0 && g.bestTool(types[i]) == 1;
+        }
+        check(ok && g.p.inv.usedSlots() == used0, "equipping each tool through the pack works and removes it from the pack");
+        // incompatible items are refused and nothing moves
+        g.p.inv.addIgnoringWeight(itemTool(TL_AXE1), 1);
+        g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 1);
+        const int axeSlot = slotOf(TL_AXE1);
+        int woodSlot = -1;
+        for (int s = 0; s < g.p.bagCap(); s++) if (g.p.inv.slots[s].item == itemMat(M_WOOD)) woodSlot = s;
+        const int used1 = g.p.inv.usedSlots();
+        check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1 && g.p.tool[TT_AXE] < 0 && g.p.tool[TT_PICK] < 0, "an axe, a material or an empty slot cannot be equipped as a farming tool");
+        g.p.inv.remove(itemTool(TL_AXE1), 1);
+        // a different hoe replaces the equipped one, which goes back to the pack (no loss, no duplicate)
+        g.p.inv.addIgnoringWeight(itemTool(TL_HOE), 1);  // (the test pack may be at its weight limit)
+        check(g.equipFarmTool(slotOf(TL_HOE)) && g.p.tool[TT_HOE] == TL_HOE && g.p.inv.count(itemTool(TL_HOE)) == 1, "equipping over an equipped tool sends the old one back to the pack");
+        g.p.inv.remove(itemTool(TL_HOE), 1);  // drop the spare
+        g.unequipFarmTool(TT_HOE);
+        g.equipFarmTool(slotOf(TL_HOE));
+        check(g.p.tool[TT_HOE] == TL_HOE && g.p.inv.count(itemTool(TL_HOE)) == 0, "a tool can be put back after taking it off");
+        // a full pack blocks taking off, with the tool kept where it is
+        std::vector<int> filled;
+        for (int s = 0; s < g.p.bagCap(); s++)
+            if (g.p.inv.slots[s].empty()) { g.p.inv.slots[s].item = itemMat(M_WOOD); g.p.inv.slots[s].n = 1; filled.push_back(s); }
+        check(!g.unequipFarmTool(TT_CAN) && g.p.tool[TT_CAN] == TL_CAN && g.p.inv.count(itemTool(TL_CAN)) == 0, "taking a tool off with a full pack is refused and the tool stays equipped");
+        for (int s : filled) g.p.inv.slots[s] = Slot();
+        check(g.unequipFarmTool(TT_CAN) && g.p.inv.count(itemTool(TL_CAN)) == 1 && g.equipFarmTool(slotOf(TL_CAN)), "with room again it can be taken off and equipped");
+        g.p.inv.remove(itemMat(M_WOOD), 99);
+        // equipped tools do their jobs (water, till, cut) after all the switching
+        g.hsRefillCan();
+        check(g.bestTool(TT_CAN) == 1 && g.hs.can == CAN_CAPACITY && g.bestTool(TT_HOE) == 1 && g.bestTool(TT_SICKLE) == 1, "after equipping again the farm code sees every tool");
+        g.unequipFarmTool(TT_SICKLE);  // leave the sickle off: the save below must remember that
+    }
     // growth continues while away
     g.hsPlant(*plot, CR_CARROT);
     plot->water = 1.f;
@@ -365,11 +412,13 @@ int homesteadTest(Game& g) {
     g.p.pos = V2(HS_PLAZA_X * TS, (HS_PLAZA_Y + 3) * TS);
     g.save();
     g.newGame();
+    check(g.p.tool[TT_HOE] < 0, "a new game starts with no farming tools equipped");
     check(g.hs.pieces.empty() && g.hs.animals.empty(), "a new game starts with an empty Homestead");
     check(g.load(), "the save loads");
     check(g.world.mapId == B_HOMESTEAD, "a hunter saved in the Homestead loads back into it");
     check(g.hs.pieces.size() == nPieces && g.hs.animals.size() == nAnimals, "every building and animal is restored");
     check(g.p.coins == coinsBefore, "the hunter's own data loads too");
+    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] < 0 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.inv.count(itemTool(TL_HOE)) == 0, "the equipped farming tools are saved and restored (the sickle stayed in the pack)");
     HPiece* s3 = g.hsAt(sx, sy + 3, HL_OBJECT);
     check(s3 && s3->rot == 1 && s3->inv.count(itemMat(M_CORN)) == 12, "storage contents and rotation are restored");
     HPiece* o3 = g.hsAt(fx, fy, HL_GROUND);
@@ -479,6 +528,18 @@ int homesteadTest(Game& g) {
         }
         check(tried > 0, "found a spot for a plot within reach of a harvestable (" + std::to_string(tried) + " tried)");
         check(tried > 0 && worked == tried, "E at a plot opens the farm menu even with a harvestable in reach (" + std::to_string(worked) + " of " + std::to_string(tried) + ")");
+    }
+    {  // an old save (no "farmtools" line) keeps working: the hoe / can / sickle in its pack become the equipped ones
+        g.p.tool[TT_HOE] = g.p.tool[TT_CAN] = g.p.tool[TT_SICKLE] = -1;
+        for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE}) g.p.inv.addIgnoringWeight(itemTool(k), 1);
+        g.save();
+        std::ifstream in(g.savePath());
+        std::string line, kept;
+        while (std::getline(in, line)) if (line.rfind("farmtools", 0) != 0) kept += line + "\n";
+        in.close();
+        std::ofstream(g.savePath(), std::ios::trunc) << kept;
+        g.newGame();
+        check(g.load() && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 0 && g.bestTool(TT_CAN) == 1, "an old save without the farmtools line equips the tools it carried");
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

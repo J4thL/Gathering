@@ -306,7 +306,7 @@ void Game::drawMarket() {
     else if (marketTab == 1)
         for (int k = 0; k < DA_COUNT; k++) rows.push_back({DOMS[k].name, std::string(DOMS[k].prodName ? DOMS[k].prodName : "") + (DOMS[k].small ? "  COOP OK" : "  NEEDS BARN OR PEN"), DOMS[k].price, 0, 1, k, &A.matIcon[DOMS[k].product]});
     else if (marketTab == 2) {
-        for (auto& tb : TOOL_BUY) rows.push_back({TOOLDEF[tb.tool].name, p.inv.count(itemTool(tb.tool)) > 0 ? "YOU HAVE ONE" : "FARMING TOOL", tb.price, p.inv.count(itemTool(tb.tool)), 2, tb.tool, &itemIcon(itemTool(tb.tool))});
+        for (auto& tb : TOOL_BUY) rows.push_back({TOOLDEF[tb.tool].name, ownsTool(tb.tool) ? "YOU HAVE ONE" : "FARMING TOOL", tb.price, ownsTool(tb.tool) ? 1 : 0, 2, tb.tool, &itemIcon(itemTool(tb.tool))});
         rows.push_back({"HAY", "FEED FOR ANY ANIMAL", HAY_PRICE, p.mat(M_HAY), 3, M_HAY, &A.matIcon[M_HAY]});
     } else
         for (int m : {(int)M_BERRY, (int)M_WHEAT, (int)M_CARROT, (int)M_POTATO, (int)M_CABBAGE, (int)M_CORN, (int)M_TOMATO, (int)M_PUMPKIN, (int)M_STRAWBERRY, (int)M_EGG, (int)M_DUCKEGG, (int)M_MILK, (int)M_WOOL, (int)M_TRUFFLE, (int)M_HAY})
@@ -331,8 +331,12 @@ void Game::drawMarket() {
                 else p.coins -= w.price, audio.play(S_COIN, 0.6f);
             } else if (w.kind == 2) {
                 if (w.have > 0) msg("YOU ALREADY HAVE ONE", C_DIM);
-                else if (p.inv.add(itemTool(w.id), 1) < 1) msg("BAG FULL OR TOO HEAVY", C_RED);
-                else p.coins -= w.price, audio.play(S_COIN, 0.6f);
+                else {  // a bought tool is equipped straight away
+                    p.tool[TOOLDEF[w.id].type] = w.id;
+                    p.coins -= w.price;
+                    msg(std::string(TOOLDEF[w.id].name) + " BOUGHT AND EQUIPPED", C_GREEN);
+                    audio.play(S_COIN, 0.6f);
+                }
             } else if (w.kind == 1) {
                 if ((int)hs.animals.size() >= H_MAX_ANIMALS) msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED);
                 else {
