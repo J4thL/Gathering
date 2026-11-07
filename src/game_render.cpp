@@ -834,6 +834,20 @@ void Game::drawHud() {
         }
     }
 
+    // ---- low health: the screen edges pulse red (and faster the lower it gets); nothing is drawn above 30%
+    if (state == ST_PLAY && !p.dead && p.hp < p.maxhp * 0.3f) {
+        const float low = 1.f - p.hp / (p.maxhp * 0.3f);  // 0 at the threshold .. 1 at no health
+        const float beat = 0.5f + 0.5f * sinf(timeAcc * (4.f + 5.f * low));
+        const int a = (int)(25 + (35 + 60 * low) * beat);
+        for (int i = 0; i < 4; i++) {  // four soft layers, thicker towards the edge
+            const int t = 2 + i * 2;
+            const u32 c = RGBA(200, 30, 30, a / (1 + i));
+            fillRect(0, 0, LW, t, c);
+            fillRect(0, LH - t, LW, t, c);
+            fillRect(0, 0, t, LH, c);
+            fillRect(LW - t, 0, t, LH, c);
+        }
+    }
     // ---- top-left vitals
     panel(4, 4, 98, 40, HEX(0x33241a));
     icon(A.heart, 12, 12, 11);
@@ -864,7 +878,7 @@ void Game::drawHud() {
         int y = 21;
         for (auto& m : msgs) {
             float a = std::min(1.f, m.t / 0.6f);
-            textC(LW / 2 - 8, y, m.s, m.col, 1, true);
+            textC(LW / 2 - 8, y, m.n > 1 ? m.s + " X" + S(m.n) : m.s, m.col, 1, true);
             (void)a;
             y += 8;
         }

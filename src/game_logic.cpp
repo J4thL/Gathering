@@ -513,6 +513,11 @@ float Game::tod() const { return fmodf(dayT / 300.f + 0.05f, 1.f); }
 float Game::daylight() const { return smoothf(-0.25f, 0.35f, sinf(tod() * 6.2832f)); }
 
 void Game::msg(const std::string& s, u32 col) {
+    if (!msgs.empty() && msgs.back().s == s && msgs.back().col == col) {  // the same message again: count it instead of stacking it
+        msgs.back().n++;
+        msgs.back().t = 4.2f;
+        return;
+    }
     msgs.push_back({s, col, 4.2f});
     if (msgs.size() > 4) msgs.pop_front();
 }

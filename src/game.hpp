@@ -161,6 +161,7 @@ struct Msg {
     std::string s;
     u32 col;
     float t;
+    int n = 1;  // how many times in a row this same message was posted (shown as "x3")
 };
 struct Fly {
     float x, y, ph, sp;

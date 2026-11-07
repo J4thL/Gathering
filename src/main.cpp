@@ -282,6 +282,14 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.state = ST_PAUSE;
     frames(2);
     shot("10_pause.bmp");
+    g.state = ST_PLAY;
+    {  // low health: the red edge pulse
+        const float keep = g.p.hp;
+        g.p.hp = g.p.maxhp * 0.12f;
+        frames(2);
+        shot("11_lowhp.bmp");
+        g.p.hp = keep;
+    }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
 

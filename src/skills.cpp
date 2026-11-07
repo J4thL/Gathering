@@ -9,7 +9,10 @@ int Game::grantXp(int skill, int amount) {
     const int before = p.sk.level(skill);
     const int gained = p.sk.add(skill, amount);
     if (before >= MAX_LEVEL) return 0;  // capped: no toast spam
-    ftext(p.pos + V2(0, -34), std::string("+") + S(amount) + " " + SKILL[skill].name, HEX(0x9fd4ff), 0.9f);
+    int live = 0;  // XP numbers still rising: stack the new one above them so two skills gained at once do not overprint
+    for (auto& f : ftexts)
+        if (f.col == HEX(0x9fd4ff) && f.t < 0.7f) live++;
+    ftext(p.pos + V2(0, -34 - 9 * std::min(live, 3)), std::string("+") + S(amount) + " " + SKILL[skill].name, HEX(0x9fd4ff), 0.9f);
     if (gained > 0) {
         const int now = before + gained;
         msg(std::string(SKILL[skill].name) + " LEVEL " + S(now) + "!", C_GOLD);

@@ -1965,6 +1965,28 @@ int selfTest(Game& g) {
             }
         }
     }
+    printf("HUD feedback\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.msgs.clear();
+        g.msg("PACK FULL", C_RED);
+        g.msg("PACK FULL", C_RED);
+        g.msg("PACK FULL", C_RED);
+        check(g.msgs.size() == 1 && g.msgs.back().n == 3, "the same message posted three times in a row is one line counted X3");
+        g.msg("PACK FULL", C_GREEN);
+        g.msg("SOMETHING ELSE", C_RED);
+        check(g.msgs.size() == 3 && g.msgs[0].n == 3 && g.msgs[1].n == 1, "a different colour or text starts a new line");
+        g.msgs.back().t = 0.1f;
+        g.msg("SOMETHING ELSE", C_RED);
+        check(g.msgs.back().t > 4.f, "a repeat refreshes the line's time on screen");
+        for (int i = 0; i < 10; i++) g.msg(std::string("LINE ") + std::to_string(i), C_TEXT);
+        check(g.msgs.size() <= 4, "the message area never holds more than four lines");
+        g.ftexts.clear();
+        g.grantXp(SK_HUNTING, 3);
+        g.grantXp(SK_RANGED, 2);
+        check(g.ftexts.size() >= 2 && g.ftexts[0].p.y != g.ftexts[1].p.y, "two XP gains at once are stacked, not printed on top of each other");
+    }
     printf("wildlife: food chain and herd alarm\n");
     {
         g.newGame();
