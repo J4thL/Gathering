@@ -1286,20 +1286,16 @@ void Game::updatePlayer(float dt) {
     P.useT = std::max(0.f, P.useT - dt);
 
     if (in.selectKey >= 0 && in.selectKey < HOT_N) hotUse(in.selectKey);  // number keys = hotbar slots
-    if (in.wheel != 0) {  // the wheel cycles through the weapons equipped on the hotbar
-        int cyc[HOT_N], n = 0, at = -1;
+    if (in.wheel != 0) {  // the wheel moves through every item on the hotbar (weapons, tools, seeds, food...) and takes it in hand
+        int occ[HOT_N], n = 0, at = -1;
+        const int cur = P.hotSel >= 0 && P.hot[P.hotSel] >= 0 ? P.hotSel : (P.equippedWpn(P.sel) ? P.hotSlotOf(itemWpn(P.sel)) : -1);
         for (int i = 0; i < HOT_N; i++)
-            if (P.hot[i] >= 0 && (item(P.hot[i]).kind == IK_THROWN || item(P.hot[i]).kind == IK_LAUNCHER)) {
-                if (item(P.hot[i]).ref == P.sel) at = n;
-                cyc[n++] = item(P.hot[i]).ref;
+            if (P.hot[i] >= 0) {
+                if (i == cur) at = n;
+                occ[n++] = i;
             }
-        if (n > 0) {
-            P.sel = cyc[((at < 0 ? 0 : at) + (in.wheel > 0 ? n - 1 : 1)) % n];
-            P.hand = -1;
-            P.charging = false;
-        }
+        if (n > 0) hotSelect(occ[((at < 0 ? 0 : at) + (in.wheel > 0 ? n - 1 : 1)) % n], false);
     }
-    syncFarmTools();
     fixSel();
 
     V2 mw(in.mx + camX, in.my + camY);
@@ -1399,7 +1395,8 @@ void Game::updatePlayer(float dt) {
 
     // --- a farm tool in hand: the click works the soil instead of throwing
     if (P.hand >= 0 && in.lPressed && !wantGather) {
-        if (inHomestead() && interior < 0) hsToolUse();
+        if (P.hand == HAND_ITEM) hotClick();
+        else if (inHomestead() && interior < 0) hsToolUse();
         else msg("FARM TOOLS WORK AT YOUR HOMESTEAD - PRESS A WEAPON KEY TO THROW", C_DIM);
         in.lPressed = false;
     }
@@ -2122,6 +2119,11 @@ bool Game::useSlot(int slot) {
             }
             return false;
         default:
+            if (seedCropOf(id) >= 0) {  // seeds are equipped on the hotbar and sown with a click on tilled soil
+                if (p.hotSlotOf(id) >= 0) { hotSelect(p.hotSlotOf(id)); return true; }
+                return equipHot(id);
+            }
+            if (D.kind == IK_MATERIAL) { msg(D.name + " - SELL IT AT THE SHOP", C_DIM); return false; }
             msg(D.name + " - SELL IT AT THE SHOP", C_DIM);
             return false;
     }

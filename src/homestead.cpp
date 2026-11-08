@@ -235,6 +235,7 @@ void Game::hsGiveStarter() {
     give(itemMat(M_SEED_WHEAT), 6);
     give(itemMat(M_SEED_CARROT), 6);
     give(itemMat(M_SEED_POTATO), 4);
+    equipHotQuiet(itemMat(M_SEED_WHEAT));  // the wheat seeds are ready on the hotbar
     msg("WELCOME HOME! A HOE, WATERING CAN, SICKLE AND SEEDS WERE LEFT FOR YOU", C_GOLD);
 }
 
@@ -385,7 +386,7 @@ bool Game::hsHarvest(HPiece& pc) {
 //  can: waters a growing crop, fills at the water's edge;  sickle: cuts a ripe crop
 bool Game::hsToolUse() {
     const int type = p.hand;
-    if (type < 0 || p.tool[type] < 0) { p.hand = -1; return false; }
+    if (type < 0 || (type < HAND_SEED0 && p.tool[type] < 0)) { p.hand = -1; return false; }
     const V2 mw(in.mx + camX, in.my + camY);
     const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
     if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return false;
@@ -395,6 +396,13 @@ bool Game::hsToolUse() {
     const bool plot = gp && gp->kind == HP_PLOT;
     const bool ripe = plot && gp->crop >= 0 && gp->stage >= CROP_STAGES - 1;
     p.useT = 0.25f;
+    if (type >= HAND_SEED0) {  // seeds: sow a tilled, empty plot
+        const int crop = type - HAND_SEED0;
+        if (!plot) return no("TILL THE SOIL WITH A HOE FIRST");
+        if (gp->crop >= 0) return no("ALREADY PLANTED");
+        if (p.inv.count(itemMat(cropSeed(crop))) <= 0) return no("NO SEEDS LEFT");
+        return hsPlant(*gp, crop), true;
+    }
     switch (type) {
         case TT_HOE:
             if (ripe) return hsHarvest(*gp), true;
@@ -409,6 +417,7 @@ bool Game::hsToolUse() {
         case TT_CAN:
             if (plot && gp->crop >= 0 && !ripe) return hsWater(*gp), true;
             if (world.water(tx, ty)) return hsRefillCan(), true;
+            if (const HPiece* wl = hsAt(tx, ty, HL_OBJECT)) if (wl->kind == HP_WELL) return hsRefillCan(), true;
             return no(plot ? (gp->crop < 0 ? "PLANT SEEDS FIRST" : "READY TO HARVEST") : "NOTHING TO WATER HERE");
         case TT_SICKLE:
             if (ripe) return hsHarvest(*gp), true;
@@ -417,15 +426,8 @@ bool Game::hsToolUse() {
     return false;
 }
 
-void Game::hsFarmPlot(HPiece& pc) {
-    if (pc.crop < 0) {
-        farmPieceId = pc.id;
-        state = ST_FARM;
-        audio.play(S_CLICK);
-    } else if (pc.stage >= CROP_STAGES - 1)
-        hsHarvest(pc);
-    else
-        hsWater(pc);
+void Game::hsFarmPlot(HPiece& pc) {  // E at a ripe crop: harvest (sowing and watering are done with the tools in hand)
+    if (pc.crop >= 0 && pc.stage >= CROP_STAGES - 1) hsHarvest(pc);
 }
 
 // ================================================================= animals
@@ -686,10 +688,8 @@ bool Game::hsFindTarget(HTarget2& t) {
         const V2 c((pc.tx + pc.w() / 2.f) * TS, (pc.ty + pc.h() / 2.f) * TS);
         if (pc.kind == HP_PLOT) {
             const float d = dist(p.pos, c);
-            if (d < 26.f) {
-                std::string lb = pc.crop < 0 ? "PLANT SEEDS" : pc.stage >= CROP_STAGES - 1 ? std::string("HARVEST ") + CROPS[pc.crop].name : (pc.water > 0.85f ? std::string(CROPS[pc.crop].name) + " - WET" : std::string("WATER ") + CROPS[pc.crop].name);
-                offer(1, pc.id, c + V2(0, -14), d, lb);
-            }
+            if (d < 26.f && pc.crop >= 0 && pc.stage >= CROP_STAGES - 1)  // only a ripe crop is taken with E; sowing and watering are done with the tools in hand
+                offer(1, pc.id, c + V2(0, -14), d, std::string("HARVEST ") + CROPS[pc.crop].name);
         } else if (pc.kind == HP_DOOR || pc.kind == HP_GATE) {
             const float d = dist(p.pos, c);
             if (d < 26.f) offer(4, pc.id, c + V2(0, -18), d + 2.f, std::string(pc.open ? "CLOSE " : "OPEN ") + D.name);

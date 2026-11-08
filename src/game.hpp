@@ -94,6 +94,7 @@ struct Player {
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
+    int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
     int coins = 0;
@@ -379,6 +380,8 @@ struct Game {
     bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
     void unequipHot(int hotSlot);
     bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)
+    void hotSelect(int hotSlot, bool say = true);        // take a hotbar item in hand (weapon, farm tool, seeds or any other item) without using it
+    bool hotClick();                    // left click with a non-weapon item in hand: use / place / wear it
     void hotUse(int hotSlot);           // the hotbar key: select a weapon / use a consumable / place a structure
     void fixSel();                      // keeps the selected weapon one that is on the hotbar
     bool dropSlot(int slot, int n);     // put a stack on the ground
