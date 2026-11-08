@@ -115,6 +115,7 @@ void Game::save() {
             const MapMem& mm = mapMem[m];
             if (!mm.visited) continue;
             f << "map " << m << "\ndisc " << mm.disc << "\n";
+            if (!mm.seen.empty()) f << "seen " << mm.seen << "\n";
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
             for (auto& g : mm.items)  // stacks the hunter dropped lie where they were left
@@ -169,7 +170,7 @@ bool Game::load() {
     // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
     // separate maps existed (one big world) and are converted below
     std::vector<std::string> mapHv[B_COUNT], mapSt[B_COUNT];
-    std::string mapDisc[B_COUNT];
+    std::string mapDisc[B_COUNT], mapSeen[B_COUNT];
     std::vector<std::string> legHv, legSt;
     std::string legDisc;
     std::vector<std::pair<std::string, int>> legacyRefund;  // items from old out-of-home chests (see below)
@@ -279,6 +280,10 @@ bool Game::load() {
             ss >> bits;
             if (curLoad >= 0) mapDisc[curLoad] = bits;
             else if (curLoad == -1) legDisc = bits;
+        } else if (k == "seen") {  // fog of war of the current map block (absent in older saves: the map starts unexplored)
+            std::string bits;
+            ss >> bits;
+            if (curLoad >= 0 && bits.size() == (size_t)MM_W * MM_H) mapSeen[curLoad] = bits;
         } else if (k == "quest") {  // "quest <index> <active 0/1> <progress>"; older saves simply lack this line
             int active = 0;
             ss >> questIdx >> active >> questProg;
@@ -345,7 +350,6 @@ bool Game::load() {
     } else
         for (int k = 0; k < TL_COUNT; k++)
             if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
-                p.inv.remove(itemTool(k), 1);
                 p.tool[TOOLDEF[k].type] = k;
             }
     applyLook(lookLoaded);
@@ -406,6 +410,7 @@ bool Game::load() {
         mapMem[m].hv = mapHv[m];
         mapMem[m].st = mapSt[m];
         mapMem[m].disc = mapDisc[m];
+        mapMem[m].seen = mapSeen[m];
         mapMem[m].visited = !mapHv[m].empty() || !mapSt[m].empty() || !mapDisc[m].empty() || m == atMap;
         mapMem[m].items.clear();
         for (auto& d : dropLines[m]) {
@@ -436,6 +441,15 @@ bool Game::load() {
         for (int c = 0; c < C_COUNT; c++)
             if (p.inv.count(itemCons(c)) > 0) equipHotQuiet(itemCons(c));
     }
+    // farming tools: the equipped ones live in the pack and on the hotbar. A save from before that kept them outside the pack, so
+    // each equipped tool is put back in the pack (nothing lost) and onto the hotbar; a tool found on the hotbar counts as equipped.
+    for (int t = 0; t < TT_COUNT; t++) {
+        if (!isFarmType(t)) continue;
+        if (p.tool[t] < 0)
+            for (int i = 0; i < HOT_N; i++)
+                if (p.hot[i] >= 0 && item(p.hot[i]).kind == IK_TOOL && TOOLDEF[item(p.hot[i]).ref].type == t && p.inv.count(p.hot[i]) > 0) p.tool[t] = item(p.hot[i]).ref;
+        if (p.tool[t] >= 0) giveFarmTool(p.tool[t]);
+    }
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;
@@ -462,6 +476,7 @@ void Game::newGame() {
     resetDelveRuntime();
     for (auto& d : delveMem) d = DelveMem();
     for (auto& m : mapMem) m = MapMem();
+    seen.assign((size_t)MM_W * MM_H, '0');
     travelFade = travelCd = 0;
     hsReset();
     interior = -1;
@@ -1280,6 +1295,7 @@ void Game::updatePlayer(float dt) {
             P.charging = false;
         }
     }
+    syncFarmTools();
     fixSel();
 
     V2 mw(in.mx + camX, in.my + camY);
@@ -1347,9 +1363,9 @@ void Game::updatePlayer(float dt) {
 
     auto setDir = [&](V2 d) {
         P.face8 = facingFromDir(d.x, d.y, P.face8);
-        // the 4-way facing other systems use (placement, the salon): the diagonals count as side views, as they always did
+        // the facing as the other systems use it (placement, the salon): 0 down, 1 up, 2 side
         const FacingView fv = facingView(P.face8);
-        P.dir = fv.view == 0 ? 0 : fv.view == 4 ? 1 : 2;
+        P.dir = fv.view == 0 ? 0 : fv.view == 2 ? 1 : 2;
         if (P.dir == 2) P.flip = fv.mirror;
     };
     if (wantGather) setDir(c->pos - P.pos);
@@ -1656,6 +1672,7 @@ void Game::updateBiome(float dt) {
     if (bannerT > 0) bannerT -= dt;
     float k = std::min(1.f, dt * 1.3f);
     for (int b = 0; b < B_COUNT; b++) bw[b] += ((b == here ? 1.f : 0.f) - bw[b]) * k;
+    if (interior < 0 && delve < 0) revealAround(p.pos);  // fog of war on the minimap
     // discover landmarks by walking up to them
     for (auto& l : world.landmarks) {
         if (l.found || dist(p.pos, V2(l.x, l.y)) > 56) continue;
@@ -1790,7 +1807,7 @@ void Game::checkWeaponSafetyNet(float dt) {
     if (p.hotSlotOf(itemWpn(W_FLINT)) < 0) {  // and it is equipped, so the hunter can use it at once
         int slot = 0;
         for (int i = HOT_N - 1; i >= 0; i--)
-            if (HOT_KIND[i] == HK_WEAPON && (p.hot[i] < 0 || i == 0)) slot = i;
+            if (p.hot[i] < 0 || i == 0) slot = i;
         p.hot[slot] = itemWpn(W_FLINT);
     }
     p.sel = W_FLINT;

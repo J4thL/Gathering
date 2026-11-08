@@ -71,7 +71,7 @@ struct Animal {
     float air = 0.f;      // height above the ground (flyers)
     // ---- animation (only used by species with a full animation set, see animal_anim.hpp)
     Animator anim;
-    int face8 = F_E;      // 8-way facing
+    int face8 = F_E;      // 4-way facing
     float atkT = 0;       // > 0 while the attack animation plays
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
@@ -85,7 +85,7 @@ struct Player {
     int dir = 0;          // 4-way facing kept for placement and the salon: 0 down, 1 up, 2 side (see flip); derived from face8
     bool flip = false;
     float animT = 0;
-    int face8 = F_S;      // 8-way facing (anim.hpp)
+    int face8 = F_S;      // 4-way facing (anim.hpp)
     Animator anim;        // the hunter's current animation (state HState), driven by Game::updateHunterAnim
     float useT = 0;       // > 0 while using an item (bandage, food): plays the use animation
     float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit
@@ -295,6 +295,7 @@ struct Game {
         bool visited = false;
         std::vector<std::string> hv, st;  // harvested resources and placed structures, as save lines
         std::string disc;                 // which landmarks were discovered ('1' / '0')
+        std::string seen;                 // fog of war: one '0' / '1' per minimap cell (MM_W x MM_H); empty = nothing explored yet
         std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
     } mapMem[B_COUNT];
     float travelFade = 0.f, travelCd = 0.f;  // fade-in after a trip (seconds left); no new trip before this runs out
@@ -368,10 +369,12 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
-    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot (the one it replaces goes back into the pack)
-    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off (needs a free pack slot)
+    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot: it goes on the hotbar like a weapon and stays in the pack
+    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off the hotbar (it stays in the pack)
+    void giveFarmTool(int toolId);      // add a tool to the pack and equip it (starter / bought tools)
+    void syncFarmTools();               // an equipped tool must be in the pack and only one per type may sit on the hotbar
     bool ownsTool(int toolId) const;    // equipped or in the pack
-    static bool isFarmType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
+    static bool isFarmType(int type) { return isFarmToolType(type); }
     bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
     void unequipHot(int hotSlot);
     bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)
@@ -516,6 +519,8 @@ struct Game {
     // ---- maps (maps.cpp)
     bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
     void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)
+    std::string seen;                  // fog of war of the active map (see MapMem::seen)
+    void revealAround(V2 pos);         // mark the minimap cells around the hunter as explored
     void snapshotMap();                // park the active map's state in mapMem
     void restoreMap();                 // put mapMem's state for the active map back
     V2 freeSpot(int tx, int ty) const;  // the nearest standable position to a tile

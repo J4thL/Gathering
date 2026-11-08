@@ -1,10 +1,10 @@
-// anim.hpp - small reusable animation core: clips, a state animator and 8-way facing.
+// anim.hpp - small reusable animation core: clips, a state animator and 4-way (N, S, E, W) facing.
 //
 // A Clip is a list of frames (indices into whatever sprite strip the owner keeps) with a duration each; it loops or plays once.
 // An Animator plays one clip at a time. play() with the state that is already playing does nothing, so calling it every frame
 // never restarts an animation. A one-shot clip sets done() when it reaches its end (justDone() is true for exactly one update).
 // scrub() lets gameplay drive a clip by progress instead of time (a tool swing that follows the harvest timer).
-// Facing is one of 8 directions; the art draws 5 of them and mirrors the rest (see FacingView).
+// Facing is one of 4 directions (S, E, N, W); west is the east art mirrored where the art is a flat sprite (see FacingView).
 #pragma once
 #include <algorithm>
 #include <cmath>
@@ -96,37 +96,42 @@ struct Animator {
     }
 };
 
-// ---------------------------------------------------------------- 8-way facing
-enum Facing { F_S, F_SE, F_E, F_NE, F_N, F_NW, F_W, F_SW, F_COUNT };
-constexpr int FACING_VIEWS = 5;  // drawn views: S, SE, E, NE, N  (the west-side facings are mirrors)
+// ---------------------------------------------------------------- 4-way facing
+// Every living thing (the hunter, the animals, the monsters) faces one of four ways: south, east, north or west. A diagonal movement or
+// aim turns the entity to face along the dominant axis. East and west share one drawn view (west is the mirror), or, for the rotated 3D
+// models, are two renders of the model.
+enum Facing { F_S, F_E, F_N, F_W, F_COUNT };
+constexpr int FACING_VIEWS = 3;  // drawn views of a mirrored sprite: S, E, N  (west is the east view mirrored)
 
 struct FacingView {
     int view;
     bool mirror;
 };
 inline FacingView facingView(int f) {
-    static const FacingView V[F_COUNT] = {{0, false}, {1, false}, {2, false}, {3, false}, {4, false}, {3, true}, {2, true}, {1, true}};
+    static const FacingView V[F_COUNT] = {{0, false}, {1, false}, {2, false}, {1, true}};
     return V[(f % F_COUNT + F_COUNT) % F_COUNT];
 }
-// 8-way facing for a direction (dx, dy; y grows downwards). `cur` is the facing so far: it is kept until the direction has
-// clearly moved into another sector, so a stick wobbling on a sector border doesn't make the sprite flicker.
-inline int facingFromDir(float dx, float dy, int cur = -1) {
-    if (fabsf(dx) < 1e-4f && fabsf(dy) < 1e-4f) return cur < 0 ? (int)F_S : cur;
-    const float a = atan2f(dx, dy) * 57.29578f;  // 0 = south, +90 = east, 180 = north, -90 = west
-    if (cur >= 0) {
-        float d = fabsf(a - cur * 45.f);
-        d = fmodf(d, 360.f);
-        if (d > 180.f) d = 360.f - d;
-        if (d < 22.5f + 6.f) return cur;
-    }
-    int s = (int)floorf(a / 45.f + 0.5f);
-    return ((s % 8) + 8) % 8;
-}
-// the unit vector a facing looks along (screen space)
+// the unit vector a facing looks along (screen space, y grows downwards)
 inline void facingVec(int f, float& dx, float& dy) {
-    static const float X[F_COUNT] = {0, 0.7071f, 1, 0.7071f, 0, -0.7071f, -1, -0.7071f};
-    static const float Y[F_COUNT] = {1, 0.7071f, 0, -0.7071f, -1, -0.7071f, 0, 0.7071f};
+    static const float X[F_COUNT] = {0, 1, 0, -1};
+    static const float Y[F_COUNT] = {1, 0, -1, 0};
     f = (f % F_COUNT + F_COUNT) % F_COUNT;
     dx = X[f];
     dy = Y[f];
+}
+// The facing for a direction (dx, dy): the dominant axis wins (a perfect diagonal goes to the horizontal axis). `cur` is the facing so far:
+// it is kept while its own axis is still dominant or nearly so, and it still points the way the direction goes, so a stick wobbling on the
+// diagonal doesn't make the sprite flicker, and an entity never faces away from where it is heading.
+inline int facingFromDir(float dx, float dy, int cur = -1) {
+    if (fabsf(dx) < 1e-4f && fabsf(dy) < 1e-4f) return cur < 0 ? (int)F_S : cur;
+    const float ax = fabsf(dx), ay = fabsf(dy);
+    if (cur >= 0) {
+        float fx, fy;
+        facingVec(cur, fx, fy);
+        const bool horiz = cur == F_E || cur == F_W;
+        const bool stillDominant = horiz ? ay < ax * 1.25f : ax < ay * 1.25f;
+        if (stillDominant && fx * dx + fy * dy > 0.f) return cur;
+    }
+    if (ax >= ay) return dx >= 0.f ? F_E : F_W;
+    return dy >= 0.f ? F_S : F_N;
 }

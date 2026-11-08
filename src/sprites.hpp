@@ -399,10 +399,10 @@ inline Img mkPlayerPoseLegacy(int dir, const HPose& P, const HunterLook& look = 
               pants = HEX(0x5a4a3a), boots = HEX(0x2e2118), hair = HAIRCOL[L.color], eye = HEX(0x2a1c1c),
               leather = HEX(0x6b4423);
     const int bob = P.bob;
-    const bool fr = dir == 0 || dir == 3, bk = dir == 1 || dir == 4, tq = dir >= 3;  // front / back family, three-quarter view
+    const bool fr = dir == 0, bk = dir == 1;  // front / back view (dir 2 is the side view)
     const int ox = 1;                               // canvas margin
     const int bx = ox + (dir == 2 ? P.lean : 0);    // body and head x (legs stay at ox)
-    const int hx = bx + (tq ? 1 : 0);               // the head turns a pixel towards the facing side in the three-quarter views
+    const int hx = bx;
     const u32 eyeC = P.blink ? skinS : eye;
     if (dir != 2) {
         // legs
@@ -440,11 +440,10 @@ inline Img mkPlayerPoseLegacy(int dir, const HPose& P, const HunterLook& look = 
             im.set(hx + 6, 4 - bob, capL);
             im.set(hx + 7, 4 - bob, capL);
             im.set(hx + 5, 6 - bob, capD);
-            if (tq) im.rect(hx + 9, 6 - bob, 3, 1, capD);  // the visor shows which way the hunter is turned
-            im.set(hx + (tq ? 7 : 6), 8 - bob, eyeC);
+            im.set(hx + 6, 8 - bob, eyeC);
             im.set(hx + 9, 8 - bob, eyeC);
             im.set(hx + 5, 8 - bob, skinS);
-            if (!tq) im.set(hx + 10, 8 - bob, skinS);
+            im.set(hx + 10, 8 - bob, skinS);
         } else {
             im.rect(ox + 6, 12 - bob, 4, 5, leather);  // satchel on back
             im.rect(ox + 6, 12 - bob, 4, 1, HEX(0x8d5e33));
@@ -455,7 +454,6 @@ inline Img mkPlayerPoseLegacy(int dir, const HPose& P, const HunterLook& look = 
             im.set(hx + 7, 8 - bob, hair);
             im.set(hx + 9, 8 - bob, hair);
             im.set(hx + 6, 4 - bob, capL);
-            if (tq) im.set(hx + 11, 9 - bob, skinS);  // the cheek that turns into view
         }
     } else {
         // side view facing right
@@ -1209,7 +1207,7 @@ struct Assets {
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
     Spr oak[2], pine, rock[2];
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
-    Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S SE E NE N][state][pose]; the west views are mirrors
+    Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S E N][state][pose]; west is the east view mirrored
     HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
     std::shared_ptr<RichAnimal> rich[A_COUNT];  // full animation sets (animal_anim.hpp): only species that have one are set
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
@@ -1228,7 +1226,7 @@ struct Assets {
 
 // Draw every hunter pose in every view for one appearance (the salon redraws them all). Frees any old textures first.
 inline void buildHunterSprites(SDL_Renderer* r, Assets& a, const HunterLook& look) {
-    static const int DIR_OF_VIEW[FACING_VIEWS] = {0, 3, 2, 4, 1};  // S, SE, E, NE, N -> mkPlayerPose dir
+    static const int DIR_OF_VIEW[FACING_VIEWS] = {0, 2, 1};  // S, E, N -> mkPlayerPose dir (0 front, 1 back, 2 side)
     for (int v = 0; v < FACING_VIEWS; v++)
         for (int st = 0; st < HS_COUNT; st++)
             for (int i = 0; i < hunterPoseCount(st); i++) {

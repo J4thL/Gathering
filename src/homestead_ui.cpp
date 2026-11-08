@@ -332,7 +332,7 @@ void Game::drawMarket() {
             } else if (w.kind == 2) {
                 if (w.have > 0) msg("YOU ALREADY HAVE ONE", C_DIM);
                 else {  // a bought tool is equipped straight away
-                    p.tool[TOOLDEF[w.id].type] = w.id;
+                    giveFarmTool(w.id);
                     p.coins -= w.price;
                     msg(std::string(TOOLDEF[w.id].name) + " BOUGHT AND EQUIPPED", C_GREEN);
                     audio.play(S_COIN, 0.6f);

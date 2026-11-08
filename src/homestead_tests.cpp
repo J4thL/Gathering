@@ -59,7 +59,7 @@ int homesteadTest(Game& g) {
     check(g.p.coins == 321 && g.p.mat(M_WOOD) == 7 && g.p.sk.s[SK_MINING].xp == 99 && g.p.look.hair == 2, "coins, pack, skills and appearance are kept");
     check(g.portalFx > 0, "the arrival plays the portal effect");
     check(dist(g.p.pos, g.world.hportal) < 60.f && !g.world.blocked(g.p.pos.x, g.p.pos.y, 5.f), "the hunter arrives at the return portal on a free spot");
-    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 0 && g.p.mat(M_SEED_WHEAT) >= 6, "the starter kit (hoe, watering can, sickle, seeds) was handed over once");
+    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.hotSlotOf(itemTool(TL_CAN)) >= 0 && g.p.hotSlotOf(itemTool(TL_SICKLE)) >= 0 && g.p.mat(M_SEED_WHEAT) >= 6, "the starter kit (hoe, watering can, sickle, seeds) was handed over once, equipped on the hotbar");
     check(MW == 240 && MH == 168, "the sandbox has the same dimensions as the other maps");
     int trees = 0, rocks = 0, berries = 0, herbs = 0, flowers = 0, mush = 0;
     for (size_t i = 0; i < g.world.props.size(); i++) {
@@ -204,7 +204,7 @@ int homesteadTest(Game& g) {
     {
         const int hoe = g.p.tool[TT_HOE];
         g.p.tool[TT_HOE] = -1;
-        check(!g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "NEED A FARMER'S HOE", "plots need the hoe equipped");
+        check(!g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "EQUIP YOUR HOE FIRST (PACK > TO HOTBAR)", "plots need the hoe equipped (a hoe only in the pack is not used)");
         g.p.tool[TT_HOE] = hoe;
     }
     stand(g, V2(fx * TS + 8, fy * TS + 26));
@@ -262,17 +262,17 @@ int homesteadTest(Game& g) {
         const int used0 = g.p.inv.usedSlots();
         bool ok = true;
         for (int i = 0; i < 3; i++) {  // take each one off: it returns to the pack once, and the farm code stops seeing it
-            ok = ok && g.unequipFarmTool(types[i]) && g.p.tool[types[i]] < 0 && g.p.inv.count(itemTool(ids[i])) == 1 && g.bestTool(types[i]) == 0;
+            ok = ok && g.unequipFarmTool(types[i]) && g.p.tool[types[i]] < 0 && g.p.inv.count(itemTool(ids[i])) == 1 && g.p.hotSlotOf(itemTool(ids[i])) < 0 && g.bestTool(types[i]) == 0;
         }
-        check(ok && g.p.inv.usedSlots() == used0 + 3, "taking off the hoe, can and sickle returns each to the pack exactly once");
+        check(ok && g.p.inv.usedSlots() == used0, "taking off the hoe, can and sickle clears the hotbar; each stays in the pack exactly once");
         check(!g.unequipFarmTool(TT_HOE) && !g.unequipFarmTool(TT_AXE), "taking off an empty or non-farm slot does nothing");
-        check(!g.hsWater(*plot) && !g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "EQUIP YOUR HOE FIRST (PACK)", "a tool lying in the pack is not used, and the message says to equip it");
+        check(!g.hsWater(*plot) && !g.hsCanBuild(HP_PLOT, fx + 1, fy, 0, &why) && why == "EQUIP YOUR HOE FIRST (PACK > TO HOTBAR)", "a tool lying in the pack is not used, and the message says to equip it");
         auto slotOf = [&](int tool) { for (int s = 0; s < g.p.bagCap(); s++) if (g.p.inv.slots[s].item == itemTool(tool)) return s; return -1; };
         ok = true;
         for (int i = 0; i < 3; i++) {  // equip each one through the inventory action
-            ok = ok && g.useSlot(slotOf(ids[i])) && g.p.tool[types[i]] == ids[i] && g.p.inv.count(itemTool(ids[i])) == 0 && g.bestTool(types[i]) == 1;
+            ok = ok && g.useSlot(slotOf(ids[i])) && g.p.tool[types[i]] == ids[i] && g.p.inv.count(itemTool(ids[i])) == 1 && g.p.hotSlotOf(itemTool(ids[i])) >= 0 && g.bestTool(types[i]) == 1;
         }
-        check(ok && g.p.inv.usedSlots() == used0, "equipping each tool through the pack works and removes it from the pack");
+        check(ok && g.p.inv.usedSlots() == used0, "equipping each tool through the pack puts it on the hotbar and it stays in the pack");
         // incompatible items are refused and nothing moves
         g.p.inv.addIgnoringWeight(itemTool(TL_AXE1), 1);
         g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 1);
@@ -282,21 +282,40 @@ int homesteadTest(Game& g) {
         const int used1 = g.p.inv.usedSlots();
         check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1 && g.p.tool[TT_AXE] < 0 && g.p.tool[TT_PICK] < 0, "an axe, a material or an empty slot cannot be equipped as a farming tool");
         g.p.inv.remove(itemTool(TL_AXE1), 1);
-        // a different hoe replaces the equipped one, which goes back to the pack (no loss, no duplicate)
+        // equipping the equipped tool again is refused: one hoe on the hotbar, no duplicate
         g.p.inv.addIgnoringWeight(itemTool(TL_HOE), 1);  // (the test pack may be at its weight limit)
-        check(g.equipFarmTool(slotOf(TL_HOE)) && g.p.tool[TT_HOE] == TL_HOE && g.p.inv.count(itemTool(TL_HOE)) == 1, "equipping over an equipped tool sends the old one back to the pack");
+        int hoeSlots = 0;
+        for (int h = 0; h < HOT_N; h++) hoeSlots += g.p.hot[h] == itemTool(TL_HOE);
+        check(!g.equipFarmTool(slotOf(TL_HOE)) && g.p.tool[TT_HOE] == TL_HOE && hoeSlots == 1, "equipping an already equipped tool changes nothing");
         g.p.inv.remove(itemTool(TL_HOE), 1);  // drop the spare
         g.unequipFarmTool(TT_HOE);
         g.equipFarmTool(slotOf(TL_HOE));
-        check(g.p.tool[TT_HOE] == TL_HOE && g.p.inv.count(itemTool(TL_HOE)) == 0, "a tool can be put back after taking it off");
-        // a full pack blocks taking off, with the tool kept where it is
+        check(g.p.tool[TT_HOE] == TL_HOE && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0, "a tool can be put back after taking it off");
+        // taking off needs no free pack slot: the tool simply stays where it is
         std::vector<int> filled;
-        for (int s = 0; s < g.p.bagCap(); s++)
-            if (g.p.inv.slots[s].empty()) { g.p.inv.slots[s].item = itemMat(M_WOOD); g.p.inv.slots[s].n = 1; filled.push_back(s); }
-        check(!g.unequipFarmTool(TT_CAN) && g.p.tool[TT_CAN] == TL_CAN && g.p.inv.count(itemTool(TL_CAN)) == 0, "taking a tool off with a full pack is refused and the tool stays equipped");
-        for (int s : filled) g.p.inv.slots[s] = Slot();
-        check(g.unequipFarmTool(TT_CAN) && g.p.inv.count(itemTool(TL_CAN)) == 1 && g.equipFarmTool(slotOf(TL_CAN)), "with room again it can be taken off and equipped");
+        for (int s2 = 0; s2 < g.p.bagCap(); s2++)
+            if (g.p.inv.slots[s2].empty()) { g.p.inv.slots[s2].item = itemMat(M_WOOD); g.p.inv.slots[s2].n = 1; filled.push_back(s2); }
+        check(g.unequipFarmTool(TT_CAN) && g.p.tool[TT_CAN] < 0 && g.p.inv.count(itemTool(TL_CAN)) == 1, "taking a tool off works with a full pack (it stays in the pack)");
+        for (int s2 : filled) g.p.inv.slots[s2] = Slot();
+        check(g.equipFarmTool(slotOf(TL_CAN)) && g.p.tool[TT_CAN] == TL_CAN, "with the pack emptied again it can be equipped");
         g.p.inv.remove(itemMat(M_WOOD), 99);
+        // a tool that leaves the pack stops being equipped (and leaves the hotbar)
+        g.p.inv.remove(itemTool(TL_CAN), 1);
+        g.syncFarmTools();
+        check(g.p.tool[TT_CAN] < 0 && g.p.hotSlotOf(itemTool(TL_CAN)) < 0, "a tool dropped or sold from the pack is no longer equipped");
+        g.p.inv.addIgnoringWeight(itemTool(TL_CAN), 1);
+        g.equipFarmTool(slotOf(TL_CAN));
+        // the hotbar is universal: a tool goes in any chosen slot, moves between slots, and the number key puts it in hand
+        {
+            const int hoeId = itemTool(TL_HOE);
+            g.p.hot[7] = -1;
+            check(g.equipHot(hoeId, 7) && g.p.hot[7] == hoeId && g.p.tool[TT_HOE] == TL_HOE && g.p.hotSlotOf(hoeId) == 7, "a farming tool can be put in any hotbar slot (slot 8)");
+            g.hotUse(7);
+            check(g.p.tool[TT_HOE] == TL_HOE && g.bestTool(TT_HOE) == 1, "the number key puts the tool in hand and it stays equipped");
+            g.unequipHot(7);
+            check(g.p.tool[TT_HOE] < 0 && g.p.hotSlotOf(hoeId) < 0 && g.p.inv.count(hoeId) == 1 && g.bestTool(TT_HOE) == 0, "unequipping from the hotbar takes the tool off and keeps it in the pack");
+            g.equipFarmTool(slotOf(TL_HOE));
+        }
         // equipped tools do their jobs (water, till, cut) after all the switching
         g.hsRefillCan();
         check(g.bestTool(TT_CAN) == 1 && g.hs.can == CAN_CAPACITY && g.bestTool(TT_HOE) == 1 && g.bestTool(TT_SICKLE) == 1, "after equipping again the farm code sees every tool");
@@ -408,10 +427,10 @@ int homesteadTest(Game& g) {
     g.ensureDomArt();
     bool art = g.A.Dom.built;
     for (int k = 0; k < DA_COUNT; k++)
-        for (int v = 0; v < 8; v++)
+        for (int v = 0; v < AV_VIEWS; v++)
             for (int st = 0; st < DS_COUNT; st++)
                 for (int f = 0; f < DS_FRAMES[st]; f++) art = art && g.A.Dom.get(k, v, st, f).ok();
-    check(art, "all seven animals have idle / walk / eat frames in 8 directions");
+    check(art, "all seven animals have idle / walk / eat frames in 4 directions");
 
     printf("--- stage 6: save, load and integration\n");
     {
@@ -441,7 +460,7 @@ int homesteadTest(Game& g) {
     check(g.world.mapId == B_HOMESTEAD, "a hunter saved in the Homestead loads back into it");
     check(g.hs.pieces.size() == nPieces && g.hs.animals.size() == nAnimals, "every building and animal is restored");
     check(g.p.coins == coinsBefore, "the hunter's own data loads too");
-    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] < 0 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.inv.count(itemTool(TL_HOE)) == 0, "the equipped farming tools are saved and restored (the sickle stayed in the pack)");
+    check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] < 0 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.hotSlotOf(itemTool(TL_SICKLE)) < 0, "the equipped farming tools are saved and restored (the sickle stayed off the hotbar)");
     HPiece* s3 = g.hsAt(sx, sy + 3, HL_OBJECT);
     check(s3 && s3->rot == 1 && s3->inv.count(itemMat(M_CORN)) == 12, "storage contents and rotation are restored");
     HPiece* o3 = g.hsAt(fx, fy, HL_GROUND);
@@ -554,7 +573,11 @@ int homesteadTest(Game& g) {
     }
     {  // an old save (no "farmtools" line) keeps working: the hoe / can / sickle in its pack become the equipped ones
         g.p.tool[TT_HOE] = g.p.tool[TT_CAN] = g.p.tool[TT_SICKLE] = -1;
-        for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE}) g.p.inv.addIgnoringWeight(itemTool(k), 1);
+        for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE}) {  // exactly one of each in the pack, none on the hotbar (as an old save had them)
+            g.p.inv.remove(itemTool(k), g.p.inv.count(itemTool(k)));
+            g.p.inv.addIgnoringWeight(itemTool(k), 1);
+            if (g.p.hotSlotOf(itemTool(k)) >= 0) g.p.hot[g.p.hotSlotOf(itemTool(k))] = -1;
+        }
         g.save();
         std::ifstream in(g.savePath());
         std::string line, kept;
@@ -562,7 +585,8 @@ int homesteadTest(Game& g) {
         in.close();
         std::ofstream(g.savePath(), std::ios::trunc) << kept;
         g.newGame();
-        check(g.load() && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 0 && g.bestTool(TT_CAN) == 1, "an old save without the farmtools line equips the tools it carried");
+        const bool ldOk = g.load();
+        check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.bestTool(TT_CAN) == 1, "an old save without the farmtools line equips the tools it carried");
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

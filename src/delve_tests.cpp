@@ -49,12 +49,12 @@ int delveTest(Game& g) {
         bool all = g.A.M.built;
         for (int k = 0; k < MK_COUNT; k++)
             for (int st : {MS_IDLE, MS_WALK, MS_ATK, MS_HURT, MS_DEATH})
-                for (int v = 0; v < 8; v++)
+                for (int v = 0; v < AV_VIEWS; v++)
                     for (int f = 0; f < MS_FRAMES[st]; f++) all = all && g.A.M.s[k][v][st][f].ok();
-        check(all, "every creature has idle / walk / attack / hurt / death frames in all 8 directions");
+        check(all, "every creature has idle / walk / attack / hurt / death frames in all 4 directions");
         bool cast = true;
         for (int k : {MK_MAGE, MK_KING, MK_GOLEM, MK_ICEGOLEM})
-            for (int v = 0; v < 8; v++) cast = cast && g.A.M.s[k][v][MS_CAST][0].ok();
+            for (int v = 0; v < AV_VIEWS; v++) cast = cast && g.A.M.s[k][v][MS_CAST][0].ok();
         check(cast, "mages, golems and the king have a spell / slam clip too");
     }
 

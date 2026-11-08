@@ -92,7 +92,7 @@ inline Img mkChibiPose(int dir, const HPose& P, const HunterLook& look) {
     using namespace chibi;
     Img im(18, 26);
     const HunterLook L = clampLook(look);
-    const bool side = dir == 2, back = dir == 1 || dir == 4, tq = dir >= 3;
+    const bool side = dir == 2, back = dir == 1;
     const char* const* T = side ? SIDE_R : back ? BACK : FRONT;
     const int OX = 3, OY = 8;  // template origin on the canvas
     // ---- colour grid; the template's own black contour is dropped (it is redrawn around the finished shape)
@@ -106,7 +106,7 @@ inline Img mkChibiPose(int dir, const HPose& P, const HunterLook& look) {
             g[y][x].c = colourOf(ch, y, L, side);
             if (y >= 5 && y <= 6 && ch == 'a' && ((!side && !back && (x == 4 || x == 7)) || (side && x == 7))) g[y][x].eye = true;
         }
-    const u32 skin = SKINCOL[L.skin], skinS = SKINSHADE[L.skin];
+    const u32 skin = SKINCOL[L.skin];
     const int bob = std::max(0, std::min(2, P.bob));
     // blinking: the upper eye pixel closes
     if (P.blink)
@@ -134,22 +134,18 @@ inline Img mkChibiPose(int dir, const HPose& P, const HunterLook& look) {
     // ---- the body (rows 0-13) rises by the bob; the gap under it is filled with a tunic row
     for (int k = 1; k <= bob; k++)
         for (int x = 0; x < 12; x++) put(x, 13 - bob + k, g[12][x].c);
-    const int shift = (tq ? 1 : 0);
     for (int y = 0; y < 14; y++)
         for (int x = 0; x < 12; x++) {
             Cell c = g[y][x];
             if (!c.c) continue;
             int px = x, py = y - bob;
             if (!side && y >= 9 && (x <= 2 || x >= 9)) py += (x <= 2 ? P.aL : P.aR) * 1;  // the arms swing
-            if (y <= 8) px += shift;                                                           // the head turns a pixel in the 3/4 views
-            if (c.eye && tq && !back) px += 1;
             put(px, py, c.c);
         }
-    if (tq && back) put(10 + shift, 7 - bob, skinS);  // the cheek that turns into view
     // ---- hairstyles beyond the short bowl cut
     {
         const u32 hair = HAIRCOL[L.color], hd = shadeC(hair, 0.72f), hl = shadeC(hair, 1.15f), tie = HEX(0xe8584f);
-        const int hx = shift, hy = -bob;
+        const int hx = 0, hy = -bob;
         auto hp = [&](int x, int y, u32 c) { put(x + hx, y + hy, c); };
         switch (L.hair) {
             case 1:  // long

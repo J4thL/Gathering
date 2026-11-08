@@ -128,7 +128,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
                     if (a.px > cx - 2 && a.px < cx + TS + 2 && a.py > cy - 2 && a.py < cy + TS + 2) return no("AN ANIMAL IS IN THE WAY");
             }
         }
-    if (needsHoe && bestTool(TT_HOE, nullptr) <= 0) return no(p.inv.count(itemTool(TL_HOE)) > 0 ? "EQUIP YOUR HOE FIRST (PACK)" : "NEED A FARMER'S HOE");
+    if (needsHoe && bestTool(TT_HOE, nullptr) <= 0) return no(p.inv.count(itemTool(TL_HOE)) > 0 ? "EQUIP YOUR HOE FIRST (PACK > TO HOTBAR)" : "NEED A FARMER'S HOE");
     std::string lack;
     if (!hsCost(kind, &lack)) return no(lack.c_str());
     if (why) why->clear();
@@ -229,9 +229,9 @@ void Game::hsGiveStarter() {
     auto give = [&](int item, int n) {
         if (p.inv.add(item, n) < n) p.inv.addIgnoringWeight(item, n);
     };
-    // the starter tools go straight into the equipment slots (a hunter who already owns one, equipped or not, is not given a second)
+    // the starter tools are equipped on the hotbar (a hunter who already owns one, equipped or not, is not given a second)
     for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE})
-        if (!ownsTool(k)) p.tool[TOOLDEF[k].type] = k;
+        if (!ownsTool(k)) giveFarmTool(k);
     give(itemMat(M_SEED_WHEAT), 6);
     give(itemMat(M_SEED_CARROT), 6);
     give(itemMat(M_SEED_POTATO), 4);
@@ -410,7 +410,7 @@ void Game::hsAddAnimal(int kind, V2 at, bool baby, int home) {
     a.age = baby ? 0.f : DOMS[kind].growSec + 1.f;
     a.home = home;
     a.breedCd = BREED_CD * 0.5f;
-    a.face8 = frng.irange(0, 7);
+    a.face8 = frng.irange(0, F_COUNT - 1);
     a.stT = frng.range(0.5f, 3.f);
     hs.animals.push_back(a);
 }
@@ -565,10 +565,7 @@ void Game::hsTickAnimals(float dt) {
                     a.state = 0;
                     a.stT = frng.range(0.5f, 1.5f);
                 }
-                const float ang = atan2f(d.y, d.x);  // 0 = east, +y = south: view order S,SE,E,NE,N,NW,W,SW
-                a.face8 = ((int)lroundf(ang / 0.7854f) + 8) % 8;
-                static const int FROM_ANG[8] = {2, 1, 0, 7, 6, 5, 4, 3};  // angle step (0 = E, 1 = SE ...) -> view (S,SE,E,NE,N,NW,W,SW)
-                a.face8 = FROM_ANG[a.face8];
+                a.face8 = facingFromDir(d.x, d.y, a.face8);
             }
         } else if (a.state == 2) {
             if (a.stT <= 0) { a.state = 0; a.stT = frng.range(1.f, 3.f); }
