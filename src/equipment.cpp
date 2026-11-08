@@ -57,7 +57,12 @@ bool Game::ownsTool(int toolId) const {
 // Keeps the two views of "equipped" in step: a tool that left the pack (dropped, sold) is no longer equipped, and the hotbar never
 // holds a farm tool that is not the equipped one of its type (or one that is no longer in the pack).
 void Game::syncFarmTools() {
-    if (p.hand >= 0 && p.tool[p.hand] < 0) p.hand = -1;  // (the tool in hand was taken off or lost)
+    if (p.hotSel >= 0 && p.hot[p.hotSel] < 0) {  // the selected slot was emptied
+        p.hotSel = -1;
+        if (p.hand >= 0) p.hand = -1;
+    }
+    if (p.hand >= 0 && p.hand < HAND_SEED0 && p.tool[p.hand] < 0) p.hand = -1;  // (the tool in hand was taken off or lost)
+    if (p.hand >= HAND_SEED0 && p.hand < HAND_ITEM && p.hotSlotOf(itemMat(cropSeed(p.hand - HAND_SEED0))) < 0) p.hand = -1;  // (the seeds were taken off the hotbar)
     for (int t = 0; t < TT_COUNT; t++) {
         if (!isFarmType(t)) continue;
         if (p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.tool[t] = -1;
@@ -184,6 +189,7 @@ void Game::unequipHot(int hotSlot) {
     }
     p.hot[hotSlot] = -1;
     p.charging = false;
+    syncFarmTools();
     fixSel();
     audio.play(S_CLICK);
 }
@@ -198,15 +204,53 @@ void Game::fixSel() {
         }
 }
 
-// A hotbar key: weapons are selected, consumables used, structures placed.
+// What a click does with the item in hand, for the message and the hotbar caption.
+static std::string handHint(const Game& g, int id, bool inHome) {
+    const ItemDef& D = item(id);
+    if (D.kind == IK_THROWN || D.kind == IK_LAUNCHER) return "";
+    if (seedCropOf(id) >= 0) return inHome ? " - LEFT CLICK TILLED SOIL" : " - FOR YOUR HOMESTEAD";
+    switch (D.kind) {
+        case IK_TOOL: return Game::isFarmType(TOOLDEF[D.ref].type) ? (inHome ? " - LEFT CLICK A TILE" : " - FOR YOUR HOMESTEAD") : "";
+        case IK_CONSUMABLE: return " - LEFT CLICK TO USE";
+        case IK_PLACEABLE: return " - LEFT CLICK TO PLACE";
+        case IK_BACKPACK: return " - LEFT CLICK TO WEAR";
+        default: return "";
+    }
+    (void)g;
+}
+
+// Take a hotbar item in hand without using it (the wheel and the number keys of non-consumables): a weapon becomes the selected one,
+// a farm tool or seeds are held for the soil, anything else is held and used by a left click (hotClick).
+void Game::hotSelect(int hotSlot, bool say) {
+    if (hotSlot < 0 || hotSlot >= HOT_N || p.hot[hotSlot] < 0) return;
+    const int id = p.hot[hotSlot];
+    const ItemDef& D = item(id);
+    p.hotSel = hotSlot;
+    p.charging = false;
+    if (D.kind == IK_THROWN || D.kind == IK_LAUNCHER) {
+        p.sel = D.ref;
+        p.hand = -1;
+        return;
+    }
+    if (seedCropOf(id) >= 0) p.hand = HAND_SEED0 + seedCropOf(id);
+    else if (D.kind == IK_TOOL && isFarmType(TOOLDEF[D.ref].type)) {
+        p.tool[TOOLDEF[D.ref].type] = D.ref;
+        p.hand = TOOLDEF[D.ref].type;
+        syncFarmTools();
+    } else p.hand = HAND_ITEM;
+    if (say) {
+        msg("IN HAND: " + D.name + handHint(*this, id, inHomestead()), C_GOLD);
+        audio.play(S_CLICK);
+    }
+}
+
+// A hotbar key: weapons, tools, seeds and other items are taken in hand; food / healing is used and structures are placed at once.
 void Game::hotUse(int hotSlot) {
     if (hotSlot < 0 || hotSlot >= HOT_N || p.hot[hotSlot] < 0) return;
     const int id = p.hot[hotSlot];
     const ItemDef& D = item(id);
     if (D.kind == IK_THROWN || D.kind == IK_LAUNCHER) {
-        p.sel = D.ref;
-        p.hand = -1;
-        p.charging = false;
+        hotSelect(hotSlot, false);
         return;
     }
     if (p.inv.count(id) <= 0) {
@@ -214,17 +258,26 @@ void Game::hotUse(int hotSlot) {
         audio.play(S_ERROR);
         return;
     }
-    if (D.kind == IK_TOOL) {  // a farming tool in hand: the farm code uses it automatically at the soil, crops and plants
-        p.tool[TOOLDEF[D.ref].type] = D.ref;
-        syncFarmTools();
-        p.hand = TOOLDEF[D.ref].type;
-        p.charging = false;
-        msg("IN HAND: " + D.name + (inHomestead() ? " - LEFT CLICK A TILE" : " - FOR YOUR HOMESTEAD"), C_GOLD);
-        audio.play(S_CLICK);
-        return;
-    }
     if (D.kind == IK_CONSUMABLE) useConsumable(D.ref);
     else if (D.kind == IK_PLACEABLE) placeStructure(D.ref);
+    else hotSelect(hotSlot, true);
+}
+
+// Left click with a non-weapon item from the hotbar in hand (hand == HAND_ITEM): use it, place it or wear it.
+bool Game::hotClick() {
+    if (p.hotSel < 0 || p.hotSel >= HOT_N || p.hot[p.hotSel] < 0) { p.hand = -1; return false; }
+    const int id = p.hot[p.hotSel];
+    const ItemDef& D = item(id);
+    if (p.inv.count(id) <= 0) {
+        msg("NO " + D.name + " LEFT", C_RED);
+        audio.play(S_ERROR);
+        return true;
+    }
+    if (D.kind == IK_CONSUMABLE) return useConsumable(D.ref);
+    if (D.kind == IK_PLACEABLE) return placeStructure(D.ref);
+    for (int s = 0; s < p.bagCap(); s++)  // anything else: what the pack's action button would do (wear a bag, explain a material...)
+        if (p.inv.slots[s].item == id && !p.inv.slots[s].empty()) return useSlot(s);
+    return false;
 }
 
 // Put (up to n of) the stack in a pack slot on the ground in front of the hunter. Nothing is destroyed: walk over it to take it back.

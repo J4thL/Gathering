@@ -209,7 +209,7 @@ int homesteadTest(Game& g) {
     }
     stand(g, V2(fx * TS + 8, fy * TS + 26));
     g.hsFindTarget(t);
-    check(t.type == 1 && t.label == "PLANT SEEDS", "the prompt says PLANT SEEDS on an empty plot");
+    check(!(g.hsFindTarget(t) && t.type == 1), "an empty plot has no E prompt (sowing is done with seeds in hand)");
     const int seeds0 = g.p.mat(M_SEED_WHEAT);
     check(g.hsPlant(*plot, CR_WHEAT) && g.p.mat(M_SEED_WHEAT) == seeds0 - 1 && plot->crop == CR_WHEAT, "planting uses a seed");
     steps(g, 20, 1.f);
@@ -340,7 +340,23 @@ int homesteadTest(Game& g) {
             check(g.state == ST_FARM && g.farmPieceId == (np ? np->id : -1), "clicking the empty plot with the hoe opens the seed menu");
             g.state = ST_PLAY;
             np = g.hsAt(tx, ty, HL_GROUND);
-            g.hsPlant(*np, CR_CARROT);
+            // seeds are equipped on the hotbar like a tool and sow the plot they are clicked on
+            const int seedId = itemMat(cropSeed(CR_CARROT));
+            check(g.equipHot(seedId) && g.p.hotSlotOf(seedId) >= 0, "seeds can be put on the hotbar");
+            g.hotUse(g.p.hotSlotOf(seedId));
+            check(g.p.hand == HAND_SEED0 + CR_CARROT, "the seeds' key puts them in hand");
+            aim(tx + 1, ty);
+            g.hsToolUse();
+            check(!g.hsAt(tx + 1, ty, HL_GROUND), "seeds clicked on bare soil are not wasted (till it first)");
+            aim(tx, ty);
+            const int seedsBefore = g.p.inv.count(seedId);
+            g.hsToolUse();
+            np = g.hsAt(tx, ty, HL_GROUND);
+            check(np && np->crop == CR_CARROT && g.p.inv.count(seedId) == seedsBefore - 1, "left click with seeds in hand sows the tilled plot and uses one seed");
+            g.hsToolUse();
+            check(g.p.inv.count(seedId) == seedsBefore - 1, "clicking an already planted plot does not use another seed");
+            g.unequipHot(g.p.hotSlotOf(seedId));
+            check(g.p.hand < 0, "taking the seeds off the hotbar empties the hand");
             np = g.hsAt(tx, ty, HL_GROUND);
             np->water = 0.f;
             g.hotUse(g.p.hotSlotOf(itemTool(TL_CAN)));
@@ -557,12 +573,14 @@ int homesteadTest(Game& g) {
         g.dayT = 210.f;
         steps(g, 3); shot("j_night.bmp");
     }
-    printf("--- the E key at a farm plot beside a harvestable tree, rock or plant\n");
+    printf("--- the E key at a ripe crop beside a harvestable tree, rock or plant\n");
     {   // the real key path (update), not the direct call: E used to start harvesting the nearby plant instead of using the plot
         g.state = ST_PLAY;
         g.p.coins += 1000;
         stock(g);
         int tried = 0, worked = 0;
+        int noToolCrop = 0;  // a crop that needs no tool to harvest
+        for (int c = 0; c < CR_COUNT; c++) if (CROPS[c].tool < 0) { noToolCrop = c; break; }
         for (size_t i = 0; i < g.world.nodes.size() && tried < 6; i++) {
             const int ntx = (int)(g.world.nodes[i].x / TS), nty = (int)(g.world.nodes[i].y / TS);
             for (int d = 0; d < 8 && tried < 6; d++) {
@@ -574,10 +592,11 @@ int homesteadTest(Game& g) {
                 if (!g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
                 stand(g, V2((tx + .5f) * TS, (ty + .5f) * TS));
                 tried++;
+                if (HPiece* rp = g.hsAt(tx, ty, HL_GROUND)) { rp->crop = noToolCrop; rp->stage = CROP_STAGES - 1; rp->growT = 0; }
                 g.in.ePressed = true;
                 g.update(1.f / 60.f);
                 g.in.ePressed = false;
-                if (g.state == ST_FARM) worked++;
+                if (const HPiece* rp = g.hsAt(tx, ty, HL_GROUND)) worked += !(rp->crop == noToolCrop && rp->stage >= CROP_STAGES - 1);  // harvested
                 g.state = ST_PLAY;
                 g.hsDemolish(tx, ty);
                 break;
@@ -593,20 +612,21 @@ int homesteadTest(Game& g) {
                     if (g.findHarvest(h) || !g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
                     px = tx; py = ty; ok = 1;
                 }
-            bool opened = false;
+            bool harvested = false;
             if (ok) {
+                if (HPiece* rp = g.hsAt(px, py, HL_GROUND)) { rp->crop = noToolCrop; rp->stage = CROP_STAGES - 1; rp->growT = 0; }
                 stand(g, V2((px + .5f) * TS, (py + .5f) * TS));
                 g.in.ePressed = true;
                 g.update(1.f / 60.f);
                 g.in.ePressed = false;
-                opened = g.state == ST_FARM;
+                if (const HPiece* rp = g.hsAt(px, py, HL_GROUND)) harvested = !(rp->crop == noToolCrop && rp->stage >= CROP_STAGES - 1);
                 g.state = ST_PLAY;
                 g.hsDemolish(px, py);
             }
-            check(ok && opened, "control: E at a plot with nothing harvestable around opens the farm menu");
+            check(ok && harvested, "control: E at a ripe crop with nothing harvestable around harvests it");
         }
         check(tried > 0, "found a spot for a plot within reach of a harvestable (" + std::to_string(tried) + " tried)");
-        check(tried > 0 && worked == tried, "E at a plot opens the farm menu even with a harvestable in reach (" + std::to_string(worked) + " of " + std::to_string(tried) + ")");
+        check(tried > 0 && worked == tried, "E at a ripe crop harvests it even with a harvestable tree, rock or plant in reach (" + std::to_string(worked) + " of " + std::to_string(tried) + ")");
     }
     {  // an old save (no "farmtools" line) keeps working: the hoe / can / sickle in its pack become the equipped ones
         g.p.tool[TT_HOE] = g.p.tool[TT_CAN] = g.p.tool[TT_SICKLE] = -1;

@@ -370,7 +370,17 @@ int selfTest(Game& g) {
         g.p.inv.add(itemCons(C_COOKED), 3);
         g.p.inv.add(itemCons(C_BREW), 1);
         check(g.p.hotSlotOf(itemMat(M_MEAT)) < 0 && g.p.hotSlotOf(itemWpn(W_BOW)) < 0 && g.p.hotSlotOf(itemCons(C_COOKED)) < 0, "collected items are never auto-assigned to the hotbar");
-        check(!g.equipHot(itemMat(M_MEAT)) && !g.equipHot(itemAmmo(AM_ARROW)) && !g.equipHot(itemTool(TL_AXE1)), "materials, ammunition and tools cannot be equipped on the hotbar");
+        check(!g.equipHot(itemWpn(W_SPEAR)) && !g.equipHot(-1), "an item that is not in the pack, or no item, cannot be equipped");
+        {   // every category can go on the hotbar: materials, ammunition and tools too
+            const bool all = g.equipHot(itemMat(M_MEAT)) && g.equipHot(itemAmmo(AM_ARROW)) && g.equipHot(itemTool(TL_AXE1)) == false;  // (no axe in the pack yet)
+            g.p.inv.add(itemTool(TL_AXE1), 1);
+            const bool axeOk = g.equipHot(itemTool(TL_AXE1));
+            check(all && axeOk && g.p.hotSlotOf(itemMat(M_MEAT)) >= 0 && g.p.hotSlotOf(itemAmmo(AM_ARROW)) >= 0 && g.p.hotSlotOf(itemTool(TL_AXE1)) >= 0, "every category of item (material, ammunition, tool) can be put on the hotbar");
+            g.unequipHot(g.p.hotSlotOf(itemMat(M_MEAT)));
+            g.unequipHot(g.p.hotSlotOf(itemAmmo(AM_ARROW)));
+            g.unequipHot(g.p.hotSlotOf(itemTool(TL_AXE1)));
+            g.p.inv.remove(itemTool(TL_AXE1), 1);
+        }
         check(!g.equipHot(itemWpn(W_BOW), HOT_N) && !g.equipHot(itemWpn(W_BOW), 99) && g.p.hotSlotOf(itemWpn(W_BOW)) < 0, "a slot that does not exist refuses the item");
         check(g.equipHot(itemCons(C_COOKED), 7) && g.p.hot[7] == itemCons(C_COOKED) && g.equipHot(itemWpn(W_BOW), 6) && g.p.hot[6] == itemWpn(W_BOW), "every hotbar slot is universal: food in slot 8, a weapon in slot 7");
         g.unequipHot(7);
@@ -413,12 +423,29 @@ int selfTest(Game& g) {
             g.in.wheel = -1;
             g.update(1.f / 60.f);
             g.in.wheel = 0;
-            check(g.p.sel == W_BOW, "the mouse wheel moves between equipped weapons only");
+            check(g.p.sel == W_BOW && g.p.hotSel == g.p.hotSlotOf(itemWpn(W_BOW)), "the mouse wheel moves to the next hotbar slot and takes a weapon in hand");
             g.p.inv.add(itemWpn(W_SPEAR), 1);
-            g.in.wheel = -1;
+            bool reachedFlint = false, spearSeen = false;
+            for (int k = 0; k < HOT_N + 1; k++) {  // the wheel visits every equipped item (food, healing...) and never an unequipped spear
+                g.in.wheel = -1;
+                g.update(1.f / 60.f);
+                g.in.wheel = 0;
+                if (g.p.hotSel >= 0 && g.p.hot[g.p.hotSel] == itemWpn(W_SPEAR)) spearSeen = true;
+                if (g.p.hand < 0 && g.p.sel == W_FLINT && g.p.hotSel == g.p.hotSlotOf(itemWpn(W_FLINT))) reachedFlint = true;
+            }
+            check(reachedFlint && !spearSeen, "...it comes back round to the knife and skips an unequipped spear in the pack");
+            // a consumable reached by the wheel is held, not eaten; a left click uses it
+            g.equipHot(itemCons(C_COOKED), 5);
+            const int foodSlot = g.p.hotSlotOf(itemCons(C_COOKED));
+            const int cookedN = g.p.inv.count(itemCons(C_COOKED));
+            g.hotSelect(foodSlot, false);
+            check(g.p.hand == HAND_ITEM && g.p.inv.count(itemCons(C_COOKED)) == cookedN, "food selected with the wheel is held, not used");
+            g.p.hp = 40;
+            g.in.lPressed = true;
             g.update(1.f / 60.f);
-            g.in.wheel = 0;
-            check(g.p.sel == W_FLINT, "...an unequipped spear in the pack is skipped");
+            g.in.lPressed = false;
+            check(g.p.inv.count(itemCons(C_COOKED)) == cookedN - 1 && g.p.hp > 40 && !g.p.charging, "a left click uses the food in hand (and does not throw a weapon)");
+            g.hotSelect(g.p.hotSlotOf(itemWpn(W_FLINT)), false);
         }
         {   // empty slots stay empty; the hotbar renders in every state
             for (int i = 0; i < HOT_N; i++) g.p.hot[i] = -1;

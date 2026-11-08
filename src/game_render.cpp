@@ -950,7 +950,7 @@ void Game::drawHud() {
             const int id = p.hot[i];
             const bool isWpn = id >= 0 && (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER);
             const bool isTool = id >= 0 && item(id).kind == IK_TOOL;
-            const bool sel = (isWpn && item(id).ref == p.sel) || (isTool && p.hand == TOOLDEF[item(id).ref].type);
+            const bool sel = p.hand >= 0 ? i == p.hotSel : (isWpn && item(id).ref == p.sel);  // the slot in hand
             const int yy = y - (sel ? 3 : 0);
             panel(x, yy, sw, sw, sel ? HEX(0x6a4a2a) : HEX(0x33241a));
             if (sel) {
@@ -971,7 +971,11 @@ void Game::drawHud() {
             }
             if (sel && p.cd > 0) bar(x + 3, yy + sw - 3, sw - 6, 1, 1.f - p.cd / WPN[item(id).ref].cd, C_GOLD);
         }
-        if (p.hand >= 0 && p.tool[p.hand] >= 0) textC(x0 + total / 2, y - 12, std::string(TOOLDEF[p.tool[p.hand]].name) + " - LEFT CLICK A TILE", C_TEXT);
+        if (p.hand >= 0 && p.hotSel >= 0 && p.hot[p.hotSel] >= 0) {
+            const int hid = p.hot[p.hotSel];
+            const char* hint = seedCropOf(hid) >= 0 ? " - CLICK TILLED SOIL" : item(hid).kind == IK_TOOL ? " - CLICK A TILE" : item(hid).kind == IK_CONSUMABLE ? " - CLICK TO USE" : item(hid).kind == IK_PLACEABLE ? " - CLICK TO PLACE" : item(hid).kind == IK_BACKPACK ? " - CLICK TO WEAR" : "";
+            textC(x0 + total / 2, y - 12, item(hid).name + hint, C_TEXT);
+        }
         else if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
     }
     // ---- help card
@@ -1380,7 +1384,7 @@ void Game::drawInventory() {
         // ---- actions on the selected slot
         const Slot& cur = p.inv.slots[std::max(0, std::min(cap - 1, invSel))];
         const ItemDef* cd = cur.empty() ? nullptr : &item(cur.item);
-        const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK || (cd->kind == IK_TOOL && isFarmType(TOOLDEF[cd->ref].type)));
+        const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK || seedCropOf(cur.item) >= 0 || (cd->kind == IK_TOOL && isFarmType(TOOLDEF[cd->ref].type)));
         const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : cd->kind == IK_PLACEABLE ? "PLACE" : cd->kind == IK_BACKPACK ? "WEAR" : "EQUIP";
         int by = py + ph + 2;
         if (button(dx, by, 50, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);

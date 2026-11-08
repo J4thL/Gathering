@@ -163,7 +163,7 @@ void Game::drawFarmMenu() {
             audio.play(S_ERROR, 0.6f);
         }
     }
-    textC(PX + PW / 2, PY + PH - 12, "WATER THE SOIL WITH E - E / ESC CLOSE", C_DIM, 1, false);
+    textC(PX + PW / 2, PY + PH - 12, "E / ESC CLOSE", C_DIM, 1, false);
 }
 
 // ================================================================= animal management

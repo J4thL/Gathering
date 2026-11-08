@@ -197,6 +197,14 @@ constexpr int HOT_N = 8;
 enum HotKind { HK_ANY, HK_HEAL, HK_FOOD, HK_BUFF };  // HK_ANY: the slot kind; the others only classify consumables
 constexpr int HOT_KIND[HOT_N] = {HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY};
 [[maybe_unused]] static const char* HOT_KIND_NAME[] = {"ANY", "HEALING", "FOOD", "BUFF"};
+// a seed is a material that can be held in hand to sow a plot: its crop index (0..CROP_N-1), or -1 for any other item
+inline int seedCropOf(int itemId) {
+    if (!itemValid(itemId)) return -1;
+    const ItemDef& D = item(itemId);
+    return D.kind == IK_MATERIAL && D.ref >= M_SEED0 && D.ref < M_SEED0 + CROP_N ? D.ref - M_SEED0 : -1;
+}
+constexpr int HAND_SEED0 = TT_COUNT;
+constexpr int HAND_ITEM = 100;  // Player::hand: any other hotbar item is in hand (food, structure, material...): a click uses it  // Player::hand >= HAND_SEED0 means a seed is in hand: crop = hand - HAND_SEED0
 inline bool isFarmToolType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
 // which hotbar kind a consumable belongs to
 inline int consumableHotKind(int c) {
@@ -206,15 +214,8 @@ inline int consumableHotKind(int c) {
         default: return HK_HEAL;
     }
 }
-// can this item go on the hotbar? Every slot is universal: weapons, consumables, placeables and the farming tools (hoe, can, sickle)
-inline bool hotAccepts(int /*slotKind*/, int itemId) {
-    if (!itemValid(itemId)) return false;
-    const ItemDef& D = item(itemId);
-    switch (D.kind) {
-        case IK_THROWN: case IK_LAUNCHER: case IK_CONSUMABLE: case IK_PLACEABLE: return true;
-        case IK_TOOL: return isFarmToolType(TOOLDEF[D.ref].type);
-        default: return false;
-    }
-}
+// can this item go on the hotbar? Every slot is universal and takes every kind of item (weapons, ammunition, food, tools, materials, seeds,
+// structures, bags). What an item does in hand depends on its kind (Game::hotSelect / hotClick).
+inline bool hotAccepts(int /*slotKind*/, int itemId) { return itemValid(itemId); }
 
 #include "recipes.hpp"  // the recipe table needs the item ids above
