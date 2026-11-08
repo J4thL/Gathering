@@ -1816,6 +1816,7 @@ void Game::updatePlay(float dt) {
     p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
     updateVillagers(dt);
+    updateElder(dt);
     updateShopTalk(dt);
     updateProjectiles(dt);
     tickDelveTimers(dt);

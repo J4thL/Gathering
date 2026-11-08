@@ -2027,6 +2027,38 @@ int selfTest(Game& g) {
         check(framesDiffer, "every villager has distinct walk frames");
         check(mkNpc(BLD_SMITH, 0).p != mkNpc(BLD_SMITH, 1).p && mkNpc(BLD_FLOWER, 0).p != mkVillager(3, 0).p, "the shopkeepers still have their own look and idle breathing");
     }
+    printf("town: Elder Holt\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        const V2 home((COX + 45.75f) * TS, (COY + 31.6f) * TS);
+        check(dist(g.world.questGiver, home) < 1.f, "(setup) the elder starts at the spot worldgen gives him");
+        g.p.pos = home + V2(260, 0);  // far away: he strolls on his own
+        float far = 0;
+        bool ok = true;
+        for (int i = 0; i < 30 * 150; i++) {
+            g.updateElder(1.f / 30.f);
+            far = std::max(far, dist(g.world.questGiver, home));
+            ok = ok && dist(g.world.questGiver, home) <= 30.5f && !g.world.blocked(g.world.questGiver.x, g.world.questGiver.y, 4.f);
+        }
+        check(far > 5.f, "in 150 seconds Elder Holt walks a few steps around his spot");
+        check(ok, "he never wanders far, onto a wall or off the paving");
+        g.p.pos = g.world.questGiver + V2(10, 0);
+        check(g.nearQuestGiver(), "talking to him still works wherever he has strolled to");
+        // he stands still for someone who has come to talk, and speaks
+        const V2 at = g.world.questGiver;
+        g.p.pos = at + V2(30, 0);
+        g.elderChatCd = 0;
+        g.questActive = false;
+        for (int i = 0; i < 60; i++) g.updateElder(1.f / 30.f);
+        check(dist(g.world.questGiver, at) < 0.01f && !g.elderMoving, "he stands still while the hunter is close enough to talk");
+        check(g.elderSayT > 0 && std::string(g.elderSpeech()).find("HUNT") != std::string::npos, "he speaks, and offers a hunt when no quest is open");
+        g.questActive = true;
+        g.questProg = g.quest.goal;
+        check(std::string(g.elderSpeech()).find("DONE") != std::string::npos, "his words change when a quest is ready to turn in");
+        g.questActive = false;
+        g.questProg = 0;
+    }
     printf("HUD feedback\n");
     {
         g.newGame();

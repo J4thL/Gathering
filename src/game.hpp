@@ -575,6 +575,13 @@ struct Game {
     void updateShopTalk(float dt);       // the shopkeeper speaks while the hunter is in their shop
     void drawSpeech(float wx, float wy, const std::string& text, float life) const;  // a speech bubble over a head
     void drawSpeechBubbles();
+    // Elder Holt: he paces a few steps around his spot in the plaza, faces the hunter who comes near and has something to say.
+    V2 elderTarget;
+    bool elderHasTarget = false, elderMoving = false, elderFaceLeft = false;
+    float elderIdle = 2.f, elderSayT = 0, elderChatCd = 0, elderAnimT = 0;
+    int elderLine = 0;
+    void updateElder(float dt);
+    const char* elderSpeech() const;
     float npcSayT = 0, npcChatCd = 0;    // the shopkeeper's bubble: time left / time until the next remark
     int npcSayLine = 0;
     int npcNear() const;                // index in world.npcs of the person within talking reach, or -1

@@ -258,7 +258,7 @@ void Game::drawSpeech(float wx, float wy, const std::string& t, float life) cons
     (void)life;
     const int sx = (int)wx - camX, sy = (int)wy - camY;
     const int w = textW(t) + 10, h = 12;
-    const int x = std::max(2, std::min(LW - w - 2, sx - w / 2)), y = sy - h;
+    const int x = std::max(2, std::min(LW - w - 2, sx - w / 2)), y = std::max(2, sy - h);  // kept on screen
     const_cast<Game*>(this)->panel(x, y, w, h, HEX(0xf2e8d0));
     const_cast<Game*>(this)->text(x + 5, y + 4, t, HEX(0x2a1c10), 1);
     const_cast<Game*>(this)->fillRect(sx - 1, y + h, 3, 1, UI_BORDER);
@@ -272,6 +272,72 @@ void Game::drawSpeechBubbles() {
         return;
     }
     if (world.mapId != B_HOME || interior >= 0) return;
+    if (elderSayT > 0) drawSpeech(world.questGiver.x, world.questGiver.y - 58, elderSpeech(), elderSayT);
     for (auto& v : villagers)
         if (v.sayT > 0) drawSpeech(v.pos.x, v.pos.y - 28, VILLAGER_SAY[v.sayIdx % N_VILLAGER_SAY], v.sayT);
+}
+
+// ---------------------------------------------------------------- Elder Holt
+// He keeps to the cobbles within a few steps of the spot worldgen gave him (the same formula as worldgen.hpp: questGiver on the home map).
+const char* Game::elderSpeech() const {
+    static const char* idle[] = {"A GOOD HUNTER IS A PATIENT ONE.", "THE WILD GIVES TO THOSE WHO LEARN IT.", "MIND THE BEASTS AFTER DARK.", "YOUR PACK IS HEAVY - TRAVEL LIGHT."};
+    if (questReady()) return elderLine % 2 ? "WELL DONE! COME, TELL ME ALL." : "THE HUNT IS DONE - COME AND SEE ME.";
+    if (!questActive) return elderLine % 2 ? "I HAVE A NEW HUNT FOR YOU." : "READY FOR ANOTHER HUNT? TALK TO ME.";
+    return elderLine % 3 == 0 ? "HOW GOES THE HUNT?" : idle[elderLine % 4];
+}
+
+void Game::updateElder(float dt) {
+    if (world.mapId != B_HOME || interior >= 0) return;
+    const V2 home((COX + 45.75f) * TS, (COY + 31.6f) * TS);
+    elderSayT -= dt;
+    elderChatCd -= dt;
+    const float dp = dist(p.pos, world.questGiver);
+    if (dp < 70.f && !p.dead) {
+        elderFaceLeft = p.pos.x < world.questGiver.x;
+        if (elderChatCd <= 0) {  // the hunter is near: he speaks
+            elderSayT = 3.8f;
+            elderLine++;
+            elderChatCd = 13.f;
+        }
+        if (dp < 44.f) {
+            elderMoving = false;  // he stands still for someone who has come to talk
+            return;
+        }
+    }
+    if (elderIdle > 0) {
+        elderIdle -= dt;
+        elderMoving = false;
+        return;
+    }
+    if (!elderHasTarget) {
+        for (int k = 0; k < 10 && !elderHasTarget; k++) {
+            const float a = frng.range(0.f, 6.2832f), r = frng.range(8.f, 22.f);
+            const V2 t = home + V2(cosf(a), sinf(a)) * r;
+            const int tx = (int)(t.x / TS), ty = (int)(t.y / TS);
+            if (world.tile[ty][tx] != T_COBBLE || world.blocked(t.x, t.y, 6.f)) continue;
+            elderTarget = t;
+            elderHasTarget = true;
+        }
+        if (!elderHasTarget) elderIdle = 3.f;
+        return;
+    }
+    const V2 d = elderTarget - world.questGiver;
+    const float L = d.len();
+    if (L < 2.5f) {
+        elderHasTarget = false;
+        elderIdle = frng.range(3.f, 8.f);
+        elderMoving = false;
+        return;
+    }
+    const V2 np = world.questGiver + d * (1.f / L) * (16.f * dt);  // a slow old man's pace
+    if (world.blocked(np.x, np.y, 5.f) || dist(np, p.pos) < 10.f || dist(np, home) > 30.f) {
+        elderHasTarget = false;
+        elderIdle = 1.f;
+        elderMoving = false;
+        return;
+    }
+    world.questGiver = np;
+    elderFaceLeft = d.x < 0;
+    elderMoving = true;
+    elderAnimT += dt;
 }

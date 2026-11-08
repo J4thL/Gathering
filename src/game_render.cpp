@@ -474,7 +474,8 @@ void Game::renderWorld(bool) {
             sprW(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], v.pos.x, v.pos.y, v.faceLeft);
         } else if (e.t == 4) {
             sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
-            sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
+            sprW(A.quester[elderMoving ? ((int)(elderAnimT * 5.f)) & 1 : ((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y,
+                 elderMoving ? elderFaceLeft : p.pos.x < world.questGiver.x);
         } else if (e.t == 2) {
             const FacingView fv = facingView(p.face8);
             const int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));

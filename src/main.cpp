@@ -299,6 +299,10 @@ static void scriptedRun(Game& g, const std::string& dir) {
             frames(3);
             shot("12_villager.bmp");
         }
+        g.p.pos = g.world.questGiver + V2(-52, 14);  // Elder Holt speaking
+        g.elderChatCd = 0;
+        frames(40);  // (the camera glides to the new spot)
+        shot("14_elder.bmp");
         g.p.pos = keepPos;
         if (g.enterBuilding(BLD_FLOWER)) {
             g.p.pos = g.world.npcs[0].pos + V2(0, 30);
