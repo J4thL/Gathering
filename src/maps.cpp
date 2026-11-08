@@ -39,6 +39,7 @@ void Game::snapshotMap() {
     m.disc.clear();
     for (auto& l : world.landmarks) m.disc += l.found ? '1' : '0';
     m.items = items;
+    m.seen = seen;
 }
 
 void Game::restoreMap() {
@@ -49,6 +50,16 @@ void Game::restoreMap() {
     structLoad(m.st);
     for (size_t i = 0; i < m.disc.size() && i < world.landmarks.size(); i++) world.landmarks[i].found = m.disc[i] == '1';
     items = m.items;
+    seen = m.seen.size() == (size_t)MM_W * MM_H ? m.seen : std::string((size_t)MM_W * MM_H, '0');
+}
+
+void Game::revealAround(V2 pos) {
+    if (seen.size() != (size_t)MM_W * MM_H) seen.assign((size_t)MM_W * MM_H, '0');
+    const int R = 9;  // minimap cells (about 27 tiles, a bit more than the screen)
+    const int cx = (int)(pos.x / TS / MM_DIV), cy = (int)(pos.y / TS / MM_DIV);
+    for (int y = std::max(0, cy - R); y <= std::min(MM_H - 1, cy + R); y++)
+        for (int x = std::max(0, cx - R); x <= std::min(MM_W - 1, cx + R); x++)
+            if ((x - cx) * (x - cx) + (y - cy) * (y - cy) <= R * R) seen[(size_t)y * MM_W + x] = '1';
 }
 
 // The nearest tile (searching outwards from the wanted one) the hunter can stand on, as a position. Never outside the map's wall.

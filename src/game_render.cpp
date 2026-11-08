@@ -762,6 +762,16 @@ void Game::drawMinimap() {
     SDL_SetTextureAlphaMod(miniTex, 235);
     SDL_RenderCopy(ren, miniTex, nullptr, &d);
     int ox = x + 2, oy = y + 2;
+    // fog of war: cells the hunter has not been near yet are covered (row by row, runs of cells in one rectangle)
+    if (seen.size() == (size_t)MM_W * MM_H)
+        for (int cy = 0; cy < MM_H; cy++)
+            for (int cx = 0; cx < MM_W;) {
+                if (seen[(size_t)cy * MM_W + cx] == '1') { cx++; continue; }
+                int e = cx;
+                while (e < MM_W && seen[(size_t)cy * MM_W + e] == '0') e++;
+                fillRect(ox + cx, oy + cy, e - cx, 1, HEX(0x1a1410));
+                cx = e;
+            }
     auto mx = [&](float wx) { return ox + (int)(wx / TS / MM_DIV); };
     auto my = [&](float wy) { return oy + (int)(wy / TS / MM_DIV); };
     // view rectangle

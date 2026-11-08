@@ -295,6 +295,7 @@ struct Game {
         bool visited = false;
         std::vector<std::string> hv, st;  // harvested resources and placed structures, as save lines
         std::string disc;                 // which landmarks were discovered ('1' / '0')
+        std::string seen;                 // fog of war: one '0' / '1' per minimap cell (MM_W x MM_H); empty = nothing explored yet
         std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
     } mapMem[B_COUNT];
     float travelFade = 0.f, travelCd = 0.f;  // fade-in after a trip (seconds left); no new trip before this runs out
@@ -516,6 +517,8 @@ struct Game {
     // ---- maps (maps.cpp)
     bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
     void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)
+    std::string seen;                  // fog of war of the active map (see MapMem::seen)
+    void revealAround(V2 pos);         // mark the minimap cells around the hunter as explored
     void snapshotMap();                // park the active map's state in mapMem
     void restoreMap();                 // put mapMem's state for the active map back
     V2 freeSpot(int tx, int ty) const;  // the nearest standable position to a tile

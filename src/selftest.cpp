@@ -1334,6 +1334,8 @@ int selfTest(Game& g) {
         g.hActive.push_back((1 << 28) | herb);
         g.items.push_back({g.p.pos + V2(20, 0), W_FLINT, 0.f, 0.f});
         const V2 hubPos = g.world.hub[B_DESERT];
+        g.revealAround(hubPos);
+        const auto nSeen = std::count(g.seen.begin(), g.seen.end(), '1');
         g.travelTo(B_HOME, MAPS[B_DESERT].portals[0].arriveTx, MAPS[B_DESERT].portals[0].arriveTy, false);
         check(g.world.mapId == B_HOME && spotOk(), "the way back leads home to a valid spot");
         check(g.structs.size() == 1 && g.structs[0].tx == homeTx && g.structs[0].ty == homeTy, "the home map still has only its own campfire");
@@ -1343,6 +1345,7 @@ int selfTest(Game& g) {
         check(g.structs.size() == 1 && g.structs[0].tx == dTx && g.structs[0].ty == dTy && g.world.solid[dTy][dTx], "returning to the desert restores its campfire (and it blocks the tile)");
         check(g.hstate(true, herb).gone && g.landmarksFound() == 1 && g.world.landmarks[1].found, "...its harvested resource and its discovered landmark");
         check(g.items.size() == 1 && g.items[0].wpn == W_FLINT, "...and the weapon that lay on the ground");
+        check(nSeen > 0 && nSeen < (long)MM_W * MM_H && std::count(g.seen.begin(), g.seen.end(), '1') == nSeen, "...and its explored (fog of war) area, which is only the part the hunter has been near");
         check(packTotal() == packNow && g.world.hub[B_DESERT].x == hubPos.x, "nothing was duplicated or lost over two round trips");
         g.travelCd = 0;
         check(!g.travelTo(-1, 5, 5, false) && !g.travelTo(B_COUNT, 5, 5, false) && g.world.mapId == B_DESERT, "an invalid destination is refused");
