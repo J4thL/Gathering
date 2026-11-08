@@ -316,6 +316,43 @@ int homesteadTest(Game& g) {
             check(g.p.tool[TT_HOE] < 0 && g.p.hotSlotOf(hoeId) < 0 && g.p.inv.count(hoeId) == 1 && g.bestTool(TT_HOE) == 0, "unequipping from the hotbar takes the tool off and keeps it in the pack");
             g.equipFarmTool(slotOf(TL_HOE));
         }
+        // a tool in hand works the soil with a left click on the tile under the cursor
+        {
+            const int tx = fx + 1, ty = fy;
+            auto aim = [&](int tileX, int tileY) { g.in.mx = (int)(tileX * TS + 8 - g.camX); g.in.my = (int)(tileY * TS + 8 - g.camY); };
+            g.equipFarmTool(slotOf(TL_HOE));
+            g.equipFarmTool(slotOf(TL_CAN));
+            g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 40);
+            g.p.inv.addIgnoringWeight(itemMat(M_SEED_CARROT), 2);
+            stand(g, V2(tx * TS + 8, ty * TS + 30));
+            g.hotUse(g.p.hotSlotOf(itemTool(TL_HOE)));
+            check(g.p.hand == TT_HOE, "the hotbar key of a farm tool puts it in hand");
+            const size_t n0 = g.hs.pieces.size();
+            aim(tx + 12, ty);  // far away
+            g.hsToolUse();
+            check(g.hs.pieces.size() == n0, "a click on a tile out of reach does nothing");
+            aim(tx, ty);
+            g.hsToolUse();
+            HPiece* np = g.hsAt(tx, ty, HL_GROUND);
+            check(np && np->kind == HP_PLOT && g.hs.pieces.size() == n0 + 1, "left click with the hoe in hand tills the tile into a farm plot");
+            g.state = ST_PLAY;
+            g.hsToolUse();
+            check(g.state == ST_FARM && g.farmPieceId == (np ? np->id : -1), "clicking the empty plot with the hoe opens the seed menu");
+            g.state = ST_PLAY;
+            np = g.hsAt(tx, ty, HL_GROUND);
+            g.hsPlant(*np, CR_CARROT);
+            np = g.hsAt(tx, ty, HL_GROUND);
+            np->water = 0.f;
+            g.hotUse(g.p.hotSlotOf(itemTool(TL_CAN)));
+            g.hsRefillCan();
+            check(g.p.hand == TT_CAN, "the can goes in hand with its key");
+            g.hsToolUse();
+            np = g.hsAt(tx, ty, HL_GROUND);
+            check(np && np->water > 0.f, "left click with the can waters the planted crop");
+            const int wpnSlot = g.p.hotSlotOf(itemWpn(W_FLINT));
+            if (wpnSlot >= 0) { g.hotUse(wpnSlot); check(g.p.hand < 0, "a weapon key takes the weapon back in hand"); }
+            g.hsDemolish(tx, ty);
+        }
         // equipped tools do their jobs (water, till, cut) after all the switching
         g.hsRefillCan();
         check(g.bestTool(TT_CAN) == 1 && g.hs.can == CAN_CAPACITY && g.bestTool(TT_HOE) == 1 && g.bestTool(TT_SICKLE) == 1, "after equipping again the farm code sees every tool");
