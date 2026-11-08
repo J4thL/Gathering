@@ -2,7 +2,7 @@
 //
 // The reference is one flat, outline-free side view (doe 46x46, stag 46x56, the stag was drawn facing left and is mirrored here). Every
 // frame is made from those pixels: the legs are sheared and lifted around their hips, the head and neck turn (and the neck stretches
-// to graze), the tail flicks, the body bobs, lies down or rolls. The three east-ish views (SE, E, NE) come from this art; the front
+// to graze), the tail flicks, the body bobs, lies down or rolls. The east view comes from this art (west is mirrored); the front
 // and back views (S, N) are still drawn by the 3D rig in sprites_rig.hpp, in the same palette. Colours: letters below are
 // a/b browns, m maroon far legs, d shade, c cream, t tan, k near-black, p/q pink ear.
 #pragma once
@@ -604,10 +604,10 @@ inline Img paint(const QuadSpec& sp, const RigShape& R, float tierK, int view, c
         for (int i = 0; i < 128; i++)
             if (pal[i]) pal[i] = tintC(pal[i], P.tint);
 
-    // ---- to the canvas: the feet on the anchor, scaled by the tier, narrowed for the diagonal views
+    // ---- to the canvas: the feet on the anchor, scaled by the tier
     Img im(CW, CH);
     const int aix = (int)ax, aiy = (int)ay;
-    const float xs = (view == 1 || view == 3) ? 0.8f : 1.f;
+    const float xs = 1.f;
     const float cx = PAD + C.w * 0.5f, fy = (float)(PAD + C.h);
     for (int Y = 0; Y < CH; Y++)
         for (int X = 0; X < CW; X++) {

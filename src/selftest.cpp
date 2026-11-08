@@ -1619,14 +1619,23 @@ int selfTest(Game& g) {
         check(allOne, "an older save without skill lines loads with every skill at level 1");
     }
     {  // ---- hunter animation: facing, clips, the state machine
-        const float X[8] = {0, 1, 1, 1, 0, -1, -1, -1}, Y[8] = {1, 1, 0, -1, -1, -1, 0, 1};  // S SE E NE N NW W SW
-        bool all8 = true;
-        for (int f = 0; f < 8; f++) all8 = all8 && facingFromDir(X[f], Y[f]) == f;
-        check(all8, "the eight directions map to the eight facings");
+        check(F_COUNT == 4 && FACING_VIEWS == 3 && AV_VIEWS == 4, "there are exactly four facings (S, E, N, W): three drawn views plus the mirror, four rendered views");
+        const float X[4] = {0, 1, 0, -1}, Y[4] = {1, 0, -1, 0};  // S E N W
+        bool cardinal = true;
+        for (int f = 0; f < 4; f++) cardinal = cardinal && facingFromDir(X[f], Y[f]) == f;
+        check(cardinal, "the four cardinal directions map to the four facings");
+        bool onlyFour = true;  // every direction on the circle, in 1-degree steps, from every starting facing, gives one of the four facings
+        for (int deg = 0; deg < 360; deg++)
+            for (int cur = -1; cur < 4; cur++) {
+                const int f = facingFromDir(cosf(deg * 0.0174533f), sinf(deg * 0.0174533f), cur);
+                onlyFour = onlyFour && f >= 0 && f < F_COUNT;
+            }
+        check(onlyFour, "no direction ever produces a facing outside S, E, N, W");
+        check(facingFromDir(1.f, 0.4f) == F_E && facingFromDir(0.4f, 1.f) == F_S && facingFromDir(-1.f, -0.4f) == F_W && facingFromDir(-0.4f, -1.f) == F_N, "a diagonal turns to face along its dominant axis");
+        check(facingFromDir(1.f, 1.f) == F_E && facingFromDir(-1.f, 1.f) == F_W, "a perfect diagonal goes to the horizontal axis");
         check(facingView(F_W).view == facingView(F_E).view && facingView(F_W).mirror && !facingView(F_E).mirror, "west is the east view mirrored");
-        check(facingView(F_NW).view == facingView(F_NE).view && facingView(F_NW).mirror && facingView(F_SW).view == facingView(F_SE).view && facingView(F_SW).mirror, "the west diagonals are the east diagonals mirrored");
-        check(facingFromDir(1.f, 0.55f, F_SE) == F_SE && facingFromDir(1.f, 1.5f, F_SE) == F_SE, "a direction wobbling on a sector border keeps the facing (no flicker)");
-        check(facingFromDir(1.f, -0.3f, F_SE) == F_E, "a clear turn changes the facing");
+        check(facingFromDir(1.f, 1.1f, F_E) == F_E && facingFromDir(1.f, 1.5f, F_E) == F_S, "a direction wobbling near the diagonal keeps the facing (no flicker), a clear turn changes it");
+        check(facingFromDir(-1.f, 1.f, F_E) == F_W, "an entity never keeps facing east while it heads west");
         {
             Animator an;
             const Clip loopC = Clip::run(0, 4, 0.1f, true), once = Clip::run(0, 3, 0.1f, false);
@@ -1657,7 +1666,7 @@ int selfTest(Game& g) {
                 for (int i = 0; i < hunterPoseCount(st); i++) spritesOk = spritesOk && g.A.hunter[v][st][i].ok();
         }
         check(clipsOk, "every hunter clip only uses poses that exist");
-        check(spritesOk, "every hunter pose is drawn in all five views");
+        check(spritesOk, "every hunter pose is drawn in all three views (west is the east view mirrored)");
         // the state machine in play
         g.newGame();
         g.state = ST_PLAY;
@@ -1672,17 +1681,17 @@ int selfTest(Game& g) {
         check(g.p.anim.state == HS_WALK && g.p.face8 == F_E, "walking right plays walk facing east");
         g.in.down = true;
         run(10);
-        check(g.p.face8 == F_SE, "right + down faces south-east");
+        check(g.p.face8 == F_E, "right + down (a diagonal) still shows the east view");
         g.in.right = false;
         g.in.left = true;
         run(10);
-        check(g.p.face8 == F_SW && facingView(g.p.face8).mirror, "left + down faces south-west (mirrored view)");
+        check(g.p.face8 == F_W && facingView(g.p.face8).mirror, "left + down (a diagonal) shows the west view (the mirrored east view)");
         g.in.sprint = true;
         run(10);
         check(g.p.anim.state == HS_RUN, "sprinting plays run");
         g.in = Input();
         run(10);
-        check(g.p.anim.state == HS_IDLE && g.p.face8 == F_SW, "stopping returns to idle and keeps the facing");
+        check(g.p.anim.state == HS_IDLE && g.p.face8 == F_W, "stopping returns to idle and keeps the facing");
         g.p.invuln = 0;
         g.p.hp = g.p.maxhp;
         g.hurtPlayer(5, g.p.pos + V2(10, 0));
@@ -1840,8 +1849,8 @@ int selfTest(Game& g) {
                 for (int form = 0; form < ANIMAL[kind].forms; form++)
                     for (int st = 0; st < AN_COUNT; st++)
                         if (animalClips(kind)->poses[st] > 0) expect += F_COUNT;
-            check(pngs == expect && bad == 0, "one valid PNG per state and direction (8 directions each)");
-            check(std::filesystem::exists(dir + "/sprites/animals/wild_duck/wild_duck_fly_northwest.png") && std::filesystem::exists(dir + "/animations/animals/deer_walk.json") &&
+            check(pngs == expect && bad == 0, "one valid PNG per state and direction (4 directions each)");
+            check(std::filesystem::exists(dir + "/sprites/animals/wild_duck/wild_duck_fly_west.png") && std::filesystem::exists(dir + "/animations/animals/deer_walk.json") &&
                       std::filesystem::exists(dir + "/sprites/player/gathering/chopping/player_swing_east.png") && std::filesystem::exists(dir + "/animations/manifest.json"),
                   "files are named species_state_direction and have metadata");
             std::filesystem::remove_all(dir);
@@ -1918,7 +1927,7 @@ int selfTest(Game& g) {
                 check(A_().anim.t > t1, "walking keeps advancing (no restart every frame)");
                 A_().vel = V2(-15, 15);
                 g.updateAnimalAnim(A_(), 0.02f);
-                check(A_().face8 == F_SW, "moving down-left faces south-west");
+                check(A_().face8 == F_W, "moving down-left (a diagonal) shows the west view");
                 A_().st = AS_FLEE;
                 A_().vel = V2(60, 0);
                 g.updateAnimalAnim(A_(), 0.02f);

@@ -1347,9 +1347,9 @@ void Game::updatePlayer(float dt) {
 
     auto setDir = [&](V2 d) {
         P.face8 = facingFromDir(d.x, d.y, P.face8);
-        // the 4-way facing other systems use (placement, the salon): the diagonals count as side views, as they always did
+        // the facing as the other systems use it (placement, the salon): 0 down, 1 up, 2 side
         const FacingView fv = facingView(P.face8);
-        P.dir = fv.view == 0 ? 0 : fv.view == 4 ? 1 : 2;
+        P.dir = fv.view == 0 ? 0 : fv.view == 2 ? 1 : 2;
         if (P.dir == 2) P.flip = fv.mirror;
     };
     if (wantGather) setDir(c->pos - P.pos);

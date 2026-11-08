@@ -5,7 +5,7 @@
 //   sprites/player/<state>/player_<state>_<direction>.png           (gathering states: sprites/player/gathering/<kind>/...)
 //   sprites/animals/<species>/<species>_<state>_<direction>.png
 //   animations/player/<state>.json, animations/animals/<species>_<state>.json, animations/manifest.json
-// A sheet is one row of frames (frame width x frame height each, in pose order). All eight directions are written: the west-side
+// A sheet is one row of frames (frame width x frame height each, in pose order). All four directions are written: the west-side
 // ones are the mirrored east-side art, exactly as the game draws them. Common rarity of each species; a second form (stag, arctic wolf) is written under <species>_form1.
 // PNGs are written uncompressed (stored deflate blocks) by a small encoder below, so there is no new dependency.
 #pragma once
@@ -91,7 +91,7 @@ inline bool writePng(const std::string& path, const Img& im) {
     return ok;
 }
 
-inline const char* DIR_NAME[F_COUNT] = {"south", "southeast", "east", "northeast", "north", "northwest", "west", "southwest"};
+inline const char* DIR_NAME[F_COUNT] = {"south", "east", "north", "west"};
 
 inline std::string slug(const char* s) {
     std::string o;
@@ -112,7 +112,7 @@ struct Counter {
     std::string manifest;
 };
 
-// Writes all eight directions of one animation state and its metadata. `frames[view][pose]`, views in the game's order S, SE, E, NE, N.
+// Writes the four directions (south, east, north, west) of one animation state and its metadata. `frames[view][pose]`, views in the game's order (S, E, N for a mirrored sprite; S, E, N, W for a rendered one).
 inline void exportState(const std::string& root, const std::string& group, const std::string& spriteDir, const std::string& baseName, const std::string& metaName,
                         const std::vector<std::vector<Img>>& frames, const Clip& clip, int ax, int ay, Counter& cnt, bool direct = false, float disp = 1.f) {  // direct: frames[] holds all eight directions, none mirrored
     const int fw = frames[0][0].w, fh = frames[0][0].h;
@@ -150,7 +150,7 @@ inline void exportState(const std::string& root, const std::string& group, const
 inline int exportAll(const std::string& root) {
     Counter cnt;
     // ---- the hunter (default appearance)
-    static const int DIR_OF_VIEW[FACING_VIEWS] = {0, 3, 2, 4, 1};
+    static const int DIR_OF_VIEW[FACING_VIEWS] = {0, 2, 1};  // S, E, N -> mkPlayerPose dir
     static const char* HN[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death", "mine", "forage"};
     static const char* HG[HS_COUNT] = {"idle", "walk", "run", "throw", "throw", "gathering/skinning", "gathering/chopping", "use", "hurt", "death", "gathering/mining", "gathering/harvesting"};
     for (int st = 0; st < HS_COUNT; st++) {

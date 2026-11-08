@@ -410,7 +410,7 @@ void Game::hsAddAnimal(int kind, V2 at, bool baby, int home) {
     a.age = baby ? 0.f : DOMS[kind].growSec + 1.f;
     a.home = home;
     a.breedCd = BREED_CD * 0.5f;
-    a.face8 = frng.irange(0, 7);
+    a.face8 = frng.irange(0, F_COUNT - 1);
     a.stT = frng.range(0.5f, 3.f);
     hs.animals.push_back(a);
 }
@@ -565,10 +565,7 @@ void Game::hsTickAnimals(float dt) {
                     a.state = 0;
                     a.stT = frng.range(0.5f, 1.5f);
                 }
-                const float ang = atan2f(d.y, d.x);  // 0 = east, +y = south: view order S,SE,E,NE,N,NW,W,SW
-                a.face8 = ((int)lroundf(ang / 0.7854f) + 8) % 8;
-                static const int FROM_ANG[8] = {2, 1, 0, 7, 6, 5, 4, 3};  // angle step (0 = E, 1 = SE ...) -> view (S,SE,E,NE,N,NW,W,SW)
-                a.face8 = FROM_ANG[a.face8];
+                a.face8 = facingFromDir(d.x, d.y, a.face8);
             }
         } else if (a.state == 2) {
             if (a.stT <= 0) { a.state = 0; a.stT = frng.range(1.f, 3.f); }

@@ -14,7 +14,7 @@
 #include <thread>
 #include "animal_anim.hpp"
 
-constexpr int AV_VIEWS = 8;  // S, SE, E, NE, N, NW, W, SW (the Facing order): each direction is rendered by turning the 3D model, nothing is mirrored
+constexpr int AV_VIEWS = 4;  // S, E, N, W (the Facing order): each direction is rendered by turning the 3D model, nothing is mirrored
 // The hand-drawn pixel-art path (deer_ref.hpp, ref_art_wolfboar.hpp, flat reference look, mirrored west views) is kept but switched off: the animals are the shaded rig.
 constexpr bool kRefArt = false;
 
@@ -392,7 +392,7 @@ inline RigShape boarShape() {
     r.tusks = true; r.mane = true;
     r.strideMul = r.liftMul = r.airMul = 1.f;
     r.scale = 1.f;
-    r.flat = true; r.ref = 3;  // the boar is 32x32 pixel art (ref_art_boar32.hpp), drawn in all eight directions
+    r.flat = true; r.ref = 3;  // the boar is 32x32 pixel art (ref_art_boar32.hpp), drawn in all four directions
     r.W = 32; r.H = 32;
     return r;
 }
@@ -530,7 +530,7 @@ struct ModelOut {
     float disp;  // in-game scale of the 64x64 texture
 };
 inline ModelOut paintModel(const QuadSpec& sp, const RigShape& R, int view, const BPose& P) {
-    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.7854f, 0.f, -0.7854f, -1.5708f, -2.3562f, 3.14159f, 2.3562f};
+    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
     const m3::Q3& Q = modelQ3(R.model);
     std::vector<m3::Prim> prims;
     m3::buildQuad(Q, P, R.strideMul, R.liftMul, R.airMul, R.antlers, prims);
@@ -542,21 +542,22 @@ inline ModelOut paintModel(const QuadSpec& sp, const RigShape& R, int view, cons
     return o;
 }
 
-// Paint one animal for one view (0 S, 1 SE, 2 E, 3 NE, 4 N) and pose. `k` is the tier's body scale.
+// Paint one animal for one view (0 S, 1 E, 2 N, 3 W) and pose. `k` is the tier's body scale.
 inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P0) {
     const float k = tierK * rigScale(R);  // tier scale x the species' own scale
     BPose P = P0;
     P.stride *= R.strideMul;
     P.lift *= R.liftMul;
     P.air *= R.airMul;
-    static const float PSI[AV_VIEWS] = {1.5708f, 0.7854f, 0.f, -0.7854f, -1.5708f, -2.3562f, 3.14159f, 2.3562f};
+    static const float PSI[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
     const float psi = PSI[view], cp = cosf(psi), sn = sinf(psi);
     const float phi = 0.70f, cph = cosf(phi), sph = sinf(phi);  // the camera looks down at 40 degrees
     const int CW = (int)ceilf(R.W * k), CH = (int)ceilf(R.H * k);
     const float ax = CW / 2.f, ay = CH - 6.f * k;                // where the ground point under the boar lands
-    if (R.ref) {  // pixel art faces east: the west views are the east / north-east / south-east art mirrored about the anchor column
-        if (view > 4) return deerref::paint(sp, R, tierK * 1.f, 8 - view, P0, CW, CH, ax, ay).flippedH();
-        return deerref::paint(sp, R, tierK * 1.f, view, P0, CW, CH, ax, ay);
+    if (R.ref) {  // pixel art faces east: the west view is the east art mirrored about the anchor column (deerref views: 0 front, 2 side, 4 back)
+        static const int ART_VIEW[AV_VIEWS] = {0, 2, 4, 2};
+        const Img art = deerref::paint(sp, R, tierK * 1.f, ART_VIEW[view], P0, CW, CH, ax, ay);
+        return view == 3 ? art.flippedH() : art;
     }
     Img im(CW, CH);
 

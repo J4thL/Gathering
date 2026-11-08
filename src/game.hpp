@@ -71,7 +71,7 @@ struct Animal {
     float air = 0.f;      // height above the ground (flyers)
     // ---- animation (only used by species with a full animation set, see animal_anim.hpp)
     Animator anim;
-    int face8 = F_E;      // 8-way facing
+    int face8 = F_E;      // 4-way facing
     float atkT = 0;       // > 0 while the attack animation plays
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
@@ -85,7 +85,7 @@ struct Player {
     int dir = 0;          // 4-way facing kept for placement and the salon: 0 down, 1 up, 2 side (see flip); derived from face8
     bool flip = false;
     float animT = 0;
-    int face8 = F_S;      // 8-way facing (anim.hpp)
+    int face8 = F_S;      // 4-way facing (anim.hpp)
     Animator anim;        // the hunter's current animation (state HState), driven by Game::updateHunterAnim
     float useT = 0;       // > 0 while using an item (bandage, food): plays the use animation
     float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit

@@ -95,7 +95,7 @@ void Game::drawMonster(const Monster& m) {
         case MN_DEAD: st = MS_DEATH; fr = std::min(3, (int)(m.deadT / 0.16f)); break;
     }
     if (!A.M.built) return;
-    const Spr& s = A.M.get(m.kind, std::max(0, std::min(7, m.face8)), st, fr);
+    const Spr& s = A.M.get(m.kind, std::max(0, std::min((int)F_COUNT - 1, m.face8)), st, fr);
     if (!s.ok()) return;
     float alpha = 1.f;
     if (m.state == MN_DEAD && m.deadT > 22.f) alpha = clampf((30.f - m.deadT) / 8.f, 0.f, 1.f);

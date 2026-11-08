@@ -408,10 +408,10 @@ int homesteadTest(Game& g) {
     g.ensureDomArt();
     bool art = g.A.Dom.built;
     for (int k = 0; k < DA_COUNT; k++)
-        for (int v = 0; v < 8; v++)
+        for (int v = 0; v < AV_VIEWS; v++)
             for (int st = 0; st < DS_COUNT; st++)
                 for (int f = 0; f < DS_FRAMES[st]; f++) art = art && g.A.Dom.get(k, v, st, f).ok();
-    check(art, "all seven animals have idle / walk / eat frames in 8 directions");
+    check(art, "all seven animals have idle / walk / eat frames in 4 directions");
 
     printf("--- stage 6: save, load and integration\n");
     {

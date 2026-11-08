@@ -37,7 +37,7 @@ Monster* Game::spawnMonster(int kind, V2 pos, float depth, bool elite, int id) {
     m.maxhp = m.hp = std::max(1, (int)(D.hp * hpK));
     m.dmg = D.dmg * dmK;
     m.spd = D.spd * (elite ? 1.1f : 1.f);
-    m.face8 = rng.irange(0, 7);
+    m.face8 = rng.irange(0, F_COUNT - 1);
     m.packId = rng.irange(0, 3);
     m.special = 2.5f;
     mons.push_back(m);

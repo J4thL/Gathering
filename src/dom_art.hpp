@@ -1,6 +1,6 @@
 // dom_art.hpp - the farm animals of the Homestead, drawn with the same 3D model renderer as the wildlife (model3d.hpp / quad3d.hpp):
 // cow, sheep, pig and goat reuse the four-legged skeleton in their own colours and proportions (wool puffs, spots, horns, beard are
-// added as extra ellipsoids); chicken, duck and rabbit are small models of their own. Every animal is rendered in 8 directions and
+// added as extra ellipsoids); chicken, duck and rabbit are small models of their own. Every animal is rendered in 4 directions (N, S, E, W) and
 // three clips: idle (2 poses), walk (4) and eat (2). Babies are the same sprites drawn smaller.
 #pragma once
 #include <atomic>
@@ -212,7 +212,7 @@ inline void rabbit(std::vector<Prim>& o, int st, int f) {
 
 struct DomImg { Img im; int ax = 0, ay = 0; float sc = 1.f; };
 inline void paint(int kind, int v, int st, int f, DomImg& o, float* sideLen = nullptr) {
-    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.7854f, 0.f, -0.7854f, -1.5708f, -2.3562f, 3.14159f, 2.3562f};
+    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
     std::vector<Prim> prims;
     std::vector<Mat> ms;
     float pxu, ox, oy;

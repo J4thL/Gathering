@@ -460,7 +460,7 @@ inline bool monsterHasCast(int k) { return k == MK_MAGE || k == MK_KING || k == 
 
 struct MonsterImg { Img im; int ax = 0, ay = 0; float sc = 1.f; };
 inline void paintMonsterFrame(int k, int v, int st, int i, MonsterImg& o) {
-    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.7854f, 0.f, -0.7854f, -1.5708f, -2.3562f, 3.14159f, 2.3562f};
+    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
         const MonsterArt A = monsterArt(k);
         std::vector<m3::Prim> prims;
         std::vector<m3::Mat> ms;
