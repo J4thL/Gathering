@@ -297,6 +297,7 @@ struct TownAssets {
     Spr floorW[3], floorS[3], floorT[2], wallFace[BLD_COUNT], wallCap[BLD_COUNT], rug[BLD_COUNT], mat;
     Spr furn[FU_COUNT];
     Spr npc[BLD_COUNT][2];
+    Spr villager[5][4];  // the strolling townsfolk, 4 walk frames each
 };
 
 inline void buildTownAssets(SDL_Renderer* r, TownAssets& T) {
@@ -317,6 +318,8 @@ inline void buildTownAssets(SDL_Renderer* r, TownAssets& T) {
         T.rug[k] = makeSpr(r, mkRug(shadeC(BUILDINGS[k].roof, 1.0f), BUILDINGS[k].roofL), 0, 0);
         for (int f = 0; f < 2; f++) T.npc[k][f] = makeSpr(r, mkNpc(k, f), 9, 24);
     }
+    for (int v = 0; v < 5; v++)
+        for (int f = 0; f < 4; f++) T.villager[v][f] = makeSpr(r, mkVillager(v, f), 9, 24);
     T.mat = makeSpr(r, mkDoorMat(), 0, 0);
     for (int i = 0; i < FU_COUNT; i++) T.furn[i] = makeSpr(r, mkFurn(i), 9, 24);
 }

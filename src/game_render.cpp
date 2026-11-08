@@ -295,6 +295,8 @@ void Game::renderWorld(bool) {
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
     for (size_t i = 0; i < world.npcs.size(); i++) dl.push_back({world.npcs[i].pos.y, 6, (int)i});
+    if (world.mapId == B_HOME && interior < 0)
+        for (size_t i = 0; i < villagers.size(); i++) dl.push_back({villagers[i].pos.y, 12, (int)i});
     dl.push_back({p.pos.y, 2, 0});
     if (delve >= 0) {
         for (size_t i = 0; i < mons.size(); i++) dl.push_back({mons[i].pos.y - (mons[i].state == MN_DEAD ? 4.f : 0.f), 7, (int)i});
@@ -466,6 +468,10 @@ void Game::renderWorld(bool) {
             const World::Npc& n = world.npcs[e.i];
             sprW(A.shadow[0], n.pos.x, n.pos.y, false, 0.8f);
             sprW(A.T.npc[n.kind][((int)(timeAcc * 1.5f + e.i)) & 1], n.pos.x, n.pos.y, p.pos.x < n.pos.x);
+        } else if (e.t == 12) {
+            const Villager& v = villagers[e.i];
+            sprW(A.shadow[0], v.pos.x, v.pos.y, false, 0.8f);
+            sprW(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], v.pos.x, v.pos.y, v.faceLeft);
         } else if (e.t == 4) {
             sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
             sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
@@ -798,6 +804,7 @@ void Game::drawHud() {
             text(qx - 3, qy, questActive ? "?" : "!", questActive ? C_GREEN : C_GOLD, 2);
     }
     // ---- context prompts in the world
+    if (state == ST_PLAY) drawSpeechBubbles();
     if (state == ST_PLAY && !p.dead) {
         Animal* c = nearestCarcass(26);
         if (c) {

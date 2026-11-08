@@ -290,6 +290,24 @@ static void scriptedRun(Game& g, const std::string& dir) {
         shot("11_lowhp.bmp");
         g.p.hp = keep;
     }
+    {  // a villager greeting the hunter, and a shopkeeper's welcome
+        const V2 keepPos = g.p.pos;
+        g.updateVillagers(0.03f);
+        if (!g.villagers.empty()) {
+            g.p.pos = g.villagers[0].pos + V2(-20, 4);
+            g.villagers[0].chatCd = 0;
+            frames(3);
+            shot("12_villager.bmp");
+        }
+        g.p.pos = keepPos;
+        if (g.enterBuilding(BLD_FLOWER)) {
+            g.p.pos = g.world.npcs[0].pos + V2(0, 30);
+            frames(90);
+            shot("13_shoptalk.bmp");
+            g.exitBuilding();
+        }
+        g.p.pos = keepPos;
+    }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
 
