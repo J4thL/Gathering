@@ -57,6 +57,7 @@ bool Game::ownsTool(int toolId) const {
 // Keeps the two views of "equipped" in step: a tool that left the pack (dropped, sold) is no longer equipped, and the hotbar never
 // holds a farm tool that is not the equipped one of its type (or one that is no longer in the pack).
 void Game::syncFarmTools() {
+    if (p.hand >= 0 && p.tool[p.hand] < 0) p.hand = -1;  // (the tool in hand was taken off or lost)
     for (int t = 0; t < TT_COUNT; t++) {
         if (!isFarmType(t)) continue;
         if (p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.tool[t] = -1;
@@ -155,6 +156,7 @@ bool Game::equipHot(int itemId, int hotSlot) {
         syncFarmTools();
     }
     if (item(itemId).kind == IK_THROWN || item(itemId).kind == IK_LAUNCHER) {
+        p.hand = -1;
         p.sel = item(itemId).ref;
         p.charging = false;
     }
@@ -203,6 +205,7 @@ void Game::hotUse(int hotSlot) {
     const ItemDef& D = item(id);
     if (D.kind == IK_THROWN || D.kind == IK_LAUNCHER) {
         p.sel = D.ref;
+        p.hand = -1;
         p.charging = false;
         return;
     }
@@ -214,7 +217,9 @@ void Game::hotUse(int hotSlot) {
     if (D.kind == IK_TOOL) {  // a farming tool in hand: the farm code uses it automatically at the soil, crops and plants
         p.tool[TOOLDEF[D.ref].type] = D.ref;
         syncFarmTools();
-        msg("IN HAND: " + D.name, C_GOLD);
+        p.hand = TOOLDEF[D.ref].type;
+        p.charging = false;
+        msg("IN HAND: " + D.name + (inHomestead() ? " - LEFT CLICK A TILE" : " - FOR YOUR HOMESTEAD"), C_GOLD);
         audio.play(S_CLICK);
         return;
     }

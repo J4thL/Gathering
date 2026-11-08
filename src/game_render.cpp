@@ -930,6 +930,16 @@ void Game::drawHud() {
         text(5, stripY - 9, "CARRY " + kgNum(tw) + "/" + kgNum(mw) + " KG", col);
         bar(5, stripY - 1, 72, 2, fr, over ? HEX(0xd8443f) : fr >= 0.85f ? HEX(0xe88a3a) : HEX(0x8ec2f0));
     }
+    // ---- a farm tool in hand: outline the tile under the cursor (green = in reach, red = too far)
+    if (p.hand >= 0 && inHomestead() && interior < 0 && !p.dead && state == ST_PLAY) {
+        const int tx = (int)floorf((in.mx + camX) / (float)TS), ty = (int)floorf((in.my + camY) / (float)TS);
+        const int sx = tx * TS - camX, sy = ty * TS - camY;
+        const u32 c = dist(p.pos, V2((tx + .5f) * TS, (ty + .5f) * TS)) <= 46.f ? RGBA(120, 230, 120, 200) : RGBA(230, 90, 80, 200);
+        fillRect(sx, sy, TS, 1, c);
+        fillRect(sx, sy + TS - 1, TS, 1, c);
+        fillRect(sx, sy, 1, TS, c);
+        fillRect(sx + TS - 1, sy, 1, TS, c);
+    }
     // ---- hotbar: only what the hunter has equipped; empty slots stay empty
     {
         constexpr int sw = 22, gap = 3;
@@ -940,7 +950,7 @@ void Game::drawHud() {
             const int id = p.hot[i];
             const bool isWpn = id >= 0 && (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER);
             const bool isTool = id >= 0 && item(id).kind == IK_TOOL;
-            const bool sel = (isWpn && item(id).ref == p.sel) || (isTool && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref);
+            const bool sel = (isWpn && item(id).ref == p.sel) || (isTool && p.hand == TOOLDEF[item(id).ref].type);
             const int yy = y - (sel ? 3 : 0);
             panel(x, yy, sw, sw, sel ? HEX(0x6a4a2a) : HEX(0x33241a));
             if (sel) {
@@ -961,7 +971,8 @@ void Game::drawHud() {
             }
             if (sel && p.cd > 0) bar(x + 3, yy + sw - 3, sw - 6, 1, 1.f - p.cd / WPN[item(id).ref].cd, C_GOLD);
         }
-        if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
+        if (p.hand >= 0 && p.tool[p.hand] >= 0) textC(x0 + total / 2, y - 12, std::string(TOOLDEF[p.tool[p.hand]].name) + " - LEFT CLICK A TILE", C_TEXT);
+        else if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {

@@ -380,6 +380,43 @@ bool Game::hsHarvest(HPiece& pc) {
     return true;
 }
 
+// Left click with the hoe, watering can or sickle in hand, on the tile under the cursor (within reach):
+//  hoe: tills bare soil into a farm plot, opens the seed menu on an empty plot, digs up a ripe root crop
+//  can: waters a growing crop, fills at the water's edge;  sickle: cuts a ripe crop
+bool Game::hsToolUse() {
+    const int type = p.hand;
+    if (type < 0 || p.tool[type] < 0) { p.hand = -1; return false; }
+    const V2 mw(in.mx + camX, in.my + camY);
+    const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return false;
+    auto no = [&](const char* m) { msg(m, C_RED); audio.play(S_ERROR, 0.5f); return true; };
+    if (dist(p.pos, V2((tx + .5f) * TS, (ty + .5f) * TS)) > 46.f) return no("TOO FAR - MOVE CLOSER");
+    HPiece* gp = hsAt(tx, ty, HL_GROUND);
+    const bool plot = gp && gp->kind == HP_PLOT;
+    const bool ripe = plot && gp->crop >= 0 && gp->stage >= CROP_STAGES - 1;
+    p.useT = 0.25f;
+    switch (type) {
+        case TT_HOE:
+            if (ripe) return hsHarvest(*gp), true;
+            if (plot) {
+                if (gp->crop >= 0) return no("ALREADY PLANTED");
+                farmPieceId = gp->id;  // an empty plot: pick the seeds to sow
+                state = ST_FARM;
+                audio.play(S_CLICK);
+                return true;
+            }
+            return hsPlace(HP_PLOT, tx, ty, 0), true;  // (hsPlace explains a refusal: no soil, in the way, not enough wood...)
+        case TT_CAN:
+            if (plot && gp->crop >= 0 && !ripe) return hsWater(*gp), true;
+            if (world.water(tx, ty)) return hsRefillCan(), true;
+            return no(plot ? (gp->crop < 0 ? "PLANT SEEDS FIRST" : "READY TO HARVEST") : "NOTHING TO WATER HERE");
+        case TT_SICKLE:
+            if (ripe) return hsHarvest(*gp), true;
+            return no("NOTHING READY TO CUT HERE");
+    }
+    return false;
+}
+
 void Game::hsFarmPlot(HPiece& pc) {
     if (pc.crop < 0) {
         farmPieceId = pc.id;

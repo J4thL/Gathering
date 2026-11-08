@@ -94,6 +94,7 @@ struct Player {
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
+    int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
@@ -434,6 +435,7 @@ struct Game {
     bool hsLeave();
     void hsGiveStarter();
     bool homesteadInteract();
+    bool hsToolUse();  // left click with a farm tool in hand: till / plant / water / harvest the tile under the cursor
     bool homesteadPrompt();
     struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
     bool hsFindTarget(HTarget2& t);

@@ -1295,6 +1295,7 @@ void Game::updatePlayer(float dt) {
             }
         if (n > 0) {
             P.sel = cyc[((at < 0 ? 0 : at) + (in.wheel > 0 ? n - 1 : 1)) % n];
+            P.hand = -1;
             P.charging = false;
         }
     }
@@ -1396,8 +1397,14 @@ void Game::updatePlayer(float dt) {
     }
     if (sprinting && rng.chance(0.25f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
 
+    // --- a farm tool in hand: the click works the soil instead of throwing
+    if (P.hand >= 0 && in.lPressed && !wantGather) {
+        if (inHomestead() && interior < 0) hsToolUse();
+        else msg("FARM TOOLS WORK AT YOUR HOMESTEAD - PRESS A WEAPON KEY TO THROW", C_DIM);
+        in.lPressed = false;
+    }
     // --- throwing
-    if (in.lPressed && !wantGather && P.cd <= 0) {
+    if (in.lPressed && !wantGather && P.cd <= 0 && P.hand < 0) {
         if (canUse(P.sel)) {
             const WpnDef& SW = WPN[P.sel];
             if (isLauncher(P.sel) && SW.draw <= 0.f) {  // crossbow: loaded, so it fires at once and then needs reloading
