@@ -448,8 +448,11 @@ bool Game::load() {
         if (p.tool[t] < 0)
             for (int i = 0; i < HOT_N; i++)
                 if (p.hot[i] >= 0 && item(p.hot[i]).kind == IK_TOOL && TOOLDEF[item(p.hot[i]).ref].type == t && p.inv.count(p.hot[i]) > 0) p.tool[t] = item(p.hot[i]).ref;
-        if (p.tool[t] >= 0) giveFarmTool(p.tool[t]);
     }
+    for (int t = 0; t < TT_COUNT; t++)  // (the pack first: equipping one tool must not drop another that is not back in the pack yet)
+        if (isFarmType(t) && p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.inv.addIgnoringWeight(itemTool(p.tool[t]), 1);
+    for (int t = 0; t < TT_COUNT; t++)
+        if (isFarmType(t) && p.tool[t] >= 0) giveFarmTool(p.tool[t]);
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;

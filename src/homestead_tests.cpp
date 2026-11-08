@@ -588,6 +588,18 @@ int homesteadTest(Game& g) {
         const bool ldOk = g.load();
         check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.bestTool(TT_CAN) == 1, "an old save without the farmtools line equips the tools it carried");
     }
+    {  // a save from the build where equipped farm tools lived outside the pack (farmtools line, no hotbar entry for them)
+        for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE}) {
+            g.p.inv.remove(itemTool(k), g.p.inv.count(itemTool(k)));
+            if (g.p.hotSlotOf(itemTool(k)) >= 0) g.p.hot[g.p.hotSlotOf(itemTool(k))] = -1;
+            g.p.tool[TOOLDEF[k].type] = k;
+        }
+        g.save();
+        g.newGame();
+        const bool ldOk = g.load();
+        for (int fr = 0; fr < 5; fr++) g.update(1.f / 60.f);
+        check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.bestTool(TT_HOE) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.inv.count(itemTool(TL_HOE)) == 1, "a save from the previous tool system (tools outside the pack) still has working tools after loading and playing a few frames");
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out.write(savedBytes.data(), (std::streamsize)savedBytes.size());
