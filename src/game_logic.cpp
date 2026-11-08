@@ -148,6 +148,8 @@ static void recoverSave(const std::string& path) {
 }
 
 bool Game::load() {
+    villagers.clear();
+    villagersInit = false;
     recoverSave(savePath());
     std::ifstream f(savePath());
     if (!f) return false;
@@ -455,6 +457,8 @@ bool Game::load() {
 
 // ================================================================= helpers
 void Game::newGame() {
+    villagers.clear();
+    villagersInit = false;
     resetDelveRuntime();
     for (auto& d : delveMem) d = DelveMem();
     for (auto& m : mapMem) m = MapMem();
@@ -1811,6 +1815,9 @@ void Game::updatePlay(float dt) {
     p.swiftT = std::max(0.f, p.swiftT - dt);
     p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
+    updateVillagers(dt);
+    updateElder(dt);
+    updateShopTalk(dt);
     updateProjectiles(dt);
     tickDelveTimers(dt);
     if (delve >= 0) updateDelve(dt);

@@ -295,6 +295,8 @@ void Game::renderWorld(bool) {
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
     for (size_t i = 0; i < world.npcs.size(); i++) dl.push_back({world.npcs[i].pos.y, 6, (int)i});
+    if (world.mapId == B_HOME && interior < 0)
+        for (size_t i = 0; i < villagers.size(); i++) dl.push_back({villagers[i].pos.y, 12, (int)i});
     dl.push_back({p.pos.y, 2, 0});
     if (delve >= 0) {
         for (size_t i = 0; i < mons.size(); i++) dl.push_back({mons[i].pos.y - (mons[i].state == MN_DEAD ? 4.f : 0.f), 7, (int)i});
@@ -466,9 +468,14 @@ void Game::renderWorld(bool) {
             const World::Npc& n = world.npcs[e.i];
             sprW(A.shadow[0], n.pos.x, n.pos.y, false, 0.8f);
             sprW(A.T.npc[n.kind][((int)(timeAcc * 1.5f + e.i)) & 1], n.pos.x, n.pos.y, p.pos.x < n.pos.x);
+        } else if (e.t == 12) {
+            const Villager& v = villagers[e.i];
+            sprW(A.shadow[0], v.pos.x, v.pos.y, false, 0.8f);
+            sprW(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], v.pos.x, v.pos.y, v.faceLeft);
         } else if (e.t == 4) {
             sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
-            sprW(A.quester[((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y, p.pos.x < world.questGiver.x);
+            sprW(A.quester[elderMoving ? ((int)(elderAnimT * 5.f)) & 1 : ((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y,
+                 elderMoving ? elderFaceLeft : p.pos.x < world.questGiver.x);
         } else if (e.t == 2) {
             const FacingView fv = facingView(p.face8);
             const int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));
@@ -798,6 +805,7 @@ void Game::drawHud() {
             text(qx - 3, qy, questActive ? "?" : "!", questActive ? C_GREEN : C_GOLD, 2);
     }
     // ---- context prompts in the world
+    if (state == ST_PLAY) drawSpeechBubbles();
     if (state == ST_PLAY && !p.dead) {
         Animal* c = nearestCarcass(26);
         if (c) {
@@ -944,11 +952,13 @@ void Game::drawHud() {
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-8 HOTBAR    WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW OR SHOOT",
-                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT TO GATHER", "AXE FOR TREES, PICKAXE FOR ORE - CRAFT THEM IN THE PACK (I)",
-                               "Q HEAL   I PACK: EQUIP, DROP, CRAFT   M MAP   H HELP   ESC PAUSE"};
-        int w = 232, h = 52;
-        int x = LW / 2 - w / 2, y = 52;
+        const char* lines[] = {"WASD MOVE   SHIFT SPRINT   1-8 HOTBAR   Q HEAL", "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
+                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
+                               "I PACK  M MAP  H HELP  WHEEL: WEAPON  ESC PAUSE"};
+        int tw = 0;  // the panel is as wide as its longest line plus a margin, so no line can overflow it
+        for (const char* l : lines) tw = std::max(tw, textW(l));
+        const int w = tw + 20, h = 52;
+        const int x = LW / 2 - w / 2, y = 52;
         panel(x, y, w, h, HEX(0x33241a));
         textC(LW / 2, y + 5, "HOW TO HUNT", C_GOLD);
         for (int i = 0; i < 5; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);

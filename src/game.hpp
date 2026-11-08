@@ -36,6 +36,20 @@ struct Input {
 };
 
 enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST, AS_HUNT };  // AS_HUNT: a predator stalking prey (AS_CHASE is after the hunter)
+// A townsperson strolling the cobbled town outside the buildings. Purely ambient: nothing is saved, nobody needs to be talked to.
+struct Villager {
+    V2 pos, target;
+    int look = 0;        // which of the five people (sprites_interior.hpp: villagerLook)
+    float idleT = 0;     // > 0: standing still
+    float animT = 0;     // walk cycle clock
+    float sayT = 0;      // > 0: the speech bubble is showing
+    float chatCd = 0;    // time before this person may speak again
+    int sayIdx = 0;      // which line
+    bool moving = false;
+    bool hasTarget = false;
+    bool faceLeft = false;
+};
+
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
@@ -554,6 +568,22 @@ struct Game {
     // ---- town buildings (town.cpp, services.cpp)
     int doorNear() const;               // BuildingKind whose door is within reach (outdoors), or -1
     bool nearExit() const;              // standing on the doormat inside
+    std::vector<Villager> villagers;
+    bool villagersInit = false;
+    void initVillagers();                // stand a few townspeople on the cobbles (once per game / per load)
+    void updateVillagers(float dt);      // stroll, pause, greet the hunter
+    void updateShopTalk(float dt);       // the shopkeeper speaks while the hunter is in their shop
+    void drawSpeech(float wx, float wy, const std::string& text, float life) const;  // a speech bubble over a head
+    void drawSpeechBubbles();
+    // Elder Holt: he paces a few steps around his spot in the plaza, faces the hunter who comes near and has something to say.
+    V2 elderTarget;
+    bool elderHasTarget = false, elderMoving = false, elderFaceLeft = false;
+    float elderIdle = 2.f, elderSayT = 0, elderChatCd = 0, elderAnimT = 0;
+    int elderLine = 0;
+    void updateElder(float dt);
+    const char* elderSpeech() const;
+    float npcSayT = 0, npcChatCd = 0;    // the shopkeeper's bubble: time left / time until the next remark
+    int npcSayLine = 0;
     int npcNear() const;                // index in world.npcs of the person within talking reach, or -1
     bool stationNear() const;           // next to the anvil / rack / workbench of the building
     bool enterBuilding(int k);

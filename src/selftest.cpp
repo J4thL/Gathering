@@ -1965,6 +1965,100 @@ int selfTest(Game& g) {
             }
         }
     }
+    printf("town: strolling villagers, shop talk\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        g.updateVillagers(1.f / 30.f);
+        check(g.villagers.size() == 5, "five townspeople stand in the town");
+        const int tx0 = COX + TOWN_X0, ty0 = COY + TOWN_Y0, tx1 = COX + TOWN_X1, ty1 = COY + TOWN_Y1;
+        auto onCobbles = [&](const Villager& v) {
+            const int tx = (int)(v.pos.x / TS), ty = (int)(v.pos.y / TS);
+            return tx >= tx0 && ty >= ty0 && tx < tx1 && ty < ty1 && g.world.tile[ty][tx] == T_COBBLE && !g.world.blocked(v.pos.x, v.pos.y, 4.f);
+        };
+        bool allOn = true;
+        for (auto& v : g.villagers) allOn = allOn && onCobbles(v);
+        check(allOn, "they start on open cobbles inside the town");
+        std::vector<V2> start;
+        for (auto& v : g.villagers) start.push_back(v.pos);
+        const V2 pp = g.p.pos;
+        bool stayed = true, apart = true;
+        float minGap = 1e9f;
+        for (int i = 0; i < 30 * 90; i++) {  // 90 seconds of strolling
+            g.p.pos = pp;
+            g.updateVillagers(1.f / 30.f);
+            for (size_t a2 = 0; a2 < g.villagers.size(); a2++) {
+                stayed = stayed && onCobbles(g.villagers[a2]);
+                for (size_t b2 = a2 + 1; b2 < g.villagers.size(); b2++) minGap = std::min(minGap, dist(g.villagers[a2].pos, g.villagers[b2].pos));
+            }
+        }
+        apart = minGap > 5.f;
+        int moved = 0;
+        for (size_t i = 0; i < start.size(); i++) moved += dist(start[i], g.villagers[i].pos) > 8.f;
+        check(stayed, "in 90 seconds none of them leaves the cobbles or walks into a wall");
+        check(moved >= 3, "most of them actually stroll somewhere");
+        check(apart, "they do not walk through one another");
+        // greeting the hunter
+        Villager& v0 = g.villagers[0];
+        g.p.pos = v0.pos + V2(18, 0);
+        v0.chatCd = 0;
+        v0.sayT = 0;
+        g.updateVillagers(1.f / 30.f);
+        check(g.villagers[0].sayT > 3.f && !g.villagers[0].moving && g.villagers[0].faceLeft == false, "a villager the hunter walks up to stops, turns and speaks");
+        // not outside: nothing moves while the hunter is in a building
+        std::vector<V2> before;
+        for (auto& v : g.villagers) before.push_back(v.pos);
+        g.enterBuilding(BLD_SMITH);
+        for (int i = 0; i < 60; i++) g.updateVillagers(1.f / 30.f);
+        bool still = true;
+        for (size_t i = 0; i < before.size(); i++) still = still && dist(before[i], g.villagers[i].pos) < 0.01f;
+        check(still, "the townspeople wait outside while the hunter is in a shop");
+        // the shopkeeper greets, then chats
+        g.p.pos = g.world.npcs[0].pos + V2(0, 30);
+        for (int i = 0; i < 30; i++) g.updateShopTalk(1.f / 30.f);
+        check(g.npcSayT > 0 && g.npcSayLine == 0, "the shopkeeper greets the hunter a moment after they come in");
+        for (int i = 0; i < 30 * 14; i++) g.updateShopTalk(1.f / 30.f);
+        check(g.npcSayLine != 0, "and goes on to idle remarks");
+        g.exitBuilding();
+        // the walk cycle is a real animation: the frames differ, and the standing frame is stable
+        bool framesDiffer = true;
+        for (int v = 0; v < 5; v++)
+            framesDiffer = framesDiffer && mkVillager(v, 0).p != mkVillager(v, 1).p && mkVillager(v, 1).p != mkVillager(v, 3).p && mkVillager(v, 0).p == mkVillager(v, 2).p;
+        check(framesDiffer, "every villager has distinct walk frames");
+        check(mkNpc(BLD_SMITH, 0).p != mkNpc(BLD_SMITH, 1).p && mkNpc(BLD_FLOWER, 0).p != mkVillager(3, 0).p, "the shopkeepers still have their own look and idle breathing");
+    }
+    printf("town: Elder Holt\n");
+    {
+        g.newGame();
+        g.state = ST_PLAY;
+        const V2 home((COX + 45.75f) * TS, (COY + 31.6f) * TS);
+        check(dist(g.world.questGiver, home) < 1.f, "(setup) the elder starts at the spot worldgen gives him");
+        g.p.pos = home + V2(260, 0);  // far away: he strolls on his own
+        float far = 0;
+        bool ok = true;
+        for (int i = 0; i < 30 * 150; i++) {
+            g.updateElder(1.f / 30.f);
+            far = std::max(far, dist(g.world.questGiver, home));
+            ok = ok && dist(g.world.questGiver, home) <= 30.5f && !g.world.blocked(g.world.questGiver.x, g.world.questGiver.y, 4.f);
+        }
+        check(far > 5.f, "in 150 seconds Elder Holt walks a few steps around his spot");
+        check(ok, "he never wanders far, onto a wall or off the paving");
+        g.p.pos = g.world.questGiver + V2(10, 0);
+        check(g.nearQuestGiver(), "talking to him still works wherever he has strolled to");
+        // he stands still for someone who has come to talk, and speaks
+        const V2 at = g.world.questGiver;
+        g.p.pos = at + V2(30, 0);
+        g.elderChatCd = 0;
+        g.questActive = false;
+        for (int i = 0; i < 60; i++) g.updateElder(1.f / 30.f);
+        check(dist(g.world.questGiver, at) < 0.01f && !g.elderMoving, "he stands still while the hunter is close enough to talk");
+        check(g.elderSayT > 0 && std::string(g.elderSpeech()).find("HUNT") != std::string::npos, "he speaks, and offers a hunt when no quest is open");
+        g.questActive = true;
+        g.questProg = g.quest.goal;
+        check(std::string(g.elderSpeech()).find("DONE") != std::string::npos, "his words change when a quest is ready to turn in");
+        g.questActive = false;
+        g.questProg = 0;
+    }
     printf("HUD feedback\n");
     {
         g.newGame();

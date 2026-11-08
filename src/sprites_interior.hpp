@@ -322,25 +322,34 @@ inline NpcLook npcLook(int k) {
         default: return {HEX(0xcf9a74), HEX(0x6a2a9a), HEX(0x2a6a8a), HEX(0x1c4a66), HEX(0x2e2a3a), HEX(0xf4f0ea), 1, 3, false};          // Salona Mia: violet hair, teal smock, scissors belt
     }
 }
-inline Img mkNpc(int k, int frame) {
-    const NpcLook L = npcLook(k);
+// the townsfolk who stroll outside (five different people; the fourth wears a dress)
+inline NpcLook villagerLook(int v) {
+    switch (v % 5) {
+        case 0: return {HEX(0xe2b08a), HEX(0xb8b8b8), HEX(0x7a5a3a), HEX(0x5a4228), HEX(0x3a3028), HEX(0xcfc09a), 0, 0, true};   // a grey-bearded farmer
+        case 1: return {HEX(0xf0c49a), HEX(0x5a3a22), HEX(0x4a8a5a), HEX(0x356a44), HEX(0x4a3b2a), HEX(0xf0e6c8), 2, 1, false};  // a woman with a bun and an apron
+        case 2: return {HEX(0xd9a47a), HEX(0x2a1e18), HEX(0x4a6aa8), HEX(0x34508a), HEX(0x3a3430), HEX(0xb8352c), 4, 0, false};  // a young man in a cap
+        case 3: return {HEX(0xf4cfae), HEX(0x3a2a22), HEX(0xe0b84a), HEX(0xb8923a), HEX(0x4a3b2a), HEX(0xffffff), 1, 0, false};  // a woman in a yellow dress
+        default: return {HEX(0xc99468), HEX(0x2a2220), HEX(0xb8683a), HEX(0x8a4c28), HEX(0x3a2e28), HEX(0xe8dcc0), 3, 0, true};  // a bald bearded man
+    }
+}
+// One person. `bob` lifts the body 1 px; `step` (0..3) is the walk cycle: 0 and 2 stand, 1 and 3 swing a leg (used by the villagers).
+inline Img mkPerson(const NpcLook& L, bool dress, bool bouquet, int bob, int step) {
     Img im(18, 26);
-    const int bob = frame ? 1 : 0;
     const u32 eye = HEX(0x2a1c1c);
-    const bool dress = k == BLD_FLOWER;
     // legs / skirt
     if (dress) {
         for (int y = 15; y <= 23; y++) {
             const int hw = 4 + (y - 15) / 2;
             im.rect(9 - hw, y, hw * 2, 1, y > 21 ? L.topD : L.top);
         }
-        im.rect(6, 23, 2, 1, HEX(0x2e2118));
-        im.rect(10, 23, 2, 1, HEX(0x2e2118));
+        im.rect(6, 23 - (step == 1 ? 1 : 0), 2, 1, HEX(0x2e2118));  // the shoe that steps forward peeks out a pixel higher
+        im.rect(10, 23 - (step == 3 ? 1 : 0), 2, 1, HEX(0x2e2118));
     } else {
-        im.rect(5, 19, 3, 5, L.bottom);
-        im.rect(10, 19, 3, 5, L.bottom);
-        im.rect(5, 23, 3, 1, HEX(0x2e2118));
-        im.rect(10, 23, 3, 1, HEX(0x2e2118));
+        const int lift1 = step == 1 ? 1 : 0, lift2 = step == 3 ? 1 : 0;  // the leg that swings forward is lifted a pixel
+        im.rect(5, 19, 3, 5 - lift1, L.bottom);
+        im.rect(10, 19, 3, 5 - lift2, L.bottom);
+        im.rect(5, 23 - lift1, 3, 1, HEX(0x2e2118));
+        im.rect(10, 23 - lift2, 3, 1, HEX(0x2e2118));
     }
     // torso and arms
     im.rect(4, 11 - bob, 10, 9, L.top);
@@ -405,10 +414,12 @@ inline Img mkNpc(int k, int frame) {
         im.set(7, 3 - bob, HEX(0xbfe0ea));
         im.set(10, 3 - bob, HEX(0xbfe0ea));
     }
-    if (k == BLD_FLOWER) {  // she carries a little bouquet
+    if (bouquet) {  // she carries a little bouquet
         im.rect(1, 15 - bob * 2, 1, 4, HEX(0x3f8a42));
         im.ellipse(1.5f, 14 - bob * 2, 1.8f, 1.8f, HEX(0xe8584f));
     }
     im.outline(OUT);
     return im;
 }
+inline Img mkNpc(int k, int frame) { return mkPerson(npcLook(k), k == BLD_FLOWER, k == BLD_FLOWER, frame ? 1 : 0, 0); }
+inline Img mkVillager(int v, int step) { return mkPerson(villagerLook(v), v % 5 == 3, false, step & 1, step); }
