@@ -944,11 +944,13 @@ void Game::drawHud() {
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE    SHIFT SPRINT    1-8 HOTBAR    WHEEL: WEAPON", "HOLD LEFT CLICK TO CHARGE - RELEASE TO THROW OR SHOOT",
-                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT TO GATHER", "AXE FOR TREES, PICKAXE FOR ORE - CRAFT THEM IN THE PACK (I)",
-                               "Q HEAL   I PACK: EQUIP, DROP, CRAFT   M MAP   H HELP   ESC PAUSE"};
-        int w = 232, h = 52;
-        int x = LW / 2 - w / 2, y = 52;
+        const char* lines[] = {"WASD MOVE   SHIFT SPRINT   1-8 HOTBAR   Q HEAL", "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
+                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
+                               "I PACK  M MAP  H HELP  WHEEL: WEAPON  ESC PAUSE"};
+        int tw = 0;  // the panel is as wide as its longest line plus a margin, so no line can overflow it
+        for (const char* l : lines) tw = std::max(tw, textW(l));
+        const int w = tw + 20, h = 52;
+        const int x = LW / 2 - w / 2, y = 52;
         panel(x, y, w, h, HEX(0x33241a));
         textC(LW / 2, y + 5, "HOW TO HUNT", C_GOLD);
         for (int i = 0; i < 5; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);
