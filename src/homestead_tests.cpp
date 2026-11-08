@@ -233,6 +233,29 @@ int homesteadTest(Game& g) {
     }
     check(g.hsHarvest(*plot) && g.p.mat(M_WHEAT) >= wheat0 + 3 && plot->crop == -1, "harvesting with the sickle gives wheat and clears the plot");
     check(g.p.sk.s[SK_FARMING].xp > 0, "farming earns skill XP");
+    // ---- Building XP is paid for the net cost: a free or fully refunded piece is no XP loop
+    {
+        int bx = 0, by = 0;
+        check(findSpot(g, 4, 4, bx, by, sx, sy) || findSpot(g, 4, 4, bx, by, 70, 100), "found a spot for the build / demolish loop test");
+        g.p.inv.addIgnoringWeight(itemMat(M_PLANK), 50);
+        const int64_t b0 = g.p.sk.s[SK_BUILDING].xp;
+        const V2 keepPos = g.p.pos;
+        bool free = true;
+        for (int i = 0; i < 20; i++) {  // a farm plot (free) and a 1-plank floor (comes back whole)
+            g.p.pos = V2((bx + 3) * TS + 8, (by + 3) * TS + 8);
+            free = free && g.hsPlace(HP_PLOT, bx, by, 0) && g.hsDemolish(bx, by);
+            free = free && g.hsPlace(HP_FLOOR_WOOD, bx + 1, by, 0) && g.hsDemolish(bx + 1, by);
+        }
+        check(free && g.p.sk.s[SK_BUILDING].xp == b0, "building and demolishing a plot or a plank floor 20 times earns no Building XP");
+        const int planks = g.p.mat(M_PLANK);
+        check(planks >= 50, "and the loop does not lose or create planks beyond the refund rule");
+        const int64_t b1 = g.p.sk.s[SK_BUILDING].xp;
+        g.p.inv.addIgnoringWeight(itemMat(M_STONE), 20);
+        check(g.hsPlace(HP_WALL_STONE, bx + 2, by, 0) && g.p.sk.s[SK_BUILDING].xp > b1, "a piece with a real net cost (a stone wall) still earns Building XP");
+        g.hsDemolish(bx + 2, by);
+        g.p.pos = keepPos;
+        plot = g.hsAt(fx, fy, HL_GROUND);  // building and demolishing may reallocate the piece list: the old pointer is stale
+    }
     // ---- equipping and taking off the farming tools
     {
         const int types[3] = {TT_HOE, TT_CAN, TT_SICKLE}, ids[3] = {TL_HOE, TL_CAN, TL_SICKLE};

@@ -135,6 +135,13 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
     return true;
 }
 
+// what demolishing gives back of material i of a piece: 60%, and at least one of the main material
+static int hsRefund(const HPieceDef& D, int i) {
+    if (D.mat[i] < 0 || D.n[i] <= 0) return 0;
+    const int back = D.n[i] * 60 / 100;
+    return i == 0 ? std::max(1, back) : back;
+}
+
 bool Game::hsPlace(int kind, int tx, int ty, int rot) {
     std::string why;
     if (!hsCanBuild(kind, tx, ty, rot, &why)) {
@@ -157,9 +164,11 @@ bool Game::hsPlace(int kind, int tx, int ty, int rot) {
     hs.pieces.push_back(pc);
     hsSetSolid(hs.pieces.back(), true);
     hsReindex();
-    int cost = 0;
-    for (int i = 0; i < 3; i++) cost += std::max(0, D.n[i]);
-    grantXp(SK_BUILDING, 1 + cost / 3);
+    // Building XP is paid for what the piece really costs: its materials minus what demolishing it gives back. A piece that comes back
+    // in full (a plot, a 1-plank floor) would otherwise be a free XP loop of build / demolish / build.
+    int net = 0;
+    for (int i = 0; i < 3; i++) net += std::max(0, D.n[i]) - hsRefund(D, i);
+    if (net > 0) grantXp(SK_BUILDING, 1 + net / 3);
     ftext(V2(tx * (float)TS + pc.w() * 8.f, ty * (float)TS), std::string(D.name) + " BUILT", C_GREEN);
     audio.play(S_CRAFT, 0.6f);
     return true;
@@ -191,8 +200,7 @@ bool Game::hsDemolish(int tx, int ty) {
     int got = 0;
     for (int i = 0; i < 3; i++) {
         if (D.mat[i] < 0 || D.n[i] <= 0) continue;
-        int back = D.n[i] * 60 / 100;
-        if (i == 0) back = std::max(1, back);
+        const int back = hsRefund(D, i);
         if (back <= 0) continue;
         const int in = p.inv.addIgnoringWeight(itemMat(D.mat[i]), back);
         got += in;
