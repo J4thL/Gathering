@@ -939,7 +939,8 @@ void Game::drawHud() {
             const int x = x0 + i * (sw + gap);
             const int id = p.hot[i];
             const bool isWpn = id >= 0 && (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER);
-            const bool sel = isWpn && item(id).ref == p.sel;
+            const bool isTool = id >= 0 && item(id).kind == IK_TOOL;
+            const bool sel = (isWpn && item(id).ref == p.sel) || (isTool && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref);
             const int yy = y - (sel ? 3 : 0);
             panel(x, yy, sw, sw, sel ? HEX(0x6a4a2a) : HEX(0x33241a));
             if (sel) {
@@ -954,8 +955,10 @@ void Game::drawHud() {
             const int shown = isWpn && item(id).kind == IK_LAUNCHER ? p.ammo(WPN[item(id).ref].ammo) : p.inv.count(id);
             const bool have = isWpn && item(id).kind == IK_LAUNCHER ? (p.inv.count(id) > 0 && shown > 0) : shown > 0;
             icon(itemIcon(id), x + sw / 2, yy + sw / 2, 16, have ? 1.f : 0.3f);
-            const std::string n = S(shown);
-            text(x + sw - 3 - textW(n), yy + sw - 8, n, have ? C_TEXT : C_RED);
+            if (!isTool) {  // (a tool is one item: no count)
+                const std::string n = S(shown);
+                text(x + sw - 3 - textW(n), yy + sw - 8, n, have ? C_TEXT : C_RED);
+            }
             if (sel && p.cd > 0) bar(x + 3, yy + sw - 3, sw - 6, 1, 1.f - p.cd / WPN[item(id).ref].cd, C_GOLD);
         }
         if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
@@ -1400,8 +1403,8 @@ void Game::drawInventory() {
                 if (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER) {
                     if (item(id).ref == p.sel) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
                 }
-            } else
-                textC(hx + 10, hy + 6, std::string(1, HOT_KIND_NAME[HOT_KIND[i]][0]), HEX(0x6a5a46), 1, false);
+                else if (item(id).kind == IK_TOOL && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
+            }
             text(hx + 2, hy + 1, S(i + 1), HEX(0x9a8a6a), 1, false);
             if (over && in.uiClick) {
                 in.uiClick = false;

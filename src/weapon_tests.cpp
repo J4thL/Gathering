@@ -16,7 +16,7 @@
 static void wield(Game& g, int w) {
     if (!g.p.equippedWpn(w)) {
         for (int i = 0; i < HOT_N; i++)
-            if (HOT_KIND[i] == HK_WEAPON && g.p.hot[i] < 0) {
+            if (g.p.hot[i] < 0) {
                 g.p.hot[i] = itemWpn(w);
                 break;
             }

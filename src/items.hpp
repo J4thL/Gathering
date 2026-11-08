@@ -192,11 +192,12 @@ inline std::string kgNum(float kg) {
     return b;
 }
 
-// ---- the hotbar: 8 quick-access slots, each accepting one kind of item. Only items the hunter has equipped there show up on it.
+// ---- the hotbar: 8 universal quick-access slots (any slot takes any equippable item). Only items the hunter has equipped show up on it.
 constexpr int HOT_N = 8;
-enum HotKind { HK_WEAPON, HK_HEAL, HK_FOOD, HK_BUFF, HK_UTIL };
-constexpr int HOT_KIND[HOT_N] = {HK_WEAPON, HK_WEAPON, HK_WEAPON, HK_HEAL, HK_HEAL, HK_FOOD, HK_BUFF, HK_UTIL};
-[[maybe_unused]] static const char* HOT_KIND_NAME[] = {"WEAPON", "HEALING", "FOOD", "BUFF", "UTILITY"};
+enum HotKind { HK_ANY, HK_HEAL, HK_FOOD, HK_BUFF };  // HK_ANY: the slot kind; the others only classify consumables
+constexpr int HOT_KIND[HOT_N] = {HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY};
+[[maybe_unused]] static const char* HOT_KIND_NAME[] = {"ANY", "HEALING", "FOOD", "BUFF"};
+inline bool isFarmToolType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
 // which hotbar kind a consumable belongs to
 inline int consumableHotKind(int c) {
     switch (c) {
@@ -205,14 +206,13 @@ inline int consumableHotKind(int c) {
         default: return HK_HEAL;
     }
 }
-// can this item go in a hotbar slot of that kind? (weapons, consumables and placeables only; the UTILITY slot takes anything usable but weapons)
-inline bool hotAccepts(int kind, int itemId) {
+// can this item go on the hotbar? Every slot is universal: weapons, consumables, placeables and the farming tools (hoe, can, sickle)
+inline bool hotAccepts(int /*slotKind*/, int itemId) {
     if (!itemValid(itemId)) return false;
     const ItemDef& D = item(itemId);
     switch (D.kind) {
-        case IK_THROWN: case IK_LAUNCHER: return kind == HK_WEAPON;
-        case IK_CONSUMABLE: return kind == HK_UTIL || kind == consumableHotKind(D.ref);
-        case IK_PLACEABLE: return kind == HK_UTIL;
+        case IK_THROWN: case IK_LAUNCHER: case IK_CONSUMABLE: case IK_PLACEABLE: return true;
+        case IK_TOOL: return isFarmToolType(TOOLDEF[D.ref].type);
         default: return false;
     }
 }

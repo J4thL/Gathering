@@ -350,7 +350,6 @@ bool Game::load() {
     } else
         for (int k = 0; k < TL_COUNT; k++)
             if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
-                p.inv.remove(itemTool(k), 1);
                 p.tool[TOOLDEF[k].type] = k;
             }
     applyLook(lookLoaded);
@@ -441,6 +440,15 @@ bool Game::load() {
         for (int w : ws) equipHotQuiet(itemWpn(w));
         for (int c = 0; c < C_COUNT; c++)
             if (p.inv.count(itemCons(c)) > 0) equipHotQuiet(itemCons(c));
+    }
+    // farming tools: the equipped ones live in the pack and on the hotbar. A save from before that kept them outside the pack, so
+    // each equipped tool is put back in the pack (nothing lost) and onto the hotbar; a tool found on the hotbar counts as equipped.
+    for (int t = 0; t < TT_COUNT; t++) {
+        if (!isFarmType(t)) continue;
+        if (p.tool[t] < 0)
+            for (int i = 0; i < HOT_N; i++)
+                if (p.hot[i] >= 0 && item(p.hot[i]).kind == IK_TOOL && TOOLDEF[item(p.hot[i]).ref].type == t && p.inv.count(p.hot[i]) > 0) p.tool[t] = item(p.hot[i]).ref;
+        if (p.tool[t] >= 0) giveFarmTool(p.tool[t]);
     }
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
@@ -1287,6 +1295,7 @@ void Game::updatePlayer(float dt) {
             P.charging = false;
         }
     }
+    syncFarmTools();
     fixSel();
 
     V2 mw(in.mx + camX, in.my + camY);
@@ -1798,7 +1807,7 @@ void Game::checkWeaponSafetyNet(float dt) {
     if (p.hotSlotOf(itemWpn(W_FLINT)) < 0) {  // and it is equipped, so the hunter can use it at once
         int slot = 0;
         for (int i = HOT_N - 1; i >= 0; i--)
-            if (HOT_KIND[i] == HK_WEAPON && (p.hot[i] < 0 || i == 0)) slot = i;
+            if (p.hot[i] < 0 || i == 0) slot = i;
         p.hot[slot] = itemWpn(W_FLINT);
     }
     p.sel = W_FLINT;

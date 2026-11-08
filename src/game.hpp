@@ -369,10 +369,12 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
-    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot (the one it replaces goes back into the pack)
-    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off (needs a free pack slot)
+    bool equipFarmTool(int slot);       // equip the farming tool in this pack slot: it goes on the hotbar like a weapon and stays in the pack
+    bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off the hotbar (it stays in the pack)
+    void giveFarmTool(int toolId);      // add a tool to the pack and equip it (starter / bought tools)
+    void syncFarmTools();               // an equipped tool must be in the pack and only one per type may sit on the hotbar
     bool ownsTool(int toolId) const;    // equipped or in the pack
-    static bool isFarmType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
+    static bool isFarmType(int type) { return isFarmToolType(type); }
     bool equipHot(int itemId, int hotSlot = -1);  // put an item on the hotbar (first free compatible slot unless one is given)
     void unequipHot(int hotSlot);
     bool equipHotQuiet(int itemId);  // equipHot without messages or sounds (loading old saves)

@@ -371,10 +371,14 @@ int selfTest(Game& g) {
         g.p.inv.add(itemCons(C_BREW), 1);
         check(g.p.hotSlotOf(itemMat(M_MEAT)) < 0 && g.p.hotSlotOf(itemWpn(W_BOW)) < 0 && g.p.hotSlotOf(itemCons(C_COOKED)) < 0, "collected items are never auto-assigned to the hotbar");
         check(!g.equipHot(itemMat(M_MEAT)) && !g.equipHot(itemAmmo(AM_ARROW)) && !g.equipHot(itemTool(TL_AXE1)), "materials, ammunition and tools cannot be equipped on the hotbar");
-        check(!g.equipHot(itemWpn(W_BOW), 3) && !g.equipHot(itemCons(C_COOKED), 0) && !g.equipHot(itemCons(C_BREW), 5), "an item is refused by a slot of the wrong kind (weapon in a healing slot, food in a weapon slot, buff in the food slot)");
+        check(!g.equipHot(itemWpn(W_BOW), HOT_N) && !g.equipHot(itemWpn(W_BOW), 99) && g.p.hotSlotOf(itemWpn(W_BOW)) < 0, "a slot that does not exist refuses the item");
+        check(g.equipHot(itemCons(C_COOKED), 7) && g.p.hot[7] == itemCons(C_COOKED) && g.equipHot(itemWpn(W_BOW), 6) && g.p.hot[6] == itemWpn(W_BOW), "every hotbar slot is universal: food in slot 8, a weapon in slot 7");
+        g.unequipHot(7);
+        g.unequipHot(6);
+        g.p.sel = W_FLINT;
         check(!g.canUse(W_BOW), "an unequipped weapon cannot be used even though it is in the pack");
         check(g.equipHot(itemWpn(W_BOW)) && g.p.hot[1] == itemWpn(W_BOW) && g.p.sel == W_BOW && g.canUse(W_BOW), "equipping the bow puts it in the first free weapon slot and takes it in hand");
-        check(g.equipHot(itemCons(C_COOKED)) && g.p.hot[5] == itemCons(C_COOKED) && g.equipHot(itemCons(C_BREW)) && g.p.hot[6] == itemCons(C_BREW), "food and buffs go to their own slots");
+        check(g.equipHot(itemCons(C_COOKED), 5) && g.p.hot[5] == itemCons(C_COOKED) && g.equipHot(itemCons(C_BREW), 6) && g.p.hot[6] == itemCons(C_BREW), "food and buffs can be put in any chosen slot");
         check(!g.equipHot(itemCons(C_COOKED)), "equipping the same item twice is refused");
         g.hotUse(0);
         check(g.p.sel == W_FLINT, "hotbar key 1 selects the knife");
