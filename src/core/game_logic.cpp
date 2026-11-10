@@ -469,7 +469,12 @@ void Game::update(float dt) {
                 } else msg("YOU CAN ONLY BUILD AT YOUR HOMESTEAD", C_DIM);
                 break;
             }
-            if (in.mapToggle) showMap = !showMap;
+            if (in.mapToggle) {  // M: the full map; the minimap on / off is TAB
+                state = ST_MAP;
+                audio.play(S_CLICK);
+                break;
+            }
+            if (in.tabPressed) showMap = !showMap;
             if (in.helpToggle) helpT = helpT > 0 ? 0 : 14;
             if (in.invToggle && !p.dead && !p.charging) {
                 state = ST_INVENTORY;
@@ -482,6 +487,9 @@ void Game::update(float dt) {
             break;
         case ST_INVENTORY:
             updateInventory(dt);
+            break;
+        case ST_MAP:
+            updateWorldMap(dt);
             break;
         case ST_SHOP:
             dayT += 0;  // time stands still while trading

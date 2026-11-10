@@ -29,7 +29,7 @@ src/tests/        headless test suites (run with ctest); the --selftest suite is
 
 ## Controls
 WASD move | SHIFT sprint | mouse aim | HOLD LMB charge, release to throw | 1-8 hotbar slot (weapon, tool, seeds or item in hand) / wheel cycles the hotbar | click uses the item in hand
-E (hold) gather a carcass, chop a tree, mine a rock, pick a plant | E on a chest opens it, hold E on your campfire to pick it up | E at merchant: shop | E at Elder Holt: quests | Q bandage | M map | H help | ESC pause | F11 fullscreen
+E (hold) gather a carcass, chop a tree, mine a rock, pick a plant | E on a chest opens it, hold E on your campfire to pick it up | E at merchant: shop | E at Elder Holt: quests | Q bandage | M full map | TAB minimap | H help | ESC pause | F11 fullscreen
 
 ## Loop
 Hunt rabbits, deer, boars and wolves -> pick thrown weapons back up -> hold E on the carcass with your skinning knife

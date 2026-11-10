@@ -372,4 +372,33 @@ void testScreensAndSaves(SelfTest& t) {
         check(!g.load(), "no file: load returns false");
     }
     // ======================================================== gathering, crafting, structures
+    printf("full map screen\n");
+    {
+        g.state = ST_PLAY;
+        g.showMap = true;
+        g.in.mapToggle = true;
+        g.update(1.f / 60.f);
+        g.in.mapToggle = false;
+        check(g.state == ST_MAP, "M opens the full map screen");
+        g.render();  // draws the map with the fog of war, landmarks and gates (no crash)
+        g.in.mapToggle = true;
+        g.update(1.f / 60.f);
+        g.in.mapToggle = false;
+        check(g.state == ST_PLAY, "M closes it again");
+        g.in.mapToggle = true;
+        g.update(1.f / 60.f);
+        g.in.mapToggle = false;
+        g.in.escPressed = true;
+        g.update(1.f / 60.f);
+        g.in.escPressed = false;
+        check(g.state == ST_PLAY, "ESC closes the map too (and does not pause)");
+        g.in.tabPressed = true;
+        g.update(1.f / 60.f);
+        g.in.tabPressed = false;
+        check(!g.showMap, "TAB switches the minimap off");
+        g.in.tabPressed = true;
+        g.update(1.f / 60.f);
+        g.in.tabPressed = false;
+        check(g.showMap, "...and on again");
+    }
 }

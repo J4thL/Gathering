@@ -213,7 +213,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP };  // the Homestead's menus (homestead_ui.cpp)
 
 struct Game {
     // platform
@@ -634,6 +634,8 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
+    void drawWorldMap();             // the full-map screen (M), game_map.cpp
+    void updateWorldMap(float dt);
     void drawBiomeFx();
     void drawBiomeBanner();
     void drawPrompt(float wx, float wy, const std::string& key, const std::string& label);

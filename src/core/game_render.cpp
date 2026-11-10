@@ -174,6 +174,7 @@ void Game::render() {
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
         case ST_INVENTORY: drawHud(); drawInventory(); break;
         case ST_CHEST: drawHud(); drawChest(); break;
+        case ST_MAP: drawWorldMap(); break;  // (over the dimmed world, without the HUD)
     }
     if (state == ST_PLAY && !p.dead) drawReticle();
     else sprS(A.cursor, (int)in.mx, (int)in.my);
