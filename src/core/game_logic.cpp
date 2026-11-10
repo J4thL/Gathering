@@ -383,7 +383,7 @@ void Game::updatePlay(float dt) {
         int alive[A_COUNT] = {0};
         for (auto& a : animals)
             if (!a.dead) alive[a.kind]++;
-        int targets[4] = {14, 8, 5, 4 + (int)(2 * (1.f - daylight()))};
+        int targets[4] = {HOME_HERDS[0], HOME_HERDS[1], HOME_HERDS[2], HOME_HERDS[3] + (int)(3 * (1.f - daylight()))};
         for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }

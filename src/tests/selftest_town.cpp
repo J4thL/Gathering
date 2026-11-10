@@ -10,49 +10,45 @@ void testTownAndFeedback(SelfTest& t) {
     [[maybe_unused]] auto findRecipe = [&](int kind, int out, int firstMat) { return t.findRecipe(kind, out, firstMat); };
     [[maybe_unused]] auto writeFile = [&](const std::string& text) { t.writeFile(text); };
     [[maybe_unused]] auto removeAll = [&]() { t.removeAll(); };
-    printf("town: strolling villagers, shop talk\n");
-    printf("town: a clearing - no resources, a tree wall, no wild animals\n");
+    printf("town: a clearing - nothing to gather in or by the town or on its roads, no wild animals\n");
     {
         g.newGame();
         g.state = ST_PLAY;
-        const int ax0 = COX + TOWN_X0, ay0 = COY + TOWN_Y0, ax1 = COX + TOWN_X1, ay1 = COY + TOWN_Y1;
-        int inside = 0;
-        for (auto& n : g.world.nodes) {
-            const int tx = (int)(n.x / TS), ty = (int)((n.y - 1.f) / TS);
-            if (tx >= ax0 && tx < ax1 && ty >= ay0 && ty < ay1) inside++;
+        // every resource (nodes and the choppable props) is out of the town, its 2-tile margin and the four roads leading out
+        auto bad = [&](float px, float py) {
+            const int tx = (int)(px / TS) - COX, ty = (int)((py - 1.f) / TS) - COY;
+            if (tx >= TOWN_X0 - 2 && tx < TOWN_X1 + 2 && ty >= TOWN_Y0 - 2 && ty < TOWN_Y1 + 2) return true;
+            if (ty >= 23 && ty <= 27 && ((tx >= 12 && tx < TOWN_X0) || (tx >= TOWN_X1 && tx < 76))) return true;
+            if (tx >= 42 && tx <= 45 && ((ty >= 8 && ty < TOWN_Y0) || (ty >= TOWN_Y1 && ty < 52))) return true;
+            return false;
+        };
+        int nodesIn = 0, propsIn = 0, townTrees = 0;
+        for (auto& n : g.world.nodes) nodesIn += bad(n.x, n.y);
+        for (size_t i = 0; i < g.world.props.size(); i++) {
+            const Prop& pr = g.world.props[i];
+            if (g.propRsId.size() > i && g.propRsId[i] >= 0 && bad(pr.x, pr.y)) propsIn++;
+            if (g.world.inTown(pr.x, pr.y) && (pr.kind == P_OAK0 || pr.kind == P_OAK1 || pr.kind == P_PINE)) townTrees++;
         }
-        check(inside == 0, "nothing can be gathered inside the town (no trees, rocks, plants or ore)");
-        auto solidAt = [&](int cx, int cy) { return g.world.solid[COY + cy][COX + cx]; };
-        // the wall: every tile of the double ring is solid except at the four roads
-        bool wall = true, roads = true;
-        for (int cx = TOWN_X0 - 2; cx < TOWN_X1 + 2; cx++)
-            for (int cy : {TOWN_Y0 - 2, TOWN_Y0 - 1, TOWN_Y1, TOWN_Y1 + 1}) {
-                const bool gap = cx >= 42 && cx <= 45;
-                if (gap) roads = roads && !solidAt(cx, cy);
-                else wall = wall && solidAt(cx, cy);
-            }
-        for (int cy = TOWN_Y0; cy < TOWN_Y1; cy++)
-            for (int cx : {TOWN_X0 - 2, TOWN_X0 - 1, TOWN_X1, TOWN_X1 + 1}) {
-                const bool gap = cy >= 23 && cy <= 27;
-                if (gap) roads = roads && !solidAt(cx, cy);
-                else if (!(cy >= 28 && cy <= 29 && (cx == TOWN_X0 - 1 || cx == TOWN_X1))) wall = wall && solidAt(cx, cy);  // (a sign stands there)
-            }
-        check(wall, "a double row of solid trees surrounds the town");
-        check(roads, "...open only where the four roads leave");
-        bool noNodeOnWall = true;
-        for (auto& n : g.world.nodes) {
-            const int tx = (int)(n.x / TS) - COX, ty = (int)((n.y - 1.f) / TS) - COY;
-            const bool onRing = tx >= TOWN_X0 - 2 && tx < TOWN_X1 + 2 && ty >= TOWN_Y0 - 2 && ty < TOWN_Y1 + 2;
-            noNodeOnWall = noNodeOnWall && !onRing;
-        }
-        check(noNodeOnWall, "the wall trees are scenery: nothing choppable sits in the wall or the town");
+        check(nodesIn == 0, "no plant, ore or other node is in the town, beside it or on the roads");
+        check(propsIn == 0, "no choppable tree or minable rock is there either");
+        check(townTrees > 0, "the town still has its own trees...");
+        g.initHarvest();
+        int chopTown = 0;
+        for (size_t i = 0; i < g.world.props.size(); i++)
+            if (g.world.inTown(g.world.props[i].x, g.world.props[i].y) && g.propRsId[i] >= 0) chopTown++;
+        check(chopTown == 0, "...as scenery that cannot be chopped");
         check(g.world.inTown(g.world.spawn.x, g.world.spawn.y) && !g.world.inTown(g.world.village.x - 2000, g.world.village.y), "inTown knows the town rectangle");
-        // wildlife: none spawns in or beside the town, and none walks in
+        // wildlife: spread over the whole home forest, never in or by the town, and none walks in
         g.animals.clear();
-        int inTown = 0;
-        for (int i = 0; i < 400; i++) g.trySpawn(i % 4, 0, false);
-        for (auto& a : g.animals) inTown += g.world.inTown(a.pos.x, a.pos.y, 48.f);
+        for (int i = 0; i < 800; i++) g.trySpawn(i % 4, 0, false);
+        int inTown = 0, far = 0, wild = 0;
+        for (auto& a : g.animals) {
+            inTown += g.world.inTown(a.pos.x, a.pos.y, 48.f);
+            far += dist(a.pos, g.world.village) > 1000.f;  // out beyond the original area's own tree wall
+            wild += a.biome == B_HOME;
+        }
         check(!g.animals.empty() && inTown == 0, "no wild animal ever spawns in or by the town");
+        check(far > (int)g.animals.size() / 4 && wild == (int)g.animals.size(), "animals spread across the whole forest, not in a ring around the village");
         g.animals.clear();
         g.trySpawn(A_RABBIT, 0, false);
         if (!g.animals.empty()) {
@@ -66,6 +62,7 @@ void testTownAndFeedback(SelfTest& t) {
             check(!entered, "a wild animal pushed at the town edge cannot walk in");
         }
     }
+    printf("town: strolling villagers, shop talk\n");
     {
         g.newGame();
         g.state = ST_PLAY;

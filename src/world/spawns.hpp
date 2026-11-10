@@ -25,6 +25,8 @@ constexpr float SPAWN_AREA = 800.f;                    // radius the caps are co
 constexpr float DESPAWN_DIST = 920.f;                  // live animals this far from the player are removed
 constexpr int MAX_LIVE_ANIMALS = 60;                   // hard ceiling on live animals (carcasses excluded)
 constexpr float SPAWN_TICK = 1.2f;
+// the home forest's population (rabbit, deer, boar, wolf): spread over the whole forest, so it is sized for the whole map
+constexpr int HOME_HERDS[4] = {36, 20, 12, 10};
 
 static const std::vector<SpawnDef> SPAWNS[B_COUNT] = {
     // ---- home: handled by Game::populate (original behaviour)

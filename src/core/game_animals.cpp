@@ -7,12 +7,13 @@
 
 // ================================================================= animals
 bool Game::trySpawn(int kind, float minDist, bool offscreen) {
-    static const float zr[A_COUNT][2] = {{140, 520}, {240, 700}, {360, 820}, {460, 900}};
-    for (int it = 0; it < 80; it++) {
-        float ang = rng.range(0, 6.2832f), rad = rng.range(zr[kind][0], zr[kind][1]);
-        V2 pos = world.village + V2(cosf(ang) * rad, sinf(ang) * rad * 0.8f);
-        // the original species still live in the home area only, with the same margins as before the expansion
-        if (pos.x < world.coreX0() + 56 || pos.y < world.coreY0() + 56 || pos.x > world.coreX1() - 56 || pos.y > world.coreY1() - 56) continue;
+    // how close to the village each species may be placed: rabbits live nearest, wolves keep deep in the forest. The far limit is the
+    // whole home forest (the thick tree wall of the original area and the forest around it), not a ring around the village.
+    static const float nearest[A_COUNT] = {140, 240, 360, 460};
+    for (int it = 0; it < 200; it++) {
+        const V2 pos(rng.range(4 * TS, (MW - 4) * TS), rng.range(4 * TS, (MH - 4) * TS));
+        if (world.biomeAtPos(pos.x, pos.y) != B_HOME) continue;
+        if (dist(pos, world.village) < nearest[kind]) continue;
         if (world.blocked(pos.x, pos.y, 9)) continue;
         if (world.inTown(pos.x, pos.y, 48.f)) continue;  // the town (and its tree wall) is no place for wild animals
         if (dist(pos, p.pos) < minDist) continue;
@@ -147,7 +148,7 @@ void Game::streamSpawns(float dt) {
 
 void Game::populate() {
     animals.clear();
-    int counts[A_COUNT] = {14, 8, 5, 4};
+    int counts[A_COUNT] = {HOME_HERDS[0], HOME_HERDS[1], HOME_HERDS[2], HOME_HERDS[3]};
     for (int k = 0; k < A_COUNT; k++)
         for (int i = 0; i < counts[k]; i++) trySpawn(k, 110, false);
 }
