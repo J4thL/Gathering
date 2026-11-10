@@ -175,4 +175,7 @@ inline float hunterSwingSpan(int st) {
     if (c.n < 2) return 1.f;
     return (c.total() - c.dur[c.n - 1]) / c.total();
 }
+// A farm tool or seeds used on the soil: the hoe and the sickle play the axe stroke, seeds the bend of picking a plant, and the
+// watering can the hand-raising use pose (the can itself is drawn tipping). One short swing per click.
+constexpr float FARM_SWING_T = 0.45f;
 inline bool isToolStroke(int st) { return st == HS_SWING || st == HS_MINE || st == HS_FORAGE; }

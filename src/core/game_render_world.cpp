@@ -383,6 +383,16 @@ void Game::renderWorld(bool) {
                     f.t = s.flash;
                     sprW(f, p.pos.x, p.pos.y, fl, 0.55f);
                 }
+                // a farm tool swinging at the soil: the hoe and sickle arc down like the axe, the can tips over the plot
+                if (p.farmT > 0 && p.farmType >= 0 && p.farmType < HAND_SEED0 && p.tool[p.farmType] >= 0) {
+                    const float f = clampf(1.f - p.farmT / FARM_SWING_T, 0.f, 1.f);
+                    const bool left = p.farmAt.x < p.pos.x;
+                    float ang;
+                    if (p.farmType == TT_CAN) ang = 70.f * sinf(f * 3.14159f);                      // tip and back
+                    else if (f < 0.8f) ang = -75.f + 125.f * (f / 0.8f) * (f / 0.8f);               // lift, then fall fast
+                    else ang = 50.f - 35.f * (f - 0.8f) / 0.2f;                                     // rest on the soil, lift away
+                    sprW(A.R.toolSwing[p.tool[p.farmType]], p.pos.x + (left ? -3 : 3), p.pos.y - 6, left, 1.f, left ? -ang : ang, true);
+                }
                 // weapon in hand while winding up
                 if (p.charging && p.wpn(p.sel) > 0) {
                     float back = p.charge * 3.f;

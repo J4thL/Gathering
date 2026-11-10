@@ -390,12 +390,15 @@ bool Game::hsToolUse() {
     const V2 mw(in.mx + camX, in.my + camY);
     const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
     if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return false;
-    auto no = [&](const char* m) { msg(m, C_RED); audio.play(S_ERROR, 0.5f); return true; };
+    auto no = [&](const char* m) { p.farmT = 0; msg(m, C_RED); audio.play(S_ERROR, 0.5f); return true; };
     if (dist(p.pos, V2((tx + .5f) * TS, (ty + .5f) * TS)) > 46.f) return no("TOO FAR - MOVE CLOSER");
     HPiece* gp = hsAt(tx, ty, HL_GROUND);
     const bool plot = gp && gp->kind == HP_PLOT;
     const bool ripe = plot && gp->crop >= 0 && gp->stage >= CROP_STAGES - 1;
-    p.useT = 0.25f;
+    p.farmT = FARM_SWING_T;  // (the swing is cancelled again by a refusal, see no())
+    p.farmType = type;
+    p.farmNew = true;
+    p.farmAt = V2((tx + .5f) * TS, (ty + .5f) * TS);
     if (type >= HAND_SEED0) {  // seeds: sow a tilled, empty plot
         const int crop = type - HAND_SEED0;
         if (!plot) return no("TILL THE SOIL WITH A HOE FIRST");

@@ -87,6 +87,10 @@ struct Player {
     float animT = 0;
     int face8 = F_S;      // 4-way facing (anim.hpp)
     Animator anim;        // the hunter's current animation (state HState), driven by Game::updateHunterAnim
+    float farmT = 0;      // > 0 while a farm tool / seeds are being worked on the soil (FARM_SWING_T long)
+    int farmType = -1;    // what is being worked: a ToolType (hoe, can, sickle) or HAND_SEED0 + crop for seeds
+    bool farmNew = false; // a swing just began (restarts the pose clip)
+    V2 farmAt;            // the tile being worked, in world pixels (which side the tool swings to)
     float useT = 0;       // > 0 while using an item (bandage, food): plays the use animation
     float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit
     float hp = 100, maxhp = 100, stamina = 100;

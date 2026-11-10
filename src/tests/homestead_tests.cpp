@@ -331,8 +331,16 @@ int homesteadTest(Game& g) {
             aim(tx + 12, ty);  // far away
             g.hsToolUse();
             check(g.hs.pieces.size() == n0, "a click on a tile out of reach does nothing");
+            check(g.p.farmT <= 0, "...and starts no swing");
             aim(tx, ty);
             g.hsToolUse();
+            check(g.p.farmT > 0 && g.p.farmType == TT_HOE, "a hoe click starts the hoe swing");
+            g.updateHunterAnim(0.02f, false, false, false, false, -1, 0.f);
+            check(g.p.anim.state == HS_SWING, "the hoe plays the axe stroke");
+            g.updateHunterAnim(FARM_SWING_T, false, false, false, false, -1, 0.f);
+            g.p.farmT = 0;
+            g.updateHunterAnim(0.02f, false, false, false, false, -1, 0.f);
+            check(g.p.anim.state != HS_SWING, "the swing ends when its time is up");
             HPiece* np = g.hsAt(tx, ty, HL_GROUND);
             check(np && np->kind == HP_PLOT && g.hs.pieces.size() == n0 + 1, "left click with the hoe in hand tills the tile into a farm plot");
             g.state = ST_PLAY;
@@ -348,11 +356,14 @@ int homesteadTest(Game& g) {
             aim(tx + 1, ty);
             g.hsToolUse();
             check(!g.hsAt(tx + 1, ty, HL_GROUND), "seeds clicked on bare soil are not wasted (till it first)");
+            check(g.p.farmT <= 0, "a refused click (no plot to sow) does not swing");
             aim(tx, ty);
             const int seedsBefore = g.p.inv.count(seedId);
             g.hsToolUse();
             np = g.hsAt(tx, ty, HL_GROUND);
             check(np && np->crop == CR_CARROT && g.p.inv.count(seedId) == seedsBefore - 1, "left click with seeds in hand sows the tilled plot and uses one seed");
+            g.updateHunterAnim(0.02f, false, false, false, false, -1, 0.f);
+            check(g.p.farmT > 0 && g.p.anim.state == HS_FORAGE, "sowing plays the bend of planting");
             g.hsToolUse();
             check(g.p.inv.count(seedId) == seedsBefore - 1, "clicking an already planted plot does not use another seed");
             g.unequipHot(g.p.hotSlotOf(seedId));
