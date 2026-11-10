@@ -341,6 +341,8 @@ struct World {
 
     void generateMap(int map);  // worldgen.hpp
     void generateTown();        // worldgen.hpp: the central town on the home map
+    // inside the town's rectangle (home map only), `margin` pixels more generous: no animal spawns or walks in, nothing grows there
+    bool inTown(float x, float y, float margin = 0.f) const;
     void generateHomestead();   // homestead_gen.hpp: the player's sandbox map
     void generateInterior(int kind);  // interiors.hpp: the inside of one town building
     void generateDelve(int id);       // delve.hpp: the mine / one dungeon level

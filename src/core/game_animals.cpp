@@ -14,6 +14,7 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
         // the original species still live in the home area only, with the same margins as before the expansion
         if (pos.x < world.coreX0() + 56 || pos.y < world.coreY0() + 56 || pos.x > world.coreX1() - 56 || pos.y > world.coreY1() - 56) continue;
         if (world.blocked(pos.x, pos.y, 9)) continue;
+        if (world.inTown(pos.x, pos.y, 48.f)) continue;  // the town (and its tree wall) is no place for wild animals
         if (dist(pos, p.pos) < minDist) continue;
         if (offscreen) {
             float sx = pos.x - cam.x, sy = pos.y - cam.y;
@@ -163,6 +164,7 @@ bool Game::stepAnimal(Animal& a, V2 dir, float speed, float dt) {
         float ang = base + offs[k] * a.bias;
         V2 d(cosf(ang), sinf(ang));
         V2 np = a.pos + d * (sp * dt);
+        if (world.inTown(np.x, np.y, 32.f) && !world.inTown(a.pos.x, a.pos.y, 32.f)) continue;  // wild animals keep out of the town
         if (!world.blocked(np.x, np.y, r) && world.biomeAtPos(np.x, np.y) == a.biome) {
             if (k > 0 && (k % 2 == 0)) a.bias = -a.bias;
             a.pos = np;
