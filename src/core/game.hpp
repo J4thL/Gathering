@@ -568,6 +568,7 @@ struct Game {
     bool chestMove(int fromPack, int slot);
     // ---- crafting (crafting.cpp)
     bool craft(int r);
+    int craftMany(int r, int n);  // up to n crafts in a row; returns how many were made
     const Spr& itemIcon(int id) const;
     std::string craftBlock(int r) const;  // "" when the recipe can be made now, otherwise why not (short, upper case)
     bool hasIngredients(const Recipe& R) const;

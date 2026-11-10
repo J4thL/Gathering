@@ -40,8 +40,6 @@ std::string Game::craftBlock(int r) const {
         return "";
     }
     const int out = recipeItem(R);
-    if ((R.kind == RK_ITEM || R.kind == RK_WEAPON) && item(out).stack == 1 && p.inv.count(out) > 0) return "YOU ALREADY HAVE ONE";
-    if (R.kind == RK_ITEM && item(out).kind == IK_BACKPACK && p.bag == item(out).ref) return "YOU ALREADY WEAR ONE";
     // space: ingredients go first, then the result must fit
     Inventory test = p.inv;
     for (int i = 0; i < 3; i++)
@@ -104,6 +102,17 @@ bool Game::craft(int r) {
     const bool isTool = R.kind == RK_ITEM && item(R.out).kind == IK_TOOL;
     if (R.kind == RK_WEAPON || isTool || R.kind == RK_GEAR) questEvent(Q_CRAFT, R.kind == RK_WEAPON ? R.out : -1, 1);
     return true;
+}
+
+// Craft the same recipe up to n times in a row (stops quietly at the first block: no materials, no room, locked). Gear upgrades are
+// one-off levels, so they are made once. Returns how many crafts were made.
+int Game::craftMany(int r, int n) {
+    if (r < 0 || r >= RECIPE_N) return 0;
+    if (RECIPES[r].kind == RK_GEAR) n = 1;
+    int made = 0;
+    while (made < n && craftBlock(r).empty() && craft(r)) made++;
+    if (made > 1) msg("CRAFTED " + S(made) + " TIMES", C_GOLD);
+    return made;
 }
 
 // ----------------------------------------------------------------- the CRAFTING tab
@@ -186,7 +195,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         text(x + 24, y + 3, recipeName(R) + (R.count > 1 && R.kind != RK_GEAR ? "  X" + S(R.count) : std::string("")), can ? C_GOLD : HEX(0xa89060));
         if (R.kind != RK_GEAR) {
             std::string ow = "OWNED " + S(p.inv.count(recipeItem(R)));
-            text(x + w - 58 - textW(ow), y + 3, ow, C_DIM, 1, false);
+            text(x + w - 86 - textW(ow), y + 3, ow, C_DIM, 1, false);
         }
         int ix = x + 24;
         for (int k = 0; k < 3; k++)
@@ -200,8 +209,9 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         std::string lab = "CRAFT";
         if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
         else if (!can && why.compare(0, 8, "MADE AT ") == 0) lab = "IN TOWN";
-        else if (why == "YOU ALREADY HAVE ONE" || why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
+        else if (why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
         if (button(x + w - 54, y + 4, 50, 13, lab, can, HEX(0x5d7a2e))) craft(r);
+        if (can && R.kind != RK_GEAR && button(x + w - 82, y + 4, 26, 13, "MAX", true, HEX(0x7a5d2e))) craftMany(r, 999);  // everything the materials allow
     }
     // ---- scrollbar
     if (maxScroll > 0) {

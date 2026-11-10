@@ -95,6 +95,12 @@ void testGameRules(SelfTest& t) {
         }
         check(seen[Q_NORMAL] > 0 && seen[Q_NORMAL] + seen[Q_GOOD] + seen[Q_OUTSTANDING] + seen[Q_EXCELLENT] + seen[Q_MASTERPIECE] == 40, "unforced crafts roll a tier each time (mostly normal at level 1)");
         g.craftQuality = Q_NORMAL;
+        g.p.inv.clear();
+        g.p.inv.add(BONE, 30);
+        g.p.inv.add(HIDE, 4);
+        check(g.craftMany(R_BONE, 999) == 4 && g.p.inv.count(itemWpn(W_BONE)) == 16 && g.p.mat(M_BONE) == 18 && g.p.mat(M_HIDE) == 0, "craft MAX makes as many as the materials allow (4 crafts of 4 knives)");
+        g.p.inv.add(HIDE, 4);
+        check(g.craftMany(R_BONE, 2) == 2 && g.p.inv.count(itemWpn(W_BONE)) == 24, "craft-many honours the requested count");
     }
     {   // picking up thrown weapons
         g.p.inv.clear();
