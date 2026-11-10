@@ -10,7 +10,8 @@ Or:      g++ -std=c++17 -O2 -Isrc $(sdl2-config --cflags) src/main.cpp src/*/*.c
 Includes are module-relative (`#include "items/items.hpp"`, `src` is the include root). Most art and data modules are header-only on purpose.
 ```
 src/main.cpp      entry point, command line modes (--headless, --shots, test suites)
-src/core/         Game state (game.hpp), update loop (game_logic.cpp), rendering (game_render.cpp), gfx, audio, data tables, Windows console
+src/core/         Game state (game.hpp); simulation split into game_logic (update loop), game_player, game_animals, game_inventory, game_save;
+                  drawing split into game_render (primitives, menus), game_render_world, game_hud, game_panels; gfx, audio, data, Windows console
 src/player/       hunter look and poses, skills, equipment and hotbar logic
 src/items/        item registry and the 100-slot inventory
 src/crafting/     recipes and crafting
@@ -23,7 +24,7 @@ src/farming/      homestead: plots, crops, farm animals, build menu, rendering
 src/buildings/    structures and interior art
 src/npcs/         town, shops and services, quests, hairdresser, villager art
 src/art/          hunter / biome / gear / resource / trophy sprites and the sprite exporter
-src/tests/        headless test suites (run with ctest)
+src/tests/        headless test suites (run with ctest); the --selftest suite is split by topic into selftest_*.cpp
 ```
 
 ## Controls
