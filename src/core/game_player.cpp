@@ -163,6 +163,7 @@ void Game::updatePlayer(float dt) {
     P.sinceHurt += dt;
     P.throwAnim = std::max(0.f, P.throwAnim - dt);
     P.useT = std::max(0.f, P.useT - dt);
+    P.farmT = std::max(0.f, P.farmT - dt);
 
     if (in.selectKey >= 0 && in.selectKey < HOT_N) hotUse(in.selectKey);  // number keys = hotbar slots
     if (in.wheel != 0) {  // the wheel moves through every item on the hotbar (weapons, tools, seeds, food...) and takes it in hand
@@ -412,6 +413,7 @@ void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGath
     if (P.dead) st = HS_DEATH;
     else if (hit || (P.anim.state == HS_HURT && !P.anim.done)) { st = HS_HURT; restart = hit; }  // only a fresh hit starts it (not a respawn)
     else if (P.useT > 0) st = HS_USE;
+    else if (P.farmT > 0) { st = P.farmType >= HAND_SEED0 ? HS_FORAGE : P.farmType == TT_CAN ? HS_USE : HS_SWING; restart = P.farmNew; }
     else if (P.throwAnim > 0) st = HS_THROW;
     else if (P.charging) st = HS_AIM;
     else if (wantHarvest) st = resCls == RCL_TREE ? HS_SWING : (resCls == RCL_ROCK || resCls == RCL_ORE) ? HS_MINE : HS_FORAGE;  // axe / pickaxe / hands on a plant
@@ -422,7 +424,11 @@ void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGath
     P.impactT = std::max(0.f, P.impactT - dt);
     P.anim.play(st, &hunterClip(st), restart);
     P.anim.update(dt);
-    if (isToolStroke(st)) P.anim.scrub(P.impactT > 0 ? 1.f : swingFrac * hunterSwingSpan(st));  // the recovery right after a hit, else follow the swing
+    P.farmNew = false;
+    if (P.farmT > 0 && isToolStroke(st)) {  // the clip's strike lands at about four fifths of the swing, then the recovery pose
+        const float f = 1.f - P.farmT / FARM_SWING_T;
+        P.anim.scrub(f < 0.8f ? f / 0.8f * hunterSwingSpan(st) : 1.f);
+    } else if (isToolStroke(st)) P.anim.scrub(P.impactT > 0 ? 1.f : swingFrac * hunterSwingSpan(st));  // the recovery right after a hit, else follow the swing
     else if (st == HS_AIM) P.anim.scrub(clampf(P.charge, 0.f, 1.f));
 }
 
