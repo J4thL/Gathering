@@ -250,7 +250,11 @@ void testWorldRules(SelfTest& t) {
             g.p.inv.add(itemMat(M_COPPERBAR), 2);
             g.p.inv.add(itemMat(M_ROPE), 1);
             g.p.inv.add(itemMat(M_WOOD), 2);
-            check(g.craftBlock(rCuAxe) == "YOU ALREADY HAVE ONE", "a second copy of a single tool is refused");
+            check(g.craftBlock(rCuAxe).empty(), "a second copy of a single tool can be crafted too (crafting has no one-per-item limit)");
+            check(g.craftMany(rCuAxe, 5) == 1 && g.p.inv.count(itemTool(TL_AXE2)) == 2, "craft-many stops when the materials run out");
+            g.p.inv.add(itemMat(M_ROPE), 1);  // (the later checks expect the materials this one used to leave alone)
+            g.p.inv.add(itemMat(M_WOOD), 2);
+            g.p.inv.add(itemMat(M_COPPERBAR), 2);
             // iron tools need the shop's forge
             g.p.inv.add(itemMat(M_IRONBAR), 2);
             g.craftAnywhere = false;
