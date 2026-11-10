@@ -628,6 +628,8 @@ struct Game {
     void spend(int coins, int m1, int n1, int m2, int n2);
     bool buyUpgrade(int u);
     void sellMat(int m, int n);
+    int sellable(int item, int q) const;           // how many pieces of that quality the shop will take (a tool: never the best one)
+    void sellItem(int item, int q, int n);         // sell crafted things at their quality price
 
     // ---- rendering (game_render.cpp)
     void render();

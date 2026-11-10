@@ -142,6 +142,26 @@ inline int recipeXp(const Recipe& R) {
     return std::max(2, v / 5);
 }
 
+// What the general store pays for one piece of a crafted item (before its quality): what the ingredients cost plus a fifth for the work,
+// shared out over what a craft makes; the cheapest recipe wins. 0 = nothing the shop buys (no recipe: boss drops and the like).
+inline int itemSellBase(int id) {
+    static const std::vector<int> table = [] {
+        std::vector<int> t(ITEM_COUNT, 0);
+        for (int r = 0; r < RECIPE_N; r++) {
+            const Recipe& R = RECIPES[r];
+            if (R.kind == RK_GEAR) continue;
+            const int out = recipeItem(R);
+            int v = 0;
+            for (int i = 0; i < 3; i++)
+                if (R.mat[i] >= 0) v += R.n[i] * MAT_PRICE[R.mat[i]];
+            const int each = std::max(1, (int)((v * 1.2f) / std::max(1, R.count) + 0.5f));
+            if (t[out] == 0 || each < t[out]) t[out] = each;
+        }
+        return t;
+    }();
+    return id >= 0 && id < ITEM_COUNT ? table[id] : 0;
+}
+
 // the name a recipe's result goes by (gear has no item: it is the upgrade level's name)
 inline std::string recipeName(const Recipe& R) {
     if (R.kind == RK_GEAR) {

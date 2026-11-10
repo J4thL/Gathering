@@ -103,16 +103,24 @@ void Game::drawShop() {
         text(x0 + 20, Y + 22, "ITEM", C_DIM, 1, false);
         text(x0 + 82, Y + 22, "HAVE", C_DIM, 1, false);
         text(x0 + 112, Y + 22, "EACH", C_DIM, 1, false);
-        std::vector<int> owned;
+        struct Row { int id, q, n, price; };  // id < 0: material -id-1 (sold by sellMat); otherwise a crafted item of quality q
+        std::vector<Row> owned;
         int total = 0;
         bool partsHeld = false;
         auto isPart = [](int m) { return isComponent(m); };  // crafting components: kept by SELL EVERYTHING
         for (int m = 0; m < M_COUNT; m++)
             if (p.mat(m) > 0) {
-                owned.push_back(m);
+                owned.push_back({-m - 1, 0, p.mat(m), MAT_PRICE[m]});
                 if (isPart(m)) partsHeld = true;
                 else total += p.mat(m) * MAT_PRICE[m];
             }
+        for (const Slot& sl : p.inv.slots) {  // crafted things, one row per item and quality (listed once)
+            if (sl.empty() || !itemHasQuality(sl.item)) continue;
+            bool seen = false;
+            for (const Row& r : owned) seen = seen || (r.id == sl.item && r.q == sl.q);
+            const int n = sellable(sl.item, sl.q);
+            if (!seen && n > 0) owned.push_back({sl.item, sl.q, n, qualityPrice(itemSellBase(sl.item), sl.q)});
+        }
         const int ROWS = 8, maxScroll = std::max(0, (int)owned.size() - ROWS);
         sellScroll = std::max(0, std::min(maxScroll, sellScroll));
         if (maxScroll > 0) text(x0 + 150, Y + 22, "WHEEL: MORE (" + S(sellScroll + 1) + "-" + S(std::min((int)owned.size(), sellScroll + ROWS)) + "/" + S((int)owned.size()) + ")", C_DIM, 1, false);
@@ -121,16 +129,22 @@ void Game::drawShop() {
             textC(x0 + cw / 2, Y + 82, "HUNT ANIMALS OR GATHER FROM THE LAND", C_DIM, 1, false);
         }
         for (int i = 0; i < ROWS && sellScroll + i < (int)owned.size(); i++) {
-            const int m = owned[sellScroll + i];
+            const Row row = owned[sellScroll + i];
+            const bool isMat = row.id < 0;
+            const int m = -row.id - 1;
             int y = Y + 30 + i * 17;
             fillRect(x0, y, cw, 16, (i & 1) ? RGBA(0, 0, 0, 40) : RGBA(0, 0, 0, 80));
-            icon(A.matIcon[m], x0 + 10, y + 8, 14);
-            text(x0 + 21, y + 5, MAT_NAME[m], C_TEXT);
-            text(x0 + 84, y + 5, S(p.mat(m)), C_TEXT);
+            if (isMat) icon(A.matIcon[m], x0 + 10, y + 8, 14);
+            else {
+                qualityFrame(x0 + 3, y + 1, 14, 14, row.q);
+                icon(itemIcon(row.id), x0 + 10, y + 8, 11);
+            }
+            text(x0 + 21, y + 5, isMat ? std::string(MAT_NAME[m]) : item(row.id).name.substr(0, 14), isMat || row.q == Q_NORMAL ? C_TEXT : qualityCol(row.q));
+            text(x0 + 84, y + 5, S(row.n), C_TEXT);
             icon(A.coin, x0 + 114, y + 8, 8);
-            text(x0 + 120, y + 5, S(MAT_PRICE[m]), C_GOLD);
-            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", true)) sellMat(m, 1);
-            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", true)) sellMat(m, p.mat(m));
+            text(x0 + 120, y + 5, S(row.price), C_GOLD);
+            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
+            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
         }
         std::string lab = total > 0 ? std::string(partsHeld ? "SELL ALL BUT PARTS  +" : "SELL EVERYTHING  +") + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
         if (button(x0, Y + 30 + ROWS * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
@@ -235,6 +249,7 @@ void Game::drawInventory() {
     }
     const int cy = Y + 38;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
+    auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };
 
     if (invTab == 0) {
         // ---- the 100-slot grid (10 x 10): always exactly 100 slots, bags never change it
@@ -302,7 +317,7 @@ void Game::drawInventory() {
             int ty = py + 26;
             text(dx + 6, ty, "QTY " + S(sl.n) + "  EACH " + kgNum(D.weight) + " KG", C_TEXT, 1, false);
             ty += 8;
-            text(dx + 6, ty, "STACK " + kgNum(D.weight * sl.n) + " KG" + (D.price > 0 ? "  SELLS " + S(qualityPrice(D.price, sl.q)) : std::string("")), C_TEXT, 1, false);
+            text(dx + 6, ty, "STACK " + kgNum(D.weight * sl.n) + " KG" + (sellPriceOf(sl.item, sl.q) > 0 ? "  SELLS " + S(sellPriceOf(sl.item, sl.q)) : std::string("")), C_TEXT, 1, false);
             ty += 8;
             auto wrap = [&](const std::string& txt, u32 col) {
                 const size_t maxc = (size_t)std::max(8, (dw - 10) / 4);
