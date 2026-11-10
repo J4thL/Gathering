@@ -11,8 +11,8 @@
 #include <queue>
 #include <algorithm>
 #include <fstream>
-#include "game.hpp"
-#include "export_sprites.hpp"
+#include "core/game.hpp"
+#include "art/export_sprites.hpp"
 
 void enterMap(Game& g, int b);                          // world_check.cpp (shared with the tours)
 V2 portalPoint(const World& w, const Portal& pt);      // world_check.cpp
