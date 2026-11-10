@@ -210,6 +210,26 @@ void Game::sellMat(int m, int n) {
     questEvent(Q_EARN, 0, n * MAT_PRICE[m]);
 }
 
+// Crafted things sell for what they cost to make, times their quality. Materials are sold by sellMat; things with no recipe
+// (boss drops) are not bought. The last, best tool is always kept.
+int Game::sellable(int id, int q) const {
+    if (!itemHasQuality(id) || itemSellBase(id) <= 0) return 0;
+    int n = p.inv.countQ(id, q);
+    if (item(id).kind == IK_TOOL && q == p.inv.bestQuality(id)) n--;
+    return std::max(0, n);
+}
+void Game::sellItem(int id, int q, int n) {
+    n = std::min(n, sellable(id, q));
+    if (n <= 0) return;
+    const int gain = n * qualityPrice(itemSellBase(id), q);
+    p.inv.removeQ(id, q, n);
+    p.coins += gain;
+    sold += gain;
+    audio.play(S_COIN);
+    ftext(p.pos + V2(0, -24), "+" + S(gain) + " COINS", C_GOLD, 1.0f);
+    questEvent(Q_EARN, 0, gain);
+}
+
 // ================================================================= quests
 bool Game::nearQuestGiver() const { return dist(p.pos, world.questGiver) < 34; }
 

@@ -102,6 +102,25 @@ void testGameRules(SelfTest& t) {
         g.p.inv.add(HIDE, 4);
         check(g.craftMany(R_BONE, 2) == 2 && g.p.inv.count(itemWpn(W_BONE)) == 24, "craft-many honours the requested count");
     }
+    {   // selling crafted things at the store
+        g.p.inv.clear();
+        g.p.inv.maxWeight = 1e6f;
+        const int KN = itemWpn(W_BONE);
+        const int base = itemSellBase(KN);
+        check(base > 0 && itemSellBase(MEAT) == 0, "a crafted weapon has a sell value from its recipe");
+        g.p.inv.add(KN, 3, Q_NORMAL);
+        g.p.inv.add(KN, 2, Q_MASTERPIECE);
+        const int c0 = g.p.coins;
+        g.sellItem(KN, Q_MASTERPIECE, 2);
+        check(g.p.coins - c0 == 2 * qualityPrice(base, Q_MASTERPIECE) && g.p.inv.count(KN) == 3 && qualityPrice(base, Q_MASTERPIECE) > base, "a masterpiece sells for more than a normal piece");
+        g.sellItem(KN, Q_NORMAL, 99);
+        check(g.p.inv.count(KN) == 0 && g.sellable(KN, Q_NORMAL) == 0, "selling more than owned sells only what exists");
+        const int AXE = itemTool(TL_AXE2);
+        g.p.inv.add(AXE, 1, Q_NORMAL);
+        g.p.inv.add(AXE, 1, Q_GOOD);
+        check(g.sellable(AXE, Q_GOOD) == 0 && g.sellable(AXE, Q_NORMAL) == 1, "the best tool is never sold, the spare is");
+        check(g.sellable(MEAT, Q_NORMAL) == 0, "materials are not sold through the crafted list");
+    }
     {   // picking up thrown weapons
         g.p.inv.clear();
         fillWithJunk();

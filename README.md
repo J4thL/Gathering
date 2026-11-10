@@ -89,6 +89,7 @@ quality when it is made - one roll per craft: **Normal** (stone border), **Good*
 48% chance of Good or better and 6% for a Masterpiece). Raw and processed materials never have a quality.
 The border shows on icons in the pack, chests, hotbars and the HUD. Better quality means stats x1.08 / 1.17 / 1.28 / 1.45 (thrown and
 launcher damage - ammunition counts half -, tool swing speed, armor protection, boot speed, bag capacity, healing) and sell price x1.3 / 1.7 / 2.3 / 3.5.
+The general store's SELL tab also buys crafted things (one row per item and quality) for what their ingredients cost plus a fifth, times the quality price; boss drops with no recipe are not bought, and the best tool of a kind is always kept.
 Stacks only merge at equal quality; the finest piece is used first, the lowest quality is spent first when ingredients or drops are removed.
 Saves stay compatible: a quality is written only when it is not Normal (`slot <item> <count> <quality>`, `wornq` line) and old saves load as Normal.
 
