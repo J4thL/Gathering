@@ -238,6 +238,11 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.invTab = 0;
         frames(3);
         shot("20_pack.bmp");
+        g.state = ST_MAP;  // the full map with the fog of war
+        g.revealAround(V2(g.p.pos.x + 120.f, g.p.pos.y - 60.f));
+        frames(3);
+        shot("20b_map.bmp");
+        g.state = ST_INVENTORY;
         g.invTab = 1;
         g.craftCat = -1;
         frames(3);

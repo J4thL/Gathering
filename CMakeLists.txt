@@ -17,7 +17,8 @@ set(WILDWOOD_CORE
     src/core/game_render.cpp
     src/core/game_render_world.cpp
     src/core/game_hud.cpp
-    src/core/game_panels.cpp)
+    src/core/game_panels.cpp
+    src/core/game_map.cpp)
 set(WILDWOOD_PLAYER
     src/player/skills.cpp
     src/player/equipment.cpp)

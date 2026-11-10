@@ -320,7 +320,7 @@ void Game::drawHud() {
     if (helpT > 0 && state == ST_PLAY) {
         const char* lines[] = {"WASD MOVE   SHIFT SPRINT   1-8 HOTBAR   Q HEAL", "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
                                "HOLD E AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
-                               "I PACK  M MAP  H HELP  WHEEL: WEAPON  ESC PAUSE"};
+                               "I PACK  M MAP  TAB MINIMAP  H HELP  WHEEL: HOTBAR  ESC PAUSE"};
         int tw = 0;  // the panel is as wide as its longest line plus a margin, so no line can overflow it
         for (const char* l : lines) tw = std::max(tw, textW(l));
         const int w = tw + 20, h = 52;
