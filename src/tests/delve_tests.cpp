@@ -479,6 +479,7 @@ int delveTest(Game& g) {
     printf("--- crafting, gear and skills\n");
     {
         g.craftAnywhere = true;
+        g.craftQuality = Q_NORMAL;
         g.p.inv = Inventory();
         g.p.inv.maxWeight = 1e6f;  // (the pack's weight limit is not what is being tested here)
         g.p.up[U_ARMOR] = 5;

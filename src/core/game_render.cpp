@@ -73,6 +73,14 @@ void Game::textOutlined(int x, int y, const std::string& s, u32 col, float alpha
     SDL_SetTextureAlphaMod(A.font, 255);
 }
 
+void Game::qualityFrame(int x, int y, int w, int h, int q) {
+    const u32 c = qualityCol(q);
+    fillRect(x, y, w, 1, c);
+    fillRect(x, y + h - 1, w, 1, c);
+    fillRect(x, y + 1, 1, h - 2, c);
+    fillRect(x + w - 1, y + 1, 1, h - 2, c);
+}
+
 void Game::panel(int x, int y, int w, int h, u32 fill) {
     fillRect(x + 1, y, w - 2, h, UI_BORDER);
     fillRect(x, y + 1, w, h - 2, UI_BORDER);

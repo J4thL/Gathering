@@ -39,7 +39,12 @@ void Game::save() {
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
         for (auto& sl : p.inv.slots)
-            if (!sl.empty()) f << "slot " << itemKey(sl.item) << ' ' << sl.n << "\n";
+            if (!sl.empty()) {  // (the quality is appended only above Normal: older builds read such a line as a plain stack)
+                f << "slot " << itemKey(sl.item) << ' ' << sl.n;
+                if (sl.q > 0) f << ' ' << sl.q;
+                f << "\n";
+            }
+        f << "wornq " << p.armorQ << ' ' << p.bootsQ << ' ' << p.bagQ << "\n";  // quality of the worn armor, boots and bag
         // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
         // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
         // builds simply ignore, so the save version stays 2.
@@ -57,7 +62,7 @@ void Game::save() {
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
             for (auto& g : mm.items)  // stacks the hunter dropped lie where they were left
-                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << "\n";
+                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << (g.q > 0 ? " " + std::to_string(g.q) : std::string()) << "\n";
         }
         f.flush();
         if (!f) {
@@ -102,9 +107,13 @@ bool Game::load() {
     std::string bagKey = "-", hotKeys[HOT_N];
     bool sawBag = false, sawHotbar = false, sawFarm = false;
     std::vector<std::string> farmKeys;
-    struct DropLine { std::string key; int n, x, y; };
+    struct DropLine { std::string key; int n, x, y, q; };
     std::vector<DropLine> dropLines[B_COUNT];
-    std::vector<std::pair<std::string, int>> slotLines;  // v2
+    struct SlotLine {
+        std::string key;
+        int n, q;
+    };
+    std::vector<SlotLine> slotLines;  // v2
     // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
     // separate maps existed (one big world) and are converted below
     std::vector<std::string> mapHv[B_COUNT], mapSt[B_COUNT];
@@ -130,7 +139,16 @@ bool Game::load() {
         else if (k == "slot") {
             std::string key;
             ss >> key;
-            slotLines.push_back({key, (int)readCount(ss)});
+            const int n = (int)readCount(ss);
+            int q = 0;
+            if (!(ss >> q)) q = 0;  // (older saves: no quality field)
+            slotLines.push_back({key, n, clampQuality(q)});
+        } else if (k == "wornq") {
+            ss >> p.armorQ >> p.bootsQ >> p.bagQ;
+            if (!ss) p.armorQ = p.bootsQ = p.bagQ = 0;
+            p.armorQ = clampQuality(p.armorQ);
+            p.bootsQ = clampQuality(p.bootsQ);
+            p.bagQ = clampQuality(p.bagQ);
         } else if (k == "look") {
             ss >> lookLoaded.hair >> lookLoaded.color >> lookLoaded.skin >> lookLoaded.outfit;
             if (!ss) lookLoaded = HunterLook();
@@ -150,9 +168,10 @@ bool Game::load() {
             }
         } else if (k == "drop") {
             std::string key;
-            int n = 0, x = 0, y = 0;
+            int n = 0, x = 0, y = 0, q = 0;
             ss >> key >> n >> x >> y;
-            if (ss && curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y});
+            if (ss && !(ss >> q)) q = 0;  // the quality is optional (older saves have none)
+            if (curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y, clampQuality(q)});
         } else if (k == "map") {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
@@ -247,19 +266,19 @@ bool Game::load() {
     p.up[U_BAG] = 0;
     p.syncPack();
     p.inv.clear();
-    auto give = [&](int item, int n) {
+    auto give = [&](int item, int n, int q = 0) {
         if (n <= 0) return;
-        int got = p.inv.addIgnoringWeight(item, n);
+        int got = p.inv.addIgnoringWeight(item, n, q);
         loadReport.dropped += n - got;
     };
     if (sawVersion) {
         for (auto& sl : slotLines) {
-            int id = itemFromKey(sl.first);
+            int id = itemFromKey(sl.key);
             if (id < 0) {
                 loadReport.unknown++;  // an item from a newer game version: skipped, the rest still loads
                 continue;
             }
-            give(id, sl.second);
+            give(id, sl.n, sl.q);
         }
     } else {
         // version 1: counters per category. Old saves may hold fewer materials / weapons than exist now; the missing ones are zero.
@@ -358,6 +377,7 @@ bool Game::load() {
             g.pos = V2((float)d.x, (float)d.y);
             g.item = id;
             g.n = d.n;
+            g.q = d.q;
             g.ammo = -1;
             mapMem[m].items.push_back(g);
             mapMem[m].visited = true;

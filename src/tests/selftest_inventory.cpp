@@ -102,5 +102,43 @@ void testInventoryClass(SelfTest& t) {
         check(item(itemWpn(W_BOW)).stack == 1 && item(itemTool(TL_AXE1)).stack == 1 && item(itemPack(PK_SATCHEL)).stack == 1 && item(itemCarry(CG_QUIVER)).stack == 1, "launchers, tools, bags and carried gear take a slot each");
         check(BASE_CARRY_KG == 50 && PACK_CARRY_KG[0] == 100 && PACK_CARRY_KG[1] == 150 && PACK_CARRY_KG[2] == 200 && PACK_CARRY_KG[3] == 300, "carrying limits: no bag 50, satchel 100, trapper 150, explorer 200, expedition 300 kg");
     }
+    // ---- item quality: normal / good / outstanding / excellent / masterpiece
+    printf("item quality\n");
+    {
+        check(Q_COUNT == 5 && std::string(qualityDef(Q_NORMAL).name) == "NORMAL" && std::string(qualityDef(Q_MASTERPIECE).name) == "MASTERPIECE", "five quality tiers");
+        check(qualityDef(Q_NORMAL).rgb == 0x8c8579 && qualityDef(Q_GOOD).rgb == 0xa9b4c2 && qualityDef(Q_OUTSTANDING).rgb == 0xcd7f32 && qualityDef(Q_EXCELLENT).rgb == 0xe2e6ee && qualityDef(Q_MASTERPIECE).rgb == 0xffd23c, "borders: stone, iron, bronze, silver, gold");
+        bool mono = true;
+        for (int q = 1; q < Q_COUNT; q++) mono = mono && qualityDef(q).stat > qualityDef(q - 1).stat && qualityDef(q).price > qualityDef(q - 1).price;
+        check(mono && qualityDef(Q_NORMAL).stat == 1.f && qualityDef(Q_NORMAL).price == 1.f, "each tier is stronger and worth more than the last; normal changes nothing");
+        // the roll: skill raises the odds of every tier above normal
+        auto share = [&](int lv, int atLeast) {
+            int n = 0;
+            for (int i = 0; i < 10000; i++) n += rollQuality(lv, (i + 0.5f) / 10000.f) >= atLeast;
+            return n;
+        };
+        bool better = true;
+        for (int tier = Q_GOOD; tier < Q_COUNT; tier++) better = better && share(1, tier) < share(50, tier) && share(50, tier) < share(100, tier) && share(1, tier) > 0;
+        check(better, "a higher skill level makes every better tier likelier (and all are possible from level 1)");
+        check(rollQuality(1, 0.9999f) == Q_NORMAL && rollQuality(100, 0.0001f) == Q_MASTERPIECE && rollQuality(1, 0.f) == Q_MASTERPIECE, "the roll spans normal to masterpiece");
+        // stacks are per quality
+        Inventory iq(10, 1e9f);
+        iq.add(MEAT, 3);
+        iq.add(itemWpn(W_FLINT), 4, Q_NORMAL);
+        iq.add(itemWpn(W_FLINT), 2, Q_GOOD);
+        iq.add(itemWpn(W_FLINT), 1, Q_MASTERPIECE);
+        check(iq.usedSlots() == 4 && iq.count(itemWpn(W_FLINT)) == 7 && iq.countQ(itemWpn(W_FLINT), Q_GOOD) == 2, "stacks only merge at equal quality; the count sums all qualities");
+        check(iq.bestQuality(itemWpn(W_FLINT)) == Q_MASTERPIECE && iq.bestQuality(MEAT) == Q_NORMAL, "the best quality held is known");
+        check(iq.takeBest(itemWpn(W_FLINT)) == Q_MASTERPIECE && iq.bestQuality(itemWpn(W_FLINT)) == Q_GOOD, "takeBest uses the finest piece first");
+        iq.remove(itemWpn(W_FLINT), 4);
+        check(iq.countQ(itemWpn(W_FLINT), Q_NORMAL) == 0 && iq.countQ(itemWpn(W_FLINT), Q_GOOD) == 2, "remove spends the lowest quality first");
+        check(iq.removeQ(itemWpn(W_FLINT), Q_GOOD, 5) == 2 && iq.count(itemWpn(W_FLINT)) == 0, "removeQ takes only one quality");
+        iq.add(itemWpn(W_FLINT), 1, Q_GOOD);
+        iq.add(itemWpn(W_FLINT), 1, Q_NORMAL);
+        iq.add(itemWpn(W_FLINT), 1, Q_GOOD);
+        iq.compact();
+        check(iq.countQ(itemWpn(W_FLINT), Q_GOOD) == 2 && iq.countQ(itemWpn(W_FLINT), Q_NORMAL) == 1 && iq.usedSlots() == 3, "compact merges per quality");
+        check(qualityPrice(10, Q_MASTERPIECE) == 35 && qualityPrice(10, Q_NORMAL) == 10, "sell price scales with quality");
+        check(itemHasQuality(itemWpn(W_FLINT)) && itemHasQuality(itemTool(TL_AXE1)) && !itemHasQuality(MEAT), "crafted gear has a quality, raw materials do not");
+    }
     // ---- game rules
 }

@@ -10,7 +10,7 @@ void Game::hurtPlayer(float dmg, V2 from, int srcKind) {
     if (p.invuln > 0 || p.dead) return;
     dmg *= 1.f - skillBonus(SK_DEFENSE);
     if (p.has(CG_VENOMWRAPS) && (srcKind == A_RATTLER || srcKind == A_MOCCASIN)) dmg *= 0.65f;  // snake-proof wraps
-    int d = std::max(1, (int)ceilf(dmg * (1.f - ARMOR_RED[p.up[U_ARMOR]])));
+    int d = std::max(1, (int)ceilf(dmg * (1.f - std::min(0.9f, ARMOR_RED[p.up[U_ARMOR]] * qualityDef(p.armorQ).stat))));
     p.hp -= d;
     if (p.hp > 0 && p.up[U_ARMOR] > 0) grantXp(SK_DEFENSE, std::max(1, d / 8));  // surviving a hit in armor
     p.invuln = 0.85f;
@@ -41,8 +41,11 @@ void Game::throwWeapon() {
     if (!canUse(w)) return;
     const WpnDef& D = WPN[w];
     const bool launcher = isLauncher(w);
-    if (launcher) p.inv.remove(itemAmmo(D.ammo), 1);  // launchers are not used up, their ammunition is
-    else p.inv.remove(itemWpn(w), 1);
+    // the best piece is used: a launcher is not used up (its ammunition is), a thrown weapon is
+    const int wq = p.inv.bestQuality(itemWpn(w));
+    const int aq = launcher ? p.inv.bestQuality(itemAmmo(D.ammo)) : 0;
+    if (launcher) p.inv.takeBest(itemAmmo(D.ammo));
+    else p.inv.takeBest(itemWpn(w));
     V2 hand = p.pos + V2(0, -10);
     V2 mw(in.mx + camX, in.my + camY);
     V2 d = mw - hand;
@@ -72,6 +75,10 @@ void Game::throwWeapon() {
         pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
         pr.ammo = D.ammo;
     }
+    pr.q = wq;
+    pr.aq = aq;
+    // quality: the weapon's full bonus, and half of the ammunition's
+    pr.dmg *= qualityDef(wq).stat * (launcher ? 1.f + (qualityDef(aq).stat - 1.f) * 0.5f : 1.f);
     if (p.has(CG_CROWN)) pr.dmg *= 1.15f;  // the crown of the Frostbound King
     projs.push_back(pr);
     p.cd = D.cd;
@@ -198,7 +205,7 @@ void Game::updatePlayer(float dt) {
     V2 mv((in.right ? 1.f : 0.f) - (in.left ? 1.f : 0.f), (in.down ? 1.f : 0.f) - (in.up ? 1.f : 0.f));
     bool moving = mv.len() > 0.1f;
     if (moving) mv = mv.norm();
-    float spd = 70.f * BOOT_MUL[P.up[U_BOOTS]] * (P.swiftT > 0 ? 1.15f : 1.f);
+    float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
     { float ts = tileSpeed(groundT); if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f; spd *= ts; }  // sand, mud, deep snow slow you down
     float drain = 1.f, regen = 1.f;
@@ -310,7 +317,7 @@ void Game::updatePlayer(float dt) {
         if (it.item >= 0) {  // a stack the hunter dropped: taken back as far as slots and weight allow
             if (it.lock > 0) it.lock -= dt;
             else if (dist(P.pos, it.pos) < 13) {
-                const int got = P.inv.add(it.item, it.n);
+                const int got = P.inv.add(it.item, it.n, it.q);
                 if (got > 0) {
                     it.n -= got;
                     ftext(P.pos + V2(0, -24), "+" + S(got) + " " + item(it.item).name, C_BLUE, 0.9f);
@@ -326,8 +333,8 @@ void Game::updatePlayer(float dt) {
             continue;
         }
         if (it.ammo >= 0) {
-            if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemAmmo(it.ammo), 1)) {
-                P.inv.add(itemAmmo(it.ammo), 1);
+            if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemAmmo(it.ammo), 1, it.q)) {
+                P.inv.add(itemAmmo(it.ammo), 1, it.q);
                 ftext(P.pos + V2(0, -24), std::string("+1 ") + AMMO[it.ammo].name, C_BLUE, 0.9f);
                 audio.play(S_PICKUP, 0.4f);
                 items.erase(items.begin() + i);
@@ -336,8 +343,8 @@ void Game::updatePlayer(float dt) {
             continue;
         }
         if (dist(P.pos, it.pos) < 13 && !P.inv.canAdd(itemWpn(it.wpn), 1)) notifyBlocked(itemWpn(it.wpn), 1);
-        if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemWpn(it.wpn), 1)) {
-            P.inv.add(itemWpn(it.wpn), 1);
+        if (dist(P.pos, it.pos) < 13 && P.inv.canAdd(itemWpn(it.wpn), 1, it.q)) {
+            P.inv.add(itemWpn(it.wpn), 1, it.q);
             ftext(P.pos + V2(0, -24), std::string("+") + WPN[it.wpn].name, C_BLUE, 1.0f);
             audio.play(S_PICKUP, 0.5f);
             items.erase(items.begin() + i);
@@ -441,7 +448,7 @@ void Game::updateProjectiles(float dt) {
                         audio.play(S_BREAK, 0.6f);
                         ftext(a.pos + V2(0, -a.bodyH - 22), "SNAP", C_DIM, 0.7f);
                     } else {
-                        items.push_back({a.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo});
+                        items.push_back({a.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
                     }
                     done = true;
                     break;
@@ -459,7 +466,7 @@ void Game::updateProjectiles(float dt) {
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
                     } else {
-                        items.push_back({m.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo});
+                        items.push_back({m.pos + V2(rng.range(-9, 9), rng.range(0, 7)), pr.wpn, rng.range(0, 6.28f), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
                     }
                     done = true;
                     break;
@@ -471,7 +478,7 @@ void Game::updateProjectiles(float dt) {
             bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF || (delve >= 0 && world.solidTile(tx, ty));
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
-                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo});
+                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
                 for (int q = 0; q < 4; q++)
                     parts.push_back({pr.pos.x, pr.pos.y, 3, rng.range(-40, 40), rng.range(-20, 20), rng.range(20, 60), 0.4f, 0.4f, HEX(0xffe9a8), 1, true});
                 audio.play(S_CLICK, 0.5f);
@@ -483,7 +490,7 @@ void Game::updateProjectiles(float dt) {
                     ftext(g + V2(0, -8), "SPLASH", C_BLUE, 0.8f);
                 } else {
                     float ang = pr.angle + pr.spin * (pr.travelled / pr.speed);
-                    items.push_back({g, pr.wpn, ang, 0, pr.ammo});
+                    items.push_back({g, pr.wpn, ang, 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
                     puff(g, 3, HEX(0xcdb98f));
                 }
                 done = true;

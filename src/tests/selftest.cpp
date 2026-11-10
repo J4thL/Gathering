@@ -4,6 +4,7 @@
 
 int selfTest(Game& g) {
     SelfTest t(g);
+    g.craftQuality = Q_NORMAL;  // the other checks count exact stacks: their crafts are always Normal (the quality rules have their own topic)
     g.craftAnywhere = true;  // the crafting rules are tested away from the buildings (the building rule has its own checks)
     testInventoryClass(t);
     testGameRules(t);

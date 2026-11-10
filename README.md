@@ -81,6 +81,17 @@ drop, sell, store or use something. Saves are version 2 (`slot <item name> <coun
 never stored); version 1 saves are migrated on load (the old backpack level becomes the worn bag, owned weapons and consumables are
 equipped once) and the original is kept as `save.v1.bak`.
 
+## Item quality
+
+Everything you craft (weapons, ammunition, tools, bandages and other consumables, bags, placeables, carried gear, armor and boots) rolls a
+quality when it is made - one roll per craft: **Normal** (stone border), **Good** (iron), **Outstanding** (bronze), **Excellent** (silver) or
+**Masterpiece** (gold). The recipe's skill level raises the odds of every better tier (level 1 is mostly Normal; level 100 gives about a
+48% chance of Good or better and 6% for a Masterpiece). Raw and processed materials never have a quality.
+The border shows on icons in the pack, chests, hotbars and the HUD. Better quality means stats x1.08 / 1.17 / 1.28 / 1.45 (thrown and
+launcher damage - ammunition counts half -, tool swing speed, armor protection, boot speed, bag capacity, healing) and sell price x1.3 / 1.7 / 2.3 / 3.5.
+Stacks only merge at equal quality; the finest piece is used first, the lowest quality is spent first when ingredients or drops are removed.
+Saves stay compatible: a quality is written only when it is not Normal (`slot <item> <count> <quality>`, `wornq` line) and old saves load as Normal.
+
 ## Pack screen and crafting
 The main screen has no material counters any more (materials live in the pack). The hotbar at the bottom shows only what you have equipped:
 keys `1`-`8` select a weapon or use the equipped consumable / place the structure, the wheel cycles equipped weapons, `Q` uses the lightest

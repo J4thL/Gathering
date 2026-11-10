@@ -75,6 +75,27 @@ void testGameRules(SelfTest& t) {
         bool ok2 = g.craft(R_BONE);
         check(free1 == 0 && !ok2 && g.p.mat(M_BONE) == b0 && g.p.mat(M_HIDE) == h0 && g.p.wpn(W_BONE) == 0, "crafting with no room is refused and the ingredients are returned untouched");
     }
+    {   // crafted quality: a forced tier gives the item that tier; the roll is otherwise random and skill-based
+        g.p.inv.clear();
+        g.p.inv.maxWeight = 1e6f;
+        g.p.inv.add(BONE, 30);
+        g.p.inv.add(HIDE, 10);
+        g.craftQuality = Q_MASTERPIECE;
+        check(g.craft(R_BONE) && g.p.inv.countQ(itemWpn(W_BONE), Q_MASTERPIECE) == 4 && g.p.inv.bestQuality(itemWpn(W_BONE)) == Q_MASTERPIECE, "a masterpiece craft yields masterpiece pieces");
+        g.craftQuality = Q_NORMAL;
+        check(g.craft(R_BONE) && g.p.inv.countQ(itemWpn(W_BONE), Q_NORMAL) == 4 && g.p.inv.usedSlots() >= 3, "a normal craft stacks separately from the masterpiece ones");
+        g.craftQuality = -1;
+        int seen[Q_COUNT] = {0, 0, 0, 0, 0};
+        for (int i = 0; i < 40; i++) {
+            g.p.inv.clear();
+            g.p.inv.add(BONE, 3);
+            g.p.inv.add(HIDE, 1);
+            if (!g.craft(R_BONE)) break;
+            seen[g.p.inv.bestQuality(itemWpn(W_BONE))]++;
+        }
+        check(seen[Q_NORMAL] > 0 && seen[Q_NORMAL] + seen[Q_GOOD] + seen[Q_OUTSTANDING] + seen[Q_EXCELLENT] + seen[Q_MASTERPIECE] == 40, "unforced crafts roll a tier each time (mostly normal at level 1)");
+        g.craftQuality = Q_NORMAL;
+    }
     {   // picking up thrown weapons
         g.p.inv.clear();
         fillWithJunk();
@@ -339,6 +360,44 @@ void testGameRules(SelfTest& t) {
             bool ld = g.load();
             check(ld && g.p.bag < 0 && g.p.equippedWpn(W_FLINT) && g.p.equippedWpn(W_BOW) && g.p.hotSlotOf(ITEM_CONS0 + C_BANDAGE) >= 0 && g.p.hotSlotOf(itemCons(C_SALVE)) >= 0 && g.p.hotSlotOf(itemMat(M_MEAT)) < 0,
                   "an old save without a hotbar loads with its weapons and consumables equipped once (materials never)");
+        }
+        // ---- quality survives a save and load; a save without it loads as normal
+        {
+            g.newGame();
+            g.p.inv.clear();
+            g.p.inv.maxWeight = 1e6f;
+            g.p.inv.add(itemWpn(W_FLINT), 3, Q_GOOD);
+            g.p.inv.add(itemWpn(W_FLINT), 2, Q_NORMAL);
+            g.p.inv.add(itemPack(PK_SATCHEL), 1, Q_EXCELLENT);
+            g.p.armorQ = Q_OUTSTANDING;
+            g.p.bootsQ = Q_MASTERPIECE;
+            GroundItem gi{};
+            gi.pos = g.p.pos + V2(20, 0);
+            gi.item = itemWpn(W_FLINT);
+            gi.n = 2;
+            gi.q = Q_MASTERPIECE;
+            g.items.push_back(gi);
+            g.useSlot(2);  // wear the excellent satchel
+            check(g.p.bag == PK_SATCHEL && g.p.bagQ == Q_EXCELLENT && g.p.carryLimit() > PACK_CARRY_KG[PK_SATCHEL], "an excellent bag carries more than a normal one");
+            g.save();
+            g.newGame();
+            bool ld = g.load();
+            check(ld && g.p.inv.countQ(itemWpn(W_FLINT), Q_GOOD) == 3 && g.p.inv.countQ(itemWpn(W_FLINT), Q_NORMAL) == 2, "pack stacks keep their quality through a save");
+            check(g.p.armorQ == Q_OUTSTANDING && g.p.bootsQ == Q_MASTERPIECE && g.p.bagQ == Q_EXCELLENT && g.p.bag == PK_SATCHEL && g.p.carryLimit() == (int)lroundf(PACK_CARRY_KG[PK_SATCHEL] * qualityDef(Q_EXCELLENT).stat), "worn armor, boots and bag keep their quality");
+            bool dropOk = false;
+            for (auto& d : g.items) dropOk = dropOk || (d.item == itemWpn(W_FLINT) && d.q == Q_MASTERPIECE && d.n == 2);
+            check(dropOk, "a dropped stack keeps its quality through a save");
+            g.p.inv.clear();
+            g.dropSlot(0, 1);
+            g.p.inv.add(itemWpn(W_FLINT), 2, Q_GOOD);
+            g.p.inv.add(itemWpn(W_FLINT), 1, Q_EXCELLENT);
+            const int before = (int)g.items.size();
+            const int slotE = g.p.inv.slots[0].q == Q_EXCELLENT ? 0 : 1;
+            check(g.dropSlot(slotE, 1) && (int)g.items.size() == before + 1 && g.items.back().q == Q_EXCELLENT && g.p.inv.countQ(itemWpn(W_FLINT), Q_EXCELLENT) == 0, "dropping a stack drops that quality and keeps the rest");
+            // an old save: no quality fields at all
+            writeFile("version 2\ncoins 10\nup 0 0 0 0\nslot flint_knife 4\nslot raw_meat 5\n");
+            ld = g.load();
+            check(ld && g.p.inv.countQ(itemWpn(W_FLINT), Q_NORMAL) == 4 && g.p.armorQ == Q_NORMAL && g.p.bagQ == Q_NORMAL, "a save from before quality loads everything as normal");
         }
         std::remove(g.savePath().c_str());
         g.newGame();

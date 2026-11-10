@@ -23,24 +23,27 @@ bool Game::equipBag(int slot) {
     const int id = p.inv.slots[slot].item;
     if (item(id).kind != IK_BACKPACK) return false;
     const int k = item(id).ref;
-    p.inv.remove(id, 1);                                            // the worn bag is not carried, so it has no weight
-    if (p.bag >= 0) p.inv.addIgnoringWeight(itemPack(p.bag), 1);    // the bag it replaces goes back (its slot was just freed)
+    const int q = p.inv.slots[slot].q;
+    p.inv.removeQ(id, q, 1);                                                // the worn bag is not carried, so it has no weight
+    if (p.bag >= 0) p.inv.addIgnoringWeight(itemPack(p.bag), 1, p.bagQ);    // the bag it replaces goes back (its slot was just freed)
     p.bag = k;
+    p.bagQ = q;
     p.syncPack();
-    msg("WEARING " + item(id).name + " - CARRY UP TO " + S(PACK_CARRY_KG[k]) + " KG", C_GOLD);
+    msg("WEARING " + item(id).name + " - CARRY UP TO " + S(p.carryLimit()) + " KG", C_GOLD);
     audio.play(S_CLICK);
     return true;
 }
 
 bool Game::unequipBag() {
     if (p.bag < 0) return false;
-    if (p.inv.slotRoom(itemPack(p.bag)) < 1) {
+    if (p.inv.slotRoom(itemPack(p.bag), p.bagQ) < 1) {
         msg("NO FREE SLOT TO PUT THE BAG IN", C_RED);
         audio.play(S_ERROR);
         return false;
     }
-    p.inv.addIgnoringWeight(itemPack(p.bag), 1);
+    p.inv.addIgnoringWeight(itemPack(p.bag), 1, p.bagQ);
     p.bag = -1;
+    p.bagQ = 0;
     p.syncPack();
     msg("BAG TAKEN OFF - CARRY UP TO " + S(BASE_CARRY_KG) + " KG", C_DIM);
     audio.play(S_CLICK);
@@ -285,7 +288,8 @@ bool Game::dropSlot(int slot, int n) {
     if (slot < 0 || slot >= p.bagCap() || p.inv.slots[slot].empty()) return false;
     const int id = p.inv.slots[slot].item;
     n = std::min(n, p.inv.slots[slot].n);
-    if (n <= 0 || p.inv.remove(id, n) != n) return false;
+    const int q = p.inv.slots[slot].q;
+    if (n <= 0 || p.inv.removeQ(id, q, n) != n) return false;
     GroundItem g{};
     g.pos = p.pos + p.aim * 9.f;
     if (world.blocked(g.pos.x, g.pos.y, 3.f)) g.pos = p.pos;
@@ -295,6 +299,7 @@ bool Game::dropSlot(int slot, int n) {
     g.ammo = -1;
     g.item = id;
     g.n = n;
+    g.q = q;
     g.lock = 1.5f;
     items.push_back(g);
     msg("DROPPED " + S(n) + " " + item(id).name, C_DIM);

@@ -9,10 +9,12 @@
 #include <string>
 #include <vector>
 #include "items/items.hpp"
+#include "items/quality.hpp"
 
 struct Slot {
     int item = -1;  // registry id, -1 = empty
     int n = 0;
+    int q = 0;      // quality tier (items/quality.hpp); a stack only ever holds one tier
     bool empty() const { return item < 0 || n <= 0; }
 };
 
@@ -42,13 +44,13 @@ public:
         return left <= 0.f ? 0 : (int)std::min<double>((left + 1e-3) / w, 1 << 30);
     }
     // how many of an item the slots alone still allow
-    int slotRoom(int item) const {
+    int slotRoom(int item, int q = Q_NORMAL) const {
         if (!itemValid(item)) return 0;
         int st = ::item(item).stack;
         long r = 0;
         for (auto& s : slots) {
             if (s.empty()) r += st;
-            else if (s.item == item) r += std::max(0, st - s.n);
+            else if (s.item == item && s.q == q) r += std::max(0, st - s.n);
         }
         return (int)std::min<long>(r, 1 << 30);
     }
@@ -61,37 +63,52 @@ public:
     }
     int freeSlots() const { return capacity() - usedSlots(); }
 
-    // Total number of one item across all stacks.
+    // Total number of one item across all stacks (every quality).
     int count(int item) const {
         long t = 0;
         for (auto& s : slots)
             if (!s.empty() && s.item == item) t += s.n;
         return (int)t;
     }
+    // ... of one quality only
+    int countQ(int item, int q) const {
+        long t = 0;
+        for (auto& s : slots)
+            if (!s.empty() && s.item == item && s.q == q) t += s.n;
+        return (int)t;
+    }
+    // the best quality of an item held (-1 = none)
+    int bestQuality(int item) const {
+        int b = -1;
+        for (auto& s : slots)
+            if (!s.empty() && s.item == item && s.q > b) b = s.q;
+        return b;
+    }
     // How many more of an item would fit right now: limited by the free slots / partly filled stacks AND by the weight limit.
-    int room(int item) const { return itemValid(item) ? std::min(slotRoom(item), weightRoom(item)) : 0; }
+    int room(int item, int q = Q_NORMAL) const { return itemValid(item) ? std::min(slotRoom(item, q), weightRoom(item)) : 0; }
     // why an add of n would fall short: 0 fits, 1 all slots used, 2 too heavy
-    int blockReason(int item, int n) const {
+    int blockReason(int item, int n, int q = Q_NORMAL) const {
         if (!itemValid(item) || n <= 0) return 0;
-        if (slotRoom(item) < n) return 1;
+        if (slotRoom(item, q) < n) return 1;
         return weightRoom(item) < n ? 2 : 0;
     }
-    bool canAdd(int item, int n) const { return n >= 0 && room(item) >= n; }
+    bool canAdd(int item, int n, int q = Q_NORMAL) const { return n >= 0 && room(item, q) >= n; }
 
     // Adds up to n; returns how many were actually added (partial adds are normal when the pack is full or too heavy).
     // Nothing is ever discarded: the caller keeps what did not fit. Use forceAdd for things that must not be refused.
-    int add(int item, int n) {
+    int add(int item, int n, int q = Q_NORMAL) {
         if (!itemValid(item) || n <= 0) return 0;
         n = std::min(n, weightRoom(item));
-        return addIgnoringWeight(item, n);
+        return addIgnoringWeight(item, n, q);
     }
-    int addIgnoringWeight(int item, int n) {
+    int addIgnoringWeight(int item, int n, int q = Q_NORMAL) {
         if (!itemValid(item) || n <= 0) return 0;
+        q = clampQuality(q);
         const int st = ::item(item).stack;
         int left = n;
-        for (auto& s : slots) {  // top up existing stacks first
+        for (auto& s : slots) {  // top up existing stacks of the same quality first
             if (left <= 0) break;
-            if (!s.empty() && s.item == item && s.n < st) {
+            if (!s.empty() && s.item == item && s.q == q && s.n < st) {
                 int t = std::min(left, st - s.n);
                 s.n += t;
                 left -= t;
@@ -103,24 +120,50 @@ public:
                 int t = std::min(left, st);
                 s.item = item;
                 s.n = t;
+                s.q = q;
                 left -= t;
             }
         }
         return n - left;
     }
-    // Removes up to n (taking from the emptiest stack first so stacks stay full); returns how many were removed.
+    // Removes up to n, the lowest quality first (the best pieces are kept) and then the emptiest stack first so stacks stay full;
+    // returns how many were removed.
     int remove(int item, int n) {
         if (n <= 0) return 0;
         int left = n;
         while (left > 0) {
             Slot* best = nullptr;
             for (auto& s : slots)
-                if (!s.empty() && s.item == item && (!best || s.n < best->n)) best = &s;
+                if (!s.empty() && s.item == item && (!best || s.q < best->q || (s.q == best->q && s.n < best->n))) best = &s;
             if (!best) break;
             int t = std::min(left, best->n);
             best->n -= t;
             left -= t;
             if (best->n <= 0) *best = Slot();
+        }
+        return n - left;
+    }
+    // Takes one piece of the BEST quality held (the one a hunter reaches for: the sharpest knife, the strongest salve); returns its
+    // quality, or -1 when there is none.
+    int takeBest(int item) {
+        Slot* best = nullptr;
+        for (auto& s : slots)
+            if (!s.empty() && s.item == item && (!best || s.q > best->q || (s.q == best->q && s.n < best->n))) best = &s;
+        if (!best) return -1;
+        const int q = best->q;
+        if (--best->n <= 0) *best = Slot();
+        return q;
+    }
+    // Removes up to n pieces of exactly one quality.
+    int removeQ(int item, int q, int n) {
+        int left = n;
+        for (auto& s : slots) {
+            if (left <= 0) break;
+            if (s.empty() || s.item != item || s.q != q) continue;
+            const int t = std::min(left, s.n);
+            s.n -= t;
+            left -= t;
+            if (s.n <= 0) s = Slot();
         }
         return n - left;
     }
@@ -142,16 +185,17 @@ public:
     }
     // Merge partial stacks and move everything to the front, ordered by item id.
     void compact() {
-        std::vector<std::pair<int, int>> tot;  // (item, count)
+        struct T { int item, q, n; };
+        std::vector<T> tot;  // one entry per (item, quality)
         for (auto& s : slots)
             if (!s.empty()) {
-                auto it = std::find_if(tot.begin(), tot.end(), [&](auto& p) { return p.first == s.item; });
-                if (it == tot.end()) tot.push_back({s.item, s.n});
-                else it->second += s.n;
+                auto it = std::find_if(tot.begin(), tot.end(), [&](const T& p) { return p.item == s.item && p.q == s.q; });
+                if (it == tot.end()) tot.push_back({s.item, s.q, s.n});
+                else it->n += s.n;
             }
-        std::sort(tot.begin(), tot.end());
+        std::sort(tot.begin(), tot.end(), [](const T& a, const T& b) { return a.item != b.item ? a.item < b.item : a.q < b.q; });
         for (auto& s : slots) s = Slot();
-        for (auto& p : tot) addIgnoringWeight(p.first, p.second);  // re-sorting must never drop anything, even when overweight
+        for (auto& p : tot) addIgnoringWeight(p.item, p.n, p.q);  // re-sorting must never drop anything, even when overweight
     }
     void clear() {
         for (auto& s : slots) s = Slot();
