@@ -156,7 +156,11 @@ void Game::structSave(std::ostream& f) const {
     }
     for (size_t i = 0; i < structs.size(); i++)
         for (auto& sl : structs[i].inv.slots)
-            if (!sl.empty()) f << "cslot " << i << ' ' << itemKey(sl.item) << ' ' << sl.n << "\n";
+            if (!sl.empty()) {
+                f << "cslot " << i << ' ' << itemKey(sl.item) << ' ' << sl.n;
+                if (sl.q > 0) f << ' ' << sl.q;
+                f << "\n";
+            }
 }
 
 void Game::structLoad(const std::vector<std::string>& lines) {
@@ -182,12 +186,13 @@ void Game::structLoad(const std::vector<std::string>& lines) {
     for (auto& ln : lines) {
         std::istringstream ss(ln);
         std::string tag, key;
-        int idx = -1, n = 0;
+        int idx = -1, n = 0, q = 0;
         ss >> tag >> idx >> key >> n;
         if (tag != "cslot" || !ss || idx < 0 || idx >= (int)structs.size() || structs[idx].kind != PL_CHEST) continue;
+        if (!(ss >> q)) q = 0;  // (older saves: no quality field)
         int id = itemFromKey(key);
         if (id < 0 || n <= 0) continue;
-        structs[idx].inv.add(id, std::min(n, 99999));
+        structs[idx].inv.add(id, std::min(n, 99999), clampQuality(q));
     }
 }
 
@@ -197,7 +202,7 @@ constexpr int CH_COLS = 5, PK_COLS = 8, CELL = 21;
 // move a whole stack from one inventory slot into another inventory; returns how many moved
 int moveStack(Slot& src, Inventory& dst) {
     if (src.empty()) return 0;
-    int got = dst.add(src.item, src.n);
+    int got = dst.add(src.item, src.n, src.q);
     src.n -= got;
     if (src.n <= 0) src = Slot();
     return got;
@@ -257,6 +262,7 @@ void Game::drawChest() {
         const bool hov = inRect(x, y, CELL - 1, CELL - 1);
         panel(x, y, CELL - 1, CELL - 1, hov ? HEX(0x4a3624) : HEX(0x33241a));
         if (!sl.empty()) {
+            if (itemHasQuality(sl.item)) qualityFrame(x, y, CELL - 1, CELL - 1, sl.q);
             icon(itemIcon(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 14);
             if (sl.n > 1) {
                 std::string n = S(sl.n);

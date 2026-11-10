@@ -94,6 +94,7 @@ struct Player {
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
+    int armorQ = 0, bootsQ = 0, bagQ = 0;  // quality of the worn armor, boots and bag (items/quality.hpp)
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
@@ -130,7 +131,7 @@ struct Player {
     }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
-    int carryLimit() const { return bag >= 0 ? PACK_CARRY_KG[bag] : BASE_CARRY_KG; }  // kg
+    int carryLimit() const { return bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG; }  // kg
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
@@ -146,6 +147,8 @@ struct Proj {
     int wpn;
     bool crit;
     int ammo = -1;  // >= 0: an arrow / bolt fired from a launcher
+    int q = 0;      // quality of the thrown weapon / launcher
+    int aq = 0;     // quality of the arrow / bolt
 };
 struct GroundItem {
     V2 pos;
@@ -155,6 +158,7 @@ struct GroundItem {
     int item = -1;  // >= 0: a stack the hunter dropped (any item id, `n` pieces); wpn / ammo are then unused
     int n = 0;
     float lock = 0; // seconds before a dropped stack can be picked up again (so it is not grabbed back at once)
+    int q = 0;      // quality of the item(s)
 };
 struct Part {
     float x, y, z, vx, vy, vz, life, max;
@@ -339,6 +343,7 @@ struct Game {
     int delveKills = 0;
     // test hooks
     bool botOn = false;
+    int craftQuality = -1;       // tests: force the quality tier of every craft (-1 = roll as in play)
     bool craftAnywhere = false;  // the crafting tests run away from the town buildings; real play never sets this
 
     // ---- platform (main.cpp / game_logic.cpp)
@@ -651,6 +656,7 @@ struct Game {
     void textOutlined(int x, int y, const std::string& s, u32 col, float alpha = 1.f);
     int textW(const std::string& s, int sc = 1) const { return (int)s.size() * 4 * sc - sc; }
     void panel(int x, int y, int w, int h, u32 fill = UI_MID);
+    void qualityFrame(int x, int y, int w, int h, int q);  // 1px coloured border of an item of quality q
     bool inRect(int x, int y, int w, int h) const { return in.mx >= x && in.my >= y && in.mx < x + w && in.my < y + h; }
     bool button(int x, int y, int w, int h, const std::string& label, bool enabled = true, u32 base = UI_BTN);
     int chip(int x, int y, const Spr& ic, int have, int need);

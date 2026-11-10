@@ -62,30 +62,35 @@ bool Game::craft(int r) {
     for (int i = 0; i < 3; i++)
         if (R.mat[i] >= 0) p.inv.remove(itemMat(R.mat[i]), R.n[i]);
     std::string made;
+    // the quality of this craft: one roll, better odds with the trade's skill level; Normal when the better tier would not fit the pack
+    int q = !recipeHasQuality(R) ? (int)Q_NORMAL : craftQuality >= 0 ? clampQuality(craftQuality) : rollQuality(p.sk.level(R.skill), rng.f());
+    if (R.kind != RK_GEAR && q > Q_NORMAL && p.inv.room(recipeItem(R), q) < R.count) q = Q_NORMAL;
+    const std::string qtag = q > Q_NORMAL ? std::string(qualityDef(q).name) + " " : std::string();
     if (R.kind == RK_GEAR) {
         p.up[R.out] = R.count;
+        (R.out == U_ARMOR ? p.armorQ : p.bootsQ) = q;
         if (R.out == U_ARMOR) {  // the extra health arrives at once (updatePlayer tops up current HP by the difference)
             p.maxhp = std::max(p.maxhp, (float)ARMOR_HP[p.up[U_ARMOR]]);
         }
-        made = "NOW WEARING " + recipeName(R);
+        made = "NOW WEARING " + qtag + recipeName(R);
     } else {
         const int out = recipeItem(R);
-        int got = p.inv.add(out, R.count);
+        int got = p.inv.add(out, R.count, q);
         if (got < R.count) {  // cannot happen after craftBlock, but never lose anything if it does
-            p.inv.remove(out, got);
+            p.inv.removeQ(out, q, got);
             for (int i = 0; i < 3; i++)
                 if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
             msg("PACK FULL OR TOO HEAVY", C_RED);
             audio.play(S_ERROR);
             return false;
         }
-        made = "CRAFTED " + S(R.count) + " " + item(out).name;
+        made = "CRAFTED " + S(R.count) + " " + qtag + item(out).name;
     }
     // skill bonus: a practised crafter sometimes gets more out of a craft. Stackable results come out one extra; one-off
     // results (weapons, gear, structures) hand back one of the first ingredient instead. Never when it would not fit.
     if (R.kind != RK_GEAR && rng.chance(skillBonus(R.skill))) {
         const int out = recipeItem(R);
-        if (item(out).stack > 1 && p.inv.add(out, 1) == 1) {
+        if (item(out).stack > 1 && p.inv.add(out, 1, q) == 1) {
             ftext(p.pos + V2(0, -18), "EXTRA!", C_GREEN, 1.1f);
         } else if (item(out).stack == 1 && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
             ftext(p.pos + V2(0, -18), "SAVED A MATERIAL!", C_GREEN, 1.1f);
@@ -94,7 +99,7 @@ bool Game::craft(int r) {
     audio.play(S_CRAFT);
     if (R.cat == RC_MATERIALS && R.station == STN_FIRE) audio.play(S_SMELT, 0.6f);
     msg(made, C_GOLD);
-    ftext(p.pos + V2(0, -26), "+" + recipeName(R), C_GOLD, 1.2f);
+    ftext(p.pos + V2(0, -26), "+" + qtag + recipeName(R), q > Q_NORMAL ? qualityCol(q) : C_GOLD, 1.2f);
     grantXp(R.skill, recipeXp(R));  // only reached after the result was delivered and the ingredients were spent
     const bool isTool = R.kind == RK_ITEM && item(R.out).kind == IK_TOOL;
     if (R.kind == RK_WEAPON || isTool || R.kind == RK_GEAR) questEvent(Q_CRAFT, R.kind == RK_WEAPON ? R.out : -1, 1);

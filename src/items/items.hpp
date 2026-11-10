@@ -170,6 +170,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
     return T;
 }
 inline const ItemDef& item(int id) { return itemTable()[id]; }
+// only crafted things have a quality: raw and processed materials never do (their icons get no border)
+inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL; }
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
 
 // ---- recipes in terms of items

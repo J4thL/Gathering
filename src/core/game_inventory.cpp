@@ -11,13 +11,14 @@
 bool Game::useConsumable(int c) {
     const int id = itemCons(c);
     if (p.inv.count(id) <= 0) return false;
+    const float qs = qualityDef(p.inv.bestQuality(id)).stat;  // the finest one is used first and works that much better
     auto heal = [&](int amount) {
         if (p.hp >= p.maxhp) {
             msg("YOU ARE AT FULL HEALTH", C_DIM);
             audio.play(S_ERROR);
             return false;
         }
-        amount = (int)lroundf(amount * (1.f + skillBonus(SK_SURVIVAL)));
+        amount = (int)lroundf(amount * qs * (1.f + skillBonus(SK_SURVIVAL)));
         p.hp = std::min(p.maxhp, p.hp + amount);
         ftext(p.pos + V2(0, -24), "+" + S(amount) + " HP", C_GREEN, 1.1f);
         return true;
@@ -81,7 +82,7 @@ bool Game::useConsumable(int c) {
             break;
         default: return false;
     }
-    p.inv.remove(id, 1);
+    p.inv.takeBest(id);
     p.useT = hunterClip(HS_USE).total();  // plays the use animation
     audio.play(S_PICKUP);
     grantXp(SK_SURVIVAL, 2);  // only reached when the item really took effect (refusals return earlier)

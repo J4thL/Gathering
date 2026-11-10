@@ -302,6 +302,7 @@ void Game::drawHud() {
             // launchers show how much ammunition is left instead of how many you own
             const int shown = isWpn && item(id).kind == IK_LAUNCHER ? p.ammo(WPN[item(id).ref].ammo) : p.inv.count(id);
             const bool have = isWpn && item(id).kind == IK_LAUNCHER ? (p.inv.count(id) > 0 && shown > 0) : shown > 0;
+            if (have && itemHasQuality(id)) qualityFrame(x + 1, yy + 1, sw - 2, sw - 2, p.inv.bestQuality(id));
             icon(itemIcon(id), x + sw / 2, yy + sw / 2, 16, have ? 1.f : 0.3f);
             if (!isTool) {  // (a tool is one item: no count)
                 const std::string n = S(shown);

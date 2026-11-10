@@ -262,6 +262,7 @@ void Game::drawInventory() {
                 fillRect(x + 1, y + CELL - 2, CELL - 3, 1, C_GOLD);
             }
             if (!sl.empty()) {
+                if (itemHasQuality(sl.item) && !sel) qualityFrame(x, y, CELL - 1, CELL - 1, sl.q);
                 icon(iconOf(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 11, (invFilter == 0 || filterOf(sl.item) == invFilter) ? 1.f : 0.25f);
                 if (sl.n > 1) {
                     std::string n = S(sl.n);
@@ -295,12 +296,13 @@ void Game::drawInventory() {
         } else {
             const ItemDef& D = item(sl.item);
             icon(iconOf(sl.item), dx + 14, py + 14, 20);
-            text(dx + 28, py + 5, D.name, C_GOLD);
-            text(dx + 28, py + 14, ITEM_KIND_NAME[D.kind], C_DIM, 1, false);
+            const bool hq = itemHasQuality(sl.item);
+            text(dx + 28, py + 5, D.name, hq && sl.q > Q_NORMAL ? qualityCol(sl.q) : C_GOLD);
+            text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : std::string()), hq ? qualityCol(sl.q) : C_DIM, 1, false);
             int ty = py + 26;
             text(dx + 6, ty, "QTY " + S(sl.n) + "  EACH " + kgNum(D.weight) + " KG", C_TEXT, 1, false);
             ty += 8;
-            text(dx + 6, ty, "STACK " + kgNum(D.weight * sl.n) + " KG" + (D.price > 0 ? "  SELLS " + S(D.price) : std::string("")), C_TEXT, 1, false);
+            text(dx + 6, ty, "STACK " + kgNum(D.weight * sl.n) + " KG" + (D.price > 0 ? "  SELLS " + S(qualityPrice(D.price, sl.q)) : std::string("")), C_TEXT, 1, false);
             ty += 8;
             auto wrap = [&](const std::string& txt, u32 col) {
                 const size_t maxc = (size_t)std::max(8, (dw - 10) / 4);
@@ -370,6 +372,7 @@ void Game::drawInventory() {
             const bool over = inRect(hx, hy, 19, 16);
             panel(hx, hy, 19, 16, accepts ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
             if (id >= 0) {
+                if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(hx, hy, 19, 16, p.inv.bestQuality(id));
                 icon(itemIcon(id), hx + 10, hy + 8, 11, p.inv.count(id) > 0 ? 1.f : 0.35f);
                 if (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER) {
                     if (item(id).ref == p.sel) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
