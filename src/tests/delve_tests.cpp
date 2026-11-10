@@ -420,6 +420,7 @@ int delveTest(Game& g) {
         std::set<int> attacks;
         bool bars = false, hazard = false, bolt = false, summoned = false;
         for (int i = 0; i < 60 * 70; i++) {
+            g.p.hp = g.p.maxhp = 1e6f;  // (the hunter is invulnerable for this test, whatever the king throws)
             g.update(1.f / 60.f);
             k = nullptr;
             for (auto& m : g.mons) if (m.kind == MK_KING) k = &m;
@@ -447,7 +448,14 @@ int delveTest(Game& g) {
         const int64_t hx = g.p.sk.s[SK_HUNTING].xp;
         g.items.clear();
         g.p.hp = g.p.maxhp = 1e6f;
-        if (k) g.hitMonster(*k, 1e7f, V2(0, -1), false, W_JAVELIN);
+        // (he may be mid-transition and shrug off a hit: keep striking until he falls)
+        for (int tries = 0; tries < 600 && k && k->state != MN_DEAD; tries++) {
+            g.hitMonster(*k, 1e7f, V2(0, -1), false, W_JAVELIN);
+            if (k->state == MN_DEAD) break;
+            g.update(1.f / 60.f);
+            k = nullptr;
+            for (auto& m : g.mons) if (m.kind == MK_KING) k = &m;
+        }
         check(g.delveMem[DV_FROST3].bossDead && g.p.sk.s[SK_HUNTING].xp - hx >= 2000, "the king falls: large XP");
         bool chest3 = false;
         for (auto& c : g.dchests) chest3 = chest3 || c.tier == 3;
@@ -498,7 +506,7 @@ int delveTest(Game& g) {
         const int64_t sx = g.p.sk.s[SK_SMITHING].xp;
         check(g.craft(rSteel) && g.p.mat(M_STEELBAR) == 1 && g.p.sk.s[SK_SMITHING].xp > sx, "with the skill, coal and iron make a steel bar (and pay Smithing XP)");
         stock(rSilver);
-        check(g.craft(rSilver) && g.p.mat(M_SILVERBAR) == 1, "silver ore and coal make a silver bar");
+        check(g.craft(rSilver) && g.p.mat(M_SILVERBAR) >= 1, "silver ore and coal make a silver bar (a practised smith may get one extra)");
         const int wants[][2] = {{RK_WEAPON, W_STEELSPEAR}, {RK_WEAPON, W_SILVERDAGGER}, {RK_ITEM, itemCarry(CG_LANTERN)}, {RK_ITEM, itemCarry(CG_GEMRING)},
                                 {RK_ITEM, itemCarry(CG_SILVERCHARM)}, {RK_ITEM, itemCarry(CG_FROSTWARD)}};
         int made = 0;

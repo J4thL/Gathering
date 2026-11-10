@@ -682,6 +682,27 @@ inline bool World::inTown(float x, float y, float margin) const {
 inline void World::generateTown() {
     const int X0 = COX + TOWN_X0, Y0 = COY + TOWN_Y0, X1 = COX + TOWN_X1, Y1 = COY + TOWN_Y1;  // map tiles, X1 / Y1 exclusive
     auto inRect = [&](float px, float py) { return px >= X0 * TS && px < X1 * TS && py > Y0 * TS && py <= Y1 * TS; };
+    // 0. nothing gatherable in the town, beside it or on its four roads: no tree, rock, plant or ore to chop, mine or pick (the thick
+    // tree wall around the whole original area is the town's boundary; it is untouched)
+    {
+        const int M = 2;  // tiles of clearing around the rectangle
+        auto zone = [&](float px, float py) {
+            const int tx = (int)(px / TS) - COX, ty = (int)((py - 1.f) / TS) - COY;
+            if (tx >= TOWN_X0 - M && tx < TOWN_X1 + M && ty >= TOWN_Y0 - M && ty < TOWN_Y1 + M) return true;  // the town and its margin
+            if (ty >= 23 && ty <= 27 && ((tx >= 12 && tx < TOWN_X0) || (tx >= TOWN_X1 && tx < 76))) return true;        // west / east road
+            if (tx >= 42 && tx <= 45 && ((ty >= 8 && ty < TOWN_Y0) || (ty >= TOWN_Y1 && ty < 52))) return true;         // north / south road
+            return false;
+        };
+        auto gatherable = [](int kind) { return kind == P_OAK0 || kind == P_OAK1 || kind == P_PINE || kind == P_ROCK0 || kind == P_ROCK1 || kind == P_LOG; };
+        for (size_t i = 0; i < props.size();) {
+            if (gatherable(props[i].kind) && zone(props[i].x, props[i].y)) {
+                solid[(int)((props[i].y - 1.f) / TS)][(int)(props[i].x / TS)] = false;
+                props.erase(props.begin() + i);
+            } else
+                i++;
+        }
+        nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) { return zone(n.x, n.y); }), nodes.end());
+    }
     // 1. clear the rectangle: props (the campfire stays), decor, resource nodes, solid marks, water
     props.erase(std::remove_if(props.begin(), props.end(), [&](const Prop& p) { return p.kind != P_FIRE && inRect(p.x, p.y); }), props.end());
     decor.erase(std::remove_if(decor.begin(), decor.end(), [&](const Decor& d) { return inRect(d.x, d.y); }), decor.end());
@@ -778,40 +799,6 @@ inline void World::generateTown() {
         const V2 a = at(t[0], t[1] + 0.9f);
         props.push_back({tr.chance(0.5f) ? P_OAK0 : P_PINE, a.x, a.y, tr.f() * 6.28f});
         solid[COY + t[1]][COX + t[0]] = true;
-    }
-    // the town wall: a double row of trees all around the rectangle, open only where the four roads leave (so nothing wild strolls in
-    // and the town reads as a clearing). They are scenery, not resources: they cannot be chopped.
-    {
-        const int gx0 = 42, gx1 = 45, gy0 = 23, gy1 = 27;  // the road gaps (core tiles): north / south at x 42..45, west / east at y 23..27
-        std::vector<std::pair<int, int>> ring, gaps;
-        for (int cy = TOWN_Y0 - 2; cy < TOWN_Y1 + 2; cy++)
-            for (int cx = TOWN_X0 - 2; cx < TOWN_X1 + 2; cx++) {
-                if (cx >= TOWN_X0 && cx < TOWN_X1 && cy >= TOWN_Y0 && cy < TOWN_Y1) continue;  // inside the town
-                const bool road = (cx >= gx0 && cx <= gx1 && (cy < TOWN_Y0 || cy >= TOWN_Y1)) || (cy >= gy0 && cy <= gy1 && (cx < TOWN_X0 || cx >= TOWN_X1));
-                (road ? gaps : ring).push_back({cx, cy});  // the roads' gaps are kept clear, the rest becomes wall
-            }
-        auto onRing = [&](float px, float py) {  // on the wall or in a road gap
-            const int tx = (int)(px / TS) - COX, ty = (int)((py - 1.f) / TS) - COY;
-            for (auto& t : ring)
-                if (t.first == tx && t.second == ty) return true;
-            for (auto& t : gaps)
-                if (t.first == tx && t.second == ty) return true;
-            return false;
-        };
-        for (auto& t : gaps) solid[COY + t.second][COX + t.first] = false;  // (a natural tree may have stood in the road)
-        // whatever grew on the wall's tiles makes way (choppable trees, rocks, plants, wild scenery) - except the signs
-        props.erase(std::remove_if(props.begin(), props.end(), [&](const Prop& p) { return p.kind != P_FIRE && p.kind != P_SIGN && onRing(p.x, p.y); }), props.end());
-        nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) { return onRing(n.x, n.y); }), nodes.end());
-        for (auto& t : ring) {
-            const int mx = COX + t.first, my = COY + t.second;
-            bool sign = false;
-            for (const Prop& p : props)
-                if (p.kind == P_SIGN && (int)(p.x / TS) == mx && (int)((p.y - 1.f) / TS) == my) sign = true;
-            if (sign || mx < 2 || my < 2 || mx >= MW - 2 || my >= MH - 2) continue;
-            props.push_back({tr.chance(0.55f) ? P_PINE : (tr.chance(0.5f) ? P_OAK0 : P_OAK1), mx * (float)TS + 8.f + tr.range(-2, 2), my * (float)TS + 15.f, tr.f() * 6.28f});
-            solid[my][mx] = true;
-            if (tile[my][mx] == T_WATER) tile[my][mx] = T_GRASS;
-        }
     }
     // flowers along the plaza edge (decor)
     for (int i = 0; i < 40; i++) {
