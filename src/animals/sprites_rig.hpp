@@ -1,0 +1,998 @@
+// sprites_rig.hpp - boar, wolf and deer, drawn from one tiny 3D rig so every facing and every animation pose comes from one description.
+//
+// An animal is a handful of ellipsoids (torso, haunch, head, snout, ears), strokes (legs, tusks, tail) and bristle spikes in its own
+// coordinates: x forward, y to its left, z up. A pose moves those parts (head dip, lunge, leg swing, a roll onto its side), the view
+// turns the whole thing by a yaw angle and projects it from a camera looking down at about 40 degrees, and the parts are painted
+// back to front with three-tone shading lit from the upper left. That gives the S, SE, E, NE and N views for free (the west views are
+// mirrors) and keeps the art consistent between views. A RigShape describes one species (proportions, neck, ears, tail, tusks, antlers,
+// gait); rarity tiers reuse the species palette and scale from fauSpec(). Adding a quadruped = a RigShape + a line in rigShape().
+// Style reference: a tiny chestnut boar with a dark bristle mane, ivory tusks, a red hurt flash and a slash arc on the attack.
+#pragma once
+#include <algorithm>
+#include <atomic>
+#include <memory>
+#include <thread>
+#include "animals/animal_anim.hpp"
+
+constexpr int AV_VIEWS = 4;  // S, E, N, W (the Facing order): each direction is rendered by turning the 3D model, nothing is mirrored
+// The hand-drawn pixel-art path (deer_ref.hpp, ref_art_wolfboar.hpp, flat reference look, mirrored west views) is kept but switched off: the animals are the shaded rig.
+constexpr bool kRefArt = false;
+
+struct RichAnimal {
+    Spr s[8][AV_VIEWS][AN_COUNT][AN_MAXF];  // [form + 2*tier][view][state][pose]
+    bool built[8] = {false};                // which [form + 2*tier] banks are drawn: the common tier at start-up, the rarer ones when first needed
+};
+
+// ---------------------------------------------------------------- pose
+struct BPose {
+    float bob = 0;            // body rise
+    float headDx = 0, headDz = 0;  // head forward / up
+    float bodyDx = 0;         // whole body shifted forward (a lunge)
+    float phase = 0;          // walk cycle angle
+    float stride = 0, lift = 0;    // how far / how high the feet swing
+    float air = 0;            // all feet off the ground by this much
+    float breathe = 0;        // torso swell
+    float tail = 0;           // tail flick
+    float ear = 0;            // ear flick
+    float tuskUp = 0;         // tusks swept upward
+    float tint = 0;           // 0..1 red flash
+    float roll = 0;           // rolled onto its side (radians, 1.57 = lying)
+    float limp = 0;           // legs hanging loose (death)
+    float slash = -1;         // attack arc progress 0..1, -1 = none
+    float squash = 0;         // torso flattened by this much
+    float pitch = 0;          // nose up (+) / down (-): lifts the shoulders and head, lowers the haunch
+    float hind = 0, fore = 0; // hoppers: how far the hind legs are stretched back / the forelegs reached forward
+    float wing = 0;           // birds: wing angle from horizontal (radians, + up)
+    float spread = 0;         // birds: 0 wings folded against the body .. 1 fully open
+    float lie = 0;            // 0 standing .. 1 lying down (the torso sinks towards the ground)
+    float tuck = 0;           // birds: feet tucked back under the tail (+1) or reaching forward to land (-1)
+};
+
+inline BPose quadPose(int st, int i) {
+    BPose p;
+    switch (st) {
+        case AN_IDLE: {
+            static const float HZ[4] = {0.f, 0.4f, 0.f, -0.35f};
+            p.breathe = sinf(i * 1.5708f) * 0.35f;
+            p.headDz = HZ[i];
+            p.headDx = (i == 1) ? 0.3f : 0.f;
+            p.ear = (i == 2) ? 1.f : 0.f;
+            p.tail = (i & 1) ? 1.f : 0.f;
+            break;
+        }
+        case AN_WALK:
+            p.phase = i * 6.28318f / 6.f;
+            p.stride = 2.7f;
+            p.lift = 1.7f;
+            p.bob = 0.45f * cosf(p.phase * 2.f);
+            p.headDz = 0.3f * cosf(p.phase * 2.f);
+            p.tail = (i & 1) ? 1.f : 0.f;
+            break;
+        case AN_RUN: {
+            static const float BOB[5] = {0.3f, 0.9f, 1.6f, 0.9f, 0.3f};
+            p.phase = i * 6.28318f / 5.f;
+            p.stride = 4.6f;
+            p.lift = 2.8f;
+            p.bob = BOB[i];
+            p.headDx = 1.2f;
+            p.headDz = -0.9f;
+            p.bodyDx = 0.6f;
+            p.air = (i == 2) ? 1.2f : 0.f;
+            p.tail = 1.f;
+            break;
+        }
+        case AN_ATTACK: {
+            static const float HDX[5] = {-1.4f, -0.6f, 2.6f, 3.6f, 1.4f}, HDZ[5] = {1.4f, 0.2f, -2.0f, -2.6f, -0.8f}, BDX[5] = {-1.f, -0.6f, 1.6f, 2.4f, 0.8f},
+                               TU[5] = {0.f, 0.f, 0.4f, 1.f, 0.4f};
+            p.headDx = HDX[i];
+            p.headDz = HDZ[i];
+            p.bodyDx = BDX[i];
+            p.tuskUp = TU[i];
+            p.squash = (i == 1) ? 0.5f : 0.f;
+            p.stride = (i >= 2) ? 1.8f : 0.f;
+            p.slash = i >= 3 ? (i - 3) * 0.5f : -1.f;
+            break;
+        }
+        case AN_HURT: {
+            static const float TN[4] = {0.45f, 0.9f, 1.0f, 0.5f}, BD[4] = {-1.2f, -1.8f, -1.f, -0.2f}, HZ[4] = {1.f, 1.6f, 0.9f, 0.2f};
+            p.tint = TN[i];
+            p.bodyDx = BD[i];
+            p.headDz = HZ[i];
+            p.squash = (i == 1) ? 0.4f : 0.f;
+            p.tuskUp = 0.3f;
+            break;
+        }
+        case AN_EAT: {  // grazing: the head goes down to the ground, a chew, up a little, down again
+            static const float HZ[4] = {-1.5f, -3.2f, -3.6f, -2.4f}, HX[4] = {0.8f, 1.8f, 2.0f, 1.4f}, PT[4] = {-0.2f, -0.5f, -0.6f, -0.3f};
+            p.headDz = HZ[i];
+            p.headDx = HX[i];
+            p.pitch = PT[i];
+            p.ear = i == 3 ? 1.f : 0.f;
+            p.tail = (i & 1) ? 1.f : 0.f;
+            p.breathe = 0.25f;
+            break;
+        }
+        case AN_REST: {  // lying down: a slow breath, now and then an ear or the tail flicks
+            static const float HZ[4] = {-1.2f, -1.0f, -1.2f, -1.5f}, BR[4] = {0.f, 0.35f, 0.f, 0.15f};
+            p.lie = 1.f;
+            p.headDz = HZ[i];
+            p.breathe = BR[i];
+            p.ear = i == 2 ? 1.f : 0.f;
+            p.tail = i == 3 ? 1.f : 0.f;
+            break;
+        }
+        case AN_ALERT: {  // the startle: head and ears snap up, the body goes stiff
+            static const float HZ[3] = {1.0f, 2.0f, 2.0f}, HX[3] = {0.f, -0.3f, -0.3f}, PT[3] = {0.3f, 0.6f, 0.6f};
+            p.headDz = HZ[i];
+            p.headDx = HX[i];
+            p.pitch = PT[i];
+            p.ear = 1.5f;
+            p.tail = i == 2 ? 1.f : 0.f;
+            break;
+        }
+        case AN_DEATH: {
+            static const float TN[6] = {0.6f, 0.8f, 0.6f, 0.3f, 0.12f, 0.f}, RL[6] = {0.f, 0.45f, 1.05f, 1.4f, 1.57f, 1.57f};
+            p.tint = TN[i];
+            p.roll = RL[i];
+            p.headDz = (i == 0) ? 1.2f : -0.6f;
+            p.bodyDx = (i == 0) ? -1.f : 0.f;
+            p.limp = i >= 2 ? 1.f : (i == 1 ? 0.5f : 0.f);
+            p.stride = i == 0 ? 1.5f : 0.f;
+            break;
+        }
+        default: break;
+    }
+    return p;
+}
+
+// Poses for the hoppers: a hop is crouch, push off (legs stretched), rise, peak, fall, land. `air` is the height of the hop.
+inline BPose hopPose(int st, int i) {
+    BPose p;
+    switch (st) {
+        case AN_IDLE: {  // sitting up on the haunches: 0 sit, 1 nose twitch, 2 head down nibbling, 3 head up chewing
+            p.pitch = 0.7f;
+            p.squash = 0.3f;
+            p.breathe = (i == 1) ? 0.25f : 0.f;
+            p.ear = (i == 1) ? 1.f : 0.f;
+            p.headDz = i == 2 ? -2.2f : i == 3 ? -0.9f : 0.f;
+            p.headDx = i == 2 ? 1.2f : i == 3 ? 0.5f : 0.f;
+            if (i == 2) p.pitch = -0.2f;
+            if (i == 3) p.pitch = 0.2f;
+            p.fore = 0.f;
+            p.hind = 0.f;
+            break;
+        }
+        case AN_WALK: {
+            static const float AIR[6] = {0.f, 0.6f, 1.6f, 2.2f, 1.2f, 0.2f}, HIND[6] = {0.f, 1.f, 0.9f, 0.6f, 0.3f, 0.1f},
+                               FORE[6] = {0.5f, 1.f, 0.9f, 0.6f, 0.3f, -0.2f}, PITCH[6] = {-0.2f, 0.8f, 0.5f, 0.f, -0.5f, -0.4f},
+                               SQ[6] = {0.4f, 0.f, 0.f, 0.f, 0.f, 0.3f};
+            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
+            p.ear = i >= 3 ? 0.f : 0.f;
+            p.tail = (i == 5) ? 1.f : 0.f;
+            break;
+        }
+        case AN_RUN: {
+            static const float AIR[6] = {0.f, 1.4f, 3.2f, 4.2f, 2.6f, 0.4f}, HIND[6] = {0.f, 1.2f, 1.3f, 1.2f, 0.8f, 0.2f},
+                               FORE[6] = {0.3f, 1.2f, 1.2f, 1.f, 0.8f, -0.1f}, PITCH[6] = {-0.3f, 0.6f, 0.2f, -0.1f, -0.5f, -0.4f},
+                               SQ[6] = {0.6f, 0.f, 0.f, 0.f, 0.f, 0.4f};
+            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
+            p.headDx = 0.6f;
+            p.tail = 1.f;
+            break;
+        }
+        case AN_HURT: {
+            static const float TN[4] = {0.45f, 0.9f, 1.0f, 0.5f}, BD[4] = {-0.8f, -1.2f, -0.6f, 0.f}, AIR[4] = {0.6f, 1.2f, 0.5f, 0.f};
+            p.tint = TN[i];
+            p.bodyDx = BD[i];
+            p.air = AIR[i];
+            p.pitch = 0.5f;
+            p.hind = 0.8f;
+            p.fore = 0.6f;
+            p.squash = (i == 3) ? 0.3f : 0.f;
+            break;
+        }
+        case AN_DEATH: {
+            static const float TN[6] = {0.6f, 0.8f, 0.6f, 0.3f, 0.12f, 0.f}, RL[6] = {0.f, 0.45f, 1.05f, 1.4f, 1.57f, 1.57f};
+            p.tint = TN[i];
+            p.roll = RL[i];
+            p.air = i == 0 ? 0.8f : 0.f;
+            p.limp = i >= 2 ? 1.f : (i == 1 ? 0.5f : 0.f);
+            p.hind = i >= 2 ? 0.9f : 0.5f;
+            p.fore = 0.3f;
+            break;
+        }
+        case AN_EAT: {  // nibbling: the head dips and comes up chewing
+            static const float HZ[4] = {-1.2f, -2.4f, -2.4f, -1.6f};
+            p.pitch = -0.2f;
+            p.squash = 0.3f;
+            p.headDz = HZ[i];
+            p.headDx = i == 1 || i == 2 ? 1.4f : 0.8f;
+            p.ear = i == 3 ? 1.f : 0.f;
+            break;
+        }
+        case AN_REST: {  // a loaf: tucked down, ears laid back, a slow breath
+            static const float BR[4] = {0.f, 0.3f, 0.f, 0.15f};
+            p.lie = 0.7f;
+            p.squash = 0.5f;
+            p.pitch = 0.3f;
+            p.headDz = -0.6f;
+            p.breathe = BR[i];
+            p.hind = 0.9f;
+            p.ear = i == 2 ? 1.f : 0.f;
+            break;
+        }
+        case AN_ALERT: {  // up on the haunches, ears straight up
+            static const float HZ[3] = {0.4f, 1.0f, 1.0f};
+            p.pitch = 1.1f;
+            p.squash = 0.2f;
+            p.headDz = HZ[i];
+            p.ear = 1.5f;
+            break;
+        }
+        default: break;  // attack: unused
+    }
+    return p;
+}
+
+
+// Birds. `wing` is the angle of the wings above horizontal, `spread` how far they are open. Flight poses keep the body close to its
+// resting height: the renderer lifts the whole sprite by the animal's real height above the ground.
+inline BPose birdPose(int st, int i) {
+    BPose p;
+    switch (st) {
+        case AN_IDLE:  // 0 rest, 1 head up, 2 wings ruffled, 3 head tilted
+            p.breathe = i == 1 ? 0.3f : 0.1f;
+            p.headDz = i == 1 ? 0.7f : (i == 3 ? -0.3f : 0.f);
+            p.headDx = i == 3 ? 0.3f : 0.f;
+            if (i == 2) { p.spread = 0.5f; p.wing = 0.25f; }
+            break;
+        case AN_WALK:
+            p.phase = i * 6.28318f / 4.f;
+            p.stride = 1.5f;
+            p.lift = 1.0f;
+            p.headDx = 0.7f * sinf(p.phase * 2.f);
+            p.bob = 0.25f * cosf(p.phase * 2.f);
+            break;
+        case AN_RUN:  // leaning into a sprint, wings held half open for balance
+            p.phase = i * 6.28318f / 4.f;
+            p.stride = 3.0f;
+            p.lift = 1.8f;
+            p.pitch = -0.5f;
+            p.headDx = 0.8f;
+            p.bob = 0.4f * cosf(p.phase * 2.f);
+            p.spread = 0.45f;
+            p.wing = 0.15f + 0.1f * sinf(p.phase * 2.f);
+            break;
+        case AN_ATTACK:  // lunge forward with the head and bill
+            p.headDx = i == 0 ? -0.8f : (i == 1 ? 2.2f : 0.6f);
+            p.headDz = i == 0 ? 0.6f : (i == 1 ? -1.4f : 0.f);
+            p.bodyDx = i == 1 ? 1.0f : 0.f;
+            p.slash = i == 1 ? 0.3f : -1.f;
+            break;
+        case AN_HURT: {
+            static const float TN[3] = {0.9f, 1.0f, 0.5f}, WG[3] = {0.9f, 0.4f, 0.2f};
+            p.tint = TN[i];
+            p.spread = i == 2 ? 0.55f : 1.f;
+            p.wing = WG[i];
+            p.bodyDx = i == 0 ? -0.8f : -0.3f;
+            p.headDz = 0.5f;
+            p.air = i == 1 ? 0.8f : 0.f;
+            break;
+        }
+        case AN_DEATH: {  // wings splay open as it tips over onto its side
+            static const float TN[5] = {0.6f, 0.8f, 0.5f, 0.25f, 0.f}, RL[5] = {0.f, 0.5f, 1.1f, 1.5f, 1.57f};
+            p.tint = TN[i];
+            p.roll = RL[i];
+            p.spread = i == 0 ? 0.8f : 1.f;
+            p.wing = i == 0 ? 0.9f : (i == 1 ? 0.5f : 0.f);
+            p.limp = i >= 2 ? 1.f : 0.f;
+            p.tuck = i >= 1 ? 0.5f : 0.f;
+            p.headDz = i >= 2 ? -0.8f : 0.f;
+            break;
+        }
+        case AN_EAT: {  // pecking at the ground
+            static const float HZ[4] = {-1.4f, -2.4f, -1.2f, -2.4f}, HX[4] = {1.0f, 1.8f, 0.8f, 1.8f};
+            p.headDz = HZ[i];
+            p.headDx = HX[i];
+            p.pitch = -0.3f;
+            break;
+        }
+        case AN_REST: {  // sitting fluffed up, the head tucked in
+            static const float BR[4] = {0.f, 0.3f, 0.5f, 0.3f};
+            p.lie = 1.f;
+            p.headDz = -0.8f;
+            p.headDx = -1.5f;
+            p.breathe = BR[i];
+            break;
+        }
+        case AN_ALERT: {  // the neck stretches up
+            static const float HZ[3] = {0.8f, 1.5f, 1.5f};
+            p.headDz = HZ[i];
+            p.pitch = 0.3f;
+            break;
+        }
+        case AN_FLY: {  // six poses of one wing beat: up, over the top, down-stroke, bottom, recovery
+            static const float W[6] = {1.05f, 0.6f, 0.0f, -0.65f, -0.2f, 0.6f}, BOBS[6] = {-0.3f, 0.f, 0.3f, 0.45f, 0.2f, -0.1f};
+            p.spread = 1.f;
+            p.wing = W[i];
+            p.bob = BOBS[i];
+            p.tuck = 1.f;
+            p.pitch = 0.2f;
+            p.headDx = 0.4f;
+            break;
+        }
+        case AN_TAKEOFF: {  // crouch, then two strong wing beats as the feet leave the ground
+            static const float W[4] = {0.9f, -0.6f, 0.95f, -0.4f}, BOBS[4] = {-0.9f, 0.4f, 0.1f, 0.4f}, TK[4] = {0.f, 0.3f, 0.8f, 1.f};
+            p.spread = 1.f;
+            p.wing = W[i];
+            p.bob = BOBS[i];
+            p.tuck = TK[i];
+            p.pitch = i == 0 ? -0.3f : 0.4f;
+            p.stride = i < 2 ? 0.f : 0.f;
+            break;
+        }
+        case AN_LAND: {  // wings flare to brake, the feet reach out ahead, then fold
+            static const float W[4] = {0.8f, 0.25f, 0.7f, 0.3f}, SP[4] = {1.f, 1.f, 0.9f, 0.55f}, TK[4] = {0.f, -0.8f, -0.5f, 0.f}, BOBS[4] = {0.3f, 0.2f, -0.2f, -0.4f};
+            p.spread = SP[i];
+            p.wing = W[i];
+            p.tuck = TK[i];
+            p.bob = BOBS[i];
+            p.pitch = i < 3 ? 0.7f : 0.f;
+            break;
+        }
+        default: break;
+    }
+    return p;
+}
+
+// ---------------------------------------------------------------- the rig
+struct RPart {
+    int type;                 // 0 ellipsoid, 1 spike, 2 stroke (two points), 3 dot
+    float x, y, z;            // centre / first point (boar coordinates)
+    float rx, ry, rz;         // ellipsoid radii, or the second point for a stroke (x2, y2, z2); spike: rz = height
+    u32 c0, c1, c2;           // light, mid, dark (stroke: c0 colour, c1 the shaded side; dot: c0)
+    int w;                    // stroke width in px
+    float sx, sy, sd;         // projected centre and depth (filled by the painter)
+};
+
+inline u32 tintC(u32 c, float t) { return t <= 0 ? c : mixc(c, HEX(0xe03a30), std::min(1.f, t)); }
+
+// ---------------------------------------------------------------- species shapes
+struct RigShape {
+    float tx, ty, tz;          // torso radii
+    float zb;                  // height of the torso centre above the feet
+    float legFx, legBx, legY;  // hip x of the front / back legs, and the half-width between left and right
+    int legW;                  // leg thickness in px (1 = a thin line)
+    float hdx, hdz;            // head centre relative to the front of the torso (x) and the torso centre (z)
+    float hrx, hry, hrz;       // head radii
+    float snx, snz, snr;       // snout: forward offset from the head, drop, radius scale
+    int ear;                   // 0 small round (boar), 1 pointed upright (wolf), 2 leaf-shaped to the side (deer)
+    float earH;
+    float neck;                // > 0: the neck is drawn as a thick tapered stroke from the shoulders to the head
+    int tail;                  // 0 short curl, 1 bushy, 2 short flag
+    bool tusks, mane, ridge, antlers, spots;
+    int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
+    float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
+    float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
+    int model;                 // 0 none; 1 wolf: a posed 3D model rendered to 64x64 (quad3d.hpp), shown at its old in-game size
+    int ref;                   // 0 drawn by the 3D rig; 1 deer, 2 wolf, 3 boar: drawn from pixel art (deer_ref.hpp / ref_art_wolfboar.hpp) in all views
+    bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
+    bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
+    float strideMul, liftMul, airMul;
+    int W, H;                  // canvas at scale 1
+};
+
+inline RigShape boarShape() {
+    RigShape r{};
+    r.tx = 9; r.ty = 5.2f; r.tz = 5.f; r.zb = 7.6f;
+    r.legFx = 5.2f; r.legBx = -5.f; r.legY = 3.4f; r.legW = 2;
+    r.hdx = 0.f; r.hdz = -1.3f; r.hrx = 4.2f; r.hry = 3.7f; r.hrz = 3.6f;
+    r.snx = 3.8f; r.snz = -1.7f; r.snr = 1.f;
+    r.ear = 0; r.earH = 1.9f; r.neck = 0; r.tail = 0;
+    r.tusks = true; r.mane = true;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.scale = 1.f;
+    r.flat = true; r.ref = 3;  // the boar is 32x32 pixel art (ref_art_boar32.hpp), drawn in all four directions
+    r.W = 32; r.H = 32;
+    return r;
+}
+inline RigShape wolfShape() {
+    RigShape r{};
+    r.tx = 8.6f; r.ty = 3.9f; r.tz = 4.2f; r.zb = 11.f;
+    r.legFx = 5.4f; r.legBx = -5.2f; r.legY = 2.5f; r.legW = 2;
+    r.hdx = 0.6f; r.hdz = 0.9f; r.hrx = 3.6f; r.hry = 3.1f; r.hrz = 3.1f;
+    r.snx = 3.9f; r.snz = -0.9f; r.snr = 0.85f;
+    r.ear = 1; r.earH = 2.6f; r.neck = 0; r.tail = 1;
+    r.ridge = true;
+    r.strideMul = 1.25f; r.liftMul = 1.2f; r.airMul = 1.2f;
+    r.scale = 1.4f;
+    r.model = 1;  // 3D model, rendered 64x64
+    r.flat = kRefArt; r.ref = kRefArt ? 2 : 0;
+    r.W = 52; r.H = 42;
+    return r;
+}
+// The deer follows the pixel-art reference (a doe and a stag in profile): about 47 px tall, a long neck and small pointed head, big leaf
+// ears with a pink inside, slim legs with dark hooves, a cream throat / belly / tail underside, flat two-tone brown with dark far legs and
+// no outline. Form 0 is the doe, form 1 the stag with branching antlers.
+inline RigShape deerShape(bool stag) {
+    RigShape r{};
+    r.tx = 8.3f; r.ty = 3.1f; r.tz = 4.3f; r.zb = 15.8f;
+    r.legFx = 5.6f; r.legBx = -5.4f; r.legY = 2.1f; r.legW = 3;
+    r.hdx = 3.0f; r.hdz = 8.8f; r.hrx = 2.9f; r.hry = 2.0f; r.hrz = 2.3f;
+    r.snx = 3.7f; r.snz = -1.0f; r.snr = 0.66f;
+    r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
+    r.antlers = stag; r.spots = false;
+    r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
+    r.scale = 1.75f; r.flat = true; r.ref = kRefArt ? 1 : 0; r.model = 3;
+    r.W = 54; r.H = 58;
+    return r;
+}
+inline RigShape rabbitShape() {
+    RigShape r{};
+    r.tx = 4.8f; r.ty = 3.2f; r.tz = 3.4f; r.zb = 4.6f;
+    r.legFx = 3.2f; r.legBx = -2.6f; r.legY = 1.7f; r.legW = 1;
+    r.hdx = 1.2f; r.hdz = 1.5f; r.hrx = 2.7f; r.hry = 2.3f; r.hrz = 2.4f;
+    r.snx = 2.1f; r.snz = -0.6f; r.snr = 0.55f;
+    r.ear = 3; r.earH = 4.4f; r.neck = 0; r.tail = 3;
+    r.hopper = true;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.W = 30; r.H = 30;
+    return r;
+}
+inline RigShape hareShape() {  // leaner, longer in the leg and ear
+    RigShape r = rabbitShape();
+    r.tx = 5.6f; r.ty = 3.1f; r.tz = 3.5f; r.zb = 5.4f;
+    r.legFx = 3.8f; r.legBx = -3.0f;
+    r.hdx = 1.5f; r.hdz = 1.7f; r.hrx = 2.9f; r.hry = 2.2f; r.hrz = 2.5f;
+    r.earH = 5.6f;
+    r.airMul = 1.25f;
+    r.W = 34; r.H = 34;
+    return r;
+}
+inline float rigScale(const RigShape& R) { return R.scale > 0.f ? R.scale : 1.f; }
+
+inline RigShape duckShape() {
+    RigShape r{};
+    r.tx = 4.0f; r.ty = 2.7f; r.tz = 2.5f; r.zb = 3.0f;
+    r.hrx = 1.8f; r.hry = 1.5f; r.hrz = 1.6f; r.hdx = 0.3f;
+    r.bird = 1; r.wingL = 7.f; r.wingC = 3.2f; r.neckL = 1.7f; r.billL = 2.f; r.tailL = 2.f;
+    r.legY = 1.2f; r.legFx = 0.f; r.legBx = 0.f;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.W = 30; r.H = 24;
+    return r;
+}
+inline RigShape roadrunnerShape() {
+    RigShape r{};
+    r.tx = 3.4f; r.ty = 2.0f; r.tz = 2.0f; r.zb = 5.0f;
+    r.hrx = 1.7f; r.hry = 1.4f; r.hrz = 1.6f; r.hdx = 0.3f;
+    r.bird = 2; r.wingL = 5.f; r.wingC = 2.6f; r.neckL = 1.8f; r.billL = 3.6f; r.tailL = 8.f;
+    r.legY = 1.0f;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.W = 32; r.H = 26;
+    return r;
+}
+inline RigShape eagleShape() {
+    RigShape r{};
+    r.tx = 4.6f; r.ty = 3.0f; r.tz = 3.0f; r.zb = 3.4f;
+    r.hrx = 2.1f; r.hry = 1.8f; r.hrz = 2.0f; r.hdx = 0.4f;
+    r.bird = 3; r.wingL = 12.f; r.wingC = 4.6f; r.neckL = 0.8f; r.billL = 2.f; r.tailL = 4.f;
+    r.legY = 1.4f;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.W = 40; r.H = 32;
+    return r;
+}
+inline RigShape rigShape(int kind, int form) {
+    switch (kind) {
+        case A_DUCK: return duckShape();
+        case A_ROADRUNNER: return roadrunnerShape();
+        case A_EAGLE: return eagleShape();
+        case A_WOLF: return wolfShape();
+        case A_DEER: return deerShape(form == 1);
+        case A_RABBIT: return rabbitShape();
+        case A_HARE: case A_SNOWHARE: return hareShape();
+        default: return boarShape();
+    }
+}
+
+#include "animals/deer_ref.hpp"
+#include "animals/quad3d.hpp"
+
+// ---- the 3D models: one per species, rendered into a 64x64 cell and drawn scaled down to the species' in-game size
+inline const m3::Q3& wolfQ3() {
+    static const m3::Q3 Q = {-8.0f, 6.5f, 19.0f, {5.6f, 3.4f, 4.9f}, {7.0f, 3.6f, 6.0f}, {5.0f, 3.9f, 6.9f}, 1.6f,
+                             7.6f, 0.78f, 3.0f, 2.5f, {4.6f, 3.0f, 3.2f}, 5.8f, 1.6f, 1.5f, 5.8f, 2.6f, 0.28f,
+                             13.f, 1.8f, 0.85f, 0.04f, 4,
+                             7.0f, 7.2f, 3.4f, 7.4f, 7.6f, 4.6f, 1.05f, 2.7f,
+                             1.18f, 32.f, 47.f, 0, 0.f};
+    return Q;
+}
+inline const m3::Q3& boarQ3() {
+    static const m3::Q3 Q = {-7.5f, 5.5f, 12.5f, {6.4f, 4.8f, 5.8f}, {7.8f, 5.2f, 6.6f}, {6.4f, 5.2f, 7.2f}, 2.2f,
+                             3.0f, -0.10f, 4.8f, 4.4f, {6.4f, 4.2f, 4.4f}, 5.2f, 2.8f, 2.6f, 3.6f, 2.8f, 0.6f,
+                             7.f, 0.8f, -0.30f, 0.05f, 3,
+                             4.0f, 4.2f, 2.6f, 4.0f, 4.2f, 3.2f, 1.6f, 3.9f,
+                             1.5f, 32.f, 46.f, m3::QF_TUSKS | m3::QF_HOOFED | m3::QF_MANE, 0.35f};
+    return Q;
+}
+inline const m3::Q3& deerQ3() {
+    static const m3::Q3 Q = {-9.0f, 6.5f, 23.5f, {6.2f, 3.7f, 6.4f}, {7.8f, 3.9f, 6.9f}, {5.2f, 4.0f, 7.3f}, 1.6f,
+                             12.0f, 1.12f, 3.6f, 2.7f, {4.3f, 2.4f, 2.6f}, 4.8f, 1.2f, 1.2f, 6.2f, 4.2f, 0.95f,
+                             3.6f, 1.5f, -0.9f, 0.f, 2,
+                             8.6f, 8.8f, 3.4f, 8.8f, 9.0f, 4.0f, 1.0f, 2.4f,
+                             1.05f, 32.f, 52.f, m3::QF_HOOFED, 0.5f};
+    return Q;
+}
+inline const m3::Q3& modelQ3(int model) { return model == 2 ? boarQ3() : (model == 3 ? deerQ3() : wolfQ3()); }
+constexpr int MODEL_CELL = 64;
+struct ModelOut {
+    Img im;
+    int ax, ay;
+    float disp;  // in-game scale of the 64x64 texture
+};
+inline ModelOut paintModel(const QuadSpec& sp, const RigShape& R, int view, const BPose& P) {
+    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
+    const m3::Q3& Q = modelQ3(R.model);
+    std::vector<m3::Prim> prims;
+    m3::buildQuad(Q, P, R.strideMul, R.liftMul, R.airMul, R.antlers, prims);
+    ModelOut o;
+    o.im = m3::render(prims, m3::quadMats(sp, P.tint, Q.legDark), ALPHA[view], 0.70f, Q.pxu, MODEL_CELL, MODEL_CELL, Q.ox, Q.oy, 3);
+    o.ax = (int)Q.ox;
+    o.ay = (int)Q.oy;
+    o.disp = 1.f / Q.pxu;
+    return o;
+}
+
+// Paint one animal for one view (0 S, 1 E, 2 N, 3 W) and pose. `k` is the tier's body scale.
+inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P0) {
+    const float k = tierK * rigScale(R);  // tier scale x the species' own scale
+    BPose P = P0;
+    P.stride *= R.strideMul;
+    P.lift *= R.liftMul;
+    P.air *= R.airMul;
+    static const float PSI[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
+    const float psi = PSI[view], cp = cosf(psi), sn = sinf(psi);
+    const float phi = 0.70f, cph = cosf(phi), sph = sinf(phi);  // the camera looks down at 40 degrees
+    const int CW = (int)ceilf(R.W * k), CH = (int)ceilf(R.H * k);
+    const float ax = CW / 2.f, ay = CH - 6.f * k;                // where the ground point under the boar lands
+    if (R.ref) {  // pixel art faces east: the west view is the east art mirrored about the anchor column (deerref views: 0 front, 2 side, 4 back)
+        static const int ART_VIEW[AV_VIEWS] = {0, 2, 4, 2};
+        const Img art = deerref::paint(sp, R, tierK * 1.f, ART_VIEW[view], P0, CW, CH, ax, ay);
+        return view == 3 ? art.flippedH() : art;
+    }
+    Img im(CW, CH);
+
+    const u32 body = tintC(sp.body, P.tint), light = tintC(sp.light, P.tint), belly = tintC(sp.belly, P.tint),
+              dk = tintC(mixc(sp.body, sp.dark, 0.7f), P.tint), hoof = tintC(sp.hoof, P.tint), snout = tintC(sp.snout, P.tint);
+    const u32 mane = tintC(mixc(sp.dark, HEX(0x1c2a3c), 0.55f), P.tint * 0.5f), maneL = tintC(mixc(sp.dark, HEX(0x4a6078), 0.55f), P.tint * 0.5f);
+    const u32 ivory = HEX(0xf2ead2), ivoryD = HEX(0xc8bea0);
+
+    std::vector<RPart> parts;
+    auto ell = [&](float x, float y, float z, float rx, float ry, float rz, u32 c0, u32 c1, u32 c2) {
+        parts.push_back({0, x * k, y * k, z * k, rx * k, ry * k, rz * k, c0, c1, c2, 0, 0, 0, 0});
+    };
+    auto spike = [&](float x, float y, float z, float h, u32 c0, u32 c1) { parts.push_back({1, x * k, y * k, z * k, 0, 0, h * k, c0, c1, 0, 0, 0, 0, 0}); };
+    auto stroke = [&](float x, float y, float z, float x2, float y2, float z2, u32 c0, u32 c1, int w) {
+        parts.push_back({2, x * k, y * k, z * k, x2 * k, y2 * k, z2 * k, c0, c1, 0, w, 0, 0, 0});
+    };
+    auto dot = [&](float x, float y, float z, u32 c) { parts.push_back({3, x * k, y * k, z * k, 0, 0, 0, c, 0, 0, 0, 0, 0, 0}); };
+
+    float hxS = 0, hzS = 0;  // the head position, for the attack arc drawn at the end
+    if (R.bird) {
+        // ---- a bird: torso and breast, a neck and small head, a bill, a tail, two legs and two wings that beat
+        const float zb = R.zb * (1.f - 0.75f * P.lie) + P.bob + P.air, bx = P.bodyDx, pz = P.pitch;
+        const u32 wingC = tintC(mixc(sp.body, sp.dark, 0.55f), P.tint), wingLt = tintC(mixc(sp.light, sp.dark, 0.35f), P.tint),
+                  headC = tintC(sp.horn ? sp.horn : sp.body, P.tint);
+        ell(bx, 0, zb, R.tx, R.ty, R.tz + P.breathe - P.squash, light, body, dk);                                  // torso
+        ell(bx + R.tx * 0.42f, 0, zb - 0.3f + pz * 0.5f, R.tx * 0.62f, R.ty * 0.92f, R.tz * 0.92f, belly, belly, dk);  // breast
+        const float hx = bx + R.tx * 0.8f + R.hdx + P.headDx + pz * 0.8f;
+        const float hz = zb + R.tz * 0.55f + R.neckL + P.headDz + pz * 1.0f;
+        for (int i = 1; i <= 2; i++) {  // neck
+            const float t = i / 3.f;
+            ell(bx + R.tx * 0.6f + (hx - bx - R.tx * 0.6f) * t, 0, zb + R.tz * 0.3f + (hz - zb - R.tz * 0.3f) * t, R.hry * 0.95f, R.hry * 0.9f, R.hrz * 0.95f, light, body, dk);
+        }
+        ell(hx, 0, hz, R.hrx, R.hry, R.hrz, light, headC, dk);                                                     // head
+        const u32 bill = tintC(sp.snout, P.tint), billD = tintC(shadeC(sp.snout, 0.75f), P.tint);
+        if (R.bird == 1) ell(hx + R.hrx + 0.9f, 0, hz - 0.4f, 1.8f, 1.1f, 0.55f, bill, bill, billD);                // flat duck bill
+        else if (R.bird == 2) {                                                                                      // long thin bill and a ragged crest
+            stroke(hx + R.hrx * 0.7f, 0, hz - 0.1f, hx + R.hrx + R.billL, 0, hz - 0.5f, bill, billD, 1);
+            for (int c = 0; c < 3; c++) spike(hx - 1.0f - c * 0.6f, 0, hz + R.hrz - 0.2f, 1.8f - c * 0.3f, light, dk);
+        } else {                                                                                                     // hooked raptor beak
+            ell(hx + R.hrx + 0.7f, 0, hz - 0.2f, 1.5f, 0.9f, 1.1f, bill, bill, billD);
+            dot(hx + R.hrx + 1.8f, 0, hz - 1.4f, billD);
+            ell(hx + 0.2f, 0, hz + R.hrz * 0.7f, R.hrx * 0.9f, R.hry * 0.85f, 0.7f, dk, dk, dk);                   // heavy brow
+        }
+        const u32 eye = P.tint > 0.5f ? HEX(0xffe0d8) : sp.eye;
+        dot(hx + R.hrx * 0.5f, R.hry * 0.85f, hz + 0.3f, eye);
+        dot(hx + R.hrx * 0.5f, -R.hry * 0.85f, hz + 0.3f, eye);
+        // tail
+        const float tw = sinf(P.phase * 2.f) * 0.5f, tup = pz * -1.2f + (P.stride > 2.5f ? -0.4f : 0.3f);
+        if (R.bird == 2) {
+            stroke(bx - R.tx + 0.4f, 0, zb + 0.4f, bx - R.tx - R.tailL, tw, zb + 0.3f + tup, body, dk, 2);
+            stroke(bx - R.tx + 0.4f, 0, zb - 0.1f, bx - R.tx - R.tailL * 0.9f, tw, zb - 0.1f + tup, dk, dk, 1);
+        } else if (R.bird == 3) {
+            ell(bx - R.tx - R.tailL * 0.45f, 0, zb - 0.3f + tup, R.tailL * 0.6f, R.ty * 0.75f, 0.8f, wingLt, wingC, dk);
+        } else {
+            ell(bx - R.tx - 0.8f, 0, zb + 0.8f + tup, 1.6f, 1.2f, 1.1f, light, body, dk);
+        }
+        // legs: two thin stalks. On the ground they swing and lift; in the air they trail under the tail (tuck 1) or reach ahead (tuck -1).
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const float ly = sd * R.legY, hipX = bx - 0.2f, hipZ = zb - R.tz * 0.55f;
+            float fx, fz;
+            if (P.tuck != 0.f && P.limp <= 0.f) {
+                fx = hipX - 1.8f * P.tuck;
+                fz = hipZ - 1.8f + 0.6f * std::max(0.f, P.tuck);
+            } else if (P.limp > 0.f) {
+                fx = hipX + sd * 0.3f;
+                fz = hipZ - 1.2f;
+            } else {
+                const float ph = P.phase + (sd < 0 ? 0.f : 3.14159f);
+                fx = hipX + sinf(ph) * P.stride;
+                fz = std::max(0.f, cosf(ph)) * P.lift + std::max(0.f, zb - R.zb - P.bob) * 0.f;
+            }
+            stroke(hipX, ly, hipZ, fx, ly, fz + 0.2f, sd < 0 ? hoof : shadeC(hoof, 0.8f), dk, 1);
+            dot(fx, ly, fz, hoof);
+            dot(fx + 0.9f, ly, fz, hoof);
+        }
+        // wings: folded against the flanks, or open and beating
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const float rootY = sd * R.ty * 0.75f, rootZ = zb + R.tz * 0.45f, rootX = bx + 0.6f;
+            if (P.spread < 0.35f) {
+                ell(bx - 0.4f, sd * R.ty * 0.95f, zb + 0.2f, R.tx * 0.72f, 0.8f, R.tz * 0.62f, wingLt, wingC, dk);
+                ell(bx - R.tx * 0.8f, sd * R.ty * 0.9f, zb - 0.1f, R.tx * 0.35f, 0.7f, R.tz * 0.35f, wingC, dk, dk);
+            } else {
+                const float span = R.wingL * P.spread, ca = cosf(P.wing), sa = sinf(P.wing);
+                float lx = rootX, ly2 = rootY, lz = rootZ;
+                for (int seg = 1; seg <= 3; seg++) {
+                    const float t = seg / 3.f;
+                    const float cx0 = rootX - 0.9f * t * (1.f + (1.f - P.spread)), cy0 = rootY + sd * ca * span * t, cz0 = rootZ + sa * span * t;
+                    ell(cx0, cy0, cz0, R.wingC * (1.05f - 0.4f * t), 0.9f, 0.9f, wingLt, wingC, dk);
+                    stroke(lx, ly2, lz, cx0, cy0, cz0, wingC, dk, 1);
+                    lx = cx0; ly2 = cy0; lz = cz0;
+                }
+                // feather tips trail behind the outer wing
+                stroke(lx, ly2, lz, lx - R.wingC * 0.9f, ly2 + sd * ca * 1.4f, lz + sa * 1.4f, dk, dk, 1);
+                stroke(lx + 0.4f, ly2 - sd * ca * 1.2f, lz - sa * 1.2f, lx - R.wingC * 0.7f, ly2 - sd * ca * 2.4f, lz - sa * 2.4f, dk, dk, 1);
+            }
+        }
+        hxS = hx;
+        hzS = hz;
+    } else {
+    // ---- the body (animal coordinates, k = 1)
+    const float zb = R.zb * (1.f - 0.45f * P.lie) + P.bob + P.air;
+    const float bx = P.bodyDx;
+    const float hx = bx + R.tx * 0.95f + R.hdx + P.headDx;          // head centre x
+    const float hz = zb + R.hdz + P.headDz + P.pitch * 1.3f;
+    const float sqz = P.squash;
+    const float pz = P.pitch;
+    ell(bx, 0, zb, R.tx, R.ty, R.tz - sqz + P.breathe, light, body, dk);                                              // torso
+    ell(bx - R.tx * 0.51f, 0, zb - (R.flat ? 0.f : 0.5f) - pz * 0.8f, R.tx * (R.hopper ? 0.8f : 0.62f), R.ty * (R.hopper ? 1.15f : 0.96f), R.tz * 0.92f - sqz, light, body, dk);  // haunch
+    ell(bx + R.tx * 0.36f, 0, zb + (R.flat ? 0.2f : 0.7f) + pz * 1.0f, R.tx * 0.58f, R.ty * 0.92f, R.tz - sqz + P.breathe, light, body, dk);  // shoulder
+    if (R.flat) {  // a deep brown barrel with a dark underside and just a thin cream strip along the belly
+        ell(bx + 0.5f, 0, zb - R.tz * 0.62f, R.tx * 0.78f, R.ty * 0.72f, R.tz * 0.3f, dk, dk, dk);
+        ell(bx + 1.0f, 0, zb - R.tz * 0.74f, R.tx * 0.5f, R.ty * 0.6f, R.tz * 0.14f, belly, belly, belly);
+    } else
+    ell(bx, 0, zb - R.tz * 0.52f, R.tx * 0.82f, R.ty * 0.8f, R.tz * 0.4f, belly, belly, dk);                          // belly
+    if (R.neck > 0) {  // a long neck: two overlapping blobs from the shoulders up to the head
+        const float sx0 = bx + R.tx * 0.6f, sz0 = zb + R.tz * 0.5f;
+        for (int i = 1; i <= 3; i++) {
+            const float t = i / 4.f;
+            ell(sx0 + (hx - 1.2f - sx0) * t, 0, sz0 + (hz - sz0) * t, R.neck * (1.15f - 0.35f * t), R.neck * (1.05f - 0.3f * t), R.neck * 1.3f, light, body, dk);
+        }
+    }
+    ell(hx, 0, hz, R.hrx, R.hry, R.hrz, light, body, dk);                                                              // head
+    ell(hx + R.snx, 0, hz + R.snz, 2.9f * R.snr, 2.4f * R.snr, 2.1f * R.snr, tintC(mixc(sp.snout, sp.body, 0.15f), P.tint), snout, dk);  // snout
+    dot(hx + R.snx + 2.6f * R.snr, 0.9f * R.snr, hz + R.snz + 0.2f, dk);                                               // nostrils
+    dot(hx + R.snx + 2.6f * R.snr, -0.9f * R.snr, hz + R.snz + 0.2f, dk);
+    if (R.flat) ell(hx - 0.9f, 0, hz - R.hrz * 0.85f, R.hrx * 0.55f, R.hry * 0.85f, R.hrz * 0.5f, belly, belly, dk);  // cream throat
+    const float earUp = P.ear * 0.9f;
+    if (R.ear == 4) {  // big leaf ears held up and swept back, pink on the inside: a base, a wide middle and a tip curving back
+        const float e0 = hz + R.hrz + 0.6f + earUp * 0.5f, eh = R.earH / 4.f;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            ell(hx - 0.7f, sd * 1.7f, e0 + eh * 0.8f, 1.1f, 0.8f, eh * 1.2f, body, body, dk);
+            ell(hx - 1.4f, sd * 1.9f, e0 + eh * 2.2f, 1.3f, 0.8f, eh * 1.3f, body, body, dk);
+            ell(hx - 2.3f, sd * 1.9f, e0 + eh * 3.5f, 0.9f, 0.7f, eh * 1.1f, body, body, dk);
+            ell(hx - 1.2f, sd * 2.25f, e0 + eh * 2.0f, 0.6f, 0.35f, eh * 1.5f, HEX(0xd4776c), HEX(0xd4776c), HEX(0xb65656));
+        }
+    } else if (R.ear == 3) {  // long upright ears: they lean back when running and lie flat after a hit
+        const float lean = (P.stride > 3.f || P.air > 2.5f) ? -1.6f : 0.f, up = P.ear * 0.7f;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            ell(hx - 0.8f + lean, sd * 1.5f, hz + R.hrz + R.earH * 0.5f + up, 0.9f, 0.7f, R.earH * 0.62f, body, body, dk);
+            dot(hx - 0.2f + lean, sd * 1.5f, hz + R.hrz + R.earH * 0.5f + up, belly);  // the pale inside of the ear
+        }
+    } else if (R.ear == 1) {  // upright pointed ears
+        ell(hx - 0.8f, 2.0f, hz + R.hrz + 0.6f + earUp, 1.0f, 0.9f, R.earH, body, body, dk);
+        ell(hx - 0.8f, -2.0f, hz + R.hrz + 0.6f - earUp * 0.4f, 1.0f, 0.9f, R.earH, body, body, dk);
+    } else if (R.ear == 2) {  // leaf ears held out to the sides
+        ell(hx - 1.0f, 2.9f, hz + R.hrz - 0.2f + earUp, 1.0f, 1.9f, 1.3f, body, body, dk);
+        ell(hx - 1.0f, -2.9f, hz + R.hrz - 0.2f - earUp * 0.4f, 1.0f, 1.9f, 1.3f, body, body, dk);
+    } else {
+        ell(hx - 0.4f, 2.9f, hz + 3.0f + earUp, 1.3f, 1.0f, R.earH, body, body, dk);
+        ell(hx - 0.4f, -2.9f, hz + 3.0f - earUp * 0.4f, 1.3f, 1.0f, R.earH, body, body, dk);
+    }
+    const u32 eye = P.tint > 0.5f ? HEX(0xffe0d8) : sp.eye;
+    dot(hx + R.hrx * 0.64f, R.hry * 0.66f, hz + 0.9f, eye);                                                            // eyes
+    dot(hx + R.hrx * 0.64f, -R.hry * 0.66f, hz + 0.9f, eye);
+    if (R.tusks) {  // tusks curl up from the lower jaw; a lunge sweeps them upward
+        const float tu = P.tuskUp * 1.8f;
+        stroke(hx + 2.8f, 2.0f, hz - 2.8f, hx + 3.5f, 2.7f, hz - 0.9f + tu, ivory, ivoryD, 1);
+        stroke(hx + 2.8f, -2.0f, hz - 2.8f, hx + 3.5f, -2.7f, hz - 0.9f + tu, ivory, ivoryD, 1);
+    }
+    if (R.mane) {  // bristle mane along the spine, taller over the shoulders
+        for (int i = 0; i < 7; i++) {
+            const float t = i / 6.f, x = bx + 6.f - t * 13.f, h = 2.6f - 1.2f * fabsf(t - 0.25f) * 1.6f;
+            spike(x, 0, zb + R.tz - sqz + P.breathe - 0.3f - fabsf(t - 0.3f) * 1.2f, h, maneL, mane);
+        }
+        spike(hx - 1.2f, 0, hz + 3.4f, 2.2f, maneL, mane);  // a tuft between the ears
+    }
+    if (R.ridge) {  // a darker fur ridge along the back
+        for (int i = 0; i < 8; i++) {
+            const float x = bx + 6.f - i * 1.7f;
+            spike(x, 0, zb + R.tz - sqz + P.breathe - 0.3f, 1.4f, light, dk);
+        }
+    }
+    if (R.antlers) {  // a stag's antlers: a main beam and two tines each side
+        const u32 ant = tintC(R.flat ? HEX(0xd8a284) : HEX(0xcdb98a), P.tint * 0.5f), antD = tintC(R.flat ? HEX(0xba7d5b) : HEX(0xa08c5e), P.tint * 0.5f);
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const float y0 = sd * 1.4f;
+            stroke(hx - 0.6f, y0, hz + R.hrz - 0.4f, hx - 1.6f, sd * 3.6f, hz + R.hrz + 5.2f, ant, antD, 1);
+            stroke(hx - 1.1f, sd * 2.5f, hz + R.hrz + 2.0f, hx + 1.2f, sd * 3.4f, hz + R.hrz + 4.2f, ant, antD, 1);
+            stroke(hx - 1.5f, sd * 3.3f, hz + R.hrz + 4.0f, hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, ant, antD, 1);
+            if (R.flat) {  // a fuller rack: two more tines and a forked tip
+                stroke(hx - 1.4f, sd * 3.0f, hz + R.hrz + 3.2f, hx + 0.6f, sd * 4.4f, hz + R.hrz + 5.8f, ant, antD, 1);
+                stroke(hx - 2.4f, sd * 4.0f, hz + R.hrz + 5.0f, hx - 2.0f, sd * 5.4f, hz + R.hrz + 8.0f, ant, antD, 1);
+                stroke(hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, hx - 4.4f, sd * 5.6f, hz + R.hrz + 8.6f, ant, antD, 1);
+            }
+        }
+    }
+    if (R.spots) {  // a fawn's coat: cream flecks on the back
+        static const float SP[6][3] = {{4, 2.0f, 3.5f}, {1, -2.3f, 3.6f}, {-2, 2.4f, 3.4f}, {-5, -1.5f, 3.3f}, {6, -1.2f, 3.1f}, {-1, 0.5f, 4.0f}};
+        for (auto& q : SP) dot(bx + q[0], q[1] * (R.ty / 3.5f), zb + q[2] * (R.tz / 4.f) - sqz, belly);
+    }
+    // tail
+    const float tw = P.tail * 1.2f;
+    if (R.tail == 1) {  // a bushy wolf tail: hangs when relaxed, streams straight back when running
+        const float up = P.stride > 3.f ? 0.4f : -1.6f;
+        ell(bx - R.tx - 1.6f, tw * 0.5f, zb + 1.0f + up * 0.5f, 2.6f, 1.5f, 1.5f, body, body, dk);
+        ell(bx - R.tx - 4.2f, tw, zb + 0.4f + up, 2.4f, 1.4f, 1.4f, light, body, dk);
+        ell(bx - R.tx - 6.2f, tw * 1.3f, zb + 0.1f + up * 1.2f, 1.6f, 1.2f, 1.2f, dk, dk, dk);
+    } else if (R.tail == 3) {  // a cotton-ball tail
+        ell(bx - R.tx - 0.4f, 0, zb + 0.9f + P.tail * 0.5f, 1.5f, 1.5f, 1.5f, belly, belly, light);
+    } else if (R.tail == 2) {  // a short flag with a pale underside
+        ell(bx - R.tx - 0.6f, 0, zb + 1.8f, 1.1f, 1.0f, 1.8f, belly, belly, body);
+    } else {
+        stroke(bx - 9.f, 0, zb + 2.f, bx - 10.6f, tw, zb + 4.4f, mane, dk, 1);
+        dot(bx - 10.9f, tw, zb + 5.0f, mane);
+    }
+    // legs: front pair at +x, rear pair at -x; diagonal pairs swing together
+    const float hipZ = P.lie > 0.f ? std::min(zb - R.tz * 0.5f, R.tz * 0.9f) : zb - R.tz * 0.5f;  // lying: the legs fold up under the body
+    if (R.hopper) {
+        // hind legs: a big thigh and a long foot that folds under the body or stretches out behind it; forelegs: short reaches
+        const float hind = P.limp > 0 ? 0.9f : P.hind, fore = P.limp > 0 ? 0.3f : P.fore;
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const bool near_ = sd < 0;
+            const u32 lc = near_ ? body : dk;
+            const float hx0 = bx + R.legBx, hy = sd * R.legY * 1.35f, ground = P.air * 0.9f + (P.limp > 0 ? P.limp * 0.6f : 0.f);
+            ell(hx0, hy, zb - 0.6f - pz * 0.6f, R.tx * 0.45f, 1.2f, R.tz * 0.6f, light, body, dk);  // thigh
+            stroke(hx0 + 0.4f, hy, zb - 1.6f, hx0 + 2.4f - 4.8f * hind, hy, ground + 0.4f + 0.8f * hind, lc, dk, 1);
+            stroke(hx0 + 2.4f - 4.8f * hind, hy, ground + 0.4f + 0.8f * hind, hx0 + 3.4f - 5.4f * hind, hy, ground + 0.2f, lc, dk, 1);
+            dot(hx0 + 3.4f - 5.4f * hind, hy, ground + 0.1f, hoof);
+            const float fx0 = bx + R.legFx + 0.4f, fy = sd * R.legY * 0.9f;
+            stroke(fx0, fy, zb - 1.4f + pz * 0.8f, fx0 + 1.9f * fore, fy, ground + 0.3f + 0.7f * std::max(0.f, fore), lc, dk, 1);
+            dot(fx0 + 1.9f * fore, fy, ground + 0.2f + 0.7f * std::max(0.f, fore), hoof);
+        }
+    } else
+    for (int leg = 0; leg < 4; leg++) {
+        const bool front = leg < 2, left = (leg & 1) == 0;
+        const float lx = bx + (front ? R.legFx : R.legBx), ly = left ? R.legY : -R.legY;
+        const float ph = P.phase + ((front == left) ? 0.f : 3.14159f);
+        float sw = sinf(ph) * P.stride, lf = std::max(0.f, cosf(ph)) * P.lift + P.air;
+        if (P.stride <= 0.f) { sw = 0; lf = P.air; }
+        float fz = lf, fx = lx + sw + P.lie * (front ? 1.8f : -1.2f);  // lying: the forelegs fold forward, the hind legs back
+        if (P.limp > 0) {  // loose legs: stretched out sideways and a little bent
+            fx = lx + (front ? 1.2f : -1.2f) * P.limp;
+            fz = 0.f + P.limp * 1.2f;
+        }
+        // flat finish: the leg nearer the camera is brown like the body, the far one the dark maroon (as in the reference); otherwise left / right
+        const bool nearLeg = R.flat ? (ly * cp <= 0.f) : left;
+        stroke(lx, ly, hipZ, fx, ly * (1.f + 0.15f * P.limp), fz + 0.6f, nearLeg ? body : dk, dk, R.legW);
+        if (R.flat) {  // a muscular upper leg tapering to a slim shank, and a two-pixel hoof
+            ell(lx + (fx - lx) * 0.12f, ly, hipZ - 0.8f, front ? 1.9f : 2.5f, 1.15f, 3.1f, nearLeg ? light : dk, nearLeg ? body : dk, dk);
+            dot(fx + 0.8f, ly, fz, hoof);
+        }
+        dot(fx, ly, fz, hoof);
+    }
+
+    hxS = hx;
+    hzS = hz;
+    }
+
+    // ---- roll onto its side (death): rotate about the forward axis through the torso, then drop to the ground
+    if (P.roll != 0.f) {
+        const float cr = cosf(P.roll), sr = sinf(P.roll), cz = R.zb * k;
+        for (auto& p : parts) {
+            auto rot = [&](float& y, float& z) {
+                const float dz = z - cz, ny = y * cr - dz * sr, nz = cz + y * sr + dz * cr;
+                y = ny;
+                z = nz;
+            };
+            rot(p.y, p.z);
+            if (p.type == 2) rot(p.ry, p.rz);
+            if (p.type == 0) {  // the radii swap as the body turns
+                const float a = fabsf(cr), b = fabsf(sr), ry = p.ry * a + p.rz * b, rz = p.rz * a + p.ry * b;
+                p.ry = ry;
+                p.rz = rz;
+            }
+        }
+        float lo = 1e9f;
+        for (auto& p : parts) {
+            lo = std::min(lo, p.type == 0 ? p.z - p.rz : p.z);
+            if (p.type == 2) lo = std::min(lo, p.rz);
+        }
+        for (auto& p : parts) {
+            p.z -= lo;
+            if (p.type == 2) p.rz -= lo;
+        }
+    }
+
+    // ---- project
+    auto proj = [&](float x, float y, float z, float& sx, float& sy, float& d) {
+        const float X = x * cp + y * sn, D = x * sn - y * cp;
+        sx = ax + X;
+        sy = ay + D * sph - z * cph;
+        d = D;
+    };
+    for (auto& p : parts) {
+        proj(p.x, p.y, p.z, p.sx, p.sy, p.sd);
+        if (p.type == 1) p.sd += 0.01f;
+    }
+    std::stable_sort(parts.begin(), parts.end(), [](const RPart& a, const RPart& b) { return a.sd < b.sd; });
+
+    for (const auto& p : parts) {
+        switch (p.type) {
+            case 0: {
+                const float hr = sqrtf(p.rx * p.rx * cp * cp + p.ry * p.ry * sn * sn);
+                const float dD = sqrtf(p.rx * p.rx * sn * sn + p.ry * p.ry * cp * cp);
+                const float vr = sqrtf(p.rz * p.rz * cph * cph + dD * dD * sph * sph);
+                im.ellipseShaded(p.sx, p.sy, std::max(0.9f, hr), std::max(0.9f, vr), p.c0, p.c1, p.c2);
+                break;
+            }
+            case 1: {  // bristle: a short vertical stroke with a bright tip
+                const int x = (int)floorf(p.sx), y = (int)floorf(p.sy), h = std::max(1, (int)roundf(p.rz * cph));
+                for (int j = 0; j < h; j++) im.set(x, y - j, j == h - 1 ? p.c0 : p.c1);
+                break;
+            }
+            case 2: {
+                float x2, y2, d2;
+                proj(p.rx, p.ry, p.rz, x2, y2, d2);
+                const int a = (int)floorf(p.sx), b = (int)floorf(p.sy), c = (int)floorf(x2), d = (int)floorf(y2);
+                im.line(a, b, c, d, p.c0);
+                for (int o = 1; o < p.w; o++) im.line(a + o, b, c + o, d, o == p.w - 1 ? p.c1 : p.c0);  // thicker strokes: the shaded edge on the right
+                break;
+            }
+            default: im.set((int)floorf(p.sx), (int)floorf(p.sy), p.c0); break;
+        }
+    }
+    im.outline(OUT);
+    // slash arc: drawn after the outline so it stays a clean white crescent in front of the head
+    if (P.slash >= 0.f) {
+        float hx2, hy2, hd;
+        proj(hxS + 4.f, 0, hzS - 1.f, hx2, hy2, hd);
+        const float fx = cp, fy = sn * sph * 0.8f;  // the facing on screen
+        const float base = atan2f(fy, fx);
+        const float r = (7.f + 3.f * P.slash) * k;
+        for (int i = 0; i <= 14; i++) {
+            const float a = base - 1.1f + i * (2.2f / 14.f);
+            const int x = (int)roundf(hx2 + cosf(a) * r + fx * 2.f), y = (int)roundf(hy2 + sinf(a) * r * 0.8f + fy * 2.f);
+            const int al = P.slash > 0.25f ? 170 : 235;
+            im.set(x, y, RGBA(255, 255, 255, al));
+            if (i > 3 && i < 11) im.set(x + (fx >= 0 ? -1 : 1) * (fx == 0 ? 0 : 1), y, RGBA(255, 255, 255, al / 2));
+        }
+    }
+    return im;
+}
+
+// Build every form / tier / view / state / pose of every species that has a full animation set.
+// Draw one form / rarity tier of one species: every view, state and pose.
+inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form, int tier) {
+    const int idx = form + 2 * tier;
+    if (bank.built[idx]) return;
+    const AnimalClips& C = *animalClips(kind);
+    const RigShape R = rigShape(kind, form);
+    const QuadSpec sp = fauSpec(kind, form, tier);
+    const float k = TIER[tier].scale * rigScale(R);
+    struct Job { int v, st, i; };
+    struct Out { Img im; int ax = 0, ay = 0; float disp = 1.f; };
+    std::vector<Job> jobs;
+    for (int v = 0; v < AV_VIEWS; v++)
+        for (int st = 0; st < AN_COUNT; st++)
+            for (int i = 0; i < C.poses[st]; i++) jobs.push_back({v, st, i});
+    std::vector<Out> outs(jobs.size());
+    // painting one frame is pure CPU work on local data, so the 3D models are drawn on several threads; the textures are made afterwards on this one
+    auto gen = [&](size_t j) {
+        const Job& jb = jobs[j];
+        Out& o = outs[j];
+        Img im;
+        int ax, ay;
+        float disp = 1.f;
+        const BPose pose = R.bird ? birdPose(jb.st, jb.i) : (R.hopper ? hopPose(jb.st, jb.i) : quadPose(jb.st, jb.i));
+        if (R.model) {
+            ModelOut mo = paintModel(sp, R, jb.v, pose);
+            im = std::move(mo.im);
+            ax = mo.ax;
+            ay = mo.ay;
+            disp = mo.disp * TIER[tier].scale;
+            styleActor(im, OUT, 0);
+        } else {
+            im = paintQuad(sp, R, TIER[tier].scale, jb.v, pose);
+            styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
+            ax = im.w / 2;
+            ay = (int)(im.h - 6.f * k);
+        }
+        // crop to the drawn pixels (the canvas has room for every pose, most poses use much less): the same picture, far less texture memory
+        int x0 = im.w, y0 = im.h, x1 = -1, y1 = -1;
+        for (int y = 0; y < im.h; y++)
+            for (int x = 0; x < im.w; x++)
+                if (cA(im.p[(size_t)y * im.w + x])) {
+                    x0 = std::min(x0, x); x1 = std::max(x1, x);
+                    y0 = std::min(y0, y); y1 = std::max(y1, y);
+                }
+        if (x1 >= x0 && y1 >= y0 && (x1 - x0 + 1 < im.w || y1 - y0 + 1 < im.h)) {
+            Img c(x1 - x0 + 1, y1 - y0 + 1);
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++) c.p[(size_t)(y - y0) * c.w + (x - x0)] = im.p[(size_t)y * im.w + x];
+            im = c;
+            ax -= x0;
+            ay -= y0;
+        }
+        o.im = std::move(im);
+        o.ax = ax;
+        o.ay = ay;
+        o.disp = disp;
+    };
+    if (R.model && jobs.size() > 8) {
+        const unsigned hw = std::max(1u, std::min(8u, std::thread::hardware_concurrency()));
+        std::atomic<size_t> next{0};
+        std::vector<std::thread> pool;
+        for (unsigned t = 0; t < hw; t++)
+            pool.emplace_back([&] {
+                for (size_t j; (j = next.fetch_add(1)) < jobs.size();) gen(j);
+            });
+        for (auto& th : pool) th.join();
+    } else
+        for (size_t j = 0; j < jobs.size(); j++) gen(j);
+    for (size_t j = 0; j < jobs.size(); j++) {
+        const Job& jb = jobs[j];
+        Spr& sps = bank.s[idx][jb.v][jb.st][jb.i];
+        sps = makeSpr(r, outs[j].im, outs[j].ax, outs[j].ay, true);
+        if (R.model) {  // a detailed texture drawn smaller: filtered, not nearest
+            sps.sc = outs[j].disp;
+            SDL_SetTextureScaleMode(sps.t, SDL_ScaleModeLinear);
+            if (sps.flash) SDL_SetTextureScaleMode(sps.flash, SDL_ScaleModeLinear);
+        }
+    }
+    bank.built[idx] = true;
+}
+
+// Make sure the bank for this form / tier exists (called when such an animal spawns and, as a safety net, when it is drawn).
+template <class AssetsT>
+inline void ensureRichBank(SDL_Renderer* r, AssetsT& a, int kind, int form, int tier) {
+    if (a.rich[kind] && !a.rich[kind]->built[form + 2 * tier]) buildRichCombo(r, *a.rich[kind], kind, form, tier);
+}
+
+// Start-up: the common rarity of every form of every species that has a full animation set. Rarer tiers (uncommon, rare, legendary:
+// the same art, recoloured and larger) are drawn the first time one spawns, which keeps start-up time and memory down.
+template <class AssetsT>
+inline void buildRichAnimals(SDL_Renderer* r, AssetsT& a) {
+    for (int kind : RICH_KINDS) {
+        auto bank = std::make_shared<RichAnimal>();
+        for (int form = 0; form < ANIMAL[kind].forms; form++) buildRichCombo(r, *bank, kind, form, 0);
+        a.rich[kind] = bank;
+    }
+}
+// Draw every tier too (the exporter and the full bank test use this).
+template <class AssetsT>
+inline void buildAllRichBanks(SDL_Renderer* r, AssetsT& a) {
+    for (int kind : RICH_KINDS)
+        for (int form = 0; form < ANIMAL[kind].forms; form++)
+            for (int tier = 0; tier < TR_COUNT; tier++) ensureRichBank(r, a, kind, form, tier);
+}

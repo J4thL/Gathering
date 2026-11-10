@@ -6,10 +6,49 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
   set(CMAKE_BUILD_TYPE Release)
 endif()
 
-add_executable(wildwood src/main.cpp src/game_logic.cpp src/game_render.cpp src/gathering.cpp src/crafting.cpp src/structures.cpp src/skills.cpp src/maps.cpp src/equipment.cpp src/town.cpp src/services.cpp src/flowers.cpp src/salon.cpp src/delve.cpp src/monsters.cpp src/delve_render.cpp src/delve_tests.cpp src/homestead.cpp src/homestead_ui.cpp src/homestead_render.cpp src/homestead_tests.cpp src/soak_tests.cpp src/selftest.cpp src/weapon_tests.cpp src/world_check.cpp)
+# sources, grouped by module (see README.md for what each folder holds)
+set(WILDWOOD_MAIN src/main.cpp)
+set(WILDWOOD_CORE
+    src/core/game_logic.cpp
+    src/core/game_render.cpp)
+set(WILDWOOD_PLAYER
+    src/player/skills.cpp
+    src/player/equipment.cpp)
+set(WILDWOOD_CRAFTING
+    src/crafting/crafting.cpp)
+set(WILDWOOD_GATHERING
+    src/gathering/gathering.cpp)
+set(WILDWOOD_WORLD
+    src/world/maps.cpp
+    src/world/flowers.cpp)
+set(WILDWOOD_COMBAT
+    src/combat/monsters.cpp)
+set(WILDWOOD_DELVE
+    src/delve/delve.cpp
+    src/delve/delve_render.cpp)
+set(WILDWOOD_FARMING
+    src/farming/homestead.cpp
+    src/farming/homestead_ui.cpp
+    src/farming/homestead_render.cpp)
+set(WILDWOOD_BUILDINGS
+    src/buildings/structures.cpp)
+set(WILDWOOD_NPCS
+    src/npcs/town.cpp
+    src/npcs/services.cpp
+    src/npcs/salon.cpp)
+set(WILDWOOD_TESTS
+    src/tests/selftest.cpp
+    src/tests/delve_tests.cpp
+    src/tests/homestead_tests.cpp
+    src/tests/soak_tests.cpp
+    src/tests/weapon_tests.cpp
+    src/tests/world_check.cpp)
+
+add_executable(wildwood ${WILDWOOD_MAIN} ${WILDWOOD_CORE} ${WILDWOOD_PLAYER} ${WILDWOOD_CRAFTING} ${WILDWOOD_GATHERING} ${WILDWOOD_WORLD} ${WILDWOOD_COMBAT} ${WILDWOOD_DELVE} ${WILDWOOD_FARMING} ${WILDWOOD_BUILDINGS} ${WILDWOOD_NPCS} ${WILDWOOD_TESTS})
+target_include_directories(wildwood PRIVATE src)  # includes are written module-relative, e.g. #include "items/items.hpp"
 
 if(WIN32)
-  target_sources(wildwood PRIVATE src/win_console.cpp)
+  target_sources(wildwood PRIVATE src/core/win_console.cpp)
 endif()
 
 find_package(Threads REQUIRED)  # the 3D animal models are drawn on several threads at start-up

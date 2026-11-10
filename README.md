@@ -4,10 +4,30 @@ Top-down pixel-art hunting game in C++17 + SDL2. All sprites, animations and sou
 ## Build
 Linux:   sudo apt install libsdl2-dev cmake g++   (macOS: brew install sdl2 | Windows: vcpkg install sdl2)
          cmake -S . -B build && cmake --build build && ./build/wildwood
-Or:      g++ -std=c++17 -O2 $(sdl2-config --cflags) src/*.cpp -o wildwood $(sdl2-config --libs)
+Or:      g++ -std=c++17 -O2 -Isrc $(sdl2-config --cflags) src/main.cpp src/*/*.cpp -o wildwood $(sdl2-config --libs)
+
+## Project layout
+Includes are module-relative (`#include "items/items.hpp"`, `src` is the include root). Most art and data modules are header-only on purpose.
+```
+src/main.cpp      entry point, command line modes (--headless, --shots, test suites)
+src/core/         Game state (game.hpp), update loop (game_logic.cpp), rendering (game_render.cpp), gfx, audio, data tables, Windows console
+src/player/       hunter look and poses, skills, equipment and hotbar logic
+src/items/        item registry and the 100-slot inventory
+src/crafting/     recipes and crafting
+src/gathering/    resource nodes, gathering and harvesting
+src/world/        maps, world generation, spawns, interiors, flowers
+src/animals/      species table, animal animation, 3D-rendered animal art
+src/combat/       monsters and their art
+src/delve/        dungeon delves
+src/farming/      homestead: plots, crops, farm animals, build menu, rendering
+src/buildings/    structures and interior art
+src/npcs/         town, shops and services, quests, hairdresser, villager art
+src/art/          hunter / biome / gear / resource / trophy sprites and the sprite exporter
+src/tests/        headless test suites (run with ctest)
+```
 
 ## Controls
-WASD move | SHIFT sprint | mouse aim | HOLD LMB charge, release to throw | 1-4 / wheel weapon
+WASD move | SHIFT sprint | mouse aim | HOLD LMB charge, release to throw | 1-8 hotbar slot (weapon, tool, seeds or item in hand) / wheel cycles the hotbar | click uses the item in hand
 E (hold) gather a carcass, chop a tree, mine a rock, pick a plant | E on a chest opens it, hold E on your campfire to pick it up | E at merchant: shop | E at Elder Holt: quests | Q bandage | M map | H help | ESC pause | F11 fullscreen
 
 ## Loop
@@ -30,18 +50,18 @@ skills, quests and the time of day; each map remembers its own campfires and che
 weapons (only the map you are in is loaded; the others are rebuilt from the world seed when you enter them). Saves record the map you are in.
 Terrain and climate matter: sand, mud and deep snow slow you down, ice makes you slide, heat/cold/thin air change how fast stamina drains
 (the fur coat cancels the cold).
-Maps are defined in `src/maps.hpp` (gates, entry and hub per map), generated in `src/world.hpp` / `src/worldgen.hpp`, and travel
-is `Game::travelTo` in `src/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
+Maps are defined in `src/world/maps.hpp` (gates, entry and hub per map), generated in `src/world/world.hpp` / `src/world/worldgen.hpp`, and travel
+is `Game::travelTo` in `src/world/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
 `worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
 
 ## Wildlife
-28 species (`src/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
-stream species in just off-screen (`src/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).
+28 species (`src/animals/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
+stream species in just off-screen (`src/world/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).
 Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
 recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
 
 ## Items and ranged weapons
-`src/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
+`src/items/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
 thrown weapons, launchers, ammo, consumables and backpacks, built from the tables in `data.hpp`.
 The hunting bow (hold to draw, 0.85 s for a full shot; damage and range scale with the draw) fires arrows; the crossbow fires
 bolts the moment you click and then reloads for 1.6 s. Launchers are not used up; ammo is, though a share of the arrows and bolts that
@@ -49,9 +69,9 @@ hit can be picked up again. Both weapons and their ammo are sold on the shop's B
 drop from the new species (see `fauna.hpp`).
 
 ## Inventory
-The pack (`src/inventory.hpp`) always has exactly 100 slots; every stackable item stacks to 999, launchers / tools / bags / carried gear take a
+The pack (`src/items/inventory.hpp`) always has exactly 100 slots; every stackable item stacks to 999, launchers / tools / bags / carried gear take a
 slot each, and different items never share a slot. What limits the hunter is **weight**: every item has a weight in kg, defined once in
-`src/items.hpp` (`matWeight`, `wpnWeight`, ...), and the pack has a maximum carrying weight. `Inventory::add` never takes more than fits (slots
+`src/items/items.hpp` (`matWeight`, `wpnWeight`, ...), and the pack has a maximum carrying weight. `Inventory::add` never takes more than fits (slots
 or weight), so gathering, looting, pickups, crafting, shop purchases and chest withdrawals all refuse politely ("PACK FULL" / "TOO HEAVY")
 and nothing is ever deleted. Carrying limit: 50 kg with no bag; bags are crafted items you wear (HIDE SATCHEL 100, TRAPPER PACK 150,
 EXPLORER PACK 200, EXPEDITION PACK 300 kg). A bag only raises the limit - never the slots or stack size - and a worn bag has no weight.
@@ -71,17 +91,17 @@ DROP ALL (the stack lies on the ground until you walk over it again), TO HOTBAR 
 `TAB` switches tabs. The HOTBAR row at the bottom shows the 8 quick slots (3 weapon, 2 healing, food, buff, utility): click a slot to equip the
 selected item there or to unequip what is in it.
 CRAFTING tab: every recipe with category filters (tools, weapons, ammo, medicine, survival, parts, gear), a CAN MAKE switch, have/need
-counts per ingredient (red when short), a tooltip with the reason a recipe is blocked, and a scroll wheel. Recipes live in `src/recipes.hpp`.
+counts per ingredient (red when short), a tooltip with the reason a recipe is blocked, and a scroll wheel. Recipes live in `src/crafting/recipes.hpp`.
 Stations: ANYWHERE, FIRE (the village fire or a campfire you place) and SHOP (beside the merchant).
-Every recipe names a skill and a minimum level (`skill`, `minLv` in `src/recipes.hpp`); a locked recipe shows "NEEDS <SKILL> <lv>" and costs nothing.
+Every recipe names a skill and a minimum level (`skill`, `minLv` in `src/crafting/recipes.hpp`); a locked recipe shows "NEEDS <SKILL> <lv>" and costs nothing.
 Ingredients are spent only when the result is delivered. Processing: planks, bone fragments, leather, grease (from carcass fat) and extracts feed
-most of the newer recipes. Every animal drops one exclusive trophy material (`M_TROPHY0 + species` in `src/data.hpp`) that some recipe uses.
+most of the newer recipes. Every animal drops one exclusive trophy material (`M_TROPHY0 + species` in `src/core/data.hpp`) that some recipe uses.
 Crafted gear: fang dagger, reinforced spear, recurve bow, heavy axe, four biome weapons (+30% damage in their biome), armor tiers up to bear hide,
 swiftfoot boots, the bags (satchel to expedition pack) and carried gear (wolf cloak, parka, desert wraps, venom wraps, waders, climbing harness, quiver)
 that works while it is in the pack. New medicines and foods: poultice, herbal medicine, dried meat, hunter's stew, velvet tonic, nightsight tonic.
 
 ## Skills
-The SKILLS tab of the pack lists 15 skills (levels 1-100; data and curve in `src/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
+The SKILLS tab of the pack lists 15 skills (levels 1-100; data and curve in `src/player/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
 XP is awarded only after an action really completes: a finished resource (Woodcutting / Mining / Foraging), a kill (Hunting and Ranged,
 reduced when you grind animals far below your level), each carcass piece (Skinning / Butchering), a delivered craft (the recipe's skill), a hit
 survived in armor (Defense), a new landmark or a used consumable (Survival). Each skill has one capped bonus (shown when you hover it): chop /
@@ -90,7 +110,7 @@ grows evenly to 60% of its cap at level 100 and gains 10% of the cap at each mil
 saves without skills load at level 1.
 
 ## Gathering
-Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/resources.hpp`, behaviour in `src/gathering.cpp`).
+Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/gathering/resources.hpp`, behaviour in `src/gathering/gathering.cpp`).
 Tools come in four tiers (stone, copper, iron, gilded): higher tiers swing faster, give bonus yield and open harder resources
 (copper and iron ore need a tier 2 pickaxe, gold and crystal tier 3). Each resource takes a number of hits, shows a hit counter and progress
 bar, drops its yields, then becomes a stump / rubble / stub and regrows after a respawn time (trees become solid again). A resource is never
