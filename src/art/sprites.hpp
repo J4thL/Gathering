@@ -12,6 +12,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)((uint32_t)y * 19349663u); }
 #include "art/sprites_res.hpp"
 #include "art/sprites_trophy.hpp"
+#include "art/sprites_carcass.hpp"
 #include "art/sprites_gear.hpp"
 #include "delve/sprites_delve.hpp"
 #include "farming/sprites_homestead.hpp"
@@ -1116,7 +1117,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
     buildRichAnimals(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, m >= M_BERRY ? hart::iconMat(m) : m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, carcassArt(m) ? artToImg(*carcassArt(m)) : m >= M_BERRY ? hart::iconMat(m) : m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
         Img t = k >= TL_HOE ? hart::iconTool(k) : mkIconTool(k);
