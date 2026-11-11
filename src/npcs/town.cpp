@@ -62,18 +62,7 @@ bool Game::enterBuilding(int k) {
     npcSayT = 0;
     npcChatCd = 0.7f;  // the shopkeeper greets the hunter a moment after they step in
     npcSayLine = -1;
-    snapshotMap();  // the outside: harvested resources, structures, discoveries, dropped weapons
-    extMap = world.mapId;
-    extPos = p.pos;  // the exact spot: leaving puts the hunter back here
-    extAnimals = std::move(animals);
-    animals.clear();
-    structs.clear();
-    chestOpen = -1;
-    projs.clear();
-    parts.clear();
-    ftexts.clear();
-    decals.clear();
-    items.clear();
+    stashOutside();
     world.generateInterior(k);
     initHarvest();
     interior = k;

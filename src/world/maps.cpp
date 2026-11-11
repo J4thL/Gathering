@@ -27,6 +27,23 @@ void Game::loadMapWorld(int map) {
     }
 }
 
+// Everything done on the way into a building or a delve: the outside is parked (harvested resources, structures, discoveries, dropped
+// weapons), the exact spot is remembered (leaving puts the hunter back there) and what lives only outside is cleared.
+void Game::stashOutside() {
+    snapshotMap();
+    extMap = world.mapId;
+    extPos = p.pos;
+    extAnimals = std::move(animals);
+    animals.clear();
+    structs.clear();
+    chestOpen = -1;
+    projs.clear();
+    parts.clear();
+    ftexts.clear();
+    decals.clear();
+    items.clear();
+}
+
 void Game::snapshotMap() {
     if (world.isInterior()) return;  // an interior has no state of its own: the outside was parked when the hunter went in
     MapMem& m = mapMem[world.mapId];

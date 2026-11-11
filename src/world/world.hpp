@@ -155,7 +155,6 @@ struct World {
     int interiorKind() const { return mapId - B_COUNT; }
     // ---- delves (delve.hpp): the Abandoned Mine and the four levels of the Frozen Dungeon, instance maps in the same arrays
     bool isDelve() const { return mapId >= B_COUNT + 8; }
-    int delveId() const { return mapId - (B_COUNT + 8); }
     std::vector<DSpawn> dsp;
     std::vector<DLight> lights;
     V2 stairsDn, stairsUp;     // the stairs of a dungeon level
@@ -166,11 +165,6 @@ struct World {
 
     float pixW() const { return MW * TS; }
     float pixH() const { return MH * TS; }
-    // the original map's pixel rectangle
-    float coreX0() const { return COX * TS; }
-    float coreY0() const { return COY * TS; }
-    float coreX1() const { return (COX + CW) * TS; }
-    float coreY1() const { return (COY + CH) * TS; }
 
     // deep water (lakes, bog): blocks movement, splashes projectiles
     bool water(int tx, int ty) const { return tx >= 0 && ty >= 0 && tx < MW && ty < MH && tileDeep(tile[ty][tx]); }

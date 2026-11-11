@@ -128,11 +128,6 @@ struct Player {
     int ammo(int a) const { return inv.count(itemAmmo(a)); }
     int bandages() const { return inv.count(ITEM_CONS0 + C_BANDAGE); }
     bool has(int carried) const { return inv.count(itemCarry(carried)) > 0; }  // carried gear is active while it is in the pack
-    int healItems() const {  // everything the Q key can use
-        int n = 0;
-        for (int c : {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE}) n += inv.count(ITEM_CONS0 + c);
-        return n;
-    }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int carryLimit() const { return bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG; }  // kg
@@ -346,7 +341,6 @@ struct Game {
     bool monsArtReady = false;
     int delveKills = 0;
     // test hooks
-    bool botOn = false;
     int craftQuality = -1;       // tests: force the quality tier of every craft (-1 = roll as in play)
     bool craftAnywhere = false;  // the crafting tests run away from the town buildings; real play never sets this
 
@@ -395,7 +389,6 @@ struct Game {
     void fixSel();                      // keeps the selected weapon one that is on the hotbar
     bool dropSlot(int slot, int n);     // put a stack on the ground
     void notifyBlocked(int itemId, int n, const Inventory* ref = nullptr);  // "PACK FULL" / "TOO HEAVY" feedback after a failed pickup
-    bool canUseWpn(int w) const { return canUse(w); }
     bool useConsumable(int c);
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
@@ -535,6 +528,7 @@ struct Game {
     std::string seen;                  // fog of war of the active map (see MapMem::seen)
     void revealAround(V2 pos);         // mark the minimap cells around the hunter as explored
     void snapshotMap();                // park the active map's state in mapMem
+    void stashOutside();               // before entering a building or a delve: park the outside (map, spot, animals) and clear everything live
     void restoreMap();                 // put mapMem's state for the active map back
     V2 freeSpot(int tx, int ty) const;  // the nearest standable position to a tile
     void checkPortals(float dt);

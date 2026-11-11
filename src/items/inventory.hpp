@@ -182,17 +182,6 @@ public:
         remove(item, count(item));
         return add(item, n);
     }
-    // Change the number of slots. Growing always works; shrinking only if the items still fit, otherwise it is refused.
-    bool setCapacity(int cap) {
-        if (cap >= capacity()) {
-            slots.resize(cap);
-            return true;
-        }
-        compact();
-        if (usedSlots() > cap) return false;
-        slots.resize(cap);
-        return true;
-    }
     // Merge partial stacks and move everything to the front, ordered by item id.
     void compact() {
         struct T { int item, q, n; };

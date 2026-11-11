@@ -16,8 +16,6 @@
 // Does a craft of this recipe roll a quality tier? Everything made for use does; processed materials (rope, bars, leather...) stay Normal.
 inline bool recipeHasQuality(const Recipe& R) { return !(R.kind == RK_ITEM && R.cat == RC_MATERIALS); }
 
-constexpr int RECIPE_WEAPONS = 3;  // the first three recipes are the merchant's weapons (they have their own page on the shop's CRAFT tab)
-
 static const Recipe RECIPES[] = {
     // ---- the shop's CRAFT tab (must stay first, in this order)
     {RK_WEAPON, W_BONE, 4, {M_BONE, M_HIDE, -1}, {3, 1, 0}, RC_WEAPONS, STN_SHOP, SK_CRAFTING, 1},

@@ -196,7 +196,7 @@ inline std::string kgNum(float kg) {
 
 // ---- the hotbar: 8 universal quick-access slots (any slot takes any equippable item). Only items the hunter has equipped show up on it.
 constexpr int HOT_N = 8;
-enum HotKind { HK_ANY, HK_HEAL, HK_FOOD, HK_BUFF };  // HK_ANY: the slot kind; the others only classify consumables
+enum HotKind { HK_ANY };  // what a hotbar slot accepts: any item
 constexpr int HOT_KIND[HOT_N] = {HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY};
 [[maybe_unused]] static const char* HOT_KIND_NAME[] = {"ANY", "HEALING", "FOOD", "BUFF"};
 // a seed is a material that can be held in hand to sow a plot: its crop index (0..CROP_N-1), or -1 for any other item
