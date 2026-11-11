@@ -81,6 +81,13 @@ drop, sell, store or use something. Saves are version 2 (`slot <item name> <coun
 never stored); version 1 saves are migrated on load (the old backpack level becomes the worn bag, owned weapons and consumables are
 equipped once) and the original is kept as `save.v1.bak`.
 
+## Carry weight and splitting stacks
+
+You can carry up to 150% of your carry limit (the bag sets it): above 100% the hunter walks slower, evenly down to half speed at 150%, and
+the HUD says SLOW; past 150% pickups are refused ("TOO HEAVY"). In the pack, **DROP..** opens an amount slider (drag the bar, -/+, 1/2, MAX,
+or A/D and the mouse wheel; Enter confirms, Esc cancels) to drop part of a stack. In a storage chest, right-click an item to choose how many
+to move (a normal click still moves the whole stack).
+
 ## Item quality
 
 Everything you craft (weapons, ammunition, tools, bandages and other consumables, bags, placeables, carried gear, armor and boots) rolls a

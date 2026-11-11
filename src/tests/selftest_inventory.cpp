@@ -57,12 +57,13 @@ void testInventoryClass(SelfTest& t) {
             w.add(itemMat(M_WOOD), 10);
             w.add(itemMat(M_STONE), 5);
             check(fabsf(w.totalWeight() - 20.f) < 1e-4f && fabsf(w.stackWeight(0) - 10.f) < 1e-4f, "stack weight = unit weight x quantity; total is the sum of all stacks");
-            check(w.add(itemMat(M_STONE), 100) == 15 && fabsf(w.totalWeight() - 50.f) < 1e-3f, "an add stops at the weight limit (only 15 more stone fit under 50 kg)");
-            check(w.add(itemMat(M_HERB), 1) == 0 && w.blockReason(itemMat(M_HERB), 1) == 2 && !w.canAdd(itemMat(M_WOOD), 1), "at the limit nothing more is taken, and the reason is 'too heavy'");
+            check(w.add(itemMat(M_STONE), 100) == 27 && fabsf(w.totalWeight() - 74.f) < 1e-3f && w.overweight(), "an add stops at the hard cap (150% of the limit: only 27 more stone fit under 75 kg), past the 50 kg limit");
+            check(fabsf(w.slowFactor() - (1.f - (1.f - OVERLOAD_SLOW) * (24.f / 25.f))) < 1e-3f, "above the limit the hunter is slowed, more the heavier the load (half speed at the cap)");
+            check(w.add(itemMat(M_STONE), 1) == 0 && w.blockReason(itemMat(M_STONE), 1) == 2 && !w.canAdd(itemMat(M_STONE), 1), "at the cap nothing more is taken, and the reason is 'too heavy'");
             w.maxWeight = 100.f;
-            check(w.canAdd(itemMat(M_WOOD), 50) && !w.canAdd(itemMat(M_WOOD), 51), "raising the limit makes room again, recalculated at once");
+            check(w.canAdd(itemMat(M_WOOD), 76) && !w.canAdd(itemMat(M_WOOD), 77), "raising the limit makes room again, recalculated at once");
             w.maxWeight = 30.f;
-            check(w.overweight() && w.count(itemMat(M_STONE)) == 20 && w.totalWeight() > 30.f, "a lowered limit leaves the hunter overweight - nothing is deleted");
+            check(w.overweight() && w.count(itemMat(M_STONE)) == 32 && w.totalWeight() > 30.f, "a lowered limit leaves the hunter overweight - nothing is deleted");
         }
         // random operations against a reference model
         Inventory z(20, 1e9f);

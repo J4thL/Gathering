@@ -200,9 +200,9 @@ void Game::structLoad(const std::vector<std::string>& lines) {
 namespace {
 constexpr int CH_COLS = 5, PK_COLS = 8, CELL = 21;
 // move a whole stack from one inventory slot into another inventory; returns how many moved
-int moveStack(Slot& src, Inventory& dst) {
+int moveStack(Slot& src, Inventory& dst, int most = 1 << 30) {
     if (src.empty()) return 0;
-    int got = dst.add(src.item, src.n, src.q);
+    int got = dst.add(src.item, std::min(src.n, most), src.q);
     src.n -= got;
     if (src.n <= 0) src = Slot();
     return got;
@@ -210,7 +210,7 @@ int moveStack(Slot& src, Inventory& dst) {
 }  // namespace
 
 // fromPack: 1 = from the backpack into the chest, 0 = from the chest into the backpack
-bool Game::chestMove(int fromPack, int slot) {
+bool Game::chestMove(int fromPack, int slot, int n) {
     Inventory* cp = openInv();
     if (!cp) return false;
     Inventory& chest = *cp;
@@ -218,8 +218,8 @@ bool Game::chestMove(int fromPack, int slot) {
     Inventory& from = fromPack ? pack : chest;
     Inventory& to = fromPack ? chest : pack;
     if (slot < 0 || slot >= from.capacity() || from.slots[slot].empty()) return false;
-    const int want = from.slots[slot].n;
-    int moved = moveStack(from.slots[slot], to);
+    const int want = n < 0 ? from.slots[slot].n : std::min(n, from.slots[slot].n);
+    int moved = moveStack(from.slots[slot], to, want);
     if (moved < want) {
         msg(fromPack ? "CHEST FULL" : "BAG FULL", C_RED);
         audio.play(S_ERROR);
@@ -230,6 +230,11 @@ bool Game::chestMove(int fromPack, int slot) {
 
 void Game::updateChest(float dt) {
     updateFx(dt);  // time stands still while the chest is open
+    if (amtCtx != AMT_NONE && openInv()) {
+        amountUpdate();
+        return;
+    }
+    amountClose();
     if (in.escPressed || in.ePressed || !openInv()) {
         state = ST_PLAY;
         chestOpen = -1;
@@ -250,7 +255,7 @@ void Game::drawChest() {
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, hsBld ? (hsPiece(hsChestPiece) ? HPDEF[hsPiece(hsChestPiece)->kind].name : "STORAGE") : "STORAGE CHEST", C_GOLD);
     const int cap = p.bagCap();
-    textC(X + W / 2 + 40, Y + 7, "CLICK AN ITEM TO MOVE ITS WHOLE STACK", C_DIM, 1, false);
+    textC(X + W / 2 + 40, Y + 7, "CLICK: MOVE THE STACK    RIGHT CLICK: CHOOSE HOW MANY", C_DIM, 1, false);
     const int cy = Y + 34;
     const int cgx = X + 8, cgy = cy + 12;                       // chest grid
     const int pgx = X + W - 8 - PK_COLS * CELL, pgy = cy + 12;  // pack grid
@@ -273,6 +278,10 @@ void Game::drawChest() {
             in.uiClick = false;
             in.lPressed = false;
             chestMove(toPack ? 0 : 1, i);
+        } else if (hov && in.rPressed && !sl.empty() && amtCtx == AMT_NONE) {  // right click: choose how many with the slider
+            in.rPressed = false;
+            if (sl.n > 1) amountOpen(AMT_CHEST, i, toPack ? 0 : 1);
+            else chestMove(toPack ? 0 : 1, i);
         }
         return hov;
     };

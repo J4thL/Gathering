@@ -180,8 +180,17 @@ void Game::render() {
         case ST_SERVICE: drawHud(); drawService(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
-        case ST_INVENTORY: drawHud(); drawInventory(); break;
-        case ST_CHEST: drawHud(); drawChest(); break;
+        case ST_INVENTORY: case ST_CHEST: {
+            drawHud();
+            // while the amount slider is open it takes every click: the screen under it is drawn but does not react
+            const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;
+            if (modal) in.uiClick = false;
+            if (state == ST_INVENTORY) drawInventory();
+            else drawChest();
+            if (modal) in.uiClick = clk;
+            amountDraw();
+            break;
+        }
         case ST_MAP: drawWorldMap(); break;  // (over the dimmed world, without the HUD)
     }
     if (state == ST_PLAY && !p.dead) drawReticle();

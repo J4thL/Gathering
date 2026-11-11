@@ -569,7 +569,15 @@ struct Game {
     void structLoad(const std::vector<std::string>& lines);
     void updateChest(float dt);
     void drawChest();
-    bool chestMove(int fromPack, int slot);
+    bool chestMove(int fromPack, int slot, int n = -1);  // move n of the stack (-1: all of it)
+    // ---- the amount slider: a popup to take PART of a stack (drop it, or move it to / from a storage chest)
+    enum AmtCtx { AMT_NONE, AMT_DROP, AMT_CHEST };
+    int amtCtx = AMT_NONE, amtSlot = -1, amtFromPack = 1, amtMax = 0, amtVal = 1;
+    bool amtDrag = false;
+    void amountOpen(int ctx, int slot, int fromPack = 1);  // needs a stack of 2 or more
+    void amountClose() { amtCtx = AMT_NONE; amtDrag = false; }
+    void amountUpdate();  // keys while it is open: Esc / Enter / arrows / wheel
+    void amountDraw();    // draws it above the screen and handles its buttons
     // ---- crafting (crafting.cpp)
     bool craft(int r);
     int craftMany(int r, int n);  // up to n crafts in a row; returns how many were made

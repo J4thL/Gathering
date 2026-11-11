@@ -144,6 +144,10 @@ bool Game::useSlot(int slot) {
 
 void Game::updateInventory(float dt) {
     updateFx(dt);  // time stands still while the pack is open
+    if (amtCtx != AMT_NONE) {
+        amountUpdate();
+        return;
+    }
     if (in.escPressed || in.invToggle) {
         state = ST_PLAY;
         save();

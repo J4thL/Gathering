@@ -265,7 +265,7 @@ void Game::drawHud() {
         const float fr = mw > 0 ? std::min(1.f, tw / mw) : 1.f;
         const bool over = tw > mw + 1e-3f;
         const u32 col = over ? C_RED : fr >= 0.85f ? C_ORANGE : C_TEXT;
-        text(5, stripY - 9, "CARRY " + kgNum(tw) + "/" + kgNum(mw) + " KG", col);
+        text(5, stripY - 9, "CARRY " + kgNum(tw) + "/" + kgNum(mw) + " KG" + (over ? "  SLOW" : ""), col);
         bar(5, stripY - 1, 72, 2, fr, over ? HEX(0xd8443f) : fr >= 0.85f ? HEX(0xe88a3a) : HEX(0x8ec2f0));
     }
     // ---- a farm tool in hand: outline the tile under the cursor (green = in reach, red = too far)
