@@ -228,6 +228,7 @@ void Game::updatePlayer(float dt) {
     }
     if (P.charging) spd *= 0.6f;
     if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
+    spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
     if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
     if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it

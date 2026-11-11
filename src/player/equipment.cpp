@@ -10,7 +10,7 @@ void Game::notifyBlocked(int itemId, int n, const Inventory* ref) {
     bagWarn = 1.6f;
     if ((ref ? *ref : p.inv).blockReason(itemId, std::max(1, n)) == 2) {
         ftext(p.pos + V2(0, -28), "TOO HEAVY!", C_RED, 1.2f);
-        msg("TOO HEAVY " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG - DROP, SELL OR STORE SOMETHING", C_RED);
+        msg("TOO HEAVY " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.weightCap()) + " KG (THE MOST YOU CAN HAUL) - DROP, SELL OR STORE SOMETHING", C_RED);
     } else {
         ftext(p.pos + V2(0, -28), "PACK FULL!", C_RED, 1.2f);
         msg("PACK FULL - ALL " + S(p.bagCap()) + " SLOTS ARE USED", C_RED);

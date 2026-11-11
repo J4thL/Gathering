@@ -238,6 +238,13 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.invTab = 0;
         frames(3);
         shot("20_pack.bmp");
+        g.invSel = 0;
+        for (int i = 0; i < g.p.bagCap(); i++)
+            if (g.p.inv.slots[i].n > 2) { g.invSel = i; break; }
+        g.amountOpen(Game::AMT_DROP, g.invSel);  // the amount slider over the pack
+        frames(3);
+        shot("20a_slider.bmp");
+        g.amountClose();
         g.state = ST_MAP;  // the full map with the fog of war
         g.revealAround(V2(g.p.pos.x + 120.f, g.p.pos.y - 60.f));
         frames(3);

@@ -11,6 +11,8 @@
 #include "items/items.hpp"
 #include "items/quality.hpp"
 
+constexpr float OVERLOAD_MAX = 1.5f;   // the pack can be loaded to this multiple of the carry limit...
+constexpr float OVERLOAD_SLOW = 0.5f;  // ...which halves the walking speed (the slow-down grows evenly from the limit)
 struct Slot {
     int item = -1;  // registry id, -1 = empty
     int n = 0;
@@ -33,8 +35,16 @@ public:
             if (!s.empty()) t += (double)::item(s.item).weight * s.n;
         return (float)t;
     }
-    float weightLeft() const { return maxWeight - totalWeight(); }
+    // The limit can be exceeded up to OVERLOAD_MAX times (the hunter is slowed, see slowFactor); past that nothing more is picked up.
+    float weightCap() const { return maxWeight * OVERLOAD_MAX; }
+    float weightLeft() const { return weightCap() - totalWeight(); }
     bool overweight() const { return totalWeight() > maxWeight + 1e-3f; }
+    // walking speed multiplier for the load: 1 up to the limit, falling to OVERLOAD_SLOW at the hard cap
+    float slowFactor() const {
+        if (!overweight() || maxWeight <= 0.f) return 1.f;
+        const float over = (totalWeight() - maxWeight) / (maxWeight * (OVERLOAD_MAX - 1.f));
+        return 1.f - (1.f - OVERLOAD_SLOW) * std::min(1.f, over);
+    }
     float stackWeight(int slot) const { return slots[slot].empty() ? 0.f : ::item(slots[slot].item).weight * slots[slot].n; }
     // how many of an item the weight limit alone still allows
     int weightRoom(int item) const {

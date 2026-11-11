@@ -360,9 +360,10 @@ void Game::drawInventory() {
         const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK || seedCropOf(cur.item) >= 0 || (cd->kind == IK_TOOL && isFarmType(TOOLDEF[cd->ref].type)));
         const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : cd->kind == IK_PLACEABLE ? "PLACE" : cd->kind == IK_BACKPACK ? "WEAR" : "EQUIP";
         int by = py + ph + 2;
-        if (button(dx, by, 50, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);
-        if (button(dx + 53, by, 52, 13, "DROP 1", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, 1);
-        if (button(dx + 108, by, 60, 13, "DROP ALL", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, cur.n);
+        if (button(dx, by, 40, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);
+        if (button(dx + 43, by, 46, 13, "DROP 1", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, 1);
+        if (button(dx + 92, by, 44, 13, "DROP..", cd != nullptr && cur.n > 1, HEX(0x7a4a2e))) amountOpen(AMT_DROP, invSel);  // a slider: how many
+        if (button(dx + 139, by, 29, 13, "ALL", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, cur.n);
         by += 14;
         bool hotOk = false;
         if (cd)

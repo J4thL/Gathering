@@ -205,8 +205,9 @@ void testGameRules(SelfTest& t) {
         g.helpT = 0;
         g.p.inv.clear();
         g.p.hot[0] = itemWpn(W_FLINT);
-        g.p.inv.add(itemMat(M_STONE), 25);  // 50 kg: exactly the no-bag limit
-        check(fabsf(g.p.inv.totalWeight() - 50.f) < 1e-3f && !g.p.inv.overweight(), "25 stone is exactly 50 kg: allowed");
+        g.p.inv.add(itemMat(M_STONE), 37);  // 74 kg + a 1 kg log = exactly the 75 kg hard cap: past the 50 kg no-bag limit (slow)
+        g.p.inv.add(itemMat(M_WOOD), 1);
+        check(fabsf(g.p.inv.totalWeight() - 75.f) < 1e-3f && g.p.inv.overweight() && fabsf(g.p.inv.slowFactor() - OVERLOAD_SLOW) < 1e-3f, "75 kg is allowed past the 50 kg limit (the hard cap), and it halves the hunter's speed");
         g.animals.clear();
         Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(10, 0), 0, 0);
         g.killAnimal(*d);
@@ -215,19 +216,19 @@ void testGameRules(SelfTest& t) {
         const int meat0 = g.p.mat(M_MEAT);
         g.bagWarn = 0;
         g.gatherStep(*d);
-        check(g.p.mat(M_MEAT) == meat0 && g.p.mat(M_STONE) == 25, "skinning / butchering is refused when the load would be too heavy (nothing is lost)");
+        check(g.p.mat(M_MEAT) == meat0 && g.p.mat(M_STONE) == 37, "skinning / butchering is refused when the load would be too heavy (nothing is lost)");
         g.bagWarn = 0;
         g.gatherStep(*d);
         // ground pickup (a thrown knife): stays while too heavy, taken when lighter
         g.items.clear();
         g.items.push_back({g.p.pos, W_JAVELIN, 0.f, 0, -1});
         for (int i = 0; i < 5; i++) g.update(1.f / 60.f);
-        check(g.items.size() == 1 && g.p.wpn(W_JAVELIN) == 0, "a thrown weapon stays on the ground while the load is at the limit");
+        check(g.items.size() == 1 && g.p.wpn(W_JAVELIN) == 0, "a thrown weapon stays on the ground while the load is at the cap");
         // dropping: weight goes down, the stack lies on the ground, walking over it later takes it back
         int stoneSlot = -1;
         for (int i = 0; i < g.p.bagCap(); i++)
             if (g.p.inv.slots[i].item == itemMat(M_STONE)) stoneSlot = i;
-        check(g.dropSlot(stoneSlot, 10) && g.p.mat(M_STONE) == 15 && fabsf(g.p.inv.totalWeight() - 30.f) < 1e-3f, "dropping 10 stone leaves 15 (30 kg)");
+        check(g.dropSlot(stoneSlot, 10) && g.p.mat(M_STONE) == 27 && fabsf(g.p.inv.totalWeight() - 55.f) < 1e-3f, "dropping 10 stone leaves 27 (55 kg with the log)");
         bool dropped = false;
         for (auto& gi : g.items)
             if (gi.item == itemMat(M_STONE) && gi.n == 10) dropped = true;
@@ -235,11 +236,12 @@ void testGameRules(SelfTest& t) {
         for (int i = 0; i < 5; i++) g.update(1.f / 60.f);
         check(g.p.wpn(W_JAVELIN) == 1, "with the load lighter the thrown weapon is picked up");
         for (int i = 0; i < 120; i++) g.update(1.f / 60.f);  // the drop lock (1.5 s) runs out while standing on it
-        check(g.p.mat(M_STONE) == 24 && g.items.size() == 1 && g.items[0].n == 1 && !g.p.inv.overweight(), "walking over a dropped stack takes it back only as far as the weight limit allows (9 of 10; the last one stays on the ground)");
+        check(g.p.mat(M_STONE) > 27 && g.p.mat(M_STONE) < 37 && g.items.size() == 1 && g.items[0].n == 37 - g.p.mat(M_STONE) && g.p.inv.totalWeight() <= g.p.inv.weightCap() + 1e-3f && !g.p.inv.canAdd(itemMat(M_STONE), 1), "walking over a dropped stack takes it back only as far as the hard cap allows (the rest stays on the ground)");
         // selling and storing reduce weight
         const float wBeforeSell = g.p.inv.totalWeight();
+        const int stoneBeforeSell = g.p.mat(M_STONE);
         g.sellMat(M_STONE, 5);
-        check(g.p.mat(M_STONE) == 19 && fabsf(wBeforeSell - g.p.inv.totalWeight() - 10.f) < 1e-3f, "selling 5 stone reduces the weight by 10 kg at once");
+        check(g.p.mat(M_STONE) == stoneBeforeSell - 5 && fabsf(wBeforeSell - g.p.inv.totalWeight() - 10.f) < 1e-3f, "selling 5 stone reduces the weight by 10 kg at once");
         g.p.inv.clear();
         g.p.inv.add(itemPlace(PL_CHEST), 1);
         check(g.placeStructure(PL_CHEST) && g.structs.size() >= 1, "(setup) a chest is placed");
@@ -253,19 +255,19 @@ void testGameRules(SelfTest& t) {
         int cs = -1;
         for (int i = 0; i < g.structs[g.chestOpen].inv.capacity(); i++)
             if (g.structs[g.chestOpen].inv.slots[i].item == itemMat(M_STONE)) cs = i;
-        g.chestMove(0, cs);  // only 10 of the 24 stone fit (20 kg): the rest stays in the chest
-        check(g.p.mat(M_STONE) == 10 && g.structs[g.chestOpen].inv.count(itemMat(M_STONE)) == 14, "taking from a chest stops at the weight limit; the rest stays in the chest");
+        g.chestMove(0, cs);  // only 22 of the 24 stone fit under the 75 kg cap (30 + 44 kg): the rest stays in the chest
+        check(g.p.mat(M_STONE) == 22 && g.structs[g.chestOpen].inv.count(itemMat(M_STONE)) == 2, "taking from a chest stops at the weight cap; the rest stays in the chest");
         g.chestOpen = -1;
         // crafting a heavy result
         {
             g.p.inv.clear();
-            g.p.inv.addIgnoringWeight(itemMat(M_STONE), 23);  // 46 kg
+            g.p.inv.addIgnoringWeight(itemMat(M_STONE), 35);  // 70 kg
             g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 6);
             g.p.inv.addIgnoringWeight(itemMat(M_ROPE), 2);
             int rChest = -1;
             for (int r = 0; r < RECIPE_N; r++)
                 if (RECIPES[r].kind == RK_ITEM && RECIPES[r].out == itemPlace(PL_CHEST)) rChest = r;
-            check(rChest >= 0 && g.craftBlock(rChest) == "TOO HEAVY", "crafting an 8 kg chest is refused when the result would push the load over the limit");
+            check(rChest >= 0 && g.craftBlock(rChest) == "TOO HEAVY", "crafting an 8 kg chest is refused when the result would push the load over the cap");
             g.p.inv.remove(itemMat(M_STONE), 10);
             check(g.craftBlock(rChest).empty() && g.craft(rChest) && g.p.inv.count(itemPlace(PL_CHEST)) == 1 && g.p.mat(M_WOOD) == 0, "...and works once the load is lighter (the ingredients' weight is freed first)");
         }
@@ -427,6 +429,67 @@ void testGameRules(SelfTest& t) {
         std::remove(g.savePath().c_str());
         g.newGame();
         g.state = ST_PLAY;
+    }
+    {   // the amount slider: part of a stack
+        printf("amount slider and overweight walking\n");
+        g.newGame();
+        g.state = ST_INVENTORY;
+        g.p.inv.clear();
+        g.items.clear();
+        g.p.inv.add(itemMat(M_STONE), 20);
+        g.p.inv.add(itemMat(M_HERB), 1);
+        g.amountOpen(Game::AMT_DROP, 1);  // the lone herb: nothing to split
+        check(g.amtCtx == Game::AMT_NONE, "a single item has nothing to split");
+        g.amountOpen(Game::AMT_DROP, 0);
+        check(g.amtCtx == Game::AMT_DROP && g.amtMax == 20 && g.amtVal == 10, "the slider opens on a stack, at half of it");
+        g.amtVal = 7;
+        g.in.enterPressed = true;
+        g.amountDraw();
+        bool onGround = false;
+        for (auto& gi : g.items) onGround = onGround || (gi.item == itemMat(M_STONE) && gi.n == 7);
+        check(g.amtCtx == Game::AMT_NONE && g.p.mat(M_STONE) == 13 && onGround, "confirming drops exactly the chosen amount");
+        g.amountOpen(Game::AMT_DROP, 0);
+        g.in.escPressed = true;
+        g.amountUpdate();
+        check(g.amtCtx == Game::AMT_NONE && !g.in.escPressed && g.p.mat(M_STONE) == 13, "Esc closes only the slider and changes nothing");
+        g.p.inv.clear();
+        g.p.inv.add(itemPlace(PL_CHEST), 1);
+        g.placeStructure(PL_CHEST);
+        g.chestOpen = (int)g.structs.size() - 1;
+        g.p.inv.add(itemMat(M_WOOD), 9);
+        g.amountOpen(Game::AMT_CHEST, 0, 1);
+        g.amtVal = 4;
+        g.in.enterPressed = true;
+        g.amountDraw();
+        check(g.structs[g.chestOpen].inv.count(itemMat(M_WOOD)) == 4 && g.p.mat(M_WOOD) == 5, "the slider moves part of a stack into a chest");
+        int cs = -1;
+        for (int i = 0; i < g.structs[g.chestOpen].inv.capacity(); i++)
+            if (g.structs[g.chestOpen].inv.slots[i].item == itemMat(M_WOOD)) cs = i;
+        g.amountOpen(Game::AMT_CHEST, cs, 0);
+        g.amtVal = 3;
+        g.in.enterPressed = true;
+        g.amountDraw();
+        check(g.structs[g.chestOpen].inv.count(itemMat(M_WOOD)) == 1 && g.p.mat(M_WOOD) == 8, "...and part of a stack back out of it");
+        g.chestOpen = -1;
+        // walking past the limit is possible but slow
+        g.state = ST_PLAY;
+        g.p.inv.clear();
+        auto walked = [&]() {
+            const float x0 = g.p.pos.x;
+            g.in = Input();
+            g.in.right = true;
+            for (int i = 0; i < 20; i++) g.update(1.f / 60.f);
+            g.in.right = false;
+            return g.p.pos.x - x0;
+        };
+        const V2 home = g.p.pos;
+        const float light = walked();
+        g.p.pos = home;
+        g.p.inv.addIgnoringWeight(itemMat(M_STONE), 37);  // 74 kg of the 50 kg limit
+        g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 1);
+        const float heavy = walked();
+        check(light > 3.f && heavy > 1.f && heavy < light * 0.8f, "carrying 150% of the limit makes the hunter markedly slower");
+        g.p.inv.clear();
     }
     // ---- inventory screen (key I) and crafting
 }
