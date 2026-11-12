@@ -56,7 +56,7 @@ void Game::drawWorldMap() {
         const Portal& pt = MAPS[world.mapId].portals[i];
         const int gx = ox + (pt.zone.x0 + pt.zone.x1) / 2 * K / MM_DIV, gy = oy + (pt.zone.y0 + pt.zone.y1) / 2 * K / MM_DIV;
         fillRect(gx - 2, gy - 2, 5, 5, BIOME[pt.toMap].col);
-        const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName;
+        const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, gx - textW(lb) / 2));
         text(lx, std::min(oy + mh - 8, gy + 5), lb, BIOME[pt.toMap].col);
     }

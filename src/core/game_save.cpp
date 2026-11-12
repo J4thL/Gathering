@@ -28,6 +28,9 @@ void Game::save() {
         f << "version " << SAVE_VERSION << "\ncoins " << p.coins << "\nup";
         for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
         f << "\nday " << dayT << "\nkills " << kills << "\n";
+        f << "gates";
+        for (int b = 0; b < B_COUNT; b++) f << ' ' << (gateOpen[b] ? 1 : 0);
+        f << "\n";
         for (int k = 0; k < A_COUNT; k++)
             if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << "\n";
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
@@ -233,6 +236,13 @@ bool Game::load() {
             long long n = 0;
             if (ss >> n) kills = (int)std::max(0LL, std::min(1000000000LL, n));
         }
+        else if (k == "gates") {
+            gatesSeen = true;
+            for (int b = 0; b < B_COUNT; b++) {
+                int v = 0;
+                if (ss >> v && (b == B_HOME || b == B_HOMESTEAD || v != 0)) gateOpen[b] = true;
+            }
+        }
         else if (k == "bestiary") {
             long long kind = -1, n = 0;
             if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) bestKills[kind] = (int)std::max(0LL, std::min(1000000000LL, n));
@@ -417,6 +427,8 @@ bool Game::load() {
         if (isFarmType(t) && p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.inv.addIgnoringWeight(itemTool(p.tool[t]), 1);
     for (int t = 0; t < TT_COUNT; t++)
         if (isFarmType(t) && p.tool[t] >= 0) giveFarmTool(p.tool[t]);
+    if (!gatesSeen)  // a save from before the gates existed: the hunter keeps every biome that was open to them
+        for (int b = 0; b < B_COUNT; b++) gateOpen[b] = true;
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;

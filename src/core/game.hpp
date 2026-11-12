@@ -226,7 +226,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE };  // the Homestead's menus (homestead_ui.cpp)
 
 struct Game {
     // platform
@@ -659,6 +659,15 @@ struct Game {
     void drawHud();
     void drawShop();
     void drawQuestPanel();
+    // sealed gates (game_gates.cpp): the next biome opens when the hunter makes the gate's offering (world/gates.hpp)
+    bool gateOpen[B_COUNT] = {true};  // per biome id; home and the homestead are always open, the four biomes start sealed
+    bool gatesSeen = false;           // a save had a "gates" line (older saves keep every gate open)
+    int gateTarget = 0;
+    bool gateMet(const struct GateReq& g, bool* skillOk = nullptr, bool* prereqOk = nullptr) const;
+    void openGatePanel(int toMap, int side);
+    bool offerAtGate(int toMap);
+    void updateGatePanel(float dt);
+    void drawGatePanel();
     void drawInventory();
     void drawTitle();
     void drawPause();
