@@ -51,6 +51,10 @@ struct Villager {
     bool faceLeft = false;
 };
 
+// chase limits: an aggressive animal gives up after its chase timer (about 12 s) or CHASE_RANGE pixels from where the chase began, then
+// ignores the hunter for CHASE_COOLDOWN seconds; a wounded animal bleeds for BLEED_TIME seconds
+constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f;
+
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
@@ -75,6 +79,10 @@ struct Animal {
     int face8 = F_E;      // 4-way facing
     float atkT = 0;       // > 0 while the attack animation plays
     float huntCd = 0;     // predators: time before it hunts again after a hunt
+    float calmT = 0;      // after giving up a chase it ignores the hunter for a while (it cannot be re-triggered at once)
+    float bleedT = 0;     // > 0 while a wounded animal leaves a blood trail
+    V2 chaseFrom;         // where the current chase began (the chase has a range limit)
+    bool chasing = false;
     bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
     V2 threat;
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)

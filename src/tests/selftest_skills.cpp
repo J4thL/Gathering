@@ -546,6 +546,7 @@ void testSkillsAndTrophies(SelfTest& t) {
                 g.p.invuln = 0;
                 g.p.hp = g.p.maxhp;
                 A_().st = AS_CHASE;
+                A_().stT = 10;
                 A_().atkCd = 0;
                 A_().pos = g.p.pos + V2(8, 0);
                 g.updateAnimals(0.02f);
