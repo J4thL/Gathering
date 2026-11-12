@@ -161,7 +161,7 @@ struct AmmoDef {
     const char* name;
     int price;       // coins per piece at the shop
     int pack;        // pieces per shop pack
-    float lost;      // chance that a shot that hit is broken instead of dropping to the ground
+    float lost;      // chance that a shot that missed breaks on landing (a shot that hits is always used up)
 };
 static const AmmoDef AMMO[AM_COUNT] = {{"ARROW", 2, 10, 0.35f}, {"BOLT", 3, 6, 0.30f}};
 constexpr int BOW_PRICE = 90, CROSSBOW_PRICE = 220;

@@ -376,7 +376,11 @@ void Game::updateAnimals(float dt) {
                         pr.kb += toPrey * 60.f;
                         pr.alertT = 0;
                         bloodBurst(pr.pos + V2(0, -pr.bodyH), toPrey, 5);
-                        if (pr.hp > 0) pr.bleedT = BLEED_TIME;
+                        if (pr.hp > 0) {
+                            pr.bleedT = BLEED_TIME;
+                            pr.bleedByHunter = false;
+                            if (pr.bleedTick <= 0) pr.bleedTick = 1.f;
+                        }
                         if (const AnimalClips* ac = animalClips(a.kind)) a.atkT = ac->clip[AN_ATTACK].total();
                         if (const AnimalClips* pc = animalClips(pr.kind)) {
                             pr.hurtT = pc->clip[AN_HURT].total();
@@ -438,6 +442,18 @@ void Game::updateAnimals(float dt) {
         }
         if (a.bleedT > 0) {  // a wounded animal drips blood as it moves
             a.bleedT -= dt;
+            a.bleedTick -= dt;
+            if (a.bleedTick <= 0 && a.hp > 0) {  // the wound costs health
+                a.bleedTick = 1.f;
+                const int loss = std::max(1, (int)lroundf(a.maxhp * BLEED_FRAC));
+                a.hp -= loss;
+                a.hpShow = 2.f;
+                ftext(a.pos + V2(0, -a.bodyH - 10), "-" + S(loss), HEX(0xb52a2e), 0.7f);
+                if (a.hp <= 0) {
+                    killAnimal(a, a.bleedByHunter);
+                    continue;
+                }
+            }
             if (a.vel.len() > 5.f && rng.chance(dt * 6.f)) {
                 decals.push_back({a.pos + V2(rng.range(-2, 2), 2), 0, 0, 30});
                 bloodBurst(a.pos + V2(0, -a.bodyH * 0.5f), V2(0, 1), 1);
@@ -514,7 +530,11 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     }
     a.kb += dir * (crit ? 150.f : 105.f);
     bloodBurst(a.pos + V2(0, -a.bodyH), dir, crit ? 14 : 8);
-    if (a.hp > 0) a.bleedT = crit ? BLEED_TIME * 1.5f : BLEED_TIME;
+    if (a.hp > 0) {
+        a.bleedT = crit ? BLEED_TIME * 1.5f : BLEED_TIME;
+        a.bleedByHunter = true;
+        if (a.bleedTick <= 0) a.bleedTick = 1.f;
+    }
     ftext(a.pos + V2(0, -a.bodyH - 10), (crit ? std::string("CRIT ") : std::string()) + S(d), crit ? C_ORANGE : C_TEXT, 0.9f);
     audio.play(crit ? S_CRIT : S_HIT);
     shakeAmt = std::max(shakeAmt, crit ? 3.f : 1.5f);

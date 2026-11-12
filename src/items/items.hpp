@@ -116,7 +116,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)] = {MAT_NAME[m], IK_MATERIAL, STACK_MAT, MAT_PRICE[m], MAT_PRICE[m] >= 20 ? 2 : (MAT_PRICE[m] >= 12 ? 1 : 0), MAT_BLURB[m], m, 0};
         for (int w = 0; w < W_COUNT; w++)
             t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? 1 : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
-        for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "SPENT WHEN FIRED, SOME CAN BE RECOVERED", a, 0};
+        for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "USED UP WHEN IT HITS, A MISS CAN BE PICKED UP", a, 0};
         t[ITEM_CONS0 + C_BANDAGE] = {"BANDAGE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 45 HP", C_BANDAGE, 0};
         t[ITEM_CONS0 + C_SALVE] = {"HERBAL SALVE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 30 HP - MADE FROM WILD HERBS", C_SALVE, 0};
         t[ITEM_CONS0 + C_TONIC] = {"BOG TONIC", IK_CONSUMABLE, STACK_CONS, 0, 1, "STRONG MEDICINE - HEALS 90 HP", C_TONIC, 0};
@@ -146,7 +146,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"POISON-RESISTANT WRAPS", "CARRIED: IMMUNE TO POISON PLANTS, -35% SNAKE BITES", 2},
             {"BOG WADERS", "CARRIED: MUD AND MURK NO LONGER SLOW YOU", 1},
             {"CLIMBER'S HARNESS", "CARRIED: 60% LESS THIN-AIR DRAIN IN THE MOUNTAINS", 1},
-            {"REINFORCED QUIVER", "CARRIED: HALF AS MANY ARROWS AND BOLTS ARE LOST", 1},
+            {"REINFORCED QUIVER", "CARRIED: HALF AS MANY MISSED ARROWS AND BOLTS BREAK", 1},
             {"MINER'S LANTERN", "CARRIED: LIGHTS THE DARK FAR WIDER IN MINES AND DUNGEONS", 1},
             {"GEMSET RING", "CARRIED: 15% FASTER MINING AND A CHANCE OF EXTRA ORE", 2},
             {"FROSTWARD CLOAK", "CARRIED: NO COLD DRAIN, -30% DAMAGE FROM ICE ATTACKS", 2},

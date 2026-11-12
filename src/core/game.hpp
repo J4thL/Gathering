@@ -52,7 +52,7 @@ struct Villager {
 
 // chase limits: an aggressive animal gives up after its chase timer (about 12 s) or CHASE_RANGE pixels from where the chase began, then
 // ignores the hunter for CHASE_COOLDOWN seconds; a wounded animal bleeds for BLEED_TIME seconds
-constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f;
+constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f, BLEED_FRAC = 0.04f;  // a bleeding animal loses BLEED_FRAC of its health each second
 
 struct Animal {
     int kind = 0, variant = 0;
@@ -79,7 +79,9 @@ struct Animal {
     float atkT = 0;       // > 0 while the attack animation plays
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     float calmT = 0;      // after giving up a chase it ignores the hunter for a while (it cannot be re-triggered at once)
-    float bleedT = 0;     // > 0 while a wounded animal leaves a blood trail
+    float bleedT = 0;     // > 0 while a wounded animal bleeds: it leaves a blood trail and loses health
+    float bleedTick = 0;  // seconds until the next bit of bleeding damage
+    bool bleedByHunter = true;  // who made the wound (the kill counts for the hunter only when the hunter did)
     V2 chaseFrom;         // where the current chase began (the chase has a range limit)
     bool chasing = false;
     bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
