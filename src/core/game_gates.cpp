@@ -16,6 +16,7 @@ bool Game::gateMet(const GateReq& g, bool* skillOk, bool* prereqOk) const {
 // walking into a sealed gate: stop at it and show what it asks for
 void Game::openGatePanel(int toMap, int side) {
     gateTarget = toMap;
+    gateView = false;
     state = ST_GATE;
     const V2 back = side == 0 ? V2(-24, 0) : side == 3 ? V2(24, 0) : side == 1 ? V2(0, -24) : V2(0, 24);
     p.pos += back;
@@ -38,9 +39,9 @@ bool Game::offerAtGate(int toMap) {
 void Game::updateGatePanel(float dt) {
     updateFx(dt);
     if (in.escPressed || in.ePressed) {
-        state = ST_PLAY;
+        state = gateView ? ST_MAP : ST_PLAY;
         audio.play(S_CLICK);
-    } else if (in.enterPressed && offerAtGate(gateTarget)) state = ST_PLAY;
+    } else if (!gateView && in.enterPressed && offerAtGate(gateTarget)) state = ST_PLAY;
 }
 
 void Game::drawGatePanel() {
@@ -53,7 +54,7 @@ void Game::drawGatePanel() {
     const int X = 80, Y = 40, W = 240, H = 140;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
-    text(X + 8, Y + 7, std::string(MAPS[g->map].name) + " GATE - SEALED", BIOME[g->map].col);
+    text(X + 8, Y + 7, std::string(MAPS[g->map].name) + " GATE - " + (gateOpen[g->map] ? "OPEN" : "SEALED"), BIOME[g->map].col);
     bool skillOk = false, prereqOk = false;
     const bool ok = gateMet(*g, &skillOk, &prereqOk);
     int y = Y + 24;
@@ -75,6 +76,8 @@ void Game::drawGatePanel() {
         text(X + W - 10 - textW(hv), y, hv, have >= need ? C_GREEN : C_RED);
         y += 12;
     }
-    if (button(X + 10, Y + H - 22, 100, 14, "MAKE THE OFFERING", ok, HEX(0x5d7a2e)) && offerAtGate(gateTarget)) state = ST_PLAY;
-    if (button(X + W - 70, Y + H - 22, 60, 14, "BACK", true, HEX(0x7a3a2a))) state = ST_PLAY;
+    if (gateOpen[g->map]) text(X + 10, Y + H - 19, "THIS GATE IS OPEN", C_GREEN);
+    else if (gateView) text(X + 10, Y + H - 19, "MAKE THE OFFERING AT THE GATE", C_DIM);
+    else if (button(X + 10, Y + H - 22, 100, 14, "MAKE THE OFFERING", ok, HEX(0x5d7a2e)) && offerAtGate(gateTarget)) state = ST_PLAY;
+    if (button(X + W - 70, Y + H - 22, 60, 14, "BACK", true, HEX(0x7a3a2a))) state = gateView ? ST_MAP : ST_PLAY;
 }

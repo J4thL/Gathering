@@ -1,6 +1,7 @@
 // game_map.cpp - the full-map screen (M): the explored part of the current map, landmarks, gates and where to look next.
 #include <cstdio>
 #include "core/game.hpp"
+#include "world/gates.hpp"
 
 // compass word for a direction (only used in the hint text)
 static const char* compassWord(float dx, float dy) {
@@ -67,6 +68,14 @@ void Game::drawWorldMap() {
         const std::string nm = l.name;
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(l.x) - textW(nm) / 2));
         text(lx, sy(l.y) + 3, nm, C_TEXT);
+    }
+    // the gate shortcut: every gate and whether it is open; click one to see what it asks for
+    text(4, oy + 2, "GATES", C_GOLD);
+    for (int gi = 0; gi < GATE_N; gi++) {
+        const GateReq& gr = GATES[gi];
+        const int gy2 = oy + 12 + gi * 26;
+        const bool open = gateOpen[gr.map];
+        if (button(4, gy2, 70, 22, std::string(MAPS[gr.map].name) + (open ? " OPEN" : " SEALED"), true, open ? HEX(0x3a5a2e) : HEX(0x5a3a2a))) openGateView(gr.map);
     }
     // carcasses that still hold materials
     for (auto& a : animals)

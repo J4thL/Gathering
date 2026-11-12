@@ -319,16 +319,18 @@ void Game::drawHud() {
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE   SHIFT SPRINT   1-8 HOTBAR   Q HEAL", "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
-                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
-                               "I PACK  M MAP  TAB MINIMAP  H HELP  WHEEL: HOTBAR  ESC PAUSE"};
+        const std::string lines[] = {"MOVE " + keyName(K_UP) + keyName(K_LEFT) + keyName(K_DOWN) + keyName(K_RIGHT) + "   " + keyName(K_SPRINT) + " SPRINT   1-8 HOTBAR   " + keyName(K_HEAL) + " HEAL",
+                                     "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
+                                     "HOLD " + keyName(K_USE) + " AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
+                                     keyName(K_PACK) + " PACK  " + keyName(K_MAP) + " MAP  TAB MINIMAP  " + keyName(K_HELP) + " HELP  WHEEL: HOTBAR  ESC PAUSE",
+                                     "PACK: DRAG TO MOVE OR EQUIP, RIGHT CLICK TO USE, SLIDER + SPLIT / DROP"};
         int tw = 0;  // the panel is as wide as its longest line plus a margin, so no line can overflow it
-        for (const char* l : lines) tw = std::max(tw, textW(l));
-        const int w = tw + 20, h = 52;
+        for (const std::string& l : lines) tw = std::max(tw, textW(l));
+        const int w = tw + 20, h = 59;
         const int x = LW / 2 - w / 2, y = 52;
         panel(x, y, w, h, HEX(0x33241a));
         textC(LW / 2, y + 5, "HOW TO HUNT", C_GOLD);
-        for (int i = 0; i < 5; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);
+        for (int i = 0; i < 6; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);
     }
     // ---- knocked out
     if (p.dead) {

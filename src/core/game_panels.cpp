@@ -143,8 +143,9 @@ void Game::drawShop() {
             text(x0 + 84, y + 5, S(row.n), C_TEXT);
             icon(A.coin, x0 + 114, y + 8, 8);
             text(x0 + 120, y + 5, S(row.price), C_GOLD);
-            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
-            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
+            if (button(x0 + 138, y + 1, 40, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
+            if (button(x0 + 180, y + 1, 20, 14, "...", row.n > 1)) amountOpenSell(row.id, row.q, row.n);  // choose how many with the slider
+            if (button(x0 + 202, y + 1, 36, 14, "ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
         }
         std::string lab = total > 0 ? std::string(partsHeld ? "SELL ALL BUT PARTS  +" : "SELL EVERYTHING  +") + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
         if (button(x0, Y + 30 + ROWS * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
@@ -259,7 +260,17 @@ void Game::drawInventory() {
             int x = gx + (i % COLS) * CELL, y = gy + (i / COLS) * CELL;
             if (inRect(x, y, CELL - 1, CELL - 1)) hover = i;
             if (hover == i && in.uiClick) {
+                // shortcuts: double click, or shift + click, uses / equips the stack (like a right click)
+                const bool quick = !p.inv.slots[i].empty() && (in.sprint || (invClickSlot == i && timeAcc - invClickT < 0.35f));
+                invClickSlot = quick ? -1 : i;
+                invClickT = timeAcc;
                 invSel = i;
+                if (quick) {
+                    in.uiClick = false;
+                    in.lPressed = false;
+                    useSlot(i);
+                    continue;
+                }
                 if (!p.inv.slots[i].empty()) {  // pressing a stack also starts dragging it
                     invDrag = i;
                     invDragMoved = false;
@@ -274,6 +285,15 @@ void Game::drawInventory() {
                 in.rPressed = false;
                 invSel = i;
                 useSlot(i);
+            }
+            if (hover == i && in.selectKey >= 0 && in.selectKey < 8 && !p.inv.slots[i].empty()) {  // hover a stack and press 1-8: put it on that hotbar slot
+                const int hs = in.selectKey;
+                in.selectKey = -1;
+                if (hotAccepts(HOT_KIND[hs], p.inv.slots[i].item)) equipHot(p.inv.slots[i].item, hs);
+                else {
+                    msg("THAT HOTBAR SLOT TAKES SOMETHING ELSE", C_RED);
+                    audio.play(S_ERROR, 0.4f);
+                }
             }
         }
         if (invDrag >= 0 && in.l && std::abs(in.mx - invDragX) + std::abs(in.my - invDragY) > 3) invDragMoved = true;
@@ -391,19 +411,9 @@ void Game::drawInventory() {
         }
         invAmt = std::max(1, std::min(std::max(1, cur.n), invAmt));
         {
-            const int sx = dx + 2, sw = dw - 32, sy = by + 5;
+            const int sx = dx + 2, sw = dw - 32;
             const bool many = cd && cur.n > 1;
-            fillRect(sx, sy, sw, 4, HEX(0x1a120b));
-            const float f = many ? (invAmt - 1) / (float)(cur.n - 1) : 0.f;
-            if (many) fillRect(sx, sy, (int)(sw * f), 4, HEX(0x8ec2f0));
-            fillRect(sx + (int)((sw - 3) * f), sy - 2, 4, 8, many ? (invAmtDrag ? C_GOLD : HEX(0xe8dcc0)) : HEX(0x5a4a3a));
-            if (many && in.uiClick && inRect(sx - 3, sy - 5, sw + 6, 14)) {
-                invAmtDrag = true;
-                in.uiClick = false;
-                in.lPressed = false;
-            }
-            if (!in.l) invAmtDrag = false;
-            if (invAmtDrag) invAmt = std::max(1, std::min(cur.n, 1 + (int)lroundf((in.mx - sx) / (float)(sw - 1) * (cur.n - 1))));
+            sliderBar(sx, by + 5, sw, invAmt, many ? cur.n : 1, invAmtDrag);
             if (many && inRect(sx, by, dw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
             textC(dx + dw - 14, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
         }

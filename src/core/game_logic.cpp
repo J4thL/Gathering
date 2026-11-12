@@ -36,6 +36,7 @@ bool Game::init(bool headless) {
     recoverSave(savePath());
     std::ifstream t(savePath());
     hasSave = t.good();
+    loadSettings();
     newGame();
     return true;
 }
@@ -418,6 +419,7 @@ int Game::ambienceFor(float& vol) const {
 void Game::updateAmbience() {
     float vol = 1.f;
     const int kind = ambienceFor(vol);
+    vol *= cfg.amb / 10.f;  // settings: ambience volume
     audio.setAmbience(kind, state == ST_PAUSE ? vol * 0.4f : vol);
 }
 
@@ -500,6 +502,10 @@ void Game::update(float dt) {
         case ST_SHOP:
             dayT += 0;  // time stands still while trading
             updateFx(dt);
+            if (amtCtx != AMT_NONE) {  // the sell slider is open: it takes the keys
+                amountUpdate();
+                break;
+            }
             if (in.escPressed || in.ePressed) {
                 state = ST_PLAY;
                 save();
@@ -523,6 +529,8 @@ void Game::update(float dt) {
             if (in.escPressed) state = ST_PLAY;
             break;
         case ST_GATE: updateGatePanel(dt); break;
+        case ST_SETTINGS: updateSettings(dt); break;
+        case ST_HELP: updateHelp(dt); break;
         case ST_QUEST:  // time stands still while talking to the elder
             updateFx(dt);
             if (in.escPressed || in.ePressed) {

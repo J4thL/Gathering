@@ -3,6 +3,26 @@
 #include <algorithm>
 #include "core/game.hpp"
 
+// A 1..maxv slider bar at (tx, ty) tw wide: draws the track, fill and knob; a press on it starts a drag that sets val (drag is the caller's flag).
+void Game::sliderBar(int tx, int ty, int tw, int& val, int maxv, bool& drag) {
+    const bool usable = maxv > 1;
+    fillRect(tx, ty, tw, 4, HEX(0x1a120b));
+    const float frac = usable ? (val - 1) / (float)(maxv - 1) : 0.f;
+    if (usable) fillRect(tx, ty, (int)(tw * frac), 4, HEX(0x8ec2f0));
+    fillRect(tx + (int)((tw - 3) * frac), ty - 2, 4, 8, !usable ? HEX(0x5a4a3a) : drag ? C_GOLD : HEX(0xe8dcc0));
+    if (!usable) {
+        drag = false;
+        return;
+    }
+    if (in.uiClick && inRect(tx - 3, ty - 5, tw + 6, 14)) {
+        drag = true;
+        in.uiClick = false;
+        in.lPressed = false;
+    }
+    if (!in.l) drag = false;
+    if (drag) val = std::max(1, std::min(maxv, 1 + (int)lroundf((in.mx - tx) / (float)(tw - 1) * (maxv - 1))));
+}
+
 namespace {
 constexpr int PW = 176, PH = 78;
 }
@@ -15,6 +35,16 @@ void Game::amountOpen(int ctx, int slot, int fromPack) {
     amtFromPack = fromPack;
     amtMax = inv->slots[slot].n;
     amtVal = std::max(1, amtMax / 2);  // starts at half: the usual reason to split
+    amtDrag = false;
+}
+
+void Game::amountOpenSell(int id, int q, int n) {
+    if (n < 2) return;
+    amtCtx = AMT_SELL;
+    amtId = id;
+    amtQ = q;
+    amtMax = n;
+    amtVal = std::max(1, n / 2);
     amtDrag = false;
 }
 
@@ -33,11 +63,20 @@ void Game::amountUpdate() {
 void Game::amountDraw() {
     if (amtCtx == AMT_NONE) return;
     Inventory* inv = amtCtx == AMT_CHEST ? (amtFromPack ? &p.inv : openInv()) : &p.inv;
-    if (!inv || amtSlot < 0 || amtSlot >= inv->capacity() || inv->slots[amtSlot].empty()) {  // the stack is gone: nothing to split
+    Slot sold;  // AMT_SELL: the shop row, shown like a slot
+    if (amtCtx == AMT_SELL) {
+        const bool mat = amtId < 0;
+        const int have = mat ? p.mat(-amtId - 1) : sellable(amtId, amtQ);
+        if (have < 1 || state != ST_SHOP) {  // sold out, or the shop was left
+            amountClose();
+            return;
+        }
+        sold = Slot{mat ? itemMat(-amtId - 1) : amtId, have, amtQ};
+    } else if (!inv || amtSlot < 0 || amtSlot >= inv->capacity() || inv->slots[amtSlot].empty()) {  // the stack is gone: nothing to split
         amountClose();
         return;
     }
-    const Slot& sl = inv->slots[amtSlot];
+    const Slot& sl = amtCtx == AMT_SELL ? sold : inv->slots[amtSlot];
     amtMax = sl.n;
     amtVal = std::max(1, std::min(amtMax, amtVal));
     const ItemDef& D = item(sl.item);
@@ -45,7 +84,7 @@ void Game::amountDraw() {
     fillRect(0, 0, LW, LH, RGBA(0, 0, 0, 90));
     panel(x, y, PW, PH, HEX(0x4a3524));
     fillRect(x + 3, y + 3, PW - 6, 12, UI_BG);
-    const char* verb = amtCtx == AMT_DROP ? "DROP" : amtFromPack ? "STORE" : "TAKE";
+    const char* verb = amtCtx == AMT_DROP ? "DROP" : amtCtx == AMT_SELL ? "SELL" : amtFromPack ? "STORE" : "TAKE";
     text(x + 8, y + 6, std::string(verb) + " HOW MANY?", C_GOLD);
     // the item
     if (itemHasQuality(sl.item)) qualityFrame(x + 6, y + 18, 15, 15, sl.q);
@@ -53,19 +92,7 @@ void Game::amountDraw() {
     text(x + 25, y + 20, D.name, itemHasQuality(sl.item) && sl.q > Q_NORMAL ? qualityCol(sl.q) : C_TEXT, 1, false);
     text(x + 25, y + 28, "OF " + S(amtMax) + "   " + kgNum(D.weight * amtVal) + " KG", C_DIM, 1, false);
     // the slider
-    const int tx = x + 10, tw = PW - 20, ty = y + 40;
-    fillRect(tx, ty, tw, 4, HEX(0x1a120b));
-    const float frac = amtMax > 1 ? (amtVal - 1) / (float)(amtMax - 1) : 1.f;
-    fillRect(tx, ty, (int)(tw * frac), 4, HEX(0x8ec2f0));
-    const int kx = tx + (int)((tw - 3) * frac);
-    fillRect(kx, ty - 2, 4, 8, amtDrag ? C_GOLD : HEX(0xe8dcc0));
-    if (in.uiClick && inRect(tx - 3, ty - 5, tw + 6, 14)) {
-        amtDrag = true;
-        in.uiClick = false;
-        in.lPressed = false;
-    }
-    if (!in.l) amtDrag = false;
-    if (amtDrag) amtVal = std::max(1, std::min(amtMax, 1 + (int)lroundf((in.mx - tx) / (float)(tw - 1) * (amtMax - 1))));
+    sliderBar(x + 10, y + 40, PW - 20, amtVal, amtMax, amtDrag);
     const std::string vs = S(amtVal);
     text(x + PW - 8 - textW(vs, 2), y + 20, vs, C_GOLD, 2);  // the chosen amount, big, at the right
     // buttons
@@ -87,7 +114,10 @@ void Game::amountDraw() {
         const int n = amtVal, slot = amtSlot, ctx = amtCtx, fromPack = amtFromPack;
         amountClose();
         in.enterPressed = false;
-        if (ctx == AMT_DROP) dropSlot(slot, n);
+        if (ctx == AMT_SELL) {
+            if (amtId < 0) sellMat(-amtId - 1, n);
+            else sellItem(amtId, amtQ, n);
+        } else if (ctx == AMT_DROP) dropSlot(slot, n);
         else chestMove(fromPack, slot, n);
     }
 }
