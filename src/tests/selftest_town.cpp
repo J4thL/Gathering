@@ -258,6 +258,19 @@ void testTownAndFeedback(SelfTest& t) {
         g.animals[wi].hp = g.animals[wi].maxhp = 1000;
         g.hitAnimal(g.animals[wi], 5.f, V2(1, 0), false);
         check(g.animals[wi].bleedT > 0, "a wounded animal bleeds");
+        {  // ... and the bleeding costs health, and can finish it
+            Animal& bl = g.animals[wi];
+            bl.hp = bl.maxhp = 100;
+            bl.bleedT = 3.f;
+            bl.bleedTick = 0.01f;
+            g.updateAnimals(1.f / 30.f);
+            check(bl.hp < 100, "a bleeding animal loses health");
+            bl.hp = 1;
+            bl.bleedT = 3.f;
+            bl.bleedTick = 0.01f;
+            g.updateAnimals(1.f / 30.f);
+            check(g.animals[wi].dead, "an animal can bleed to death");
+        }
         // 5. herd alarm: one deer startled by the hunter sets its neighbours running
         g.animals.clear();
         g.animals.reserve(8);

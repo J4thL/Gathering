@@ -172,7 +172,7 @@ int weaponTest(Game& g) {
     shoot(1.0f);
     check(g.p.ammo(AM_ARROW) == 4, "one shot costs exactly one arrow");
     check(g.p.wpn(W_BOW) == 1, "the bow itself is not used up");
-    // recovery: arrows that hit either break or drop; walking over a dropped one gives it back
+    // arrows that hit are used up (nothing to pick up); one that misses would drop and can be walked over
     g.p.inv.set(itemAmmo(AM_ARROW), 20);
     int fired = 0, recovered = 0;
     for (int i = 0; i < 30; i++) {
@@ -187,8 +187,8 @@ int weaponTest(Game& g) {
             if (g.p.ammo(AM_ARROW) == before) recovered++;
         }
     }
-    printf("arrows: %d fired at a target, %d recovered by walking over them (expected about 65%%)\n", fired, recovered);
-    check(recovered > 8 && recovered < fired, "some arrows are recovered and some break");
+    printf("arrows: %d fired at a target, %d recovered by walking over them (expected none: a hit uses the arrow up)\n", fired, recovered);
+    check(recovered == 0 && g.items.empty(), "an arrow that hits is used up");
     // no ammo
     g.p.inv.set(itemAmmo(AM_ARROW), 0);
     g.p.cd = 0;

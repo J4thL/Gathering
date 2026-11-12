@@ -53,7 +53,7 @@ struct Villager {
 
 // chase limits: an aggressive animal gives up after its chase timer (about 12 s) or CHASE_RANGE pixels from where the chase began, then
 // ignores the hunter for CHASE_COOLDOWN seconds; a wounded animal bleeds for BLEED_TIME seconds
-constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f;
+constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f, BLEED_FRAC = 0.04f;  // a bleeding animal loses BLEED_FRAC of its health each second
 
 struct Animal {
     int kind = 0, variant = 0;
@@ -80,7 +80,9 @@ struct Animal {
     float atkT = 0;       // > 0 while the attack animation plays
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     float calmT = 0;      // after giving up a chase it ignores the hunter for a while (it cannot be re-triggered at once)
-    float bleedT = 0;     // > 0 while a wounded animal leaves a blood trail
+    float bleedT = 0;     // > 0 while a wounded animal bleeds: it leaves a blood trail and loses health
+    float bleedTick = 0;  // seconds until the next bit of bleeding damage
+    bool bleedByHunter = true;  // who made the wound (the kill counts for the hunter only when the hunter did)
     V2 chaseFrom;         // where the current chase began (the chase has a range limit)
     bool chasing = false;
     bool fleeAnimal = false;  // fleeing from a predator (at threat) instead of from the hunter
@@ -234,7 +236,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE };  // the Homestead's menus (homestead_ui.cpp)
 
 struct Game {
     // platform
@@ -267,7 +269,7 @@ struct Game {
     int shopPage = 0;
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
-    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills; selected slot
+    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary; selected slot
     // gathering (gathering.cpp)
     std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
     std::vector<int8_t> propRsId;        // ResId of each prop, -1 = scenery
@@ -304,6 +306,7 @@ struct Game {
     bool showMap = true;
     bool hasSave = false;
     int kills = 0, sold = 0;
+    int bestKills[A_COUNT] = {};  // bestiary: hunter kills per species (saved as "bestiary <kind> <n>" lines)
     float titleT = 0;
     // quests: questIdx is how many are done (= the current quest's number); only these 3 numbers are saved
     int questIdx = 0, questProg = 0;
@@ -613,6 +616,9 @@ struct Game {
     void skillSave(std::ostream& f) const;
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
+    // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
+    void bestiaryKill(int kind);
+    void drawBestiaryTab(int X, int Y, int W, int H);
     bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
     // ---- town buildings (town.cpp, services.cpp)
     int doorNear() const;               // BuildingKind whose door is within reach (outdoors), or -1
@@ -672,6 +678,15 @@ struct Game {
     void drawHud();
     void drawShop();
     void drawQuestPanel();
+    // sealed gates (game_gates.cpp): the next biome opens when the hunter makes the gate's offering (world/gates.hpp)
+    bool gateOpen[B_COUNT] = {true};  // per biome id; home and the homestead are always open, the four biomes start sealed
+    bool gatesSeen = false;           // a save had a "gates" line (older saves keep every gate open)
+    int gateTarget = 0;
+    bool gateMet(const struct GateReq& g, bool* skillOk = nullptr, bool* prereqOk = nullptr) const;
+    void openGatePanel(int toMap, int side);
+    bool offerAtGate(int toMap);
+    void updateGatePanel(float dt);
+    void drawGatePanel();
     void drawInventory();
     void drawTitle();
     void drawPause();

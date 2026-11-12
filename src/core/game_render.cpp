@@ -182,6 +182,7 @@ void Game::render() {
         case ST_SERVICE: drawHud(); drawService(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
+        case ST_GATE: drawHud(); drawGatePanel(); break;
         case ST_INVENTORY: case ST_CHEST: {
             drawHud();
             // while the amount slider is open it takes every click: the screen under it is drawn but does not react

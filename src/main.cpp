@@ -245,6 +245,16 @@ static void scriptedRun(Game& g, const std::string& dir) {
         frames(3);
         shot("20a_slider.bmp");
         g.amountClose();
+        for (int k : {A_RABBIT, A_DEER, A_WOLF, A_BOAR}) g.bestKills[k] = 3 + 9 * k;  // the bestiary tab
+        g.invTab = 3;
+        frames(3);
+        shot("20c_bestiary.bmp");
+        g.invTab = 0;
+        g.gateTarget = B_SWAMP;  // a sealed gate's offering panel
+        g.gateOpen[B_DESERT] = true;
+        g.state = ST_GATE;
+        frames(3);
+        shot("20d_gate.bmp");
         g.state = ST_MAP;  // the full map with the fog of war
         g.revealAround(V2(g.p.pos.x + 120.f, g.p.pos.y - 60.f));
         frames(3);

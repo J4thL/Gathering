@@ -144,5 +144,10 @@ void Game::checkPortals(float dt) {
     if (travelFade > 0) travelFade -= dt;
     if (p.dead || travelCd > 0 || interior >= 0 || delve >= 0) return;
     const Portal* pt = portalAt(world.mapId, (int)floorf(p.pos.x / TS), (int)floorf(p.pos.y / TS));
-    if (pt) travelTo(pt->toMap, pt->arriveTx, pt->arriveTy);
+    if (!pt) return;
+    if (!gateOpen[pt->toMap]) {  // a sealed gate asks for an offering first
+        openGatePanel(pt->toMap, pt->side);
+        return;
+    }
+    travelTo(pt->toMap, pt->arriveTx, pt->arriveTy);
 }

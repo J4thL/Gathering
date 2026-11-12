@@ -1,5 +1,6 @@
 // selftest_world.cpp - `--selftest`: gathering, structures, consumables, gear, maps and travel.
 #include "tests/selftest_ctx.hpp"
+#include "world/gates.hpp"
 
 void testWorldRules(SelfTest& t) {
     [[maybe_unused]] Game& g = t.g;
@@ -547,6 +548,8 @@ void testWorldRules(SelfTest& t) {
         g.p.dead = true;
         check(!g.travelTo(B_HOME, 40, 30, false) && g.world.mapId == B_DESERT, "a dead hunter cannot travel");
         g.p.dead = false;
+        for (int b = 0; b < B_COUNT; b++) g.gateOpen[b] = true;  // (the gates are sealed until the offering is made; see the gates test)
+        g.state = ST_PLAY;
         // ---- a gate trigger: standing in a gate's zone travels, once
         g.travelTo(B_HOME, 40, 30, false);
         g.travelCd = 0;

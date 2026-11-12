@@ -92,6 +92,9 @@ void Game::newGame() {
     msgs.clear();
     dayT = 30;
     kills = 0;
+    for (int& b : bestKills) b = 0;
+    for (int b = 0; b < B_COUNT; b++) gateOpen[b] = b == B_HOME || b == B_HOMESTEAD;  // the four biomes start sealed
+    gatesSeen = false;
     sold = 0;
     questIdx = 0;
     questProg = 0;
@@ -519,6 +522,7 @@ void Game::update(float dt) {
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
             break;
+        case ST_GATE: updateGatePanel(dt); break;
         case ST_QUEST:  // time stands still while talking to the elder
             updateFx(dt);
             if (in.escPressed || in.ePressed) {

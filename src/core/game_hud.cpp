@@ -86,7 +86,7 @@ void Game::drawPortalLabels() {
         // sit the label inside the map, a few tiles in from the gap
         const V2 in = pt.side == 0 ? V2(-44, 0) : pt.side == 3 ? V2(44, 0) : pt.side == 1 ? V2(0, -34) : V2(0, 34);
         const int sx = (int)(c.x + in.x) - camX, sy = (int)(c.y + in.y) - camY;
-        const std::string s = std::string("TO ") + MAPS[pt.toMap].shortName;
+        const std::string s = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int w = textW(s) + 8;
         panel(sx - w / 2, sy - 6, w, 12, HEX(0x2b1d12));
         textC(sx, sy - 2, s, BIOME[pt.toMap].col, 1, false);

@@ -1,5 +1,6 @@
 // selftest_screens.cpp - `--selftest`: inventory screen, crafting, saving and migration.
 #include "tests/selftest_ctx.hpp"
+#include "world/gates.hpp"
 
 void testScreensAndSaves(SelfTest& t) {
     [[maybe_unused]] Game& g = t.g;
@@ -330,6 +331,61 @@ void testScreensAndSaves(SelfTest& t) {
         sane = sane && g.p.mat(M_MEAT) == 4 && g.p.mat(M_BONE) == 0 && g.p.mat(M_ORGAN) == 0;  // "abc" stops that line; the rest stay zero
         check(sane, "a damaged v1 save loads without crashing, no negative counts, and never overfills the bag");
         check(g.loadReport.dropped > 0, "items that cannot fit (absurd counts) are reported as dropped instead of lost silently");
+        removeAll();
+    }
+    {   // sealed gates
+        removeAll();
+        // ---- sealed gates: a gate asks for an offering (hunting level + materials, in a chain) before it opens
+        g.newGame();
+        g.state = ST_PLAY;
+        g.travelCd = 0;
+        for (int b = 0; b < B_COUNT; b++) g.gateOpen[b] = b == B_HOME || b == B_HOMESTEAD;
+        {
+            const Portal& east = MAPS[B_HOME].portals[0];
+            g.p.pos = V2((east.zone.x0 + 0.5f) * TS, 84.5f * TS);
+            const float x0 = g.p.pos.x;
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_HOME && g.state == ST_GATE && g.gateTarget == B_DESERT && g.p.pos.x < x0, "a sealed gate does not travel: it opens the offering panel and steps the hunter back");
+            check(!g.offerAtGate(B_DESERT), "the offering is refused without the materials and level");
+            g.p.inv.clear();
+            g.p.sk.s[SK_HUNTING].xp = 100000;
+            const GateReq* dg = gateFor(B_DESERT);
+            for (int i = 0; i < dg->nMat; i++) g.p.inv.addIgnoringWeight(itemMat(dg->mats[i].mat), dg->mats[i].n + 1);
+            check(!g.offerAtGate(B_SWAMP) && !g.gateOpen[B_SWAMP], "a gate cannot be opened before the one it follows in the chain");
+            check(g.offerAtGate(B_DESERT) && g.gateOpen[B_DESERT], "the right offering opens the desert gate");
+            check(g.p.mat(dg->mats[0].mat) == 1, "the offering takes exactly what the gate asks for");
+            g.state = ST_PLAY;
+            g.travelCd = 0;
+            g.p.pos = V2((east.zone.x0 + 0.5f) * TS, 84.5f * TS);
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_DESERT, "an opened gate travels");
+            g.travelTo(B_HOME, 40, 30, false);
+            g.travelCd = 0;
+            // gates stay open over a save, and a save from before the gates existed keeps everything open
+            g.save();
+            g.newGame();
+            check(!g.gateOpen[B_DESERT], "a new game starts with the gates sealed");
+            check(g.load() && g.gateOpen[B_DESERT] && !g.gateOpen[B_SWAMP], "open gates are saved and loaded");
+            removeAll();
+            writeFile("version 2\ncoins 5\nup 0 0 0 0\n");
+            check(g.load() && g.gateOpen[B_SWAMP] && g.gateOpen[B_MOUNTAIN], "a save from before the gates existed keeps every gate open");
+            removeAll();
+        }
+        removeAll();
+    }
+    {   // the bestiary counts hunter kills per species, pays coins at 5 / 20 / 50, and is saved
+        removeAll();
+        g.newGame();
+        g.p.coins = 0;
+        for (int i = 0; i < 4; i++) g.bestiaryKill(A_DEER);
+        check(g.bestKills[A_DEER] == 4 && g.p.coins == 0, "the bestiary counts kills (no reward before 5)");
+        g.bestiaryKill(A_DEER);
+        check(g.p.coins == 8 + ANIMAL[A_DEER].hp / 3, "the 5th kill of a species pays the first reward");
+        g.bestKills[A_WOLF] = 7;
+        g.save();
+        g.newGame();
+        check(g.bestKills[A_DEER] == 0, "a new game starts with an empty bestiary");
+        check(g.load() && g.bestKills[A_DEER] == 5 && g.bestKills[A_WOLF] == 7, "the bestiary is saved and loaded");
         removeAll();
     }
     {   // saving twice keeps the previous save; a save lost between the two renames is recovered; odd day / kills / quest numbers are clamped

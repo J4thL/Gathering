@@ -300,6 +300,7 @@ int worldCheck(Game& g) {
     // travel test: walk through every gate with the real player, check the arrival, then walk back through the gate home
     for (int m = B_DESERT; m < B_HOMESTEAD; m++) {
         enterMap(g, B_HOME);
+        for (int b = 0; b < B_COUNT; b++) g.gateOpen[b] = true;  // (the gates are sealed until the offering is made)
         g.p.pos = g.world.spawn;
         g.p.coins = 777;
         g.p.inv.add(itemMat(M_WOOD), 5);

@@ -434,6 +434,12 @@ void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGath
 }
 
 void Game::updateProjectiles(float dt) {
+    // Arrows and bolts are used up when they hit; one that misses (lands on the ground or in an obstacle) may still break (a gentler landing
+    // than a hit: half the listed chance), less often with a reinforced quiver and with ranged skill. Thrown weapons keep their old chance to break on a hit.
+    auto missLost = [&](const Proj& pr) {
+        return pr.ammo >= 0 && rng.chance(AMMO[pr.ammo].lost * 0.5f * (p.has(CG_QUIVER) ? 0.5f : 1.f) * (1.f - skillBonus(SK_RANGED)));
+    };
+    auto hitLost = [&](const Proj& pr) { return pr.ammo >= 0 || rng.chance(WPN[pr.wpn].brk); };
     for (size_t i = 0; i < projs.size();) {
         Proj& pr = projs[i];
         bool done = false;
@@ -449,7 +455,7 @@ void Game::updateProjectiles(float dt) {
                 V2 c = a.pos + V2(0, -a.bodyH - a.air);
                 if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
                     hitAnimal(a, pr.dmg, pr.dir, pr.crit);
-                    if (rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
+                    if (hitLost(pr)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
@@ -468,7 +474,7 @@ void Game::updateProjectiles(float dt) {
                 const V2 c = m.pos + V2(0, -MD.bodyH - ((MD.flags & MF_FLY) ? 12.f : 0.f));
                 if (dist(pr.pos, c) < MD.hitR + 3) {
                     const bool landed = hitMonster(m, pr.dmg, pr.dir, pr.crit, pr.wpn);
-                    if (landed && rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
+                    if (landed && hitLost(pr)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
@@ -485,7 +491,8 @@ void Game::updateProjectiles(float dt) {
             bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF || (delve >= 0 && world.solidTile(tx, ty));
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
-                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
+                if (missLost(pr)) ftext(lg + V2(0, -8), "SNAP", C_DIM, 0.7f);
+                else { items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q; }
                 for (int q = 0; q < 4; q++)
                     parts.push_back({pr.pos.x, pr.pos.y, 3, rng.range(-40, 40), rng.range(-20, 20), rng.range(20, 60), 0.4f, 0.4f, HEX(0xffe9a8), 1, true});
                 audio.play(S_CLICK, 0.5f);
@@ -495,6 +502,8 @@ void Game::updateProjectiles(float dt) {
                     for (int q = 0; q < 8; q++)
                         parts.push_back({g.x, g.y, 1, rng.range(-30, 30), rng.range(-15, 15), rng.range(30, 70), 0.6f, 0.6f, HEX(0xcfe9f5), 1, true});
                     ftext(g + V2(0, -8), "SPLASH", C_BLUE, 0.8f);
+                } else if (missLost(pr)) {
+                    ftext(g + V2(0, -8), "SNAP", C_DIM, 0.7f);
                 } else {
                     float ang = pr.angle + pr.spin * (pr.travelled / pr.speed);
                     items.push_back({g, pr.wpn, ang, 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;

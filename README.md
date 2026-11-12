@@ -55,6 +55,13 @@ Maps are defined in `src/world/maps.hpp` (gates, entry and hub per map), generat
 is `Game::travelTo` in `src/world/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
 `worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
 
+## Sealed gates
+The four gates out of WILDWOOD start sealed and open one after the other: desert (east), then swamp (south), snow (north), mountain (west). Walk into
+a sealed gate and it shows what it asks for: a hunting level and an offering of materials (for example wood, stone and hide for the desert, bars
+and rope for the later ones). Press MAKE THE OFFERING (or Enter) to hand them over; the gate then stays open for good. A gate also needs the one before it
+in the chain. Labels and the map show "(SEALED)" until then. The requirements are one table in `src/world/gates.hpp`. Saves record the open gates
+as a `gates` line; a save from before gates existed keeps every gate open.
+
 ## Wildlife
 28 species (`src/animals/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
 stream species in just off-screen (`src/world/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).

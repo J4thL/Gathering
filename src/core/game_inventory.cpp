@@ -155,7 +155,7 @@ void Game::updateInventory(float dt) {
         audio.play(S_CLICK);
         return;
     }
-    if (in.tabPressed) { invTab = (invTab + 1) % 3; invDrag = -1; }
+    if (in.tabPressed) { invTab = (invTab + 1) % 4; invDrag = -1; }
     // cursor: arrow keys / WASD, one step per key press
     const bool now[4] = {in.up, in.down, in.left, in.right};
     const int cap = p.bagCap();
