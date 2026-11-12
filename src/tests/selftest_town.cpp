@@ -14,6 +14,17 @@ void testTownAndFeedback(SelfTest& t) {
     {
         g.newGame();
         g.state = ST_PLAY;
+        // the original area has no tree wall around it any more: its outer two tiles are not walled off
+        {
+            int walled = 0, tiles = 0;
+            for (int ty = COY; ty < COY + CH; ty++)
+                for (int tx = COX; tx < COX + CW; tx++)
+                    if (tx < COX + 2 || ty < COY + 2 || tx >= COX + CW - 2 || ty >= COY + CH - 2) {
+                        tiles++;
+                        if (g.world.solid[ty][tx] && g.world.tile[ty][tx] != T_WATER) walled++;
+                    }
+            check(walled < tiles / 4, "no tree wall around the original area");
+        }
         // every resource (nodes and the choppable props) is out of the town, its 2-tile margin and the four roads leading out
         auto bad = [&](float px, float py) {
             const int tx = (int)(px / TS) - COX, ty = (int)((py - 1.f) / TS) - COY;
@@ -232,6 +243,21 @@ void testTownAndFeedback(SelfTest& t) {
         g.animals[wi].stT = 8.f;
         g.updateAnimals(1.f / 30.f);
         check(g.animals[wi].st == AS_CHASE, "a hunting wolf that notices the hunter attacks the hunter instead");
+        // 4b. a chase has limits: the animal gives up when its timer runs out and ignores the hunter for a while; being hit makes it bleed
+        g.animals[wi].stT = 0.f;
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st == AS_WANDER && g.animals[wi].calmT > 0, "a wolf gives up the chase when its timer runs out");
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st != AS_CHASE, "a wolf that gave up does not re-chase straight away");
+        g.animals[wi].st = AS_CHASE;
+        g.animals[wi].chasing = true;
+        g.animals[wi].chaseFrom = g.animals[wi].pos - V2(CHASE_RANGE + 40.f, 0);
+        g.animals[wi].stT = 9.f;
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st == AS_WANDER, "a wolf gives up a chase that has run past CHASE_RANGE");
+        g.animals[wi].hp = g.animals[wi].maxhp = 1000;
+        g.hitAnimal(g.animals[wi], 5.f, V2(1, 0), false);
+        check(g.animals[wi].bleedT > 0, "a wounded animal bleeds");
         // 5. herd alarm: one deer startled by the hunter sets its neighbours running
         g.animals.clear();
         g.animals.reserve(8);

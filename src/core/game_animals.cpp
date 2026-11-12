@@ -241,6 +241,8 @@ void Game::updateAnimals(float dt) {
         bool agg = D.aggro && (!(D.flags & BH_NIGHT_AGGRO) || night > 0.45f);
         float notice = D.notice * T.notice * (D.aggro ? 1.f + 0.3f * night : 1.f);
         a.stT -= dt;
+        if (a.calmT > 0) a.calmT -= dt;
+        if (a.st != AS_CHASE) a.chasing = false;
         a.vel = V2();
         if (a.alertT > 0) {  // startled: freeze and look at the hunter, then bolt (the state change was made when it noticed)
             a.alertT -= dt;
@@ -252,7 +254,7 @@ void Game::updateAnimals(float dt) {
             case AS_WANDER:
             case AS_FEED:
             case AS_REST: {
-                bool alert = dd < (D.aggro ? notice * D.alertMul : notice);
+                bool alert = a.calmT <= 0 && dd < (D.aggro ? notice * D.alertMul : notice);
                 if (!alert)
                     for (int hi = 0; hi < nh; hi++) {  // prey notice a predator that is hunting close by
                         const Animal& h = animals[hunters[hi]];
@@ -374,6 +376,7 @@ void Game::updateAnimals(float dt) {
                         pr.kb += toPrey * 60.f;
                         pr.alertT = 0;
                         bloodBurst(pr.pos + V2(0, -pr.bodyH), toPrey, 5);
+                        if (pr.hp > 0) pr.bleedT = BLEED_TIME;
                         if (const AnimalClips* ac = animalClips(a.kind)) a.atkT = ac->clip[AN_ATTACK].total();
                         if (const AnimalClips* pc = animalClips(pr.kind)) {
                             pr.hurtT = pc->clip[AN_HURT].total();
@@ -395,6 +398,20 @@ void Game::updateAnimals(float dt) {
             }
             case AS_CHASE: {
                 V2 toP = dp.norm();
+                if (!a.chasing) {
+                    a.chasing = true;
+                    a.chaseFrom = a.pos;
+                }
+                // a chase has limits: it ends when its timer runs out or CHASE_RANGE pixels from where it began, and the animal then
+                // loses interest for CHASE_COOLDOWN seconds
+                if (a.stT <= 0 || dist(a.pos, a.chaseFrom) > CHASE_RANGE) {
+                    a.st = AS_WANDER;
+                    a.chasing = false;
+                    a.calmT = CHASE_COOLDOWN;
+                    a.idleT = 1.5f;
+                    a.target = a.pos;
+                    break;
+                }
                 if (D.fleeHp > 0 && a.hp < a.maxhp * D.fleeHp) {
                     a.st = AS_FLEE;
                     a.stT = 6;
@@ -417,6 +434,13 @@ void Game::updateAnimals(float dt) {
                 } else
                     stepAnimal(a, toP, D.run * T.speed * (dd < 50 ? 1.12f : 1.f), dt);
                 break;
+            }
+        }
+        if (a.bleedT > 0) {  // a wounded animal drips blood as it moves
+            a.bleedT -= dt;
+            if (a.vel.len() > 5.f && rng.chance(dt * 6.f)) {
+                decals.push_back({a.pos + V2(rng.range(-2, 2), 2), 0, 0, 30});
+                bloodBurst(a.pos + V2(0, -a.bodyH * 0.5f), V2(0, 1), 1);
             }
         }
         if (fabsf(a.vel.x) > 2.f && a.st != AS_CHASE) a.face = a.vel.x > 0 ? 1 : -1;
@@ -490,6 +514,7 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     }
     a.kb += dir * (crit ? 150.f : 105.f);
     bloodBurst(a.pos + V2(0, -a.bodyH), dir, crit ? 14 : 8);
+    if (a.hp > 0) a.bleedT = crit ? BLEED_TIME * 1.5f : BLEED_TIME;
     ftext(a.pos + V2(0, -a.bodyH - 10), (crit ? std::string("CRIT ") : std::string()) + S(d), crit ? C_ORANGE : C_TEXT, 0.9f);
     audio.play(crit ? S_CRIT : S_HIT);
     shakeAmt = std::max(shakeAmt, crit ? 3.f : 1.5f);
@@ -499,6 +524,7 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
     if (agg) {
         a.st = AS_CHASE;
         a.stT = 10;
+        a.calmT = 0;  // being hit overrides the cool-down
     } else {
         a.st = AS_FLEE;
         a.stT = 7;

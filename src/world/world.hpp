@@ -294,9 +294,10 @@ struct World {
                 uint8_t t = T(tx, ty);
                 const float bx = OX + tx * TS, by = OY + ty * TS;
                 bool border = tx < 2 || ty < 2 || tx >= CW - 2 || ty >= CH - 2;
-                if (border) {
-                    Sd(tx, ty) = true;
-                    props.push_back({r.chance(0.6f) ? P_PINE : P_OAK0, bx + 8.f + r.range(-2, 2), by + 15.f, r.f() * 6.28f});
+                if (border) {  // no tree wall around the original area any more (the rng draws are kept so the rest of the map is unchanged)
+                    r.chance(0.6f);
+                    r.range(-2, 2);
+                    r.f();
                     continue;
                 }
                 if (t == T_WATER || Sd(tx, ty)) continue;
