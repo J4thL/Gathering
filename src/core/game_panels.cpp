@@ -334,6 +334,12 @@ void Game::drawInventory() {
             const bool hq = itemHasQuality(sl.item);
             text(dx + 28, py + 5, D.name, hq && sl.q > Q_NORMAL ? qualityCol(sl.q) : C_GOLD);
             text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : std::string()), hq ? qualityCol(sl.q) : C_DIM, 1, false);
+            // equip / use / place / wear button for the selected item, in its info card
+            const bool canAct = D.kind == IK_THROWN || D.kind == IK_LAUNCHER || D.kind == IK_AMMO || D.kind == IK_CONSUMABLE || D.kind == IK_PLACEABLE || D.kind == IK_BACKPACK || seedCropOf(sl.item) >= 0 || (D.kind == IK_TOOL && isFarmType(TOOLDEF[D.ref].type));
+            if (canAct && show == invSel) {
+                const char* lab = D.kind == IK_CONSUMABLE ? "USE" : D.kind == IK_PLACEABLE ? "PLACE" : D.kind == IK_BACKPACK ? "WEAR" : "EQUIP";
+                if (button(dx + dw - 42, py + 4, 38, 13, lab, true, HEX(0x5d7a2e))) useSlot(invSel);
+            }
             int ty = py + 26;
             text(dx + 6, ty, "QTY " + S(sl.n) + "  EACH " + kgNum(D.weight) + " KG", C_TEXT, 1, false);
             ty += 8;
