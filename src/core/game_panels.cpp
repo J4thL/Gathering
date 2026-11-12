@@ -260,8 +260,28 @@ void Game::drawInventory() {
             if (inRect(x, y, CELL - 1, CELL - 1)) hover = i;
             if (hover == i && in.uiClick) {
                 invSel = i;
+                if (!p.inv.slots[i].empty()) {  // pressing a stack also starts dragging it
+                    invDrag = i;
+                    invDragMoved = false;
+                    invDragX = in.mx;
+                    invDragY = in.my;
+                }
                 in.uiClick = false;
                 in.lPressed = false;
+                audio.play(S_CLICK, 0.5f);
+            }
+            if (hover == i && in.rPressed) {  // right click: use / equip / place / wear it
+                in.rPressed = false;
+                invSel = i;
+                useSlot(i);
+            }
+        }
+        if (invDrag >= 0 && in.l && std::abs(in.mx - invDragX) + std::abs(in.my - invDragY) > 3) invDragMoved = true;
+        // a drag released over another grid slot moves / merges / swaps; over a hotbar or tool slot it equips (handled with those slots)
+        const bool dropNow = invDrag >= 0 && invDragMoved && !in.l;
+        if (dropNow && hover >= 0 && hover != invDrag) {
+            if (p.inv.moveSlot(invDrag, hover, p.inv.slots[invDrag].n) > 0) {
+                invSel = hover;
                 audio.play(S_CLICK, 0.5f);
             }
         }
@@ -307,7 +327,7 @@ void Game::drawInventory() {
         const Slot& sl = p.inv.slots[show];
         if (sl.empty()) {
             text(dx + 6, py + 8, "EMPTY SLOT", C_DIM);
-            text(dx + 6, py + 20, "SELECT AN ITEM FOR DETAILS", C_DIM, 1, false);
+            text(dx + 6, py + 20, "DRAG TO MOVE OR EQUIP, RIGHT CLICK TO USE", C_DIM, 1, false);
         } else {
             const ItemDef& D = item(sl.item);
             icon(iconOf(sl.item), dx + 14, py + 14, 20);
@@ -357,23 +377,45 @@ void Game::drawInventory() {
         // ---- actions on the selected slot
         const Slot& cur = p.inv.slots[std::max(0, std::min(cap - 1, invSel))];
         const ItemDef* cd = cur.empty() ? nullptr : &item(cur.item);
-        const bool canAct = cd && (cd->kind == IK_THROWN || cd->kind == IK_LAUNCHER || cd->kind == IK_AMMO || cd->kind == IK_CONSUMABLE || cd->kind == IK_PLACEABLE || cd->kind == IK_BACKPACK || seedCropOf(cur.item) >= 0 || (cd->kind == IK_TOOL && isFarmType(TOOLDEF[cd->ref].type)));
-        const char* lab = !cd ? "--" : cd->kind == IK_CONSUMABLE ? "USE" : cd->kind == IK_PLACEABLE ? "PLACE" : cd->kind == IK_BACKPACK ? "WEAR" : "EQUIP";
         int by = py + ph + 2;
-        if (button(dx, by, 40, 13, lab, canAct, HEX(0x5d7a2e))) useSlot(invSel);
-        if (button(dx + 43, by, 46, 13, "DROP 1", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, 1);
-        if (button(dx + 92, by, 44, 13, "DROP..", cd != nullptr && cur.n > 1, HEX(0x7a4a2e))) amountOpen(AMT_DROP, invSel);  // a slider: how many
-        if (button(dx + 139, by, 29, 13, "ALL", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, cur.n);
-        by += 14;
-        bool hotOk = false;
-        if (cd)
-            for (int i = 0; i < HOT_N; i++) hotOk = hotOk || hotAccepts(HOT_KIND[i], cur.item);
-        const bool onHot = cd && p.hotSlotOf(cur.item) >= 0;
-        if (button(dx, by, 62, 13, onHot ? "UNEQUIP" : "TO HOTBAR", hotOk, HEX(0x4a5a7a))) {
-            if (onHot) unequipHot(p.hotSlotOf(cur.item));
-            else equipHot(cur.item);
+        // the amount slider: how many a DROP or SPLIT takes from the selected stack
+        if (invAmtSlot != invSel) {
+            invAmtSlot = invSel;
+            invAmt = 1;
         }
-        if (button(dx + 66, by, 40, 13, "SORT", true, HEX(0x4a3a5e))) {
+        invAmt = std::max(1, std::min(std::max(1, cur.n), invAmt));
+        {
+            const int sx = dx + 2, sw = dw - 32, sy = by + 5;
+            const bool many = cd && cur.n > 1;
+            fillRect(sx, sy, sw, 4, HEX(0x1a120b));
+            const float f = many ? (invAmt - 1) / (float)(cur.n - 1) : 0.f;
+            if (many) fillRect(sx, sy, (int)(sw * f), 4, HEX(0x8ec2f0));
+            fillRect(sx + (int)((sw - 3) * f), sy - 2, 4, 8, many ? (invAmtDrag ? C_GOLD : HEX(0xe8dcc0)) : HEX(0x5a4a3a));
+            if (many && in.uiClick && inRect(sx - 3, sy - 5, sw + 6, 14)) {
+                invAmtDrag = true;
+                in.uiClick = false;
+                in.lPressed = false;
+            }
+            if (!in.l) invAmtDrag = false;
+            if (invAmtDrag) invAmt = std::max(1, std::min(cur.n, 1 + (int)lroundf((in.mx - sx) / (float)(sw - 1) * (cur.n - 1))));
+            if (many && inRect(sx, by, dw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
+            textC(dx + dw - 14, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
+        }
+        by += 14;
+        if (button(dx, by, 33, 13, "SPLIT", cd != nullptr && cur.n > 1, HEX(0x4a5a7a))) {  // the chosen amount goes into the first free slot
+            int to = -1;
+            for (int i = 0; i < cap && to < 0; i++)
+                if (p.inv.slots[i].empty()) to = i;
+            if (to < 0) {
+                msg("NO FREE SLOT TO SPLIT INTO", C_RED);
+                audio.play(S_ERROR, 0.4f);
+            } else {
+                p.inv.moveSlot(invSel, to, std::min(invAmt, cur.n - 1));
+                audio.play(S_CLICK, 0.5f);
+            }
+        }
+        if (button(dx + 36, by, 33, 13, "DROP", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, invAmt);
+        if (button(dx + 72, by, 33, 13, "SORT", true, HEX(0x4a3a5e))) {
             p.inv.compact();
             msg("PACK SORTED", C_DIM);
         }
@@ -396,7 +438,9 @@ void Game::drawInventory() {
                 else if (item(id).kind == IK_TOOL && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
             }
             text(hx + 2, hy + 1, S(i + 1), HEX(0x9a8a6a), 1, false);
-            if (over && in.uiClick) {
+            if (over && dropNow && accepts) {  // dragged here from the pack
+                equipHot(cur.item, i);
+            } else if (over && in.uiClick) {
                 in.uiClick = false;
                 in.lPressed = false;
                 if (accepts) equipHot(cur.item, i);
@@ -422,7 +466,9 @@ void Game::drawInventory() {
                 if (id >= 0) icon(itemIcon(itemTool(id)), hx + 10, fy + 6, 11);
                 else icon(itemIcon(itemTool(FT_DEFAULT[i])), hx + 10, fy + 6, 11, 0.25f);
                 if (over) info = id >= 0 ? std::string(TOOLDEF[id].name) + " - CLICK TO TAKE OFF" : std::string(TOOLDEF[FT_DEFAULT[i]].name) + " SLOT - EMPTY";
-                if (over && in.uiClick) {
+                if (over && dropNow && fits) {
+                    equipFarmTool(invSel);
+                } else if (over && in.uiClick) {
                     in.uiClick = false;
                     in.lPressed = false;
                     if (fits) equipFarmTool(invSel);
@@ -435,6 +481,9 @@ void Game::drawInventory() {
             }
             text(dx + 40, fy + 14, info, C_DIM, 1, false);  // on the HOTBAR label line
         }
+        // ---- the dragged stack follows the mouse
+        if (invDrag >= 0 && invDragMoved && in.l && !p.inv.slots[invDrag].empty()) icon(iconOf(p.inv.slots[invDrag].item), in.mx, in.my, 12);
+        if (!in.l) invDrag = -1;
     } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);
     } else {

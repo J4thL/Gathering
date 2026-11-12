@@ -182,6 +182,29 @@ public:
         remove(item, count(item));
         return add(item, n);
     }
+    // Drag and drop / split: move n items from one slot to another. Onto an empty slot or the same (item, quality) it moves up to n (a
+    // merge stops at the stack limit); onto a different item it swaps, but only when the whole stack is moved. Returns how many moved.
+    int moveSlot(int from, int to, int n) {
+        if (from == to || from < 0 || to < 0 || from >= capacity() || to >= capacity() || slots[from].empty() || n <= 0) return 0;
+        Slot& a = slots[from];
+        Slot& b = slots[to];
+        n = std::min(n, a.n);
+        if (b.empty()) {
+            b = Slot{a.item, n, a.q};
+        } else if (b.item == a.item && b.q == a.q) {
+            n = std::min(n, ::item(a.item).stack - b.n);
+            if (n <= 0) return 0;
+            b.n += n;
+        } else if (n == a.n) {
+            std::swap(a, b);
+            return n;
+        } else {
+            return 0;
+        }
+        a.n -= n;
+        if (a.n <= 0) a = Slot();
+        return n;
+    }
     // Merge partial stacks and move everything to the front, ordered by item id.
     void compact() {
         struct T { int item, q, n; };

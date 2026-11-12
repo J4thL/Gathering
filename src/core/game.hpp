@@ -247,6 +247,8 @@ struct Game {
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
     int shopPage = 0;
+    int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
+    bool invAmtDrag = false, invDragMoved = false;
     int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills; selected slot
     // gathering (gathering.cpp)
     std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
