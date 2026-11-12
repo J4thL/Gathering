@@ -599,6 +599,7 @@ struct Game {
     void drawSkillsTab(int X, int Y, int W, int H);
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
     void bestiaryKill(int kind);
+    void sliderBar(int tx, int ty, int tw, int& val, int maxv, bool& drag);  // game_amount.cpp: shared by the amount popup and the pack slider
     void drawBestiaryTab(int X, int Y, int W, int H);
     bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
     // ---- town buildings (town.cpp, services.cpp)

@@ -391,19 +391,9 @@ void Game::drawInventory() {
         }
         invAmt = std::max(1, std::min(std::max(1, cur.n), invAmt));
         {
-            const int sx = dx + 2, sw = dw - 32, sy = by + 5;
+            const int sx = dx + 2, sw = dw - 32;
             const bool many = cd && cur.n > 1;
-            fillRect(sx, sy, sw, 4, HEX(0x1a120b));
-            const float f = many ? (invAmt - 1) / (float)(cur.n - 1) : 0.f;
-            if (many) fillRect(sx, sy, (int)(sw * f), 4, HEX(0x8ec2f0));
-            fillRect(sx + (int)((sw - 3) * f), sy - 2, 4, 8, many ? (invAmtDrag ? C_GOLD : HEX(0xe8dcc0)) : HEX(0x5a4a3a));
-            if (many && in.uiClick && inRect(sx - 3, sy - 5, sw + 6, 14)) {
-                invAmtDrag = true;
-                in.uiClick = false;
-                in.lPressed = false;
-            }
-            if (!in.l) invAmtDrag = false;
-            if (invAmtDrag) invAmt = std::max(1, std::min(cur.n, 1 + (int)lroundf((in.mx - sx) / (float)(sw - 1) * (cur.n - 1))));
+            sliderBar(sx, by + 5, sw, invAmt, many ? cur.n : 1, invAmtDrag);
             if (many && inRect(sx, by, dw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
             textC(dx + dw - 14, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
         }
