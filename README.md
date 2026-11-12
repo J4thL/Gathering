@@ -55,6 +55,12 @@ Maps are defined in `src/world/maps.hpp` (gates, entry and hub per map), generat
 is `Game::travelTo` in `src/world/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
 `worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
 
+## Settings, help and shortcuts
+The pause menu (Esc) and the title screen open SETTINGS: sound effects and ambience volume, a mute switch, and every key action can be rebound (click one, press a key;
+a key already in use swaps with it; 1-8, arrows, Tab, Enter, Space, Esc and F11 are fixed). They are kept in `settings.txt` beside the save file. HELP (pause menu) has
+five pages of controls and tips, written with your current keys. In the pack: double click or shift + click a stack to use / equip it (as right click does), and
+hover a stack and press 1-8 to put it on that hotbar slot. The map (M) has a GATES list: click a gate to see what it asks for.
+
 ## Sealed gates
 The four gates out of WILDWOOD start sealed and open one after the other: desert (east), then swamp (south), snow (north), mountain (west). Walk into
 a sealed gate and it shows what it asks for: a hunting level and an offering of materials (for example wood, stone and hide for the desert, bars

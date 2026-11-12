@@ -23,6 +23,7 @@ struct Audio {
     SDL_AudioDeviceID dev = 0;
     bool ok = false;
     bool muted = false;
+    float sfxVol = 1.f;  // settings: sound effects volume 0..1
     std::vector<float> bank[S_COUNT];
     std::vector<Voice> voices;
     int rate = 44100;
@@ -236,7 +237,7 @@ struct Audio {
         (void)pitchJitter;
         if (!ok || muted) return;
         SDL_LockAudioDevice(dev);
-        if (voices.size() < 24) voices.push_back({(int)s, 0, vol});
+        if (voices.size() < 24) voices.push_back({(int)s, 0, vol * sfxVol});
         SDL_UnlockAudioDevice(dev);
     }
     // choose the ambient bed (AMB_*) and its volume (0..1); the callback cross-fades to it

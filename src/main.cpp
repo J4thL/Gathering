@@ -53,18 +53,26 @@ static void pollInput(Game& g) {
             case SDL_MOUSEWHEEL: in.wheel += e.wheel.y; break;
             case SDL_KEYDOWN:
                 if (e.key.repeat) break;
+                if (g.rebind >= 0) {  // the settings screen is waiting for a key
+                    g.rebindKey(e.key.keysym.scancode);
+                    break;
+                }
+                if (const SDL_Scancode sc = e.key.keysym.scancode; sc != SDL_SCANCODE_UNKNOWN && !keyReserved(sc)) {  // the rebindable keys
+                    const auto& K = g.cfg.key;
+                    if (sc == K[K_USE]) in.ePressed = true;
+                    else if (sc == K[K_HEAL]) in.bandage = true;
+                    else if (sc == K[K_MAP]) in.mapToggle = true;
+                    else if (sc == K[K_HELP]) in.helpToggle = true;
+                    else if (sc == K[K_PACK]) in.invToggle = true;
+                    else if (sc == K[K_BUILD]) in.buildToggle = true;
+                    else if (sc == K[K_ROTATE]) in.rotPressed = true;
+                    else if (sc == K[K_DEMOLISH]) in.delPressed = true;
+                    break;
+                }
                 switch (e.key.keysym.sym) {
-                    case SDLK_e: in.ePressed = true; break;
                     case SDLK_ESCAPE: in.escPressed = true; break;
                     case SDLK_TAB: in.tabPressed = true; break;
                     case SDLK_RETURN: case SDLK_SPACE: in.enterPressed = true; break;
-                    case SDLK_q: in.bandage = true; break;
-                    case SDLK_m: in.mapToggle = true; break;
-                    case SDLK_h: in.helpToggle = true; break;
-                    case SDLK_i: in.invToggle = true; break;
-                    case SDLK_b: in.buildToggle = true; break;
-                    case SDLK_r: in.rotPressed = true; break;
-                    case SDLK_x: in.delPressed = true; break;
                     case SDLK_1: in.selectKey = 0; break;
                     case SDLK_2: in.selectKey = 1; break;
                     case SDLK_3: in.selectKey = 2; break;
@@ -88,12 +96,13 @@ static void pollInput(Game& g) {
         }
     }
     const Uint8* k = SDL_GetKeyboardState(nullptr);
-    in.up = k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP];
-    in.down = k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN];
-    in.left = k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT];
-    in.right = k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT];
-    in.sprint = k[SDL_SCANCODE_LSHIFT] || k[SDL_SCANCODE_RSHIFT];
-    in.e = k[SDL_SCANCODE_E];
+    const auto& K = g.cfg.key;
+    in.up = k[K[K_UP]] || k[SDL_SCANCODE_UP];
+    in.down = k[K[K_DOWN]] || k[SDL_SCANCODE_DOWN];
+    in.left = k[K[K_LEFT]] || k[SDL_SCANCODE_LEFT];
+    in.right = k[K[K_RIGHT]] || k[SDL_SCANCODE_RIGHT];
+    in.sprint = k[K[K_SPRINT]] || (K[K_SPRINT] == SDL_SCANCODE_LSHIFT && k[SDL_SCANCODE_RSHIFT]);
+    in.e = k[K[K_USE]];
 }
 
 // ---- scripted run used for automated screenshots / smoke testing
@@ -250,6 +259,18 @@ static void scriptedRun(Game& g, const std::string& dir) {
         frames(3);
         shot("20c_bestiary.bmp");
         g.invTab = 0;
+        g.state = ST_PAUSE;  // pause menu, settings and help pages
+        frames(3);
+        shot("20e_pause.bmp");
+        g.openSettings();
+        frames(3);
+        shot("20f_settings.bmp");
+        g.state = ST_PLAY;
+        g.openHelp();
+        g.helpPage = 4;
+        frames(3);
+        shot("20g_help.bmp");
+        g.state = ST_PLAY;
         g.gateTarget = B_SWAMP;  // a sealed gate's offering panel
         g.gateOpen[B_DESERT] = true;
         g.state = ST_GATE;
@@ -330,6 +351,14 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.p.pos = g.world.npcs[0].pos + V2(0, 30);
             frames(90);
             shot("13_shoptalk.bmp");
+            g.p.inv.addIgnoringWeight(itemMat(M_HIDE), 8);  // the shop's SELL rows with the amount slider
+            g.shopTab = 0;
+            g.state = ST_SHOP;
+            g.amountOpenSell(-M_HIDE - 1, 0, g.p.mat(M_HIDE));
+            frames(3);
+            shot("13b_sellslider.bmp");
+            g.amountClose();
+            g.state = ST_PLAY;
             g.exitBuilding();
         }
         g.p.pos = keepPos;

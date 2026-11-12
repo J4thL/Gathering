@@ -38,6 +38,16 @@ void Game::amountOpen(int ctx, int slot, int fromPack) {
     amtDrag = false;
 }
 
+void Game::amountOpenSell(int id, int q, int n) {
+    if (n < 2) return;
+    amtCtx = AMT_SELL;
+    amtId = id;
+    amtQ = q;
+    amtMax = n;
+    amtVal = std::max(1, n / 2);
+    amtDrag = false;
+}
+
 void Game::amountUpdate() {
     if (in.escPressed || in.invToggle) {
         amountClose();
@@ -53,11 +63,20 @@ void Game::amountUpdate() {
 void Game::amountDraw() {
     if (amtCtx == AMT_NONE) return;
     Inventory* inv = amtCtx == AMT_CHEST ? (amtFromPack ? &p.inv : openInv()) : &p.inv;
-    if (!inv || amtSlot < 0 || amtSlot >= inv->capacity() || inv->slots[amtSlot].empty()) {  // the stack is gone: nothing to split
+    Slot sold;  // AMT_SELL: the shop row, shown like a slot
+    if (amtCtx == AMT_SELL) {
+        const bool mat = amtId < 0;
+        const int have = mat ? p.mat(-amtId - 1) : sellable(amtId, amtQ);
+        if (have < 1 || state != ST_SHOP) {  // sold out, or the shop was left
+            amountClose();
+            return;
+        }
+        sold = Slot{mat ? itemMat(-amtId - 1) : amtId, have, amtQ};
+    } else if (!inv || amtSlot < 0 || amtSlot >= inv->capacity() || inv->slots[amtSlot].empty()) {  // the stack is gone: nothing to split
         amountClose();
         return;
     }
-    const Slot& sl = inv->slots[amtSlot];
+    const Slot& sl = amtCtx == AMT_SELL ? sold : inv->slots[amtSlot];
     amtMax = sl.n;
     amtVal = std::max(1, std::min(amtMax, amtVal));
     const ItemDef& D = item(sl.item);
@@ -65,7 +84,7 @@ void Game::amountDraw() {
     fillRect(0, 0, LW, LH, RGBA(0, 0, 0, 90));
     panel(x, y, PW, PH, HEX(0x4a3524));
     fillRect(x + 3, y + 3, PW - 6, 12, UI_BG);
-    const char* verb = amtCtx == AMT_DROP ? "DROP" : amtFromPack ? "STORE" : "TAKE";
+    const char* verb = amtCtx == AMT_DROP ? "DROP" : amtCtx == AMT_SELL ? "SELL" : amtFromPack ? "STORE" : "TAKE";
     text(x + 8, y + 6, std::string(verb) + " HOW MANY?", C_GOLD);
     // the item
     if (itemHasQuality(sl.item)) qualityFrame(x + 6, y + 18, 15, 15, sl.q);
@@ -95,7 +114,10 @@ void Game::amountDraw() {
         const int n = amtVal, slot = amtSlot, ctx = amtCtx, fromPack = amtFromPack;
         amountClose();
         in.enterPressed = false;
-        if (ctx == AMT_DROP) dropSlot(slot, n);
+        if (ctx == AMT_SELL) {
+            if (amtId < 0) sellMat(-amtId - 1, n);
+            else sellItem(amtId, amtQ, n);
+        } else if (ctx == AMT_DROP) dropSlot(slot, n);
         else chestMove(fromPack, slot, n);
     }
 }

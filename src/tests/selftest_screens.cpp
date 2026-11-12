@@ -373,6 +373,51 @@ void testScreensAndSaves(SelfTest& t) {
         }
         removeAll();
     }
+    {   // settings: rebinding swaps, reserved keys are refused, and settings are saved and loaded
+        g.newGame();
+        g.cfg = Settings();
+        g.rebind = K_MAP;
+        g.rebindKey(SDL_SCANCODE_J);
+        check(g.cfg.key[K_MAP] == SDL_SCANCODE_J && g.rebind < 0, "a control takes the key pressed");
+        g.rebind = K_HEAL;
+        g.rebindKey(SDL_SCANCODE_J);
+        check(g.cfg.key[K_HEAL] == SDL_SCANCODE_J && g.cfg.key[K_MAP] == SDL_SCANCODE_Q, "binding a key already in use swaps the two controls");
+        g.rebind = K_USE;
+        g.rebindKey(SDL_SCANCODE_TAB);
+        g.rebind = K_USE;
+        g.rebindKey(SDL_SCANCODE_ESCAPE);
+        check(g.cfg.key[K_USE] == SDL_SCANCODE_E, "reserved keys and Esc leave the binding alone");
+        g.cfg.sfx = 3;
+        g.cfg.amb = 0;
+        g.saveSettings();
+        g.cfg = Settings();
+        g.loadSettings();
+        check(g.cfg.sfx == 3 && g.cfg.amb == 0 && g.cfg.key[K_HEAL] == SDL_SCANCODE_J && g.cfg.key[K_MAP] == SDL_SCANCODE_Q, "settings are saved and loaded");
+        g.cfg = Settings();
+        g.saveSettings();
+        g.loadSettings();
+        // the gate list on the map opens a read-only view that returns to the map
+        g.state = ST_MAP;
+        g.openGateView(B_SNOW);
+        check(g.state == ST_GATE && g.gateView, "the map's gate list opens the gate view");
+        g.updateGatePanel(0.f);
+        g.in.escPressed = true;
+        g.updateGatePanel(0.f);
+        g.in.escPressed = false;
+        check(g.state == ST_MAP, "closing the gate view returns to the map");
+        g.gateView = false;
+        g.state = ST_PLAY;
+    }
+    {   // the shop's sell slider opens only for a row of 2 or more
+        g.newGame();
+        g.state = ST_SHOP;
+        g.amountOpenSell(-M_HIDE - 1, 0, 1);
+        check(g.amtCtx == Game::AMT_NONE, "no slider for a single item");
+        g.amountOpenSell(-M_HIDE - 1, 0, 9);
+        check(g.amtCtx == Game::AMT_SELL && g.amtMax == 9 && g.amtVal == 4, "the sell slider opens at half the row");
+        g.amountClose();
+        g.state = ST_PLAY;
+    }
     {   // the bestiary counts hunter kills per species, pays coins at 5 / 20 / 50, and is saved
         removeAll();
         g.newGame();

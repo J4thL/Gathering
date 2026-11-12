@@ -131,38 +131,47 @@ void Game::drawTitle() {
     textC(LW / 2, 22 + bob, "WILDWOOD", HEX(0xf6d96a), 6);
     textC(LW / 2, 56 + bob, "HUNTER", HEX(0xf3e9d2), 6);
     textC(LW / 2, 92, "A TOP-DOWN HUNTING ADVENTURE", C_TEXT);
-    int bx = LW / 2 - 55, by = 116;
+    int bx = LW / 2 - 55, by = 110;
     if (button(bx, by, 110, 20, "NEW GAME", true, HEX(0x5d7a2e))) {
         const bool first = !hasSave;  // the how-to card is for the very first start only
         newGame();
         if (first) helpT = 16;
         state = ST_PLAY;
     }
-    by += 25;
+    by += 22;
     if (button(bx, by, 110, 20, "CONTINUE", hasSave)) {
         if (load()) state = ST_PLAY;
     }
-    by += 25;
+    by += 22;
+    if (button(bx, by, 110, 20, "SETTINGS")) openSettings();
+    by += 22;
     if (button(bx, by, 110, 20, "QUIT", true, HEX(0x7a3a2a))) running = false;
     textC(LW / 2, LH - 22, "HUNT  GATHER  CRAFT  TRADE", C_GOLD, 1);
-    textC(LW / 2, LH - 12, "WASD MOVE   MOUSE AIM   LMB THROW   E INTERACT", C_DIM, 1);
+    textC(LW / 2, LH - 12, "MOVE " + keyName(K_UP) + keyName(K_LEFT) + keyName(K_DOWN) + keyName(K_RIGHT) + "   MOUSE AIM   LMB THROW   " + keyName(K_USE) + " INTERACT", C_DIM, 1);
 }
 
 void Game::drawPause() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
-    panel(LW / 2 - 90, 40, 180, 140, HEX(0x4a3524));
-    textC(LW / 2, 50, "PAUSED", C_GOLD, 3);
-    int bx = LW / 2 - 60, by = 80;
-    if (button(bx, by, 120, 18, "RESUME", true, HEX(0x5d7a2e))) state = ST_PLAY;
-    by += 23;
-    if (button(bx, by, 120, 18, audio.muted ? "SOUND: OFF" : "SOUND: ON")) audio.muted = !audio.muted;
-    by += 23;
-    if (button(bx, by, 120, 18, "SAVE AND MAIN MENU", true, HEX(0x7a3a2a))) {
+    panel(LW / 2 - 90, 34, 180, 156, HEX(0x4a3524));
+    textC(LW / 2, 44, "PAUSED", C_GOLD, 3);
+    int bx = LW / 2 - 60, by = 68;
+    if (button(bx, by, 120, 17, "RESUME", true, HEX(0x5d7a2e))) state = ST_PLAY;
+    by += 21;
+    if (button(bx, by, 120, 17, audio.muted ? "SOUND: OFF" : "SOUND: ON")) {
+        audio.muted = !audio.muted;
+        saveSettings();
+    }
+    by += 21;
+    if (button(bx, by, 120, 17, "SETTINGS")) openSettings();
+    by += 21;
+    if (button(bx, by, 120, 17, "HELP")) openHelp();
+    by += 21;
+    if (button(bx, by, 120, 17, "SAVE AND MAIN MENU", true, HEX(0x7a3a2a))) {
         save();
         state = ST_TITLE;
     }
-    textC(LW / 2, by + 28, "KILLS " + S(kills) + "    COINS EARNED " + S(sold), C_DIM, 1, false);
-    textC(LW / 2, by + 38, "F11: FULLSCREEN", C_DIM, 1, false);
+    textC(LW / 2, by + 24, "KILLS " + S(kills) + "    COINS EARNED " + S(sold), C_DIM, 1, false);
+    textC(LW / 2, by + 34, "F11: FULLSCREEN", C_DIM, 1, false);
 }
 
 void Game::render() {
@@ -178,9 +187,19 @@ void Game::render() {
         case ST_FARM: drawHud(); drawFarmMenu(); break;
         case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
         case ST_MARKET: drawHud(); drawMarket(); break;
-        case ST_SHOP: drawHud(); drawShop(); break;
+        case ST_SHOP: {
+            drawHud();
+            const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;  // the sell slider takes every click while open
+            if (modal) in.uiClick = false;
+            drawShop();
+            if (modal) in.uiClick = clk;
+            amountDraw();
+            break;
+        }
         case ST_SERVICE: drawHud(); drawService(); break;
         case ST_PAUSE: drawHud(); drawPause(); break;
+        case ST_SETTINGS: drawHud(); drawSettings(); break;
+        case ST_HELP: drawHud(); drawHelp(); break;
         case ST_QUEST: drawHud(); drawQuestPanel(); break;
         case ST_GATE: drawHud(); drawGatePanel(); break;
         case ST_INVENTORY: case ST_CHEST: {

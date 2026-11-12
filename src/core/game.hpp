@@ -6,6 +6,7 @@
 #include <string>
 #include <vector>
 #include "core/audio.hpp"
+#include "core/settings.hpp"
 #include "items/inventory.hpp"
 #include "npcs/quests.hpp"
 #include "art/sprites.hpp"
@@ -226,7 +227,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
 struct Game {
     // platform
@@ -578,10 +579,14 @@ struct Game {
     void drawChest();
     bool chestMove(int fromPack, int slot, int n = -1);  // move n of the stack (-1: all of it)
     // ---- the amount slider: a popup to take PART of a stack (drop it, or move it to / from a storage chest)
-    enum AmtCtx { AMT_NONE, AMT_DROP, AMT_CHEST };
+    enum AmtCtx { AMT_NONE, AMT_DROP, AMT_CHEST, AMT_SELL };
     int amtCtx = AMT_NONE, amtSlot = -1, amtFromPack = 1, amtMax = 0, amtVal = 1;
+    int invClickSlot = -1;  // double click detection in the pack
+    float invClickT = -10.f;
+    int amtId = 0, amtQ = 0;  // AMT_SELL: what is being sold (a shop row: id < 0 is material -id-1, otherwise a crafted item of quality q)
     bool amtDrag = false;
     void amountOpen(int ctx, int slot, int fromPack = 1);  // needs a stack of 2 or more
+    void amountOpenSell(int id, int q, int n);  // the shop: sell part of a row (needs 2 or more)
     void amountClose() { amtCtx = AMT_NONE; amtDrag = false; }
     void amountUpdate();  // keys while it is open: Esc / Enter / arrows / wheel
     void amountDraw();    // draws it above the screen and handles its buttons
@@ -660,10 +665,34 @@ struct Game {
     void drawHud();
     void drawShop();
     void drawQuestPanel();
+    // settings and help (game_settings.cpp)
+    Settings cfg;
+    int rebind = -1;                 // the control waiting for a key press (-1: none)
+    State settingsBack = ST_PLAY, helpBack = ST_PLAY;
+    int helpPage = 0;
+    static constexpr int HELP_PAGES = 5;
+    bool cfgDrag[2] = {false, false};
+    std::string settingsPath();
+    void saveSettings();
+    void loadSettings();
+    std::string keyName(int act) const;
+    void rebindKey(SDL_Scancode sc);
+    void openSettings();
+    void updateSettings(float dt);
+    void drawSettings();
+    void openHelp();
+    void updateHelp(float dt);
+    void drawHelp();
     // sealed gates (game_gates.cpp): the next biome opens when the hunter makes the gate's offering (world/gates.hpp)
     bool gateOpen[B_COUNT] = {true};  // per biome id; home and the homestead are always open, the four biomes start sealed
     bool gatesSeen = false;           // a save had a "gates" line (older saves keep every gate open)
     int gateTarget = 0;
+    bool gateView = false;  // opened from the map: just shows what the gate asks (the offering is made at the gate)
+    void openGateView(int toMap) {
+        gateTarget = toMap;
+        gateView = true;
+        state = ST_GATE;
+    }
     bool gateMet(const struct GateReq& g, bool* skillOk = nullptr, bool* prereqOk = nullptr) const;
     void openGatePanel(int toMap, int side);
     bool offerAtGate(int toMap);
