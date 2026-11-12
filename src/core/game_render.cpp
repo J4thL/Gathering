@@ -133,7 +133,9 @@ void Game::drawTitle() {
     textC(LW / 2, 92, "A TOP-DOWN HUNTING ADVENTURE", C_TEXT);
     int bx = LW / 2 - 55, by = 116;
     if (button(bx, by, 110, 20, "NEW GAME", true, HEX(0x5d7a2e))) {
+        const bool first = !hasSave;  // the how-to card is for the very first start only
         newGame();
+        if (first) helpT = 16;
         state = ST_PLAY;
     }
     by += 25;

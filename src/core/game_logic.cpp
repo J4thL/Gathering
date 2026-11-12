@@ -97,7 +97,7 @@ void Game::newGame() {
     questProg = 0;
     questActive = false;
     refreshQuest();
-    helpT = 16;
+    helpT = 0;  // the how-to card shows only on a first-ever start (see the title screen); H brings it back
     respawnT = 5;
     for (auto& l : world.landmarks) l.found = false;
     curBiome = pendBiome = B_HOME;
@@ -447,7 +447,9 @@ void Game::update(float dt) {
             camX = (int)roundf(cam.x);
             camY = (int)roundf(cam.y);
             if (in.enterPressed) {
+                const bool first = !hasSave;
                 newGame();
+                if (first) helpT = 16;
                 state = ST_PLAY;
                 audio.play(S_CLICK);
             }
