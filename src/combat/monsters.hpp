@@ -60,12 +60,11 @@ struct Monster {
     int face8 = 0;
     bool struck = false;  // this attack's hit has landed already
     int atkType = 0;      // which attack is playing (the boss has several)
-    float poisonT = 0, slowT = 0, stunT = 0;
+    float slowT = 0;      // slowed (frost)
     int phase = 1;        // boss: 1..3
     float special = 0;    // boss: time to the next special attack
     V2 aim;               // direction locked at the start of an attack
     bool awake = false;
-    int summons = 0;
     int packId = 0;
     float hurtT = 0;
     float bias = 1;
@@ -79,7 +78,6 @@ struct Hazard {
     bool fired = false;
     float after = 0.35f;  // seconds the impact lingers
     bool slow = false;    // frost: slows the hunter
-    bool fromPlayerSide = false;
 };
 struct MProj {
     V2 pos, dir;

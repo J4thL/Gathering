@@ -63,7 +63,6 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"TORCH", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_BRANCH, M_GREASE, -1}, {2, 1, 0}, 0, 0, 56.f, "A SMALL FLAME"},
 };
 constexpr int H_MAX_PIECES = 900;
-constexpr int H_GREEN_AREA_BONUS = 1;
 
 // ---------------------------------------------------------------- crops
 enum CropId { CR_WHEAT, CR_CARROT, CR_POTATO, CR_CABBAGE, CR_CORN, CR_TOMATO, CR_PUMPKIN, CR_STRAWBERRY, CR_COUNT };
@@ -98,7 +97,6 @@ constexpr float CAN_CAPACITY = 12.f;         // plots one full watering can fill
 
 // ---------------------------------------------------------------- domestic animals
 enum DomKind { DA_CHICKEN, DA_COW, DA_SHEEP, DA_PIG, DA_GOAT, DA_DUCK, DA_RABBIT, DA_COUNT };
-enum DomHousing { DH_ANY = 0, DH_FOWL = 1 };  // fowl and rabbits fit the coop; the big ones need a barn or a pen
 struct DomDef {
     const char* name;
     const char* babyName;

@@ -101,18 +101,7 @@ bool Game::enterDelve(int id) {
         return false;
     }
     ensureMonsterArt();
-    snapshotMap();
-    extMap = world.mapId;
-    extPos = p.pos;
-    extAnimals = std::move(animals);
-    animals.clear();
-    structs.clear();
-    chestOpen = -1;
-    projs.clear();
-    parts.clear();
-    ftexts.clear();
-    decals.clear();
-    items.clear();
+    stashOutside();
     world.generateDelve(id);
     initHarvest();
     delve = id;

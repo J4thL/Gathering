@@ -125,7 +125,6 @@ enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRON
            W_SUNJAV, W_BOGSPEAR, W_HARPOON, W_CLIFFAXE,           // biome weapons: desert, swamp, snow, mountain
            W_STEELSPEAR, W_SILVERDAGGER, W_FROSTBRAND,           // mine and dungeon weapons (FROSTBRAND is the Frostbound King's legendary reward)
            W_COUNT };
-enum { BIOME_NONE_W = -1 };
 enum Ammo { AM_ARROW, AM_BOLT, AM_COUNT };
 struct WpnDef {
     const char* name;
@@ -165,8 +164,6 @@ struct AmmoDef {
     float lost;      // chance that a shot that hit is broken instead of dropping to the ground
 };
 static const AmmoDef AMMO[AM_COUNT] = {{"ARROW", 2, 10, 0.35f}, {"BOLT", 3, 6, 0.30f}};
-constexpr int WPN_MAX = 30;
-constexpr int AMMO_MAX = 60;
 constexpr int BOW_PRICE = 90, CROSSBOW_PRICE = 220;
 inline bool isLauncher(int w) { return WPN[w].ammo >= 0; }
 
@@ -212,7 +209,6 @@ enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE, RK_ITEM, RK_GEAR };
 enum RecipeCat { RC_TOOLS, RC_WEAPONS, RC_AMMO, RC_MEDICINE, RC_SURVIVAL, RC_MATERIALS, RC_ARMOR, RC_COUNT };
 [[maybe_unused]] static const char* RECIPE_CAT_NAME[RC_COUNT] = {"TOOLS", "WEAPONS", "AMMO", "MEDICINE", "SURVIVAL", "PARTS", "GEAR"};
 enum Station { STN_ANY, STN_FIRE, STN_SHOP };  // where a recipe can be made: anywhere, beside a campfire, beside the merchant's forge
-[[maybe_unused]] static const char* STATION_NAME[3] = {"ANYWHERE", "AT A CAMPFIRE", "AT THE SHOP"};
 struct Recipe {
     int kind;   // what `out` indexes: a Wpn, an Ammo, or (RK_BANDAGE) nothing
     int out;
@@ -284,7 +280,6 @@ constexpr int FLINT_PACK_PRICE = 21;
 constexpr int FLINT_LOAN = 3;
 
 constexpr int BANDAGE_HEAL = 45;
-constexpr int BANDAGE_MAX = 9;
 
 #include "items/items.hpp"
 
