@@ -28,6 +28,8 @@ void Game::save() {
         f << "version " << SAVE_VERSION << "\ncoins " << p.coins << "\nup";
         for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
         f << "\nday " << dayT << "\nkills " << kills << "\n";
+        for (int k = 0; k < A_COUNT; k++)
+            if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << "\n";
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
@@ -230,6 +232,10 @@ bool Game::load() {
         } else if (k == "kills") {
             long long n = 0;
             if (ss >> n) kills = (int)std::max(0LL, std::min(1000000000LL, n));
+        }
+        else if (k == "bestiary") {
+            long long kind = -1, n = 0;
+            if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) bestKills[kind] = (int)std::max(0LL, std::min(1000000000LL, n));
         }
         else if (k == "skill") skillLoadLine(ss);
         else if (k == "disc") {

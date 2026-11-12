@@ -221,9 +221,9 @@ void Game::drawInventory() {
         icon(A.coin, X + W - 16 - textW(cs), Y + 10, 8);
     }
     {
-        static const char* tabs[3] = {"BACKPACK", "CRAFTING", "SKILLS"};
+        static const char* tabs[4] = {"BACKPACK", "CRAFTING", "SKILLS", "BESTIARY"};
         int tx = X + 8;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 4; i++) {
             const int w = textW(tabs[i]) + 10;
             if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = i;
             tx += w + 2;
@@ -458,7 +458,9 @@ void Game::drawInventory() {
         }
     } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);
-    } else {
+    } else if (invTab == 2) {
         drawSkillsTab(X, Y, W, H);
+    } else {
+        drawBestiaryTab(X, Y, W, H);
     }
 }

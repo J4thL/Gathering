@@ -92,6 +92,7 @@ void Game::newGame() {
     msgs.clear();
     dayT = 30;
     kills = 0;
+    for (int& b : bestKills) b = 0;
     sold = 0;
     questIdx = 0;
     questProg = 0;

@@ -259,7 +259,7 @@ struct Game {
     int shopPage = 0;
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
-    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills; selected slot
+    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary; selected slot
     // gathering (gathering.cpp)
     std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
     std::vector<int8_t> propRsId;        // ResId of each prop, -1 = scenery
@@ -296,6 +296,7 @@ struct Game {
     bool showMap = true;
     bool hasSave = false;
     int kills = 0, sold = 0;
+    int bestKills[A_COUNT] = {};  // bestiary: hunter kills per species (saved as "bestiary <kind> <n>" lines)
     float titleT = 0;
     // quests: questIdx is how many are done (= the current quest's number); only these 3 numbers are saved
     int questIdx = 0, questProg = 0;
@@ -596,6 +597,9 @@ struct Game {
     void skillSave(std::ostream& f) const;
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
+    // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
+    void bestiaryKill(int kind);
+    void drawBestiaryTab(int X, int Y, int W, int H);
     bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
     // ---- town buildings (town.cpp, services.cpp)
     int doorNear() const;               // BuildingKind whose door is within reach (outdoors), or -1

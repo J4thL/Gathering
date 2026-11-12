@@ -332,6 +332,21 @@ void testScreensAndSaves(SelfTest& t) {
         check(g.loadReport.dropped > 0, "items that cannot fit (absurd counts) are reported as dropped instead of lost silently");
         removeAll();
     }
+    {   // the bestiary counts hunter kills per species, pays coins at 5 / 20 / 50, and is saved
+        removeAll();
+        g.newGame();
+        g.p.coins = 0;
+        for (int i = 0; i < 4; i++) g.bestiaryKill(A_DEER);
+        check(g.bestKills[A_DEER] == 4 && g.p.coins == 0, "the bestiary counts kills (no reward before 5)");
+        g.bestiaryKill(A_DEER);
+        check(g.p.coins == 8 + ANIMAL[A_DEER].hp / 3, "the 5th kill of a species pays the first reward");
+        g.bestKills[A_WOLF] = 7;
+        g.save();
+        g.newGame();
+        check(g.bestKills[A_DEER] == 0, "a new game starts with an empty bestiary");
+        check(g.load() && g.bestKills[A_DEER] == 5 && g.bestKills[A_WOLF] == 7, "the bestiary is saved and loaded");
+        removeAll();
+    }
     {   // saving twice keeps the previous save; a save lost between the two renames is recovered; odd day / kills / quest numbers are clamped
         removeAll();
         g.newGame();

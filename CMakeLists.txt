@@ -22,6 +22,7 @@ set(WILDWOOD_CORE
     src/core/game_map.cpp)
 set(WILDWOOD_PLAYER
     src/player/skills.cpp
+    src/core/bestiary.cpp
     src/player/equipment.cpp)
 set(WILDWOOD_CRAFTING
     src/crafting/crafting.cpp)

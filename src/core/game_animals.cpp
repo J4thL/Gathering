@@ -450,12 +450,18 @@ void Game::updateAnimals(float dt) {
                 a.hpShow = 2.f;
                 ftext(a.pos + V2(0, -a.bodyH - 10), "-" + S(loss), HEX(0xb52a2e), 0.7f);
                 if (a.hp <= 0) {
+                    if (a.bleedByHunter && dist(a.pos, p.pos) > 150.f) {  // the quarry got away wounded and bled out: say where to find it
+                        static const char* dirs[8] = {"EAST", "SOUTH-EAST", "SOUTH", "SOUTH-WEST", "WEST", "NORTH-WEST", "NORTH", "NORTH-EAST"};
+                        const V2 d = a.pos - p.pos;
+                        const int di = ((int)lroundf(atan2f(d.y, d.x) / (3.14159265f / 4.f)) + 8) % 8;
+                        msg("YOUR WOUNDED " + std::string(ANIMAL[a.kind].name) + " BLED OUT " + S((int)(d.len() / TS)) + " TILES " + dirs[di], C_GOLD);
+                    }
                     killAnimal(a, a.bleedByHunter);
                     continue;
                 }
             }
             if (a.vel.len() > 5.f && rng.chance(dt * 6.f)) {
-                decals.push_back({a.pos + V2(rng.range(-2, 2), 2), 0, 0, 30});
+                decals.push_back({a.pos + V2(rng.range(-2, 2), 2), 0, 0, 70});  // the trail stays long enough to follow
                 bloodBurst(a.pos + V2(0, -a.bodyH * 0.5f), V2(0, 1), 1);
             }
         }
@@ -566,6 +572,7 @@ void Game::killAnimal(Animal& a, bool byHunter) {
     a.vel = V2();
     if (byHunter) {
         kills++;
+        bestiaryKill(a.kind);
         questEvent(Q_KILL, a.kind, 1);
     }
     Rng& dropRng = byHunter ? rng : frng;  // a predator's kill must not disturb the original random sequence
