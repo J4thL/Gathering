@@ -209,7 +209,7 @@ void Game::drawShop() {
 void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 16;
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
-    const int X = 24, Y = 12, W = 352, H = 200;
+    const int X = 24, Y = 12, W = 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, "PACK", C_GOLD);
@@ -240,14 +240,14 @@ void Game::drawInventory() {
     };
     if (invTab == 0) {
         static const char* fl[5] = {"ALL", "MATERIALS", "WEAPONS", "TOOLS", "SUPPLIES"};
-        int fx = X + 132;
+        int fx = X + 8;
         for (int i = 0; i < 5; i++) {
             int w = textW(fl[i]) + 10;
-            if (button(fx, Y + 20, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
+            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
             fx += w + 2;
         }
     }
-    const int cy = Y + 38;
+    const int cy = invTab == 0 ? Y + 50 : Y + 38;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
     auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };
 
@@ -426,7 +426,6 @@ void Game::drawInventory() {
             msg("PACK SORTED", C_DIM);
         }
         // ---- the hotbar: click a slot to equip the selected item there, or to unequip what is in it
-        const int toolRowY = by;  // the farming tool slots share the row of the SORT button
         by += 14;
         text(dx, by, "HOTBAR", C_DIM, 1, false);
         for (int i = 0; i < HOT_N; i++) {
@@ -457,39 +456,6 @@ void Game::drawInventory() {
                 }
             }
         }
-        // ---- the farming tools: one slot each for the hoe, watering can and sickle. Click a slot to equip the selected tool there, or to take
-        // what is in it off (it goes back into the pack).
-        {
-            const int fy = toolRowY;
-            static const int FT[3] = {TT_HOE, TT_CAN, TT_SICKLE};
-            static const int FT_DEFAULT[3] = {TL_HOE, TL_CAN, TL_SICKLE};
-            std::string info = "FARM TOOLS: CLICK A SLOT";
-            for (int i = 0; i < 3; i++) {
-                const int hx = dx + 108 + i * 21, type = FT[i], id = p.tool[type];
-                const bool fits = cd && cd->kind == IK_TOOL && TOOLDEF[cd->ref].type == type;
-                const bool over = inRect(hx, fy, 19, 13);
-                panel(hx, fy, 19, 13, fits ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
-                if (id >= 0) icon(itemIcon(itemTool(id)), hx + 10, fy + 6, 11);
-                else icon(itemIcon(itemTool(FT_DEFAULT[i])), hx + 10, fy + 6, 11, 0.25f);
-                if (over) info = id >= 0 ? std::string(TOOLDEF[id].name) + " - CLICK TO TAKE OFF" : std::string(TOOLDEF[FT_DEFAULT[i]].name) + " SLOT - EMPTY";
-                if (over && dropNow && fits) {
-                    equipFarmTool(invSel);
-                } else if (over && in.uiClick) {
-                    in.uiClick = false;
-                    in.lPressed = false;
-                    if (fits) equipFarmTool(invSel);
-                    else if (id >= 0) unequipFarmTool(type);
-                    else {
-                        msg(std::string("THIS SLOT TAKES THE ") + TOOLDEF[FT_DEFAULT[i]].name, C_DIM);
-                        audio.play(S_ERROR, 0.4f);
-                    }
-                }
-            }
-            text(dx + 40, fy + 14, info, C_DIM, 1, false);  // on the HOTBAR label line
-        }
-        // ---- the dragged stack follows the mouse
-        if (invDrag >= 0 && invDragMoved && in.l && !p.inv.slots[invDrag].empty()) icon(iconOf(p.inv.slots[invDrag].item), in.mx, in.my, 12);
-        if (!in.l) invDrag = -1;
     } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);
     } else {

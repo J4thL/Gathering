@@ -119,7 +119,7 @@ void testScreensAndSaves(SelfTest& t) {
         check(g.p.bandages() == b0 - 1 && g.p.hp == 30 + BANDAGE_HEAL, "ENTER on a bandage heals 45 HP and uses one");
         // ---- mouse: click a slot
         g.in.mx = 24 + 8 + 5 * 16 + 8;  // slot 5, as laid out by drawInventory (16-pixel cells, 10 columns)
-        g.in.my = 12 + 38 + 8;
+        g.in.my = 12 + 50 + 8;
         g.in.uiClick = true;
         g.render();
         check(g.invSel == 5, "clicking a slot selects it");
