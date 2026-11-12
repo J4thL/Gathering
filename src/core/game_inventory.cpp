@@ -150,11 +150,12 @@ void Game::updateInventory(float dt) {
     }
     if (in.escPressed || in.invToggle) {
         state = ST_PLAY;
+        invDrag = -1;
         save();
         audio.play(S_CLICK);
         return;
     }
-    if (in.tabPressed) invTab = (invTab + 1) % 3;
+    if (in.tabPressed) { invTab = (invTab + 1) % 3; invDrag = -1; }
     // cursor: arrow keys / WASD, one step per key press
     const bool now[4] = {in.up, in.down, in.left, in.right};
     const int cap = p.bagCap();

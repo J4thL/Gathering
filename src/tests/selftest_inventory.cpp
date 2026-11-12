@@ -141,5 +141,16 @@ void testInventoryClass(SelfTest& t) {
         check(qualityPrice(10, Q_MASTERPIECE) == 35 && qualityPrice(10, Q_NORMAL) == 10, "sell price scales with quality");
         check(itemHasQuality(itemWpn(W_FLINT)) && itemHasQuality(itemTool(TL_AXE1)) && !itemHasQuality(MEAT), "crafted gear has a quality, raw materials do not");
     }
+    // ---- drag and drop / split (Inventory::moveSlot)
+    {
+        Inventory iv;
+        iv.addIgnoringWeight(MEAT, 10);
+        check(iv.moveSlot(0, 5, 4) == 4 && iv.slots[0].n == 6 && iv.slots[5].item == MEAT && iv.slots[5].n == 4, "split moves part of a stack to an empty slot");
+        check(iv.moveSlot(5, 0, 4) == 4 && iv.slots[5].empty() && iv.slots[0].n == 10, "moving onto the same item merges and empties the source");
+        iv.slots[3] = Slot{itemWpn(W_FLINT), 2, Q_NORMAL};
+        check(iv.moveSlot(0, 3, 4) == 0 && iv.slots[0].n == 10 && iv.slots[3].n == 2, "a part-stack cannot swap onto a different item");
+        check(iv.moveSlot(0, 3, 10) == 10 && iv.slots[0].item == itemWpn(W_FLINT) && iv.slots[3].item == MEAT && iv.slots[3].n == 10, "a whole stack swaps with a different item");
+        check(iv.moveSlot(2, 7, 1) == 0 && iv.moveSlot(3, 3, 1) == 0, "empty source and same slot do nothing");
+    }
     // ---- game rules
 }
