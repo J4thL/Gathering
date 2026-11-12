@@ -6,6 +6,7 @@
 //   * depletion and regrowth: stump / rubble / stub  ->  sprout  ->  full again (and solid again for trees and rocks)
 //   * keeping the pack safe: a resource only finishes when everything it gives fits in the bag
 // Gathering uses its own random stream (grng), so it never disturbs the hunting / wildlife sequences.
+#include <climits>
 #include <algorithm>
 #include <map>
 #include <sstream>
@@ -36,7 +37,7 @@ void Game::resetHarvest() {
     for (int id : hActive) {
         if (isNodeId(id)) continue;
         const Prop& pr = world.props[idxOf(id)];
-        world.solid[(int)(pr.y / TS)][(int)(pr.x / TS)] = true;  // a felled tree / broken rock is standing again
+        world.setPropSolid(pr, true);  // a felled tree / broken rock is standing again
     }
     for (auto& s : propSt) s = HState();
     for (auto& s : nodeSt) s = HState();
@@ -63,14 +64,15 @@ int Game::bestTool(int type, int* toolIdx) const {
 }
 
 // A straight line from a to b must not cross a solid tile (other than the resource's own tile): no gathering through walls or trees.
-bool Game::lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy) const {
+bool Game::lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy, int ignoreTx1, int ignoreTy1) const {
+    if (ignoreTx1 == INT_MIN) ignoreTx1 = ignoreTx, ignoreTy1 = ignoreTy;
     V2 d = b - a;
     float len = d.len();
     int steps = std::max(1, (int)ceilf(len / 3.f));
     for (int i = 1; i < steps; i++) {
         float f = (float)i / steps;
         int tx = (int)floorf((a.x + d.x * f) / TS), ty = (int)floorf((a.y + d.y * f) / TS);
-        if (tx == ignoreTx && ty == ignoreTy) continue;
+        if (tx >= ignoreTx && tx <= ignoreTx1 && ty >= ignoreTy && ty <= ignoreTy1) continue;  // the resource's own tile(s)
         if (world.solidTile(tx, ty)) return false;
     }
     return true;
@@ -80,10 +82,10 @@ bool Game::findHarvest(HTarget& out) const {
     out = HTarget();
     const float R = 34.f;
     auto yLess = [](const auto& e, float y) { return e.y < y; };
-    auto consider = [&](bool node, int idx, V2 c, float reach, int tx, int ty, int res) {
+    auto consider = [&](bool node, int idx, V2 c, float reach, int tx, int ty, int res, int tx1 = INT_MIN, int ty1 = INT_MIN) {
         float d = dist(p.pos, c);
         if (d > reach || (out.valid && d >= out.dist)) return;
-        if (!lineClear(p.pos + V2(0, -3), c, tx, ty)) return;
+        if (!lineClear(p.pos + V2(0, -3), c, tx, ty, tx1, ty1)) return;
         out.valid = true;
         out.node = node;
         out.idx = idx;
@@ -101,7 +103,12 @@ bool Game::findHarvest(HTarget& out) const {
     for (auto it = std::lower_bound(P.begin(), P.end(), p.pos.y - R, yLess); it != P.end() && it->y <= p.pos.y + R + 16; ++it) {
         int idx = (int)(it - P.begin());
         if (propRsId[idx] < 0 || !harvestUp(false, idx)) continue;
-        consider(false, idx, V2(it->x, it->y - 6), HARVEST_REACH_PROP, (int)(it->x / TS), (int)(it->y / TS), propRsId[idx]);
+        if (isRockKind(it->kind)) {  // a wide rock: reach from its edge, and its own tiles are not in the way
+            int x0, y0, x1, y1;
+            rockFoot(*it, x0, y0, x1, y1);
+            consider(false, idx, V2(it->x, it->y - 6), HARVEST_REACH_PROP + (x1 - x0) * TS * 0.5f, x0, y0, propRsId[idx], x1, y1);
+        } else
+            consider(false, idx, V2(it->x, it->y - 6), HARVEST_REACH_PROP, (int)(it->x / TS), (int)(it->y / TS), propRsId[idx]);
     }
     return out.valid;
 }
@@ -212,7 +219,7 @@ void Game::harvestFinish(const HTarget& t) {
     if (std::find(hActive.begin(), hActive.end(), enc(t.node, t.idx)) == hActive.end()) hActive.push_back(enc(t.node, t.idx));
     if (!t.node) {  // a felled tree / broken rock no longer blocks the way
         const Prop& pr = world.props[t.idx];
-        world.solid[(int)(pr.y / TS)][(int)(pr.x / TS)] = false;
+        world.setPropSolid(pr, false);
     }
     harvestChips(t.pos + V2(0, -4), HEX(R.chip), R.cls == RCL_PLANT ? 8 : 16, 1.5f);
     shakeAmt = std::max(shakeAmt, R.cls == RCL_TREE ? 2.4f : 1.4f);
@@ -317,7 +324,7 @@ void Game::harvestLoad(const std::vector<std::string>& lines) {
         s.t = (float)std::max(1, std::min(3600, secs));
         if (!node) {
             const Prop& pr = world.props[it->second];
-            world.solid[(int)(pr.y / TS)][(int)(pr.x / TS)] = false;
+            world.setPropSolid(pr, false);
         }
         hActive.push_back(enc(node, it->second));
     }

@@ -12,14 +12,19 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)((uint32_t)y * 19349663u); }
 #include "art/sprites_res.hpp"
 #include "art/sprites_trophy.hpp"
-#include "art/sprites_carcass.hpp"
-#include "art/sprites_ores.hpp"
 #include "art/sprites_gear.hpp"
 #include "delve/sprites_delve.hpp"
 #include "farming/sprites_homestead.hpp"
 #include "player/hunter_chibi.hpp"
 #include "art/sprites_biome.hpp"
 #include "npcs/sprites_town.hpp"
+#include "art/sprites_carcass.hpp"
+#include "art/sprites_ores.hpp"
+#include "art/tree_lime.hpp"
+#include "art/tree_pine.hpp"
+#include "art/tree_snow_spruce.hpp"
+#include "art/tree_dead_spruce.hpp"
+#include "art/rock_sprites.hpp"
 
 // ================================================================= tiles
 inline Img mkGrass(int variant, Rng& r) {
@@ -930,6 +935,36 @@ inline Img mkGlow(u32 col, int sz) {
         }
     return im;
 }
+// The grass around the snow spruce's roots: the forest's spruce grass, recoloured. Every pixel keeps its brightness but is mapped
+// onto a frosty ramp, from a dark blue-green in the shade to nearly white in the light.
+inline Img mkSnowGrassFrame(int frame) {
+    Img im = mkGrassFrame(GRASS_SPRUCE, frame);
+    const int dr = 0x2a, dg = 0x62, db = 0x6c, lr = 0xb8, lg = 0xd8, lb = 0xe0;  // dark and light ends of the ramp
+    for (int y = 0; y < im.h; y++)
+        for (int x = 0; x < im.w; x++) {
+            const u32 c = im.get(x, y);
+            if (cA(c) == 0) continue;
+            float l = (cR(c) * 0.30f + cG(c) * 0.59f + cB(c) * 0.11f) / 170.f;  // the forest grass tops out around 170
+            l = l < 0.f ? 0.f : l > 1.f ? 1.f : l;
+            im.set(x, y, RGBA((int)(dr + (lr - dr) * l), (int)(dg + (lg - dg) * l), (int)(db + (lb - db) * l), cA(c)));
+        }
+    return im;
+}
+
+// A long soft shadow for the time-of-day tree shadows: 64 x 16, wide at the left end (the foot) and tapering to a soft point.
+inline Img mkSoftShadow() {
+    Img im(64, 16);
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 64; x++) {
+            const float u = x / 63.f, hw = 7.5f * (1.f - u * 0.75f);
+            float a = 1.f - fabsf(y + 0.5f - 8.f) / hw;
+            if (a <= 0.f) continue;
+            a = std::min(1.f, a * 1.6f) * (1.f - u * u * 0.8f) * std::min(1.f, 0.35f + u * 8.f);
+            im.set(x, y, RGBA(8, 6, 22, (int)(a * 255)));
+        }
+    return im;
+}
+
 inline Img mkShadow(int w, int h) {
     Img im(w, h);
     im.ellipse(w / 2.f, h / 2.f, w / 2.f, h / 2.f, RGBA(0, 0, 0, 70));
@@ -1055,7 +1090,10 @@ inline Img mkAmmoWorld(int a) {
 struct Assets {
     Spr grass[4], dirt[2], water[4];
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
-    Spr oak[2], pine, rock[2];
+    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
+    Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], snowSpruceShadow, deadSpruce[DEAD_SPRUCE_FRAMES], deadSpruceShadow;  // animated snow and dead spruces
+    Spr rockTiny[ROCK_LOOKS], rockSmall[ROCK_LOOKS], rockLarge[ROCK_LOOKS], pebbleSet[ROCK_LOOKS];  // pebbleSet lies around small rocks and boulders, like the grass around trees
+      // rock_sprites.hpp
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S E N][state][pose]; west is the east view mirrored
     HunterLook look;  // the appearance player[][] was drawn with (see rebuildPlayerSprites)
@@ -1063,7 +1101,7 @@ struct Assets {
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
-    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, blood[3], vignette;
+    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, shadowSoft, blood[3], vignette;
     DelveAssets D;
     hart::HomeAssets H;  // the Homestead: building pieces, crops, portal and market (sprites_homestead.hpp)
     DomBank Dom;    // the farm animals of the Homestead: built on first entry (buildDomBank)
@@ -1103,9 +1141,25 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.mushroom = makeSpr(r, mkMushroom(), 4, 7);
     a.pebbles = makeSpr(r, mkPebbles(), 4, 5);
     for (int i = 0; i < 2; i++) a.bush[i] = makeSpr(r, mkBush(rg), 9, 12);
-    a.oak[0] = makeSpr(r, mkOak(0, rg), 17, 40);
-    a.oak[1] = makeSpr(r, mkOak(1, rg), 17, 40);
-    a.pine = makeSpr(r, mkPine(rg), 13, 42);
+    for (int v = 0; v < OAK_VARIANTS; v++)
+        a.oakShadow[v] = makeSpr(r, mkShadow(OAK_VAR[v].sw, OAK_VAR[v].sh), OAK_VAR[v].sw / 2, OAK_VAR[v].sh / 2);
+    for (int v = 0; v < OAK_VARIANTS; v++)
+        for (int f = 0; f < OAK_FRAMES; f++) a.oak[v][f] = makeSpr(r, mkOakFrame(v, f), OAK_VAR[v].ax, OAK_VAR[v].ay);
+    for (int f = 0; f < PINE_FRAMES; f++) a.pine[f] = makeSpr(r, mkPineFrame(f), PINE_AX, PINE_AY);
+    a.pineShadow = makeSpr(r, mkShadow(PINE_SW, PINE_SH), PINE_SW / 2, PINE_SH / 2);
+    for (int g = 0; g < GRASS_SETS; g++)
+        for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);
+    for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrass[f] = makeSpr(r, mkSnowGrassFrame(f), GRASS_SET[GRASS_SPRUCE].ax, GRASS_SET[GRASS_SPRUCE].ay);
+    for (int f = 0; f < SNOW_SPRUCE_FRAMES; f++) a.snowSpruce[f] = makeSpr(r, mkSnowSpruceFrame(f), SNOW_SPRUCE_AX, SNOW_SPRUCE_AY);
+    a.snowSpruceShadow = makeSpr(r, mkShadow(SNOW_SPRUCE_SW, SNOW_SPRUCE_SH), SNOW_SPRUCE_SW / 2, SNOW_SPRUCE_SH / 2);
+    for (int f = 0; f < DEAD_SPRUCE_FRAMES; f++) a.deadSpruce[f] = makeSpr(r, mkDeadSpruceFrame(f), DEAD_SPRUCE_AX, DEAD_SPRUCE_AY);
+    a.deadSpruceShadow = makeSpr(r, mkShadow(DEAD_SPRUCE_SW, DEAD_SPRUCE_SH), DEAD_SPRUCE_SW / 2, DEAD_SPRUCE_SH / 2);
+    for (int i = 0; i < ROCK_LOOKS; i++) {
+        a.rockTiny[i] = makeSpr(r, mkRockArt(ROCK_TINY[i]), ROCK_TINY[i].w / 2, ROCK_TINY[i].h - 2);
+        a.rockSmall[i] = makeSpr(r, mkRockArt(ROCK_SMALL[i]), ROCK_SMALL[i].w / 2, ROCK_SMALL[i].h - 2);
+        a.rockLarge[i] = makeSpr(r, mkRockArt(ROCK_LARGE[i]), ROCK_LARGE[i].w / 2, ROCK_LARGE[i].h - 2);
+        a.pebbleSet[i] = makeSpr(r, mkRockArt(ROCK_PEBBLES[i]), ROCK_PEBBLES[i].w / 2, ROCK_PEBBLES[i].h - 1);
+    }
     a.rock[0] = makeSpr(r, mkRock(0), 10, 13);
     a.rock[1] = makeSpr(r, mkRock(1), 12, 16);
     a.hut = makeSpr(r, mkHut(), 33, 56);
@@ -1163,6 +1217,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.shadow[1] = makeSpr(r, mkShadow(26, 8), 13, 4);
     a.shadow[2] = makeSpr(r, mkShadow(40, 12), 20, 6);
     a.shadowCast = makeSpr(r, mkCastShadow(), 6, 4);
+    a.shadowSoft = makeSpr(r, mkSoftShadow(), 0, 8);
     a.blood[0] = makeSpr(r, mkBlood(12, 7), 6, 3);
     a.blood[1] = makeSpr(r, mkBlood(20, 10), 10, 5);
     a.blood[2] = makeSpr(r, mkBlood(30, 14), 15, 7);
