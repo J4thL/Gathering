@@ -1,6 +1,7 @@
 // game.hpp - entities and the Game class.
 #pragma once
 #include <deque>
+#include <climits>
 #include <ostream>
 #include <sstream>
 #include <string>
@@ -189,6 +190,15 @@ struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wi
     float x, y, vx, vy, ph, sz;
 };
 
+// a source of light for game_light.cpp: pool of light with radius r, strength k (0..1), tint tone (0 = flame, 1 = cold, 2 = player)
+struct LightSrc {
+    float x, y, r, k;
+    int tone;
+    bool occl;  // tall things (buildings, rocks) cast shadows from it
+    bool night;  // only lit at night (windows, lamps), otherwise always (fires)
+    bool south = false;  // lights only the ground south of it (a window on a house front: nothing leaks through to the back)
+};
+
 // harvest state of one resource (see gathering.cpp): hits already landed, regrow timers, a little shake when struck
 struct HState {
     uint8_t done = 0;   // swings landed so far
@@ -338,6 +348,10 @@ struct Game {
     int flowTx = -1, flowTy = -1;
     float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
     float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
+    // ---- light and weather (game_light.cpp)
+    float stormK = 0, stormT = 0, stormNext = 100.f, flashT = 0, flashNext = 4.f, thunderT = -1.f;  // storm: strength 0..1, time left, until the next one
+    std::vector<LightSrc> lampList;  // every fixed light of this map, rebuilt each frame
+    std::vector<LightSrc> winList;   // the town's lit windows (x, y = centre of the glass, k = how lit, tone = which shop), rebuilt each frame
     SDL_Texture* darkTex = nullptr;    // the delve darkness (a small alpha grid scaled up)
     int bossIdx = -1;                  // index in mons of the awake boss, -1 = none
     bool monsArtReady = false;
@@ -520,6 +534,11 @@ struct Game {
     void drawDChest(const DChest& c);
     void drawMonster(const Monster& m);
     void drawDelveOverlay();                     // ice bolts
+    void updateLight(float dt);                  // storms, thunder, and the list of lamps (game_light.cpp)
+    void drawLighting(float night);              // darkness with pools of light, dusk and dawn colour, glows
+    void drawGroundShadows();                    // tree and rock shadows that swing with the sun
+    void drawSkyFx(float night2);                // aurora, shimmer, wisps, rain, lightning
+    float lampLight(V2 pos) const;               // 0..1: how much a fire, lamp or window lights this spot at night (monsters shy away)
     void drawDelveDark();                        // darkness and light pools
     void drawBossBar();
     void drawDelveBanner();
@@ -543,7 +562,7 @@ struct Game {
     bool harvestUp(bool node, int idx) const;
     HState& hstate(bool node, int idx) { return node ? nodeSt[idx] : propSt[idx]; }
     const HState& hstate(bool node, int idx) const { return node ? nodeSt[idx] : propSt[idx]; }
-    bool lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy) const;
+    bool lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy, int ignoreTx1 = INT_MIN, int ignoreTy1 = INT_MIN) const;  // ignores the tiles from (ignoreTx, ignoreTy) to (ignoreTx1, ignoreTy1)
     void harvestStep(const HTarget& t, float dt);  // hold-E gathering: advances the swing, lands hits, finishes the resource
     void harvestFinish(const HTarget& t);
     void updateHarvest(float dt);

@@ -10,6 +10,8 @@
 #include <functional>
 #include <vector>
 #include "world/maps.hpp"
+#include "art/tree_lime.hpp"
+#include "art/tree_pine.hpp"
 
 inline void World::generateMap(int map) {
     if (map == B_HOMESTEAD) {  // the player's sandbox has its own generator (homestead_gen.hpp)
@@ -181,7 +183,7 @@ inline void World::generateMap(int map) {
             int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
             bool tree = p.kind == P_OAK0 || p.kind == P_OAK1 || p.kind == P_PINE || p.kind == P_ROCK0 || p.kind == P_ROCK1;
             if (inMap(tx, ty) && K(tx, ty) != 0 && tree) {  // the trail opens the core's tree wall
-                solid[ty][tx] = false;
+                solid[ty][tx] = false;  // (rocks get their wider footprint later, in fitRocks)
                 props.erase(props.begin() + i);
             } else
                 i++;
@@ -658,13 +660,13 @@ inline void World::generateMap(int map) {
         };
         homeScatter(RN_HERB, 34, [&](int x, int y) { return tile[y][x] == T_GRASS || tile[y][x] == T_DARK; });
         homeScatter(RN_MUSHROOM, 26, [&](int x, int y) { return tile[y][x] == T_DARK; });
-        homeScatter(RN_BRANCH, 36, [&](int x, int y) { return tile[y][x] == T_GRASS || tile[y][x] == T_DARK; });
+        homeScatter(RN_BRANCH, 36, [&](int x, int y) { return (tile[y][x] == T_GRASS || tile[y][x] == T_DARK) && nearTree(x * TS + 8.f, y * TS + 12.f, 40.f); });  // branches fall from trees
         homeScatter(RN_FLAX, 28, [&](int x, int y) { return tile[y][x] == T_GRASS; });
         // and the same plants through the home forest around the original area
         auto outer = [&](int x, int y) { return !inCore(x, y); };
         scatter(RN_HERB, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
         scatter(RN_MUSHROOM, 40, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_DARK; }, 4.f);
-        scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
+        scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK) && nearTree(x * TS + 8.f, y * TS + 12.f, 40.f); }, 4.f);
         scatter(RN_FLAX, 50, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_GRASS; }, 4.f);
         generateTown();  // last: the town is laid over the middle of the original area
     }
@@ -814,3 +816,162 @@ inline void World::generateTown() {
 }
 
 #include "farming/homestead_gen.hpp"
+
+// Keeps oaks and pines from piling on top of each other. Runs once after a map is generated: walking the trees in order, a tree is
+// dropped when its canopy would cover more than TREE_OVERLAP (a share, 0 to 1) of an already kept tree's canopy (tree_lime.hpp). Rocks, bushes and everything else are left alone. Nothing random is used, so the map stays the same every run.
+inline void World::thinTrees() {
+    struct T { float x, y, w, c; };  // c = height of the leafy part
+    const float CELL = 64.f;
+    const int gw = (int)((MW * TS) / CELL) + 2, gh = (int)((MH * TS) / CELL) + 2;
+    std::vector<std::vector<T>> grid((size_t)gw * gh);
+    std::vector<Prop> out;
+    out.reserve(props.size());
+    for (const Prop& p : props) {
+        if (p.kind != P_OAK0 && p.kind != P_OAK1 && p.kind != P_PINE) { out.push_back(p); continue; }
+        const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
+        float w = PINE_W, h = PINE_H;
+        if (p.kind != P_PINE) { const OakVar& v = OAK_VAR[oakVariantFor(tx, ty)]; w = (float)v.w; h = (float)v.h; }
+        const T t{p.x, p.y, w, h * 0.7f};
+        const int cx = (int)(p.x / CELL), cy = (int)(p.y / CELL);
+        // the trees of the map's edge wall stay: they are walls, not forest. The box around the town is thinned like the forest (so its
+        // trees do not pile up), but its inner row keeps blocking, see below.
+        const int cx2 = tx - COX, cy2 = ty - COY;
+        const bool box = cx2 >= 0 && cy2 >= 0 && cx2 < CW && cy2 < CH && (cx2 < 2 || cy2 < 2 || cx2 >= CW - 2 || cy2 >= CH - 2);
+        const bool wall = tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2;
+        const bool townBox = box && mapId == B_HOME;
+        const bool boxInner = townBox && cx2 > 0 && cy2 > 0 && cx2 < CW - 1 && cy2 < CH - 1;
+        bool crowded = false;
+        for (int gy = std::max(0, cy - 1); gy <= std::min(gh - 1, cy + 1) && !crowded; gy++)
+            for (int gx = std::max(0, cx - 1); gx <= std::min(gw - 1, cx + 1) && !crowded; gx++)
+                for (const T& o : grid[(size_t)gy * gw + gx]) {
+                    // how far the two tops cover each other sideways and up/down (0 = not at all, 1 = fully)
+                    const float ow = std::max(0.f, std::min(1.f, ((t.w + o.w) * 0.5f - std::fabs(t.x - o.x)) / std::min(t.w, o.w)));
+                    const float oh = std::max(0.f, std::min(1.f, ((t.c + o.c) * 0.5f - std::fabs(t.y - o.y)) / std::min(t.c, o.c)));
+                    // ow * oh is the share of the smaller top that is covered. A tree straight behind another (same sideways spot)
+                    // covers a lot, so it must stand far back. A tree shifted to the side covers less, so it may stand closer:
+                    // neighbours end up staggered in rows, like layers.
+                    if (!wall && ow * oh > TREE_OVERLAP) { crowded = true; break; }
+                }
+        if (crowded) {
+            // the tree is gone, so is its blocking tile. Except in the inner row of the town's box: that row is a sealed wall, its
+            // tiles keep blocking and the neighbouring trees cover the spot.
+            if (!boxInner && tx >= 0 && ty >= 0 && tx < MW && ty < MH) solid[ty][tx] = false;
+            continue;
+        }
+        grid[(size_t)cy * gw + cx].push_back(t);
+        out.push_back(p);
+    }
+    props.swap(out);
+}
+
+// More rows of trees outside the box around the town, so the edge is a thick forest and not one line. Each tile near the box gets a
+// tree by chance (more likely close to the box, fewer further out), placed at a random spot in the tile. The gaps where the paths
+// leave the town, and the paths themselves, are kept clear. thinTrees() runs afterwards and removes the ones that would pile up.
+// It uses its own random numbers, so the rest of the map is unchanged.
+inline void World::addTownBelt() {
+    constexpr int DEPTH = 7;
+    static const float CHANCE[DEPTH] = {0.75f, 0.7f, 0.6f, 0.5f, 0.4f, 0.3f, 0.2f};
+    Rng br(seed * 40503u + 12345u);
+    std::vector<std::pair<int, int>> gates;  // open tiles in the inner row of the box: where the paths leave the town
+    for (int y = COY; y < COY + CH; y++)
+        for (int x = COX; x < COX + CW; x++) {
+            const int cx = x - COX, cy = y - COY;
+            const bool inner = (cx == 1 || cy == 1 || cx == CW - 2 || cy == CH - 2) && cx >= 1 && cy >= 1 && cx <= CW - 2 && cy <= CH - 2;
+            if (inner && !solid[y][x]) gates.push_back({x, y});
+        }
+    for (int ty = COY - DEPTH; ty < COY + CH + DEPTH; ty++)
+        for (int tx = COX - DEPTH; tx < COX + CW + DEPTH; tx++) {
+            if (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3) continue;
+            const int dx = std::max(std::max(COX - tx, tx - (COX + CW - 1)), 0), dy = std::max(std::max(COY - ty, ty - (COY + CH - 1)), 0);
+            const int d = std::max(dx, dy);  // how many tiles outside the box
+            if (d < 1 || d > DEPTH) continue;
+            // same random numbers every time, whatever happens below
+            const bool roll = br.chance(CHANCE[d - 1]);
+            const float px = tx * (float)TS + 2.f + br.range(0.f, 12.f), py = ty * (float)TS + 4.f + br.range(0.f, 11.f), ph = br.f() * 6.28f;
+            const bool coin = br.chance(0.5f), pineRoll = br.chance(0.55f), pineRoll2 = br.chance(0.12f);
+            if (!roll || solid[ty][tx]) continue;
+            const uint8_t t = tile[ty][tx];
+            if (t != T_GRASS && t != T_DARK) continue;
+            bool clear = true;
+            for (int y = ty - 2; y <= ty + 2 && clear; y++)
+                for (int x = tx - 2; x <= tx + 2; x++)
+                    if (y >= 0 && x >= 0 && y < MH && x < MW && tile[y][x] == T_DIRT) { clear = false; break; }
+            for (const auto& g : gates)
+                if (std::abs(g.first - tx) <= 3 && std::abs(g.second - ty) <= 3) { clear = false; break; }
+            if (!clear) continue;
+            const int kind = (t == T_DARK) ? (pineRoll ? P_PINE : P_OAK0) : (pineRoll2 ? P_PINE : (coin ? P_OAK0 : P_OAK1));
+            props.push_back({kind, px, py, ph});
+            solid[ty][tx] = true;
+        }
+}
+
+// Gives every rock one of its 5 looks and makes it block as wide as that sprite is. A look is used only when all the extra tiles it
+// needs are free, plain ground (not a trail, water, a cliff or something already blocking); otherwise the next look is tried, and a
+// rock with no room blocks only its own tile. The map's edge wall keeps one tile per boulder, it is a wall already.
+inline void World::fitRocks() {
+    auto plain = [&](int tx, int ty) {
+        if (tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2) return false;
+        if (solid[ty][tx] || tileSolid(tile[ty][tx])) return false;
+        const uint8_t t = tile[ty][tx];
+        return t != T_DIRT && t != T_COBBLE && t != T_WATER && t != T_CLIFF && t != T_RAIL && t != T_ICE;
+    };
+    for (Prop& p : props) {
+        if (!isRockKind(p.kind)) continue;
+        const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
+        const int start = std::abs((tx * 7 + ty * 13)) % ROCK_LOOKS;
+        if (tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2) { p.ph = 100.f + start; continue; }
+        bool done = false;
+        for (int k = 0; k < ROCK_LOOKS && !done; k++) {
+            const int look = (start + k) % ROCK_LOOKS;
+            int x0, y0, x1, y1;
+            rockFoot(p, look, false, x0, y0, x1, y1);
+            bool ok = true;
+            for (int y = y0; y <= y1 && ok; y++)
+                for (int x = x0; x <= x1 && ok; x++)
+                    if (!(x == tx && y == ty) && !plain(x, y)) ok = false;
+            if (!ok) continue;
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++) solid[y][x] = true;
+            p.ph = (float)look;
+            done = true;
+        }
+        if (!done) { p.ph = 100.f + start; solid[ty][tx] = true; }
+    }
+}
+
+inline void World::setPropSolid(const Prop& p, bool v) {
+    int x0, y0, x1, y1;
+    if (isRockKind(p.kind)) rockFoot(p, x0, y0, x1, y1);
+    else x0 = x1 = (int)(p.x / TS), y0 = y1 = (int)(p.y / TS);
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++)
+            if (x >= 0 && y >= 0 && x < MW && y < MH) solid[y][x] = v;
+}
+
+// Marks the tiles that stop light. Buildings, huts, cave mouths and wide rocks stand on solid tiles: around each one the solid tiles
+// become occluders (trees do not, a forest would be pitch black). Cliffs and walls count too.
+inline void World::buildOccluders() {
+    memset(occ, 0, sizeof(occ));
+    for (int y = 0; y < MH; y++)
+        for (int x = 0; x < MW; x++)
+            if (tile[y][x] == T_CLIFF) occ[y][x] = true;
+    auto mark = [&](const Prop& p, int rx, int up) {
+        const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
+        for (int y = ty - up; y <= ty; y++)
+            for (int x = tx - rx; x <= tx + rx; x++)
+                if (x >= 0 && y >= 0 && x < MW && y < MH && solid[y][x]) occ[y][x] = true;
+    };
+    for (const Prop& p : props) {
+        if (p.kind >= P_BLD0 && p.kind <= P_BLD5) mark(p, 5, 5);
+        else if (p.kind == P_HUT || p.kind == P_ICEHUT) mark(p, 2, 2);
+        else if (p.kind == P_CAVE) mark(p, 3, 3);
+        else if (isRockKind(p.kind)) {
+            int x0, y0, x1, y1;
+            rockFoot(p, x0, y0, x1, y1);
+            if (x1 > x0 || p.kind == P_BOULDER)
+                for (int y = y0; y <= y1; y++)
+                    for (int x = x0; x <= x1; x++)
+                        if (x >= 0 && y >= 0 && x < MW && y < MH) occ[y][x] = true;
+        }
+    }
+}

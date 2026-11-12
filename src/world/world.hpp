@@ -77,8 +77,23 @@ enum PropKind {
 struct Prop {
     int kind;
     float x, y;  // ground anchor
-    float ph;
+    float ph;    // swaying trees: sway phase. Rocks: which of the 5 looks (0-4); 100 and up = the same look, but blocking only its own tile
 };
+// ---- rocks: the collision follows the size of the sprite (rock_sprites.hpp): tiny rocks, small rocks and boulders each have 5 looks
+inline bool isRockKind(int k) { return k == P_ROCK0 || k == P_ROCK1 || k == P_BOULDER; }
+inline const RockArt* rockSet(int kind) { return kind == P_ROCK0 ? ROCK_TINY : kind == P_ROCK1 ? ROCK_SMALL : ROCK_LARGE; }
+inline int rockLookOf(const Prop& p) { return std::abs((int)p.ph) % 100 % ROCK_LOOKS; }
+inline bool rockOwnTileOnly(const Prop& p) { return p.ph >= 100.f; }
+// the tiles a rock blocks: as wide as its sprite (a little less, for the outline) and one row deep at its foot
+inline void rockFoot(const Prop& p, int look, bool ownTileOnly, int& x0, int& y0, int& x1, int& y1) {
+    const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
+    if (ownTileOnly) { x0 = x1 = tx; y0 = y1 = ty; return; }
+    const RockArt& a = rockSet(p.kind)[look];
+    const float hw = a.w * 0.4f, depth = std::min(a.h * 0.25f, 12.f);
+    x0 = (int)floorf((p.x - hw) / TS); x1 = (int)floorf((p.x + hw) / TS);
+    y0 = (int)floorf((p.y - depth) / TS); y1 = ty;
+}
+inline void rockFoot(const Prop& p, int& x0, int& y0, int& x1, int& y1) { rockFoot(p, rockLookOf(p), rockOwnTileOnly(p), x0, y0, x1, y1); }
 enum DecorKind {
     D_FLOWER0, D_FLOWER1, D_FLOWER2, D_TUFT, D_MUSHROOM, D_PEBBLES, D_BUSH0, D_BUSH1,  // original (0-7)
     D_DRYBUSH, D_SKULL, D_SANDTUFT, D_REEDS0, D_REEDS1, D_LILY, D_BUBBLES, D_DRIFT, D_FROSTTUFT, D_ALPINE, D_GRAVEL, D_COUNT
@@ -133,6 +148,7 @@ struct World {
     uint8_t tile[MH][MW];
     uint8_t biome[MH][MW];
     bool solid[MH][MW];
+    bool occ[MH][MW];  // tall things that stop light: buildings, huts, caves, boulders, cliffs (buildOccluders, worldgen.hpp)
     std::vector<Prop> props;  // sorted by y once generation is done
     std::vector<Decor> decor;  // sorted by y
     std::vector<ResNode> nodes;  // sorted by y
@@ -155,6 +171,7 @@ struct World {
     int interiorKind() const { return mapId - B_COUNT; }
     // ---- delves (delve.hpp): the Abandoned Mine and the four levels of the Frozen Dungeon, instance maps in the same arrays
     bool isDelve() const { return mapId >= B_COUNT + 8; }
+    int delveId() const { return mapId - (B_COUNT + 8); }
     std::vector<DSpawn> dsp;
     std::vector<DLight> lights;
     V2 stairsDn, stairsUp;     // the stairs of a dungeon level
@@ -165,6 +182,11 @@ struct World {
 
     float pixW() const { return MW * TS; }
     float pixH() const { return MH * TS; }
+    // the original map's pixel rectangle
+    float coreX0() const { return COX * TS; }
+    float coreY0() const { return COY * TS; }
+    float coreX1() const { return (COX + CW) * TS; }
+    float coreY1() const { return (COY + CH) * TS; }
 
     // deep water (lakes, bog): blocks movement, splashes projectiles
     bool water(int tx, int ty) const { return tx >= 0 && ty >= 0 && tx < MW && ty < MH && tileDeep(tile[ty][tx]); }
@@ -213,11 +235,18 @@ struct World {
         gate = stairsDn = stairsUp = bossPos = bossDoor = V2(-1, -1);
         hportal = hmarket = V2(-99999.f, -99999.f);
         memset(solid, 0, sizeof(solid));
+        memset(occ, 0, sizeof(occ));
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) tile[y][x] = T_GRASS;
         if (map == B_HOME) generateCore();
         generateMap(map);  // worldgen.hpp: the home map's gates and forest, or a whole biome map
+        if (map == B_HOME) addTownBelt();  // worldgen.hpp: more rows of trees outside the box around the town
+        thinTrees();       // worldgen.hpp: no oaks or pines standing on top of each other
+        // a branch whose tree was thinned out would lie alone: drop it
+        nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) { return n.kind == RN_BRANCH && !nearTree(n.x, n.y, 48.f); }), nodes.end());
+        fitRocks();        // worldgen.hpp: every rock blocks as wide as its sprite is, where there is room
+        buildOccluders();  // worldgen.hpp: what stops light (game_light.cpp)
         std::sort(props.begin(), props.end(), [](const Prop& a, const Prop& b) { return a.y < b.y; });
         std::sort(decor.begin(), decor.end(), [](const Decor& a, const Decor& b) { return a.y < b.y; });
         std::sort(nodes.begin(), nodes.end(), [](const ResNode& a, const ResNode& b) { return a.y < b.y; });
@@ -334,6 +363,33 @@ struct World {
     }
 
     void generateMap(int map);  // worldgen.hpp
+    void thinTrees();           // worldgen.hpp
+    void addTownBelt();         // worldgen.hpp
+    void fitRocks();            // worldgen.hpp
+    void buildOccluders();      // worldgen.hpp
+    // true when a standing tree (oak, pine, spruce, dead or bare tree) is within maxDist px of the point: where fallen branches may lie
+    bool nearTree(float x, float y, float maxDist) const {
+        for (const Prop& p : props) {
+            if (p.kind != P_OAK0 && p.kind != P_OAK1 && p.kind != P_PINE && p.kind != P_SNOWPINE && p.kind != P_DEADTREE0 &&
+                p.kind != P_DEADTREE1 && p.kind != P_BARETREE)
+                continue;
+            const float dx = p.x - x, dy = p.y - y;
+            if (dx * dx + dy * dy <= maxDist * maxDist) return true;
+        }
+        return false;
+    }
+    // true when something tall stands between the two points (the first 20 px from the start are ignored: a lamp on a wall lights outwards)
+    bool lightBlocked(float x0, float y0, float x1, float y1) const {
+        const float dx = x1 - x0, dy = y1 - y0, len = sqrtf(dx * dx + dy * dy);
+        const int steps = (int)(len / 5.f);
+        for (int i = 4; i < steps; i++) {
+            const float f = (float)i / steps;
+            const int tx = (int)((x0 + dx * f) / TS), ty = (int)((y0 + dy * f) / TS);
+            if (tx >= 0 && ty >= 0 && tx < MW && ty < MH && occ[ty][tx]) return true;
+        }
+        return false;
+    }
+    void setPropSolid(const Prop& p, bool v);  // a tree's tile, or all of a rock's tiles (felled and broken things stop blocking)
     void generateTown();        // worldgen.hpp: the central town on the home map
     // inside the town's rectangle (home map only), `margin` pixels more generous: no animal spawns or walks in, nothing grows there
     bool inTown(float x, float y, float margin = 0.f) const;

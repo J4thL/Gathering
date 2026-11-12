@@ -142,7 +142,7 @@ inline void World::generateHomestead() {
     };
     scatter(RN_HERB, 36, [&](int x, int y) { return rim(x, y); }, 4.f);
     scatter(RN_MUSHROOM, 26, [&](int x, int y) { return rim(x, y) && tile[y][x] == T_DARK; }, 4.f);
-    scatter(RN_BRANCH, 36, [&](int x, int y) { return rim(x, y); }, 4.f);
+    scatter(RN_BRANCH, 36, [&](int x, int y) { return rim(x, y) && nearTree(x * TS + 8.f, y * TS + 12.f, 40.f); }, 4.f);  // branches lie under trees
     scatter(RN_FLAX, 28, [&](int x, int y) { return rim(x, y) && tile[y][x] == T_GRASS; }, 4.f);
     scatter(RN_BERRY, 26, [&](int x, int y) { return rim(x, y); }, 5.f);
     scatter(RN_WILDFLOWER, 34, [&](int x, int y) { return tile[y][x] == T_GRASS; }, 4.f);
