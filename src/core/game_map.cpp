@@ -79,7 +79,14 @@ void Game::drawWorldMap() {
     }
     // carcasses that still hold materials
     for (auto& a : animals)
-        if (a.dead && a.totalRemain > 0) fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
+        if (a.dead && a.totalRemain > 0) {
+            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
+            if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
+                const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
+                fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);
+                fillRect(rx, ry, 1, 8, C_GOLD); fillRect(rx + 7, ry, 1, 8, C_GOLD);
+            }
+        }
     // the hunter
     if (((int)(timeAcc * 3)) & 1) fillRect(sx(p.pos.x) - 2, sy(p.pos.y) - 2, 5, 5, HEX(0xffffff));
     fillRect(sx(p.pos.x) - 1, sy(p.pos.y) - 1, 3, 3, HEX(0x2d5e35));

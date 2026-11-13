@@ -32,7 +32,8 @@ void Game::save() {
         for (int b = 0; b < B_COUNT; b++) f << ' ' << (gateOpen[b] ? 1 : 0);
         f << "\n";
         for (int k = 0; k < A_COUNT; k++)
-            if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << "\n";
+            if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << ' ' << bestMask[k] << "\n";
+        economySave(f);
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
@@ -244,9 +245,14 @@ bool Game::load() {
             }
         }
         else if (k == "bestiary") {
-            long long kind = -1, n = 0;
-            if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) bestKills[kind] = (int)std::max(0LL, std::min(1000000000LL, n));
+            long long kind = -1, n = 0, mask = 1;  // (older saves have no tier mask: assume a common one)
+            if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) {
+                ss >> mask;
+                bestKills[kind] = (int)std::max(0LL, std::min(1000000000LL, n));
+                bestMask[kind] = (int)(mask & ((1 << TR_COUNT) - 1));
+            }
         }
+        else if (k == "rep" || k == "demand" || k == "order") economyLoadLine(k, ss);
         else if (k == "skill") skillLoadLine(ss);
         else if (k == "disc") {
             std::string bits;

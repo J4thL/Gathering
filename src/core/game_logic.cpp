@@ -61,6 +61,7 @@ void Game::newGame() {
     seen.assign((size_t)MM_W * MM_H, '0');
     travelFade = travelCd = 0;
     hsReset();
+    economyInit();
     interior = -1;
     svc = -1;
     craftBld = -1;
@@ -94,6 +95,7 @@ void Game::newGame() {
     dayT = 30;
     kills = 0;
     for (int& b : bestKills) b = 0;
+    for (int& b : bestMask) b = 0;
     for (int b = 0; b < B_COUNT; b++) gateOpen[b] = b == B_HOME || b == B_HOMESTEAD;  // the four biomes start sealed
     gatesSeen = false;
     sold = 0;
@@ -355,6 +357,7 @@ void Game::checkWeaponSafetyNet(float dt) {
 
 void Game::updatePlay(float dt) {
     dayT += dt;
+    if (1 + (int)(dayT / 300.f) != lastDay) newDay(1 + (int)(dayT / 300.f));
     if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;
@@ -510,9 +513,9 @@ void Game::update(float dt) {
                 save();
                 audio.play(S_CLICK);
             }
-            if (in.tabPressed) shopTab = (shopTab + 1) % 2;
+            if (in.tabPressed) shopTab = (shopTab + 1) % 3;
             if (shopTab == 0) sellScroll -= in.wheel;
-            if (in.selectKey >= 0 && in.selectKey < 2) shopTab = in.selectKey;
+            if (in.selectKey >= 0 && in.selectKey < 3) shopTab = in.selectKey;
             break;
         case ST_CHEST:
             updateChest(dt);

@@ -61,6 +61,7 @@ struct Animal {
     V2 pos, vel, kb;
     int hp = 1, maxhp = 1;
     bool dead = false;
+    bool tracked = false;  // a wounded quarry that bled out of sight: its carcass is marked on the maps until the hunter finds it
     float deadT = 0;
     int face = 1;
     AState st = AS_WANDER;
@@ -297,6 +298,12 @@ struct Game {
     bool showMap = true;
     bool hasSave = false;
     int kills = 0, sold = 0;
+    // ---- town economy (game_economy.cpp): reputation, shop demand and the daily orders board
+    struct Order { int item = -1, q = 0, n = 0, pay = 0, rep = 0; bool done = false; };
+    int rep = 0, repAcc = 0, lastDay = 1;  // reputation points, coins sold toward the next point, the day the market last moved
+    float demand[M_COUNT] = {};               // what the store pays for each material, as a multiplier (0.7 .. 1.3)
+    Order orders[3];                       // today's orders (rebuilt from the day number; only `done` is saved)
+    int bestMask[A_COUNT] = {};            // bestiary: which tiers (bit per tier 0..3) of each species the hunter has killed
     int bestKills[A_COUNT] = {};  // bestiary: hunter kills per species (saved as "bestiary <kind> <n>" lines)
     float titleT = 0;
     // quests: questIdx is how many are done (= the current quest's number); only these 3 numbers are saved
@@ -603,7 +610,24 @@ struct Game {
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
-    void bestiaryKill(int kind);
+    void bestiaryKill(int kind, int tier = 0);
+    // economy
+    static constexpr int REP_LEVELS = 4;
+    int repLevel() const;
+    const char* repName() const;
+    int repNext() const;  // points for the next level (-1 at the top)
+    void addRep(int n);
+    int matSellPrice(int m) const;       // the store's price for one material today
+    int bonusPrice(int base) const;      // a crafted item's price with the reputation bonus
+    int buyPrice(int base) const;        // a store good's price with the reputation discount
+    void noteSold(int gain, int mat = -1, int n = 0);  // coins earned from selling: reputation and demand react
+    void newDay(int day);
+    void makeOrders(int day);
+    bool orderCanFill(const Order& o) const;
+    void fillOrder(int i);
+    void economyInit();
+    void economySave(std::ostream& f) const;
+    void economyLoadLine(const std::string& key, std::istringstream& ss);
     void sliderBar(int tx, int ty, int tw, int& val, int maxv, bool& drag);  // game_amount.cpp: shared by the amount popup and the pack slider
     void drawBestiaryTab(int X, int Y, int W, int H);
     bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
