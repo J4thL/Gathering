@@ -36,7 +36,7 @@ inline void townRoof(Img& im, const BuildingDef& B, int y0, int y1, int hw0, int
     im.rect(cx - hw1 - 1, y1 + 1, 2 * hw1 + 2, 1, B.roof);
 }
 
-// The blacksmith is hand-drawn (sprites_smith.hpp); the other buildings are built from code below.
+// The blacksmith is hand-drawn (sprites_smith.hpp); the other buildings are built from code below (mkBuilding is never called for the smith).
 inline Img smithImg() {
     Img im(SMITH_W, SMITH_H);
     for (int y = 0; y < SMITH_H; y++)
@@ -54,14 +54,7 @@ inline Img mkBuilding(int k) {
     const int cx = BSPR_W / 2;
     const u32 glass = HEX(0xf2d98b), glassL = HEX(0xfaeab0), frame = B.trim;
     // ---- behind-the-roof extras
-    if (k == BLD_SMITH) {  // a tall stone chimney with a glow
-        im.rect(74, 0, 12, 22, HEX(0x6e6e78));
-        im.rect(74, 0, 12, 3, HEX(0x4a4a54));
-        im.rect(82, 3, 4, 19, HEX(0x58585f));
-        for (int y = 5; y < 20; y += 4) im.rect(75, y, 10, 1, HEX(0x5a5a64));
-        im.set(79, 1, HEX(0xff8a2b));
-        im.set(80, 1, HEX(0xffd34d));
-    } else if (k == BLD_TANNER) {  // a squat brick flue
+    if (k == BLD_TANNER) {  // a squat brick flue
         im.rect(20, 6, 9, 16, HEX(0x9a5a3a));
         im.rect(20, 6, 9, 2, HEX(0x6a3a22));
         for (int y = 9; y < 22; y += 3) im.rect(20, y, 9, 1, HEX(0x7a4228));
@@ -70,7 +63,7 @@ inline Img mkBuilding(int k) {
         im.rect(51, 0, 2, 3, HEX(0x2e2e38));
     }
     // ---- roof
-    const int style = k == BLD_SMITH ? 2 : (k == BLD_FLOWER ? 3 : (k == BLD_SALON ? 2 : 1));
+    const int style = k == BLD_FLOWER ? 3 : (k == BLD_SALON ? 2 : 1);
     if (k == BLD_SHOP || k == BLD_SALON) townRoof(im, B, 12, 33, 28, 51, style);   // steeper, narrower ridge: a gabled front
     else townRoof(im, B, 6, 33, 34, 51, style);
     if (k == BLD_FLOWER) {  // round dormer with a flower
@@ -94,12 +87,7 @@ inline Img mkBuilding(int k) {
     // ---- walls
     const int wy0 = 34, wy1 = 79;
     im.rect(6, wy0, 92, wy1 - wy0 + 1, B.wall);
-    if (k == BLD_SMITH) {  // stone blocks
-        for (int y = wy0; y <= wy1; y += 6) {
-            im.rect(6, y, 92, 1, B.wallD);
-            for (int x = 6 + ((y / 6) % 2) * 6; x < 98; x += 12) im.rect(x, y, 1, 6, B.wallD);
-        }
-    } else if (k == BLD_SHOP || k == BLD_SALON || k == BLD_FLOWER) {  // plaster with timber posts / panels
+    if (k == BLD_SHOP || k == BLD_SALON || k == BLD_FLOWER) {  // plaster with timber posts / panels
         for (int x = 6; x < 98; x += 23) im.rect(x, wy0, 2, wy1 - wy0 + 1, B.wallD);
         im.rect(6, wy0, 92, 2, B.wallD);
         for (int y = wy0 + 4; y < wy1; y += 7)
@@ -109,7 +97,7 @@ inline Img mkBuilding(int k) {
         for (int x = 9; x < 98; x += 6) im.set(x, wy0 + 6 + (x % 7) * 4, B.wallD);
     }
     im.rect(6, wy0, 92, 1, B.wallD);
-    im.rect(6, wy1 - 3, 92, 4, k == BLD_SMITH ? HEX(0x4a4a54) : HEX(0x77747c));  // stone footing
+    im.rect(6, wy1 - 3, 92, 4, HEX(0x77747c));  // stone footing
     for (int x = 6; x < 98; x += 8) im.rect(x, wy1 - 3, 1, 4, HEX(0x5e5b63));
     // ---- door (centre), with a lintel and a step
     im.rect(44, 52, 16, 28, frame);
@@ -140,21 +128,7 @@ inline Img mkBuilding(int k) {
     im.rect(bx + bw - 1, 36, 1, 11, HEX(0x8a5c34));
     im.text(cx - tw / 2, 40, label, HEX(0x3b2616));
     // ---- kind-specific dressing
-    if (k == BLD_SMITH) {
-        for (int wx : {14, 78}) {  // furnace-orange glow in the windows
-            im.rect(wx, 49, 12, 10, HEX(0xe07a2a));
-            im.rect(wx, 49, 12, 3, HEX(0xffb24a));
-            im.rect(wx + 5, 49, 2, 10, frame);
-            im.rect(wx, 54, 12, 1, frame);
-        }
-        im.rect(4, 70, 14, 10, HEX(0x3a3a42));   // coal heap
-        im.ellipse(11, 70, 7, 3, HEX(0x2a2a30));
-        im.set(8, 69, HEX(0xe0452a));
-        im.rect(86, 70, 10, 10, HEX(0x58585f));  // anvil block by the wall
-        im.rect(84, 68, 14, 4, HEX(0x8d929e));
-        im.rect(84, 68, 14, 1, HEX(0xc8ccd4));
-        im.rect(98, 69, 3, 2, HEX(0x8d929e));
-    } else if (k == BLD_TANNER) {
+    if (k == BLD_TANNER) {
         im.rect(0, 40, 3, 40, HEX(0x6b4423));    // drying frame with a stretched hide
         im.rect(0, 40, 14, 3, HEX(0x6b4423));
         im.rect(11, 40, 3, 40, HEX(0x6b4423));
@@ -315,7 +289,8 @@ struct TownAssets {
 
 inline void buildTownAssets(SDL_Renderer* r, TownAssets& T) {
     Rng rg(424242);
-    for (int k = 0; k < BLD_COUNT; k++) T.bld[k] = makeSpr(r, mkBuilding(k), BSPR_W / 2, BSPR_H - 1);
+    for (int k = 0; k < BLD_COUNT; k++)
+        if (k != BLD_SMITH) T.bld[k] = makeSpr(r, mkBuilding(k), BSPR_W / 2, BSPR_H - 1);
     T.bld[BLD_SMITH] = makeSpr(r, smithImg(), SMITH_ANCHOR_X, SMITH_ANCHOR_Y);
     T.lamp = makeSpr(r, mkLamp(), 5, 35);
     T.fence = makeSpr(r, mkFence(), 9, 16);

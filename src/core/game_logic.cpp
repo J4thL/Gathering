@@ -503,7 +503,7 @@ void Game::update(float dt) {
             updateWorldMap(dt);
             break;
         case ST_SHOP:
-            dayT += 0;  // time stands still while trading
+            // time stands still while trading (updatePlay, which advances dayT, is not called)
             updateFx(dt);
             if (amtCtx != AMT_NONE) {  // the sell slider is open: it takes the keys
                 amountUpdate();

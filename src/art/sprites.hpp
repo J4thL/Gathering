@@ -124,63 +124,6 @@ inline Img mkBush(Rng& r) {
 }
 
 // ================================================================= trees & rocks
-inline Img mkOak(int variant, Rng& r) {
-    Img im(34, 42);
-    u32 dk = HEX(0x2f6b2b), md = HEX(0x3f8a34), lt = HEX(0x5fb046), hi = HEX(0x86cf5f);
-    if (variant == 1) {
-        dk = HEX(0x4a6b22);
-        md = HEX(0x6b9a2c);
-        lt = HEX(0x8bbb3a);
-        hi = HEX(0xb5d96a);
-    }
-    // trunk
-    im.rect(14, 28, 6, 12, HEX(0x7a5230));
-    im.rect(14, 28, 2, 12, HEX(0x93663b));
-    im.rect(18, 28, 2, 12, HEX(0x5e3d22));
-    im.rect(12, 38, 10, 2, HEX(0x5e3d22));
-    im.set(13, 37, HEX(0x7a5230));
-    im.set(20, 37, HEX(0x5e3d22));
-    // canopy
-    im.ellipseShaded(17, 24, 12, 7, lt, md, dk);
-    im.ellipseShaded(9, 19, 8, 8, lt, md, dk);
-    im.ellipseShaded(25, 19, 8, 8, lt, md, dk);
-    im.ellipseShaded(17, 13, 11, 11, lt, md, dk);
-    for (int i = 0; i < 26; i++) {
-        int x = r.irange(6, 28), y = r.irange(4, 26);
-        if (cA(im.get(x, y)) && im.get(x, y) != dk) im.set(x, y, hi);
-        im.set(x + 1, y + 2, dk);
-    }
-    im.outline(OUT);
-    return im;
-}
-inline Img mkPine(Rng& r) {
-    Img im(26, 44);
-    im.rect(11, 34, 4, 8, HEX(0x6b4423));
-    im.rect(13, 34, 2, 8, HEX(0x52341a));
-    u32 dk = HEX(0x1f5238), md = HEX(0x2d6f47), lt = HEX(0x4a9a58);
-    struct T {
-        int top, bot, hw;
-    } tiers[3] = {{2, 17, 8}, {10, 28, 10}, {20, 38, 12}};
-    for (auto& t : tiers) {
-        for (int y = t.top; y <= t.bot; y++) {
-            float k = (float)(y - t.top) / (t.bot - t.top);
-            int hw = (int)(1 + k * t.hw);
-            for (int x = 13 - hw; x <= 12 + hw; x++) {
-                u32 c = md;
-                if (x < 13 - hw + 2) c = lt;
-                if (x > 12 + hw - 3) c = dk;
-                if (y >= t.bot - 1) c = dk;
-                im.set(x, y, c);
-            }
-        }
-    }
-    for (int i = 0; i < 14; i++) {
-        int x = r.irange(6, 20), y = r.irange(6, 36);
-        if (cA(im.get(x, y))) im.set(x, y, lt);
-    }
-    im.outline(OUT);
-    return im;
-}
 inline Img mkRock(int variant) {
     if (variant == 0) {
         Img im(20, 15);
