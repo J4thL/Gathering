@@ -25,6 +25,7 @@ set(WILDWOOD_PLAYER
     src/player/skills.cpp
     src/core/bestiary.cpp
     src/core/game_gates.cpp
+    src/core/game_economy.cpp
     src/core/game_settings.cpp
     src/player/equipment.cpp)
 set(WILDWOOD_CRAFTING

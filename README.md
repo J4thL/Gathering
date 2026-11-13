@@ -68,6 +68,14 @@ and rope for the later ones). Press MAKE THE OFFERING (or Enter) to hand them ov
 in the chain. Labels and the map show "(SEALED)" until then. The requirements are one table in `src/world/gates.hpp`. Saves record the open gates
 as a `gates` line; a save from before gates existed keeps every gate open.
 
+## Town economy and hunting depth
+- **Reputation** (`src/core/game_economy.cpp`): STRANGER, KNOWN (25), TRUSTED (75), HONORED (160). Each level pays +4% when you sell and takes 5% off store goods. Points come from the elder's quests (+10), filled orders (+6 to +14) and every 150 coins you sell.
+- **Market demand**: each material has a demand multiplier (0.7 to 1.3). Selling lowers it by 1% per item, and each new day it drifts back toward normal with a small random push. In the SELL tab the price is green when the store wants it and red when it has too much.
+- **Orders**: the ORDERS tab of the general store lists three crafted items (things you can make at your skill level, never carried gear). Higher reputation asks for better minimum quality and pays 1.5 times the item's value. Orders are renewed every day (300 s of game time).
+- **Bestiary card**: hover a hunted species in the BESTIARY tab to see its health, whether it fights back, which rarity tiers you have hunted and its drops (form and legendary extras are tagged).
+- **Wounded quarry**: if an animal you hurt bleeds out beyond 150 px, its carcass blinks with a gold ring on the minimap and the map until you reach it.
+- Saved lines: `rep`, `demand`, `order`, and `bestiary <kind> <kills> <tier mask>`. Older saves load with defaults.
+
 ## Wildlife
 28 species (`src/animals/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
 stream species in just off-screen (`src/world/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).

@@ -433,6 +433,65 @@ void testScreensAndSaves(SelfTest& t) {
         check(g.load() && g.bestKills[A_DEER] == 5 && g.bestKills[A_WOLF] == 7, "the bestiary is saved and loaded");
         removeAll();
     }
+    {   // bestiary tiers killed are remembered per species and saved
+        removeAll();
+        g.newGame();
+        g.bestiaryKill(A_WOLF, TR_COMMON);
+        g.bestiaryKill(A_WOLF, TR_LEGENDARY);
+        check(g.bestMask[A_WOLF] == ((1 << TR_COMMON) | (1 << TR_LEGENDARY)), "the bestiary notes which tiers were hunted");
+        g.save();
+        g.newGame();
+        check(g.bestMask[A_WOLF] == 0 && g.load() && g.bestMask[A_WOLF] == 9, "the tier mask is saved and loaded");
+        removeAll();
+    }
+    {   // town economy: reputation levels, prices, demand, daily orders, saving
+        removeAll();
+        g.newGame();
+        g.p.coins = 0;
+        check(g.repLevel() == 0 && g.matSellPrice(M_HIDE) == MAT_PRICE[M_HIDE], "a stranger gets the base price");
+        g.addRep(25);
+        check(g.repLevel() == 1 && std::string(g.repName()) == "KNOWN", "25 reputation makes the hunter KNOWN");
+        check(g.matSellPrice(M_HIDE) == (int)(MAT_PRICE[M_HIDE] * 1.04f + 0.5f) && g.buyPrice(100) == 95, "reputation raises sell prices and lowers buy prices");
+        g.addRep(500);
+        check(g.repLevel() == 3 && g.repNext() == -1, "reputation tops out at HONORED");
+        g.rep = 0;
+        g.repAcc = 0;
+        g.p.inv.add(itemMat(M_STONE), 40);
+        const int before = g.matSellPrice(M_STONE);
+        g.sellMat(M_STONE, 30);
+        check(g.demand[M_STONE] < 1.f && g.matSellPrice(M_STONE) <= before, "selling a lot lowers the demand for it");
+        g.demand[M_STONE] = 0.1f;
+        g.newDay(2);
+        check(g.demand[M_STONE] >= 0.7f && g.demand[M_STONE] <= 1.3f && g.lastDay == 2, "a new day moves demand back within its limits");
+        g.rep = 0;
+        g.repAcc = 0;
+        g.p.coins = 0;
+        g.noteSold(300);
+        check(g.rep == 2, "every 150 coins sold earns a point of reputation");
+        // orders
+        g.makeOrders(3);
+        int made = 0;
+        for (auto& o : g.orders) made += o.item >= 0 && o.n >= 1 && o.pay > 0;
+        check(made >= 1, "the board lists crafted items");
+        Game::Order& o = g.orders[0];
+        if (o.item >= 0) {
+            const int need = o.n;
+            check(!g.orderCanFill(o), "an order cannot be filled without the items");
+            g.p.inv.addIgnoringWeight(o.item, need, o.q);
+            g.p.coins = 0;
+            const int repB = g.rep;
+            check(g.orderCanFill(o), "an order can be filled once the items are carried");
+            g.fillOrder(0);
+            check(o.done && g.p.coins == g.bonusPrice(o.pay) && g.rep == repB + o.rep && g.p.inv.count(o.item) == 0, "filling an order pays coins and reputation and takes the items");
+            g.fillOrder(0);
+            check(g.p.coins == g.bonusPrice(o.pay), "an order is filled only once");
+            const int dayO = g.lastDay, repO = g.rep;
+            g.save();
+            g.newGame();
+            check(g.load() && g.lastDay == dayO && g.orders[0].item == o.item && g.orders[0].done && g.rep == repO, "reputation, market and orders are saved and loaded");
+        }
+        removeAll();
+    }
     {   // saving twice keeps the previous save; a save lost between the two renames is recovered; odd day / kills / quest numbers are clamped
         removeAll();
         g.newGame();

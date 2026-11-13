@@ -454,6 +454,7 @@ void Game::updateAnimals(float dt) {
                         static const char* dirs[8] = {"EAST", "SOUTH-EAST", "SOUTH", "SOUTH-WEST", "WEST", "NORTH-WEST", "NORTH", "NORTH-EAST"};
                         const V2 d = a.pos - p.pos;
                         const int di = ((int)lroundf(atan2f(d.y, d.x) / (3.14159265f / 4.f)) + 8) % 8;
+                        a.tracked = true;
                         msg("YOUR WOUNDED " + std::string(ANIMAL[a.kind].name) + " BLED OUT " + S((int)(d.len() / TS)) + " TILES " + dirs[di], C_GOLD);
                     }
                     killAnimal(a, a.bleedByHunter);
@@ -572,7 +573,7 @@ void Game::killAnimal(Animal& a, bool byHunter) {
     a.vel = V2();
     if (byHunter) {
         kills++;
-        bestiaryKill(a.kind);
+        bestiaryKill(a.kind, a.tier);
         questEvent(Q_KILL, a.kind, 1);
     }
     Rng& dropRng = byHunter ? rng : frng;  // a predator's kill must not disturb the original random sequence

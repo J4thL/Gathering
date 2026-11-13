@@ -133,7 +133,14 @@ void Game::drawMinimap() {
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
     // carcasses that still hold materials
     for (auto& a : animals)
-        if (a.dead && a.totalRemain > 0) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
+        if (a.dead && a.totalRemain > 0) {
+            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
+            if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
+                const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
+                fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);
+                fillRect(rx, ry, 1, 6, C_GOLD); fillRect(rx + 5, ry, 1, 6, C_GOLD);
+            }
+        }
     // player
     if (((int)(timeAcc * 3)) & 1 || state != ST_PLAY) fillRect(mx(p.pos.x) - 1, my(p.pos.y) - 1, 3, 3, HEX(0xffffff));
     fillRect(mx(p.pos.x), my(p.pos.y), 1, 1, HEX(0x2d5e35));

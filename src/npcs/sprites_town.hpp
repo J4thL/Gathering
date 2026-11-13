@@ -2,6 +2,7 @@
 // interior floors, walls, furniture and the townsfolk. Everything is painted in code like the rest of the game.
 #pragma once
 #include "npcs/town.hpp"
+#include "art/sprites_smith.hpp"
 #include "buildings/sprites_interior.hpp"
 
 // ----------------------------------------------------------------- building exteriors (104 x 84, anchored at the bottom centre)
@@ -33,6 +34,18 @@ inline void townRoof(Img& im, const BuildingDef& B, int y0, int y1, int hw0, int
     }
     im.rect(cx - hw1 - 1, y1 + 1, 2 * hw1 + 2, 3, B.roofD);
     im.rect(cx - hw1 - 1, y1 + 1, 2 * hw1 + 2, 1, B.roof);
+}
+
+// The blacksmith is hand-drawn (sprites_smith.hpp); the other buildings are built from code below.
+inline Img smithImg() {
+    Img im(SMITH_W, SMITH_H);
+    for (int y = 0; y < SMITH_H; y++)
+        for (int x = 0; x < SMITH_W; x++) {
+            const char* c = SMITH_ROWS[y] + x * 2;
+            const int v = (int)strtol(std::string(c, 2).c_str(), nullptr, 16);
+            if (v > 0) im.set(x, y, SMITH_PAL[v - 1]);
+        }
+    return im;
 }
 
 inline Img mkBuilding(int k) {
@@ -303,6 +316,7 @@ struct TownAssets {
 inline void buildTownAssets(SDL_Renderer* r, TownAssets& T) {
     Rng rg(424242);
     for (int k = 0; k < BLD_COUNT; k++) T.bld[k] = makeSpr(r, mkBuilding(k), BSPR_W / 2, BSPR_H - 1);
+    T.bld[BLD_SMITH] = makeSpr(r, smithImg(), SMITH_ANCHOR_X, SMITH_ANCHOR_Y);
     T.lamp = makeSpr(r, mkLamp(), 5, 35);
     T.fence = makeSpr(r, mkFence(), 9, 16);
     T.bench = makeSpr(r, mkBench(), 13, 14);

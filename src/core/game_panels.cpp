@@ -78,14 +78,22 @@ void Game::drawShop() {
         icon(A.coin, X + W - 10 - cw - 8, Y + 10, 10);
         text(X + W - 8 - cw, Y + 7, c, C_GOLD);
     }
-    const char* tabs[2] = {"SELL", "BUY"};  // the general store only trades: crafting lives in the workshops, gear upgrades at the smith and tanner
-    for (int i = 0; i < 2; i++) {
-        int ty = Y + 22 + i * 22;
+    const char* tabs[3] = {"SELL", "BUY", "ORDERS"};  // the general store only trades: crafting lives in the workshops, gear upgrades at the smith and tanner
+    for (int i = 0; i < 3; i++) {
+        int ty = Y + 22 + i * 21;
         bool sel = shopTab == i;
         if (button(X + 6, ty, 66, 19, tabs[i], true, sel ? HEX(0x92693a) : HEX(0x5a4028))) shopTab = i;
         if (sel) {
             fillRect(X + 72, ty + 3, 3, 13, C_GOLD);
         }
+    }
+    {  // standing with the village: better prices as it grows (game_economy.cpp)
+        text(X + 6, Y + 88, std::string("REP ") + repName(), C_GOLD, 1, false);
+        const int nx = repNext();
+        fillRect(X + 6, Y + 98, 66, 4, HEX(0x2b1d12));
+        if (nx > 0) fillRect(X + 6, Y + 98, std::min(66, rep * 66 / nx), 4, C_GOLD);
+        else fillRect(X + 6, Y + 98, 66, 4, C_GOLD);
+        text(X + 6, Y + 104, "SELL +" + S(4 * repLevel()) + "% BUY -" + S(5 * repLevel()) + "%", C_DIM, 1, false);
     }
     // shopkeeper portrait
     panel(X + 6, Y + 112, 66, 72, HEX(0x2b1d12));
@@ -110,16 +118,16 @@ void Game::drawShop() {
         auto isPart = [](int m) { return isComponent(m); };  // crafting components: kept by SELL EVERYTHING
         for (int m = 0; m < M_COUNT; m++)
             if (p.mat(m) > 0) {
-                owned.push_back({-m - 1, 0, p.mat(m), MAT_PRICE[m]});
+                owned.push_back({-m - 1, 0, p.mat(m), matSellPrice(m)});
                 if (isPart(m)) partsHeld = true;
-                else total += p.mat(m) * MAT_PRICE[m];
+                else total += p.mat(m) * matSellPrice(m);
             }
         for (const Slot& sl : p.inv.slots) {  // crafted things, one row per item and quality (listed once)
             if (sl.empty() || !itemHasQuality(sl.item)) continue;
             bool seen = false;
             for (const Row& r : owned) seen = seen || (r.id == sl.item && r.q == sl.q);
             const int n = sellable(sl.item, sl.q);
-            if (!seen && n > 0) owned.push_back({sl.item, sl.q, n, qualityPrice(itemSellBase(sl.item), sl.q)});
+            if (!seen && n > 0) owned.push_back({sl.item, sl.q, n, bonusPrice(qualityPrice(itemSellBase(sl.item), sl.q))});
         }
         const int ROWS = 8, maxScroll = std::max(0, (int)owned.size() - ROWS);
         sellScroll = std::max(0, std::min(maxScroll, sellScroll));
@@ -142,7 +150,9 @@ void Game::drawShop() {
             text(x0 + 21, y + 5, isMat ? std::string(MAT_NAME[m]) : item(row.id).name.substr(0, 14), isMat || row.q == Q_NORMAL ? C_TEXT : qualityCol(row.q));
             text(x0 + 84, y + 5, S(row.n), C_TEXT);
             icon(A.coin, x0 + 114, y + 8, 8);
-            text(x0 + 120, y + 5, S(row.price), C_GOLD);
+            // the price is tinted by demand: green when the store wants it, red when it has too much
+            const float dm = isMat && demand[m] > 0 ? demand[m] : 1.f;
+            text(x0 + 120, y + 5, S(row.price), dm > 1.04f ? C_GREEN : dm < 0.96f ? HEX(0xff7a6a) : C_GOLD);
             if (button(x0 + 138, y + 1, 40, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
             if (button(x0 + 180, y + 1, 20, 14, "...", row.n > 1)) amountOpenSell(row.id, row.q, row.n);  // choose how many with the slider
             if (button(x0 + 202, y + 1, 36, 14, "ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
@@ -188,13 +198,14 @@ void Game::drawShop() {
             const int gItem = goodItem[g.kind], gQty = goodQty[g.kind];
             int owned = p.inv.count(gItem);
             text(x0 + 36, y + 24, "OWNED " + S(owned), C_TEXT);
-            chip(x0 + 90, y + 21, A.coin, p.coins, g.price);
+            const int price = buyPrice(g.price);  // reputation discount
+            chip(x0 + 90, y + 21, A.coin, p.coins, price);
             const bool launcherOwned = (g.kind == 3 || g.kind == 4) && owned >= 1;
             const bool full = launcherOwned || !p.inv.canAdd(gItem, gQty);
-            bool ok = p.coins >= g.price && !full;
+            bool ok = p.coins >= price && !full;
             const char* lab = launcherOwned ? "OWNED" : full ? (p.inv.blockReason(gItem, gQty) == 2 ? "HEAVY" : "FULL") : "BUY";
             if (button(x0 + 186, y + 11, 48, 16, lab, ok, HEX(0x5d7a2e))) {
-                p.coins -= g.price;
+                p.coins -= price;
                 p.inv.add(gItem, gQty);
                 audio.play(S_COIN);
                 save();
@@ -203,7 +214,32 @@ void Game::drawShop() {
         if (button(x0, Y + 22 + PER * 42 - 2, 70, 12, shopPage + 1 < PAGES ? "MORE GOODS >" : "< BACK TO START", true, HEX(0x4a3a5e))) shopPage = (shopPage + 1) % PAGES;
         text(x0 + 76, Y + 22 + PER * 42 + 1, "PAGE " + S(shopPage + 1) + "/" + S(PAGES), C_DIM, 1, false);
     }
-    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-2: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
+    // ---------------- ORDERS: three crafted things the store wants today
+    if (shopTab == 2) {
+        for (int i = 0; i < 3; i++) {
+            const Order& o = orders[i];
+            const int y = Y + 22 + i * 42;
+            panel(x0, y, cw, 38, HEX(0x3a2a1a));
+            if (o.item < 0) {
+                textC(x0 + cw / 2, y + 17, "NO ORDER", C_DIM);
+                continue;
+            }
+            qualityFrame(x0 + 5, y + 5, 28, 28, o.q);
+            icon(itemIcon(o.item), x0 + 19, y + 19, 22);
+            text(x0 + 38, y + 5, item(o.item).name.substr(0, 16) + " X" + S(o.n), C_GOLD);
+            text(x0 + 38, y + 14, o.q == Q_NORMAL ? std::string("ANY QUALITY") : std::string("AT LEAST ") + qualityDef(o.q).name, o.q == Q_NORMAL ? C_DIM : qualityCol(o.q));
+            int have = 0;
+            for (int q = o.q; q < Q_COUNT; q++) have += p.inv.countQ(o.item, q);
+            text(x0 + 38, y + 24, "HAVE " + S(have), have >= o.n ? C_GREEN : C_TEXT);
+            icon(A.coin, x0 + 92, y + 27, 8);
+            text(x0 + 98, y + 24, S(bonusPrice(o.pay)) + " +" + S(o.rep) + " REP", C_GOLD);
+            const bool can = orderCanFill(o);
+            if (button(x0 + 186, y + 11, 48, 16, o.done ? "DONE" : "GIVE", can, HEX(0x5d7a2e))) fillOrder(i);
+        }
+        text(x0, Y + 22 + 3 * 42 + 1, "NEW ORDERS EVERY DAY - DAY " + S(lastDay), C_DIM, 1, false);
+        text(x0, Y + 22 + 3 * 42 + 11, "FILLED ORDERS AND BIG SALES RAISE YOUR REPUTATION", C_DIM, 1, false);
+    }
+    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-3: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
 }
 
 // ================================================================= inventory screen

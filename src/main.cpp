@@ -258,6 +258,11 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.invTab = 3;
         frames(3);
         shot("20c_bestiary.bmp");
+        g.bestMask[A_WOLF] = 5;  // the species card appears on hover
+        g.in.mx = 24 + 30;
+        g.in.my = 12 + 38 + 3 * 10 + 4;
+        frames(3);
+        shot("20c2_bestiary_card.bmp");
         g.invTab = 0;
         g.state = ST_PAUSE;  // pause menu, settings and help pages
         frames(3);
@@ -358,6 +363,12 @@ static void scriptedRun(Game& g, const std::string& dir) {
             frames(3);
             shot("13b_sellslider.bmp");
             g.amountClose();
+            g.addRep(30);  // the ORDERS tab and reputation
+            g.p.inv.addIgnoringWeight(g.orders[0].item, g.orders[0].n, g.orders[0].q);
+            g.shopTab = 2;
+            frames(3);
+            shot("13c_orders.bmp");
+            g.shopTab = 0;
             g.state = ST_PLAY;
             g.exitBuilding();
         }
