@@ -3,6 +3,7 @@
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
 
+
 // ================================================================= world
 void Game::renderWorld(bool) {
     int tx0 = std::max(0, camX / TS), ty0 = std::max(0, camY / TS);
@@ -129,7 +130,7 @@ void Game::renderWorld(bool) {
             case D_FLOWER0: case D_FLOWER1: case D_FLOWER2: s = &A.flower[d.kind]; break;
             case D_TUFT: s = &A.tuft; break;
             case D_MUSHROOM: s = &A.mushroom; sway = false; break;
-            case D_PEBBLES: s = &A.pebbles; sway = false; break;
+            case D_PEBBLES: s = &A.pebbleSet[(std::abs((int)(d.x / 9.f)) + 3 * std::abs((int)(d.y / 9.f))) % ROCK_LOOKS]; sway = false; break;
             case D_BUSH0: case D_BUSH1: s = &A.bush[d.kind - D_BUSH0]; sway = false; break;
             case D_DRYBUSH: s = &A.B.drybush; swayAmt = 3.f; break;
             case D_SKULL: s = &A.B.skull; sway = false; break;
@@ -210,6 +211,12 @@ void Game::renderWorld(bool) {
     std::sort(dl.begin(), dl.end(), [](const DL& a, const DL& b) { return a.y < b.y; });
 
     float night = interior >= 0 ? 0.f : 1.f - daylight();
+    drawGroundShadows();  // tree and rock shadows lie on the ground, under everything that stands on it
+    // pebbles scattered round the foot of a small rock or a boulder, like the grass round a tree: which pile and which way round it lies is fixed per rock
+    auto pebblesAround = [&](const Prop& pr) {
+        const int tx = (int)(pr.x / TS), ty = (int)(pr.y / TS);
+        sprW(A.pebbleSet[std::abs(tx * 11 + ty * 5) % ROCK_LOOKS], pr.x, pr.y + 2, ((tx + ty) & 1) != 0);
+    };
     for (auto& e : dl) {
         if (e.t == 0) {
             const Prop& pr = world.props[e.i];
@@ -221,6 +228,13 @@ void Game::renderWorld(bool) {
                     const bool tree = RES[rs].cls == RCL_TREE;
                     sprW(A.shadow[0], pr.x, pr.y, false, 0.5f);
                     sprW(tree ? A.R.stump : A.R.rubble, pr.x, pr.y);
+                    if (!tree && (pr.kind == P_ROCK1 || pr.kind == P_BOULDER)) pebblesAround(pr);  // the pebbles stay where the rock was
+                    if (tree && pr.kind == P_SNOWPINE)  // the frosty grass stays around the stump too
+                        sprW(A.snowGrass[((int)(timeAcc * SNOW_SPRUCE_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
+                    if (tree && (pr.kind == P_OAK0 || pr.kind == P_OAK1 || pr.kind == P_PINE)) {  // the grass stays around the stump
+                        const int gset = pr.kind == P_PINE ? GRASS_SPRUCE : OAK_VAR[oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS))].grass;
+                        sprW(A.treeGrass[gset][((int)(timeAcc * OAK_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
+                    }
                     if (!hs.gone && tree) sprW(A.R.sprout, pr.x, pr.y - 2, false, 0.4f + 0.6f * (1.f - hs.fade / REGROW_FADE));
                     continue;
                 }
@@ -228,15 +242,24 @@ void Game::renderWorld(bool) {
             }
             switch (pr.kind) {
                 case P_OAK0: case P_OAK1:
-                    sprW(A.shadow[2], pr.x + 4, pr.y - 1, false, 0.8f);
-                    sprW(A.oak[pr.kind == P_OAK1 ? 1 : 0], pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.8f + pr.ph) * 0.6f, true);
+                    {
+                        const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));  // which look this tree has, fixed per tree
+                        sprW(A.oakShadow[ov], pr.x + OAK_VAR[ov].sdx, pr.y + 1 + OAK_VAR[ov].sdy, false, 0.8f);
+                        const int fr = ((int)(timeAcc * OAK_FPS + pr.ph * OAK_FRAMES / 6.2832f) % OAK_FRAMES + OAK_FRAMES) % OAK_FRAMES;
+                        sprW(A.oak[ov][fr], pr.x, pr.y + 1);
+                        sprW(A.treeGrass[OAK_VAR[ov].grass][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                    }
                     break;
                 case P_PINE:
-                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.8f);
-                    sprW(A.pine, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.7f + pr.ph) * 0.7f, true);
+                    sprW(A.pineShadow, pr.x + PINE_SDX, pr.y + 1 + PINE_SDY, false, 0.8f);
+                    {
+                        const int fr = ((int)(timeAcc * PINE_FPS + pr.ph * PINE_FRAMES / 6.2832f) % PINE_FRAMES + PINE_FRAMES) % PINE_FRAMES;
+                        sprW(A.pine[fr], pr.x, pr.y + 1);
+                        sprW(A.treeGrass[GRASS_SPRUCE][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                    }
                     break;
-                case P_ROCK0: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.rock[0], pr.x, pr.y); break;
-                case P_ROCK1: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.rock[1], pr.x, pr.y); break;
+                case P_ROCK0: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.rockTiny[rockLookOf(pr)], pr.x, pr.y); break;
+                case P_ROCK1: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); pebblesAround(pr); sprW(A.rockSmall[rockLookOf(pr)], pr.x, pr.y); break;
                 case P_HUT: sprW(A.hut, pr.x, pr.y); break;
                 case P_FIRE: sprW(A.fire[(int)(timeAcc * 9) % 3], pr.x, pr.y); break;
                 case P_CRATE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.crate, pr.x, pr.y); break;
@@ -265,8 +288,11 @@ void Game::renderWorld(bool) {
                 case P_ARCH: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.B.arch, pr.x, pr.y); break;
                 // ---- swamp
                 case P_DEADTREE0: case P_DEADTREE1:
-                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.7f);
-                    sprW(A.B.deadtree[pr.kind - P_DEADTREE0], pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.6f + pr.ph) * 0.5f, true);
+                    {
+                        sprW(A.deadSpruceShadow, pr.x + DEAD_SPRUCE_SDX, pr.y + 1 + DEAD_SPRUCE_SDY, false, 0.7f);
+                        const int fr = ((int)(timeAcc * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
+                        sprW(A.deadSpruce[fr], pr.x, pr.y + 1, pr.kind == P_DEADTREE1);  // the second look is the mirror image
+                    }
                     break;
                 case P_LOG: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.log, pr.x, pr.y); break;
                 case P_STILTHUT: sprW(A.B.stilthut, pr.x, pr.y); break;
@@ -274,12 +300,19 @@ void Game::renderWorld(bool) {
                 case P_GRAVE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.grave, pr.x, pr.y); break;
                 // ---- snow
                 case P_SNOWPINE:
-                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.6f);
-                    sprW(A.B.snowpine, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.7f + pr.ph) * 0.7f, true);
+                    {
+                        sprW(A.snowSpruceShadow, pr.x + SNOW_SPRUCE_SDX, pr.y + 1 + SNOW_SPRUCE_SDY, false, 0.7f);
+                        const int fr = ((int)(timeAcc * SNOW_SPRUCE_FPS + pr.ph * SNOW_SPRUCE_FRAMES / 6.2832f) % SNOW_SPRUCE_FRAMES + SNOW_SPRUCE_FRAMES) % SNOW_SPRUCE_FRAMES;
+                        sprW(A.snowSpruce[fr], pr.x, pr.y + 1);
+                        sprW(A.snowGrass[fr % GRASS_FRAMES], pr.x, pr.y + 1);  // frosty grass around the roots, over the trunk
+                    }
                     break;
                 case P_BARETREE:
-                    sprW(A.shadow[1], pr.x + 3, pr.y - 1, false, 0.6f);
-                    sprW(A.B.baretree, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.8f + pr.ph) * 0.6f, true);
+                    {
+                        sprW(A.deadSpruceShadow, pr.x + DEAD_SPRUCE_SDX, pr.y + 1 + DEAD_SPRUCE_SDY, false, 0.7f);
+                        const int fr = ((int)(timeAcc * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
+                        sprW(A.deadSpruce[fr], pr.x, pr.y + 1, ((int)pr.x >> 4) & 1);  // mirrored on every other tile, so they differ
+                    }
                     break;
                 case P_SNOWROCK: {
                     int v = ((int)pr.x >> 4) & 1;
@@ -298,7 +331,7 @@ void Game::renderWorld(bool) {
                 case P_CAIRN: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cairn, pr.x, pr.y); break;
                 // ---- mountain
                 case P_CAVE: sprW(A.B.cave, pr.x, pr.y); break;
-                case P_BOULDER: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.boulder, pr.x, pr.y); break;
+                case P_BOULDER: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); pebblesAround(pr); sprW(A.rockLarge[rockLookOf(pr)], pr.x, pr.y); break;
                 case P_STANDING: {
                     sprW(A.shadow[0], pr.x + 2, pr.y, false, 0.7f);
                     sprW(A.B.standing, pr.x, pr.y);
@@ -486,55 +519,9 @@ void Game::renderWorld(bool) {
         fillRect((int)(q.x - camX), (int)(q.y - q.z - camY), q.size, q.size, c);
     }
 
-    // ---- lighting: day/night tint, warm glows, vignette
-    if (delve >= 0) {
-        drawDelveDark();
-    } else {
-    float night2 = p.nightT > 0 ? night * 0.3f : night;  // a nightsight tonic turns night into dusk
-    if (night2 > 0.01f) fillRect(0, 0, LW, LH, RGBA(14, 22, 70, (int)(night2 * 128)));
-    float sun = sinf(tod() * 6.2832f);
-    float warm = interior >= 0 ? 0.f : clampf(1.f - fabsf(sun) * 3.2f, 0, 1);
-    if (warm > 0.01f) fillRect(0, 0, LW, LH, RGBA(255, 120, 50, (int)(warm * 46)));
-    {
-        float fl = 0.85f + 0.15f * sinf(timeAcc * 11.f) + 0.05f * sinf(timeAcc * 27.f);
-        float strength = 0.28f + 0.72f * night2;
-        SDL_Texture* g = A.glowWarm.t;
-        SDL_SetTextureAlphaMod(g, (Uint8)(255 * clampf(strength * fl, 0, 1)));
-        int sz = (int)(150 * fl);
-        SDL_Rect d{(int)world.fire.x - camX - sz / 2, (int)world.fire.y - 12 - camY - sz / 2, sz, sz};
-        SDL_RenderCopy(ren, g, nullptr, &d);
-        if (night2 > 0.05f) {
-            SDL_SetTextureAlphaMod(g, (Uint8)(190 * night2));
-            for (int wx : {-19, 13}) {
-                SDL_Rect w{(int)world.hut.x + wx - camX - 22, (int)world.hut.y - 20 - camY - 22, 44, 44};
-                SDL_RenderCopy(ren, g, nullptr, &w);
-            }
-            SDL_Rect pl{(int)p.pos.x - camX - 34, (int)p.pos.y - 8 - camY - 34, 68, 68};
-            SDL_SetTextureAlphaMod(g, (Uint8)(110 * night2));
-            if (state != ST_TITLE) SDL_RenderCopy(ren, g, nullptr, &pl);
-        }
-        for (auto& lt : world.lanterns) {
-            if (lt.x < camX - 60 || lt.x > camX + LW + 60 || lt.y < camY - 60 || lt.y > camY + LH + 60) continue;
-            float lf = 0.85f + 0.15f * sinf(timeAcc * 9.f + lt.x);
-            SDL_SetTextureAlphaMod(g, (Uint8)(clampf(lt.r * lf * (0.3f + 0.7f * night2), 0, 1) * 255));
-            int sz = (int)(78 * lf);
-            SDL_Rect d{(int)lt.x - camX - sz / 2, (int)lt.y - camY - sz / 2, sz, sz};
-            SDL_RenderCopy(ren, g, nullptr, &d);
-        }
-        for (auto& st : structs) {  // placed campfires light the night
-            if (st.kind != PL_CAMPFIRE) continue;
-            const V2 c = st.pos();
-            if (c.x < camX - 70 || c.x > camX + LW + 70 || c.y < camY - 70 || c.y > camY + LH + 70) continue;
-            float lf = 0.85f + 0.15f * sinf(timeAcc * 10.f + c.x) + 0.05f * sinf(timeAcc * 23.f);
-            SDL_SetTextureAlphaMod(g, (Uint8)(clampf((0.4f + 0.6f * night2) * lf, 0, 1) * 255));
-            int sz = (int)(120 * lf);
-            SDL_Rect d{(int)c.x - camX - sz / 2, (int)c.y - 8 - camY - sz / 2, sz, sz};
-            SDL_RenderCopy(ren, g, nullptr, &d);
-        }
-        drawHsLights(night2);
-        SDL_SetTextureAlphaMod(g, 255);
-    }
-    }  // (not a delve)
+    // ---- lighting: darkness with pools of light, dusk and dawn colour, glows, lightning (game_light.cpp; the delves have their own darkness)
+    if (delve >= 0) drawDelveDark();
+    else drawLighting(night);
     if (interior < 0 && delve < 0) drawBiomeFx();
     float night2 = delve >= 0 ? 1.f : (p.nightT > 0 ? night * 0.3f : night);
     // fireflies at night / pollen by day
@@ -551,6 +538,7 @@ void Game::renderWorld(bool) {
             fillRect((int)f.x, (int)f.y, 1, 1, RGBA(255, 255, 255, 120));
         }
     }
+    drawSkyFx(night2);  // aurora, shimmer, wisps, rain
     sprS(A.vignette, 0, 0);
 
     // floating texts

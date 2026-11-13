@@ -358,6 +358,7 @@ void Game::checkWeaponSafetyNet(float dt) {
 void Game::updatePlay(float dt) {
     dayT += dt;
     if (1 + (int)(dayT / 300.f) != lastDay) newDay(1 + (int)(dayT / 300.f));
+    updateLight(dt);  // storms and the lamp list (game_light.cpp)
     if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
     if (bagWarn > 0) bagWarn -= dt;

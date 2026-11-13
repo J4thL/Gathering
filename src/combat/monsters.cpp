@@ -91,6 +91,7 @@ void Game::buildFlow() {
 
 // slide along walls like the animals do
 bool Game::monsterStep(Monster& m, V2 dir, float speed, float dt) {
+    speed *= 1.f - 0.35f * lampLight(m.pos);  // firelight, lamps and lit windows make monsters hesitate
     static const float offs[7] = {0, 0.6f, -0.6f, 1.2f, -1.2f, 1.9f, -1.9f};
     const float base = atan2f(dir.y, dir.x);
     const float r = MONDEF(m.kind).hitR * 0.6f + 1.5f;
