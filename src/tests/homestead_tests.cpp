@@ -668,6 +668,72 @@ int homesteadTest(Game& g) {
         for (int fr = 0; fr < 5; fr++) g.update(1.f / 60.f);
         check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.bestTool(TT_HOE) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.inv.count(itemTool(TL_HOE)) == 1, "a save from the previous tool system (tools outside the pack) still has working tools after loading and playing a few frames");
     }
+    printf("--- mounts: baby drops, raising, riding\n");
+    {
+        if (!g.inHomestead()) {
+            stand(g, g.world.hportal + V2(0, 16));
+            g.homesteadInteract();
+        }
+        g.state = ST_PLAY;
+        check(mountable(A_WOLF) && mountable(A_BOAR) && !mountable(A_RABBIT), "predators and big game can be mounts, a rabbit cannot");
+        check(babyChance(A_WOLF, 3) > babyChance(A_WOLF, 0) && babyChance(A_RABBIT, 0) == 0.f, "a rarer animal is likelier to leave a baby; a rabbit never does");
+        g.items.clear();
+        for (int i = 0; i < 120; i++) {
+            Animal* w = g.spawnAnimal(A_WOLF, g.p.pos + V2(60, 0), 0, 3);
+            if (w) g.killAnimal(*w, true);
+        }
+        int babies = 0, tierOk = 0;
+        for (const auto& it : g.items)
+            if (it.item == itemBaby(A_WOLF)) { babies += it.n; tierOk += it.q == 3; }
+        check(babies > 0 && tierOk == babies, "killing legendary wolves leaves baby wolves on the ground, tagged with the legendary tier");
+        g.items.clear();
+        const int n0 = (int)g.hs.animals.size();
+        g.p.inv.addIgnoringWeight(itemBaby(A_DEER), 1, 2);
+        const int slot = [&] { for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == itemBaby(A_DEER)) return i; return -1; }();
+        check(slot >= 0 && g.useSlot(slot) && (int)g.hs.animals.size() == n0 + 1 && g.p.inv.count(itemBaby(A_DEER)) == 0, "using a baby at the homestead sets it down as a growing animal");
+        HAnimal& m = g.hs.animals.back();
+        check(m.kind == DA_MOUNT && m.species == A_DEER && m.tier == 2 && !m.adult(DOMS[m.kind]), "...of the same species and tier, still a baby");
+        const int id = m.id;
+        g.toggleMount();
+        check(!g.riddenMount(), "a baby cannot be ridden");
+        m.saddled = true;
+        g.toggleMount();
+        check(!g.riddenMount(), "...even if saddled");
+        for (int i = 0, n = (int)m.growSec(DOMS[m.kind]) + 5; i < n; i++) {  // a well-fed baby grows at full speed
+            for (auto& a : g.hs.animals) if (a.id == id) { a.full = 100; a.happy = 100; a.health = 100; }
+            g.hsTickAnimals(1.f);
+        }
+        HAnimal* mm = nullptr;
+        for (auto& a : g.hs.animals) if (a.id == id) mm = &a;
+        check(mm && mm->adult(DOMS[mm->kind]), "after its growing time it is an adult");
+        const int lim0 = g.p.carryLimit();
+        stand(g, V2(mm->px, mm->py));
+        // speed on foot vs mounted over the same stretch
+        auto run = [&]() {
+            const V2 a0 = g.p.pos;
+            g.in.right = true;
+            for (int i = 0; i < 30; i++) g.updatePlayer(1.f / 60.f);
+            g.in.right = false;
+            return g.p.pos.x - a0.x;
+        };
+        stand(g, V2(mm->px, mm->py));
+        const float foot = run();
+        stand(g, V2(mm->px, mm->py));
+        mm->saddled = true;
+        check(g.toggleMount() && g.riddenMount() == mm, "an adult saddled mount can be ridden (V)");
+        check(g.p.carryLimit() == lim0 + mountCarry(A_DEER, 2) && g.p.inv.maxWeight == (float)g.p.carryLimit(), "riding adds the mount's carrying weight");
+        const float ride = run();
+        check(ride > foot * 1.2f, "...and is clearly faster than walking");
+        g.save();
+        g.dismount(true);
+        check(!g.riddenMount() && g.p.carryLimit() == lim0, "dismounting gives the carry limit back");
+        g.newGame();
+        const bool ld = g.load();
+        HAnimal* back = nullptr;
+        for (auto& a : g.hs.animals) if (a.kind == DA_MOUNT) back = &a;
+        check(ld && back && back->species == A_DEER && back->tier == 2 && back->saddled && !back->ridden && g.p.carryLimit() == lim0, "the mount (species, tier, saddle) survives save and load; a ridden one is back in its pen");
+        g.state = ST_PLAY;
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out.write(savedBytes.data(), (std::streamsize)savedBytes.size());

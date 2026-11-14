@@ -389,7 +389,9 @@ void Game::drawInventory() {
             icon(iconOf(sl.item), dx + 14, py + 14, 20);
             const bool hq = itemHasQuality(sl.item);
             text(dx + 28, py + 5, D.name, hq && sl.q > Q_NORMAL ? qualityCol(sl.q) : C_GOLD);
-            text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : std::string()), hq ? qualityCol(sl.q) : C_DIM, 1, false);
+            const bool baby = D.kind == IK_BABY;  // a baby shows its animal rarity tier instead of a quality
+            const int bt = std::max(0, std::min(TR_COUNT - 1, sl.q));
+            text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : baby ? std::string(" - ") + TIER[bt].name : std::string()), hq ? qualityCol(sl.q) : baby ? TIER[bt].col : C_DIM, 1, false);
             // equip / use / place / wear button for the selected item, in its info card
             const bool canAct = D.kind == IK_THROWN || D.kind == IK_LAUNCHER || D.kind == IK_AMMO || D.kind == IK_CONSUMABLE || D.kind == IK_PLACEABLE || D.kind == IK_BACKPACK || seedCropOf(sl.item) >= 0 || (D.kind == IK_TOOL && isFarmType(TOOLDEF[D.ref].type));
             if (canAct && show == invSel) {

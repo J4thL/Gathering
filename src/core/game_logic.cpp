@@ -73,6 +73,7 @@ void Game::newGame() {
     p = Player();
     if (ren && A.look != p.look) rebuildPlayerSprites(ren, A, p.look);
     p.pos = world.spawn;
+    p.mountKg = 0;
     p.syncPack();
     p.inv.add(itemWpn(W_FLINT), 8);
     p.inv.add(ITEM_CONS0 + C_BANDAGE, 1);

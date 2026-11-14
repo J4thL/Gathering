@@ -286,6 +286,7 @@ bool Game::load() {
     } else if (p.up[U_BAG] >= 1)
         p.bag = std::min(p.up[U_BAG], (int)PK_EXPLORER + 1) - 1;
     p.up[U_BAG] = 0;
+    p.mountKg = 0;  // a ridden mount is not saved: it is back in its pen on load
     p.syncPack();
     p.inv.clear();
     auto give = [&](int item, int n, int q = 0) {

@@ -104,14 +104,29 @@ void Game::drawHsCrop(const HPiece& pc) {
 }
 
 void Game::drawHsAnimal(const HAnimal& a) {
-    ensureDomArt();
     const DomDef& D = DOMS[a.kind];
+    if (a.kind == DA_MOUNT) {  // a raised wild animal: its own species art, a baby drawn smaller
+        if (a.ridden) return;  // the rider draws it
+        if (ren) ensureRichBank(ren, A, a.species, 0, a.tier);
+        const RichAnimal* rb = A.rich[a.species].get();
+        const AnimalClips* ac = animalClips(a.species);
+        if (!rb || !ac) return;
+        const int st = a.state == 1 ? AN_WALK : (a.state == 2 ? AN_EAT : AN_IDLE);
+        const int fr = std::min((int)(a.animT * (st == AN_WALK ? 6.f : 2.f)) % std::max(1, ac->poses[st]), ac->poses[st] - 1);
+        Spr s = rb->s[2 * a.tier][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][st][fr];
+        if (!s.ok()) return;
+        if (!a.adult(D)) s.sc *= 0.5f + 0.5f * std::min(1.f, a.age / a.growSec(D));
+        sprW(A.shadow[1], a.px, a.py + 1, false, 0.6f);
+        sprW(s, a.px, a.py, false, 1.f);
+        return;
+    }
+    ensureDomArt();
     const bool adult = a.adult(D);
     const int st = a.state == 1 ? DS_WALK : a.state == 2 ? DS_EAT : DS_IDLE;
     const int fr = (int)(a.animT * (st == DS_WALK ? 6.f : 2.f)) % DS_FRAMES[st];
     Spr s = A.Dom.get(a.kind, a.face8, st, fr);
     if (!s.ok()) return;
-    if (!adult) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / D.growSec);
+    if (!adult) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / a.growSec(D));
     sprW(A.shadow[a.kind == DA_COW ? 2 : (D.small ? 0 : 1)], a.px, a.py + 1, false, 0.6f);
     sprW(s, a.px, a.py, false, 1.f);
     if (a.stock > 0) icon(A.matIcon[D.product], (int)a.px - camX, (int)a.py - camY - (int)(26 * s.sc) - 2 + (int)(sinf(timeAcc * 4.f) * 1.5f), 10);

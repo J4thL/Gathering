@@ -146,7 +146,7 @@ void Game::drawHelp() {
             L = {"MOVE: " + k(K_UP) + " " + k(K_LEFT) + " " + k(K_DOWN) + " " + k(K_RIGHT) + "  (ARROWS TOO)      SPRINT: " + k(K_SPRINT),
                  "INTERACT / HOLD TO GATHER: " + k(K_USE),
                  "HOLD LEFT CLICK TO CHARGE A THROW OR DRAW A BOW, RELEASE TO FIRE",
-                 "1-8 OR WHEEL: HOTBAR     " + k(K_HEAL) + ": BANDAGE",
+                 "1-8 OR WHEEL: HOTBAR     " + k(K_HEAL) + ": BANDAGE     " + k(K_MOUNT) + ": MOUNT",
                  k(K_PACK) + ": PACK     " + k(K_MAP) + ": MAP     TAB: MINIMAP     " + k(K_HELP) + ": HELP CARD",
                  k(K_BUILD) + ": BUILD MENU     " + k(K_ROTATE) + ": ROTATE     " + k(K_DEMOLISH) + ": DEMOLISH",
                  "ESC: PAUSE (SETTINGS, HELP, SAVE)     F11: FULLSCREEN",

@@ -614,6 +614,14 @@ void Game::killAnimal(Animal& a, bool byHunter) {
     decals.push_back({a.pos + V2(0, 3), D.decal, 0, 80});
     bloodBurst(a.pos + V2(0, -a.bodyH), a.kb.norm(), 16);
     if (!byHunter) return;  // killed by a predator: the carcass is there to find, but there is no kill credit, fanfare or XP
+    if (frng.range(0.f, 1.f) < babyChance(a.kind, a.tier)) {  // a young one was nearby: it can be raised at the homestead
+        GroundItem g{a.pos + V2(frng.range(-10, 10), 6), 0, 0.f, 0.f};
+        g.item = itemBaby(a.kind);
+        g.n = 1;
+        g.q = a.tier;
+        items.push_back(g);
+        msg("A BABY " + std::string(ANIMAL[a.kind].name) + " WAS NEARBY!", C_GREEN);
+    }
     audio.play(S_KILL);
     shakeAmt = std::max(shakeAmt, 4.f);
     ftext(a.pos + V2(0, -a.bodyH - 18), "HUNTED!", C_GOLD, 1.4f);

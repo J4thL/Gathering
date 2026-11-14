@@ -873,7 +873,7 @@ struct Assets {
     std::shared_ptr<RichAnimal> rich[A_COUNT];  // full animation sets (animal_anim.hpp): only species that have one are set
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]: the side view (west = mirror)
     Spr animalNS[A_COUNT][8][2][5];  // the crawlers' front (0) and back (1) views, same indexing
-    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], bandage;
+    Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], babyIcon[A_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, shadowSoft, blood[3], vignette;
     DelveAssets D;
@@ -964,6 +964,21 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
         for (int t = 0; t < 9; t++) a.gearIcon[u][t] = makeSpr(r, mkIconGear(u, std::min(t, UP_MAX[u])), 8, 8);
+    for (int k = 0; k < A_COUNT; k++) {  // a baby animal's face in the species' own colours
+        const QuadSpec q = fauSpec(k, 0, 0);
+        Img im(16, 16);
+        im.ellipse(4.f, 4.5f, 2.4f, 2.8f, q.body);
+        im.ellipse(12.f, 4.5f, 2.4f, 2.8f, q.body);
+        im.ellipse(4.f, 5.f, 1.1f, 1.5f, q.dark);
+        im.ellipse(12.f, 5.f, 1.1f, 1.5f, q.dark);
+        im.ellipse(8.f, 9.f, 6.2f, 5.6f, q.body);
+        im.ellipse(8.f, 7.4f, 4.2f, 2.4f, q.light);
+        im.ellipse(8.f, 11.6f, 3.2f, 2.3f, q.belly);
+        im.set(5, 8, q.eye); im.set(10, 8, q.eye);
+        im.set(7, 11, q.dark); im.set(8, 11, q.dark);
+        im.outline(OUT);
+        a.babyIcon[k] = makeSpr(r, im, 8, 8);
+    }
     for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, c >= 7 ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {

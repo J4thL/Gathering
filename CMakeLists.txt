@@ -13,6 +13,7 @@ set(WILDWOOD_CORE
     src/core/game_save.cpp
     src/core/game_animals.cpp
     src/core/game_player.cpp
+    src/animals/mount_ride.cpp
     src/core/game_inventory.cpp
     src/core/game_render.cpp
     src/core/game_render_world.cpp

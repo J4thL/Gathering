@@ -229,6 +229,7 @@ void Game::updatePlayer(float dt) {
     if (P.charging) spd *= 0.6f;
     if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
     spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
+    if (HAnimal* mt = riddenMount()) spd *= mountSpeed(mt->species, mt->tier);
     if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
     if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
@@ -385,6 +386,8 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
+    if (in.mountPressed) toggleMount();
+    updateMount(dt, moving);
     if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};
         bool used = false;

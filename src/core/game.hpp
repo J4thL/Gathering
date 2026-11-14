@@ -9,6 +9,7 @@
 #include "core/audio.hpp"
 #include "core/settings.hpp"
 #include "items/inventory.hpp"
+#include "animals/mounts.hpp"
 #include "npcs/quests.hpp"
 #include "art/sprites.hpp"
 #include "world/world.hpp"
@@ -33,7 +34,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false;  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -143,7 +144,8 @@ struct Player {
     bool has(int carried) const { return inv.count(itemCarry(carried)) > 0; }  // carried gear is active while it is in the pack
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
-    int carryLimit() const { return bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG; }  // kg
+    int mountKg = 0;  // extra carrying capacity while riding a mount
+    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg; }  // kg
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
@@ -460,6 +462,14 @@ struct Game {
     float portalFx = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
     bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
+    // mounts (mount_ride.cpp): a saddled, grown mount from the homestead is ridden with V - faster, more carry weight, no buildings or caves
+    float mountAnimT = 0;
+    bool mountMoving = false;
+    HAnimal* riddenMount();
+    HAnimal* saddledMount();
+    bool toggleMount();
+    void dismount(bool quiet = false);
+    void updateMount(float dt, bool moving);
     void hsReset();                                                   // new game: an empty homestead
     void hsReindex();                                                 // rebuild hsGrid after the piece list changed
     void hsApplyWorld();                                              // the pieces' solid tiles and bridges on the freshly generated map
@@ -486,7 +496,7 @@ struct Game {
     bool hsPlant(HPiece& pc, int crop);
     bool hsHarvest(HPiece& pc);
     bool hsWater(HPiece& pc);
-    void hsAddAnimal(int kind, V2 at, bool baby, int home = -1);
+    void hsAddAnimal(int kind, V2 at, bool baby, int home = -1, int species = -1, int tier = 0);
     bool hsAssign(HAnimal& a, int pieceId);
     int hsHousingCount(int pieceId) const;
     bool hsFeed(HAnimal& a);
