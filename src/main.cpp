@@ -601,11 +601,20 @@ static void spriteSheet(Game& g, const std::string& dir) {
         static const char* NAMES[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death", "mine", "forage"};
         page((std::string("hunter_") + NAMES[st]).c_str(), hero, HS_MAXF, 28, 36);
     }
-    for (int pg = 0; pg * 12 < (int)A_COUNT; pg++) {
-        std::vector<const Spr*> list;
-        for (int k = pg * 12; k < std::min((int)A_COUNT, pg * 12 + 12); k++)
-            for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
-        page(("animals" + std::to_string(pg)).c_str(), list, 12, 33, 50);
+    {  // the crawlers (the species without a full animation set): side, front and back views of the walk and the dead pose
+        std::vector<int> crawl;
+        for (int k = 0; k < A_COUNT; k++)
+            if (!animalClips(k)) crawl.push_back(k);
+        for (int pg = 0; pg * 6 < (int)crawl.size(); pg++) {
+            std::vector<const Spr*> list;
+            for (int i = pg * 6; i < std::min((int)crawl.size(), pg * 6 + 6); i++) {
+                const int k = crawl[i];
+                for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
+                for (int b = 0; b < 2; b++)
+                    for (int f : {0, 1, 4}) list.push_back(&g.A.animalNS[k][0][b][f]);
+            }
+            page(("animals" + std::to_string(pg)).c_str(), list, 9, 40, 50);
+        }
     }
     // the animals with a full animation set: one page per species and state, a row per facing (S SE E NE N), a column per pose
     for (int kind : RICH_KINDS) {
@@ -759,7 +768,11 @@ static void wildlife(Game& g, const std::string& dir) {
                     int f = ANIMAL[k].forms > 1 ? form : 0;
                     float px = 58 + i * 48.f, py = 48 + t * 52.f;
                     g.sprW(g.A.shadow[1], px, py, false, 0.6f);
-                    g.sprW(g.A.animal[k][f + 2 * t][(int)(g.timeAcc) & 3 ? 1 : 0], px, py);
+                    if (animalClips(k)) {  // species with a full set: the idle pose facing east
+                        ensureRichBank(g.ren, g.A, k, f, t);
+                        g.sprW(g.A.rich[k]->s[f + 2 * t][F_E][AN_IDLE][0], px, py);
+                    } else
+                        g.sprW(g.A.animal[k][f + 2 * t][(int)(g.timeAcc) & 3 ? 1 : 0], px, py);
                     if (t == 0) g.textC((int)px, 4, std::string(animalName(k, 0)).substr(0, 11), C_TEXT, 1, true);
                 }
             }

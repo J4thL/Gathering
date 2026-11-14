@@ -9,14 +9,11 @@
 // Style reference: a tiny chestnut boar with a dark bristle mane, ivory tusks, a red hurt flash and a slash arc on the attack.
 #pragma once
 #include <algorithm>
-#include <atomic>
 #include <memory>
-#include <thread>
 #include "animals/animal_anim.hpp"
 
 constexpr int AV_VIEWS = 4;  // S, E, N, W (the Facing order): each direction is rendered by turning the 3D model, nothing is mirrored
-// The hand-drawn pixel-art path (deer_ref.hpp, ref_art_wolfboar.hpp, flat reference look, mirrored west views) is kept but switched off: the animals are the shaded rig.
-constexpr bool kRefArt = false;
+constexpr float kCamPhi = 0.22f;  // camera pitch in radians (0 = a pure side / front / back elevation)
 
 struct RichAnimal {
     Spr s[8][AV_VIEWS][AN_COUNT][AN_MAXF];  // [form + 2*tier][view][state][pose]
@@ -374,10 +371,12 @@ struct RigShape {
     int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
     float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
     float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
-    int model;                 // 0 none; 1 wolf: a posed 3D model rendered to 64x64 (quad3d.hpp), shown at its old in-game size
-    int ref;                   // 0 drawn by the 3D rig; 1 deer, 2 wolf, 3 boar: drawn from pixel art (deer_ref.hpp / ref_art_wolfboar.hpp) in all views
+    int ref;                   // 0 drawn by the rig; 3 boar: drawn from the hand-made 32x32 pixel art (deer_ref.hpp / ref_art_boar32.hpp) in all four directions
     bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
     bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
+    int horns;                 // 0 none, 1 short goat horns, 2 curled ram horns, 3 flat palmate moose antlers (colour: QuadSpec::horn)
+    bool bigRack;              // antlers with extra tines (reindeer, moose)
+    bool lionMane;             // a full mane around the head
     float strideMul, liftMul, airMul;
     int W, H;                  // canvas at scale 1
 };
@@ -406,8 +405,6 @@ inline RigShape wolfShape() {
     r.ridge = true;
     r.strideMul = 1.25f; r.liftMul = 1.2f; r.airMul = 1.2f;
     r.scale = 1.4f;
-    r.model = 1;  // 3D model, rendered 64x64
-    r.flat = kRefArt; r.ref = kRefArt ? 2 : 0;
     r.W = 52; r.H = 42;
     return r;
 }
@@ -423,7 +420,7 @@ inline RigShape deerShape(bool stag) {
     r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
     r.antlers = stag; r.spots = false;
     r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
-    r.scale = 1.75f; r.flat = true; r.ref = kRefArt ? 1 : 0; r.model = 3;
+    r.scale = 1.75f; r.flat = true;
     r.W = 54; r.H = 58;
     return r;
 }
@@ -481,6 +478,28 @@ inline RigShape eagleShape() {
     r.W = 40; r.H = 32;
     return r;
 }
+// Every other four-legged species is described by its QuadSpec (the palette + proportions record in sprites_fauna.hpp): the rig shape is derived from it.
+// QuadSpec side-art units are pixels, the same as the rig's, so the body, legs and head carry over directly.
+inline RigShape quadShapeFromSpec(const QuadSpec& q) {
+    RigShape r{};
+    r.tx = q.bw * 0.5f; r.tz = q.bh * 0.5f; r.ty = std::max(2.2f, q.bh * 0.38f);
+    r.zb = q.legLen + q.bh * 0.5f;
+    r.legFx = q.bw * 0.30f; r.legBx = -q.bw * 0.30f; r.legY = r.ty * 0.62f; r.legW = std::max(1, q.legW);
+    r.hdx = q.hdx; r.hdz = q.bh * 0.5f - q.hdy;
+    r.hrx = q.hr; r.hry = q.hr * 0.88f; r.hrz = q.hr * 0.95f;
+    r.snx = q.hr * 0.6f + q.snoutLen * 0.6f; r.snz = -q.hr * 0.3f; r.snr = std::max(0.4f, std::min(0.9f, q.snoutLen / std::max(1.f, q.hr) * 0.6f));
+    r.ear = q.ear == 2 ? 2 : (q.ear == 5 || q.ear == 1 ? 1 : 0);
+    r.earH = q.ear == 5 ? 2.4f : 2.0f;
+    r.neck = q.hdy < -4.f ? q.hr * 0.7f : 0.f;
+    r.tail = q.tail == 1 ? 1 : (q.tail == 5 ? 1 : (q.tail == 2 ? 2 : 0));
+    r.tusks = q.tusks; r.ridge = q.ridge; r.spots = q.spots; r.antlers = q.antlers > 0; r.bigRack = q.antlers > 1;
+    r.horns = q.horns; r.lionMane = q.mane == 1;
+    r.strideMul = r.liftMul = r.airMul = 1.f;
+    r.scale = 1.f;
+    r.W = (int)(q.W * 1.3f) + 14; r.H = (int)(q.H * 1.4f) + 16;
+    return r;
+}
+
 inline RigShape rigShape(int kind, int form) {
     switch (kind) {
         case A_DUCK: return duckShape();
@@ -490,7 +509,8 @@ inline RigShape rigShape(int kind, int form) {
         case A_DEER: return deerShape(form == 1);
         case A_RABBIT: return rabbitShape();
         case A_HARE: case A_SNOWHARE: return hareShape();
-        default: return boarShape();
+        case A_BOAR: return boarShape();
+        default: return quadShapeFromSpec(fauSpec(kind, form, 0));
     }
 }
 
@@ -523,25 +543,6 @@ inline const m3::Q3& deerQ3() {
     return Q;
 }
 inline const m3::Q3& modelQ3(int model) { return model == 2 ? boarQ3() : (model == 3 ? deerQ3() : wolfQ3()); }
-constexpr int MODEL_CELL = 64;
-struct ModelOut {
-    Img im;
-    int ax, ay;
-    float disp;  // in-game scale of the 64x64 texture
-};
-inline ModelOut paintModel(const QuadSpec& sp, const RigShape& R, int view, const BPose& P) {
-    static const float ALPHA[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
-    const m3::Q3& Q = modelQ3(R.model);
-    std::vector<m3::Prim> prims;
-    m3::buildQuad(Q, P, R.strideMul, R.liftMul, R.airMul, R.antlers, prims);
-    ModelOut o;
-    o.im = m3::render(prims, m3::quadMats(sp, P.tint, Q.legDark), ALPHA[view], 0.70f, Q.pxu, MODEL_CELL, MODEL_CELL, Q.ox, Q.oy, 3);
-    o.ax = (int)Q.ox;
-    o.ay = (int)Q.oy;
-    o.disp = 1.f / Q.pxu;
-    return o;
-}
-
 // Paint one animal for one view (0 S, 1 E, 2 N, 3 W) and pose. `k` is the tier's body scale.
 inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int view, const BPose& P0) {
     const float k = tierK * rigScale(R);  // tier scale x the species' own scale
@@ -551,7 +552,7 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
     P.air *= R.airMul;
     static const float PSI[AV_VIEWS] = {1.5708f, 0.f, -1.5708f, 3.14159f};  // S, E, N, W
     const float psi = PSI[view], cp = cosf(psi), sn = sinf(psi);
-    const float phi = 0.70f, cph = cosf(phi), sph = sinf(phi);  // the camera looks down at 40 degrees
+    const float phi = kCamPhi, cph = cosf(phi), sph = sinf(phi);  // the camera looks almost level: flat 2D elevations
     const int CW = (int)ceilf(R.W * k), CH = (int)ceilf(R.H * k);
     const float ax = CW / 2.f, ay = CH - 6.f * k;                // where the ground point under the boar lands
     if (R.ref) {  // pixel art faces east: the west view is the east art mirrored about the anchor column (deerref views: 0 front, 2 side, 4 back)
@@ -737,10 +738,31 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
             stroke(hx - 0.6f, y0, hz + R.hrz - 0.4f, hx - 1.6f, sd * 3.6f, hz + R.hrz + 5.2f, ant, antD, 1);
             stroke(hx - 1.1f, sd * 2.5f, hz + R.hrz + 2.0f, hx + 1.2f, sd * 3.4f, hz + R.hrz + 4.2f, ant, antD, 1);
             stroke(hx - 1.5f, sd * 3.3f, hz + R.hrz + 4.0f, hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, ant, antD, 1);
-            if (R.flat) {  // a fuller rack: two more tines and a forked tip
+            if (R.flat || R.bigRack) {  // a fuller rack: two more tines and a forked tip
                 stroke(hx - 1.4f, sd * 3.0f, hz + R.hrz + 3.2f, hx + 0.6f, sd * 4.4f, hz + R.hrz + 5.8f, ant, antD, 1);
                 stroke(hx - 2.4f, sd * 4.0f, hz + R.hrz + 5.0f, hx - 2.0f, sd * 5.4f, hz + R.hrz + 8.0f, ant, antD, 1);
                 stroke(hx - 3.0f, sd * 4.6f, hz + R.hrz + 6.4f, hx - 4.4f, sd * 5.6f, hz + R.hrz + 8.6f, ant, antD, 1);
+            }
+        }
+    }
+    if (R.lionMane) {  // a full mane framing the head, in the dark coat colour
+        const u32 lm = tintC(sp.dark, P.tint * 0.5f), lmL = tintC(shadeC(sp.dark, 1.2f), P.tint * 0.5f);
+        ell(hx - 1.0f, 0, hz - 0.2f, R.hrx * 1.35f, R.hry * 1.6f, R.hrz * 1.45f, lmL, lm, shadeC(sp.dark, 0.7f));
+    }
+    if (R.horns) {
+        const u32 hc = tintC(sp.horn ? sp.horn : HEX(0x2e2a26), P.tint * 0.5f), hcD = tintC(shadeC(sp.horn ? sp.horn : HEX(0x2e2a26), 0.75f), P.tint * 0.5f);
+        for (int sd = -1; sd <= 1; sd += 2) {
+            const float zt = hz + R.hrz - 0.3f;
+            if (R.horns == 1) {  // short goat horns that sweep back
+                stroke(hx - 0.4f, sd * 1.3f, zt, hx - 1.6f, sd * 1.8f, zt + 2.6f, hc, hcD, 1);
+                stroke(hx - 1.6f, sd * 1.8f, zt + 2.6f, hx - 3.2f, sd * 2.0f, zt + 3.6f, hc, hcD, 1);
+            } else if (R.horns == 2) {  // heavy curls round the side of the head
+                stroke(hx - 0.6f, sd * 1.6f, zt, hx - 2.4f, sd * 3.2f, zt + 1.4f, hc, hcD, 2);
+                stroke(hx - 2.4f, sd * 3.2f, zt + 1.4f, hx - 1.2f, sd * 4.6f, zt - 1.0f, hc, hcD, 2);
+                stroke(hx - 1.2f, sd * 4.6f, zt - 1.0f, hx + 0.8f, sd * 4.0f, zt - 2.2f, hc, hcD, 1);
+            } else {  // moose: a flat palmate blade with points
+                ell(hx - 1.4f, sd * 4.4f, zt + 1.6f, 1.4f, 3.6f, 2.0f, hc, hc, hcD);
+                for (int i = 0; i < 3; i++) stroke(hx - 1.4f + (i - 1) * 1.1f, sd * (6.0f + i * 0.3f), zt + 2.4f, hx - 1.4f + (i - 1) * 1.1f, sd * (6.4f + i * 0.3f), zt + 4.6f, hc, hcD, 1);
             }
         }
     }
@@ -901,33 +923,22 @@ inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form
     const QuadSpec sp = fauSpec(kind, form, tier);
     const float k = TIER[tier].scale * rigScale(R);
     struct Job { int v, st, i; };
-    struct Out { Img im; int ax = 0, ay = 0; float disp = 1.f; };
+    struct Out { Img im; int ax = 0, ay = 0; };
     std::vector<Job> jobs;
     for (int v = 0; v < AV_VIEWS; v++)
         for (int st = 0; st < AN_COUNT; st++)
             for (int i = 0; i < C.poses[st]; i++) jobs.push_back({v, st, i});
     std::vector<Out> outs(jobs.size());
-    // painting one frame is pure CPU work on local data, so the 3D models are drawn on several threads; the textures are made afterwards on this one
     auto gen = [&](size_t j) {
         const Job& jb = jobs[j];
         Out& o = outs[j];
         Img im;
         int ax, ay;
-        float disp = 1.f;
         const BPose pose = R.bird ? birdPose(jb.st, jb.i) : (R.hopper ? hopPose(jb.st, jb.i) : quadPose(jb.st, jb.i));
-        if (R.model) {
-            ModelOut mo = paintModel(sp, R, jb.v, pose);
-            im = std::move(mo.im);
-            ax = mo.ax;
-            ay = mo.ay;
-            disp = mo.disp * TIER[tier].scale;
-            styleActor(im, OUT, 0);
-        } else {
-            im = paintQuad(sp, R, TIER[tier].scale, jb.v, pose);
-            styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
-            ax = im.w / 2;
-            ay = (int)(im.h - 6.f * k);
-        }
+        im = paintQuad(sp, R, TIER[tier].scale, jb.v, pose);
+        styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
+        ax = im.w / 2;
+        ay = (int)(im.h - 6.f * k);
         // crop to the drawn pixels (the canvas has room for every pose, most poses use much less): the same picture, far less texture memory
         int x0 = im.w, y0 = im.h, x1 = -1, y1 = -1;
         for (int y = 0; y < im.h; y++)
@@ -947,28 +958,12 @@ inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form
         o.im = std::move(im);
         o.ax = ax;
         o.ay = ay;
-        o.disp = disp;
     };
-    if (R.model && jobs.size() > 8) {
-        const unsigned hw = std::max(1u, std::min(8u, std::thread::hardware_concurrency()));
-        std::atomic<size_t> next{0};
-        std::vector<std::thread> pool;
-        for (unsigned t = 0; t < hw; t++)
-            pool.emplace_back([&] {
-                for (size_t j; (j = next.fetch_add(1)) < jobs.size();) gen(j);
-            });
-        for (auto& th : pool) th.join();
-    } else
-        for (size_t j = 0; j < jobs.size(); j++) gen(j);
+    for (size_t j = 0; j < jobs.size(); j++) gen(j);
     for (size_t j = 0; j < jobs.size(); j++) {
         const Job& jb = jobs[j];
         Spr& sps = bank.s[idx][jb.v][jb.st][jb.i];
         sps = makeSpr(r, outs[j].im, outs[j].ax, outs[j].ay, true);
-        if (R.model) {  // a detailed texture drawn smaller: filtered, not nearest
-            sps.sc = outs[j].disp;
-            SDL_SetTextureScaleMode(sps.t, SDL_ScaleModeLinear);
-            if (sps.flash) SDL_SetTextureScaleMode(sps.flash, SDL_ScaleModeLinear);
-        }
     }
     bank.built[idx] = true;
 }

@@ -82,6 +82,12 @@ stream species in just off-screen (`src/world/spawns.hpp`: per-biome caps, coold
 Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
 recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
 
+**Animal art** is flat 2D with four directions (down, right, up, left). `src/animals/sprites_rig.hpp` paints every four-legged species, the hoppers
+and the birds as side, front and back elevations (camera pitch `kCamPhi`) with idle, walk, run, attack, hurt, death, eat, rest and alert poses
+(flight states for birds). A four-legged species is described by its `QuadSpec` in `sprites_fauna.hpp`, and its rig shape is derived from that
+(`quadShapeFromSpec`). Only the crawlers (snakes, lizard, frog, gator) keep the four-frame walk cycle, with their own front and back views
+(`drawCrawlerNS`). `--export-sprites DIR` writes sprite sheets for every species and direction.
+
 ## Items and ranged weapons
 `src/items/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
 thrown weapons, launchers, ammo, consumables and backpacks, built from the tables in `data.hpp`.

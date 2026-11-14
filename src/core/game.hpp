@@ -366,7 +366,7 @@ struct Game {
     std::vector<int16_t> flow;         // flow field: steps to the hunter, around the walls (monsters.cpp)
     int flowTx = -1, flowTy = -1;
     float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
-    float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
+    float pSlowT = 0, pPoisonT = 0;  // the hunter's slow (frost) and poison, seconds left
     // ---- light and weather (game_light.cpp)
     float stormK = 0, stormT = 0, stormNext = 100.f, flashT = 0, flashNext = 4.f, thunderT = -1.f;  // storm: strength 0..1, time left, until the next one
     std::vector<LightSrc> lampList;  // every fixed light of this map, rebuilt each frame
@@ -456,8 +456,8 @@ struct Game {
         int kind = HP_FENCE, rot = 0, tx = 0, ty = 0, cat = 0, scroll = 0;
         std::string why;
     } bm;
-    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0, hsTileHit = -1;
-    float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
+    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0;
+    float portalFx = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
     bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
     void hsReset();                                                   // new game: an empty homestead

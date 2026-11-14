@@ -1,8 +1,9 @@
 // sprites_fauna.hpp - procedural art for every animal species, every form and every rarity tier.
-// Included from sprites.hpp after drawQuad / specWolf. Each species has a QuadSpec (even the non-quadrupeds use
+// Included from sprites.hpp after specWolf. Each species has a QuadSpec (even the non-quadrupeds use
 // it as a palette + dimensions record); the painter is picked by AnimalDef::art. Rarity tiers recolour the spec
 // ("looks") and scale it, so a rare albino wolf is the same painter with different colours and a bigger body.
 #pragma once
+#include "animals/animal_anim.hpp"  // animalClips(): which species are drawn by the rig
 
 // ================================================================= spec helper
 inline QuadSpec mkQ(int W, int H, float cx, float bw, float bh, int legLen, int legW, u32 body, u32 light, u32 belly, u32 dark, u32 hoof,
@@ -218,87 +219,6 @@ inline Img drawSnake(const QuadSpec& s, int frame, bool dead) {
     return im;
 }
 
-inline Img drawBird(const QuadSpec& s, int frame, bool dead) {
-    Img im(s.W, s.H);
-    int type = s.horns;  // 0 duck, 1 roadrunner, 2 eagle
-    int ground = s.H - 2;
-    float bodyBottom = (float)(ground - s.legLen);
-    float bob = (frame == 1 || frame == 3) ? -1.f : 0.f;
-    float cy = bodyBottom - s.bh / 2 + 1 + bob, cx = s.cx;
-    static const int shift[4] = {0, -2, 0, 2};
-    u32 headCol = s.horn ? s.horn : s.body;
-    // legs
-    for (int k = 0; k < 2; k++) {
-        int ph = (frame + k * 2) & 3;
-        int x = (int)roundf(cx - 1 + k * 2.5f) + shift[ph];
-        int top = (int)bodyBottom - 1;
-        for (int y = top; y <= ground; y++) im.set(x, y, s.hoof);
-        im.set(x + 1, ground, s.hoof);
-        im.set(x - 1, ground, s.hoof);
-    }
-    // tail feathers
-    float tx = cx - s.bw / 2;
-    int tl = s.tail;
-    for (int i = 0; i < tl; i++) {
-        float tt = i / (float)std::max(1, tl - 1);
-        float dy = type == 1 ? (-0.8f + tt * 0.5f) : (type == 2 ? tt * 2.f : -tt * 1.2f);
-        im.ellipse(tx + 1.5f - i * 1.0f, cy - 0.5f + dy * (i * 0.5f), 1.7f - tt * 0.5f, 1.5f - tt * 0.4f, i % 2 ? s.dark : s.body);
-    }
-    // body
-    for (int y = 0; y < s.H; y++)
-        for (int x = 0; x < s.W; x++) {
-            float dx = (x + 0.5f - cx) / (s.bw / 2), dy = (y + 0.5f - cy) / (s.bh / 2);
-            if (dx * dx + dy * dy > 1.f) continue;
-            float t = (dy + 1.f) * 0.5f;
-            u32 c = s.body;
-            if (t < 0.28f) c = s.light;
-            else if (t > 0.7f) c = s.belly;
-            if (s.spots && (patHash(x, y) % 7 == 0) && t < 0.7f) c = s.dark;  // streaks
-            im.set(x, y, c);
-        }
-    // wing (lifts on the odd frames)
-    float lift = (frame & 1) ? -1.5f : 0.f;
-    float wl = type == 2 ? s.bw * 0.46f : s.bw * 0.34f;
-    im.ellipse(cx - 1.5f, cy - s.bh * 0.12f + lift, wl, s.bh * (type == 2 ? 0.34f : 0.3f), s.dark);
-    im.ellipse(cx - 2.f, cy - s.bh * 0.2f + lift, wl * 0.7f, s.bh * 0.18f, shadeC(s.dark, 1.3f));
-    // neck + head
-    float hx = cx + s.bw / 2 + s.hdx, hy = cy - s.bh / 2 + s.hdy;
-    float nx = cx + s.bw / 2 - 2.f, ny = cy - s.bh * 0.1f;
-    for (int i = 0; i <= 6; i++) {
-        float t = i / 6.f;
-        im.ellipse(nx + (hx - nx) * t, ny + (hy - ny) * t, s.hr * 0.8f, s.hr * 0.8f, i < 4 ? s.body : headCol);
-    }
-    im.ellipse(hx, hy, s.hr, s.hr * 0.95f, headCol);
-    // beak
-    int bx = (int)(hx + s.hr * 0.7f), by = (int)hy;
-    if (type == 0) {  // flat duck bill
-        im.ellipse(hx + s.hr + s.snoutLen * 0.35f, hy + 1.f, s.snoutLen * 0.55f, 1.2f, s.snout);
-    } else if (type == 1) {  // long thin bill
-        im.line(bx, by, bx + (int)s.snoutLen, by + 1, s.snout);
-        im.line(bx, by + 1, bx + (int)s.snoutLen - 1, by + 1, s.snout);
-    } else {  // hooked raptor beak
-        im.ellipse(hx + s.hr * 0.9f + 1.5f, hy + 0.8f, 2.4f, 1.6f, s.snout);
-        im.set((int)(hx + s.hr + 3), (int)hy + 2, s.snout);
-        im.set((int)(hx + s.hr + 3), (int)hy + 3, s.snout);
-    }
-    int ex = (int)(hx + 0.8f), ey = (int)(hy - 0.8f);
-    im.set(ex, ey, s.eye);
-    if (type == 2) im.set(ex, ey - 1, s.dark);  // brow
-    if (dead) {
-        im.set(ex + 1, ey + 1, s.eye);
-        im.set(ex - 1, ey - 1, s.eye);
-        im.set(ex + 1, ey - 1, s.eye);
-        im.set(ex - 1, ey + 1, s.eye);
-    }
-    if (type == 1) {  // crest
-        im.line((int)hx - 1, (int)(hy - s.hr), (int)hx - 4, (int)(hy - s.hr - 3), s.dark);
-        im.line((int)hx, (int)(hy - s.hr), (int)hx - 2, (int)(hy - s.hr - 4), s.body);
-    }
-    im.outline(OUT);
-    if (dead) im = im.flippedV();
-    return im;
-}
-
 inline Img drawFrog(const QuadSpec& s, int frame, bool dead) {
     Img im(s.W, s.H);
     int ground = s.H - 2;
@@ -436,21 +356,92 @@ inline Img drawGator(const QuadSpec& s, int frame, bool dead) {
     return im;
 }
 
+// ---------------------------------------------------------------- the crawlers seen from the front and the back
+// The side art above only faces east / west. These two views (down the screen = towards the hunter, up = away) lie the body along
+// the screen's vertical: head first at the bottom (towards the viewer, with eyes) or at the top (away, back of the head).
+inline Img drawCrawlerNS(int art, const QuadSpec& s, int frame, bool dead, bool back) {
+    const bool snake = art == ART_SNAKE, frog = art == ART_FROG, gator = art == ART_GATOR;
+    const int len = frog ? 12 : (int)(s.W * (snake ? 0.8f : 0.9f));
+    const int bwid = std::max(4, (int)(s.bh * (snake ? 0.9f : 1.5f)));
+    Img im(std::max(bwid + 14, 16), len + 8);
+    const float cx = im.w / 2.f, top = 3.f, bot = (float)im.h - 3.f;
+    const float ph = frame * 1.5708f;
+    auto headAt = [&](float y) { return back ? y : (bot - (y - top)); };  // body is drawn tail-at-top then flipped for the back view
+    // the body is built from the tail end (far from the head) to the head: y runs 0..1
+    const int segs = std::max(8, len);
+    auto sx = [&](float t) { return cx + (snake ? sinf(t * 9.f + ph) * 2.4f : (frog ? 0.f : sinf(t * 7.f + ph) * 0.9f)); };
+    auto yAt = [&](float t) { return back ? bot - t * (bot - top) : top + t * (bot - top); };  // t 1 = head end
+    if (frog) {
+        const float yy = back ? bot - 5 : top + 6;
+        // hind legs folded at the sides, front legs under the chin
+        im.ellipse(cx - 5.5f, yy + (back ? -1.f : 4.f), 2.6f, 3.4f, s.dark);
+        im.ellipse(cx + 5.5f, yy + (back ? -1.f : 4.f), 2.6f, 3.4f, s.dark);
+        im.ellipse(cx, yy + 2, 5.5f, 5.0f, s.body);
+        im.ellipse(cx, yy + 4.5f, 3.6f, 2.8f, back ? s.body : s.belly);
+        im.ellipse(cx, yy - 2.5f, 4.2f, 3.0f, s.light);
+        im.ellipse(cx - 2.8f, yy - 4.5f, 1.8f, 1.8f, s.body);  // eye bumps
+        im.ellipse(cx + 2.8f, yy - 4.5f, 1.8f, 1.8f, s.body);
+        if (!back) {
+            im.set((int)(cx - 3), (int)(yy - 5), dead ? s.dark : s.eye);
+            im.set((int)(cx + 2), (int)(yy - 5), dead ? s.dark : s.eye);
+        }
+        im.ellipse(cx - 3.5f, yy + 7.5f, 1.8f, 1.2f, s.dark);  // front feet
+        im.ellipse(cx + 3.5f, yy + 7.5f, 1.8f, 1.2f, s.dark);
+    } else {
+        // tail and body: a tapering chain of discs, light on the back and belly colour at the edges
+        for (int i = 0; i < segs; i++) {
+            const float t = i / (float)(segs - 1);                       // 0 tail tip .. 1 head
+            const float w = (snake ? 0.55f + 0.45f * sinf(std::min(1.f, t * 1.4f) * 1.5708f) : (t < 0.45f ? 0.25f + t * 1.1f : 1.f)) * bwid * 0.5f;
+            const float x = sx(t), y = yAt(t);
+            im.ellipse(x, y, std::max(1.2f, w), 1.7f, s.body);
+            if (w > 2.2f) im.ellipse(x, y, std::max(0.8f, w * 0.5f), 1.2f, s.light);
+            if (i % 3 == 0 && w > 2.f) im.set((int)x, (int)y, s.dark);  // a scale mark
+        }
+        if (!snake) {  // four splayed legs, alternating with the walk
+            for (int k = 0; k < 2; k++)
+                for (int sd = -1; sd <= 1; sd += 2) {
+                    const float t = k == 0 ? 0.78f : 0.42f, y = yAt(t) + ((frame + k + (sd > 0)) & 1 ? -1.f : 1.f);
+                    const float x = sx(t) + sd * (bwid * 0.5f + 2.2f);
+                    im.line((int)(sx(t) + sd * bwid * 0.35f), (int)yAt(t), (int)x, (int)y, s.dark);
+                    im.set((int)x + sd, (int)y, s.dark);
+                }
+        }
+        // head
+        const float hy = yAt(1.f), hr = snake ? s.hr * 1.2f : s.hr * (gator ? 1.3f : 1.1f);
+        const float hdir = back ? -1.f : 1.f;  // which way the snout points on screen
+        im.ellipse(sx(1.f), hy + hdir * 0.8f, hr, hr * (gator ? 1.5f : 1.1f), s.body);
+        im.ellipse(sx(1.f), hy + hdir * 0.4f, hr * 0.6f, hr * 0.5f, s.light);
+        if (!back) {
+            const float ex = hr * 0.55f;
+            im.set((int)(sx(1.f) - ex), (int)(hy - 1), dead ? s.dark : s.eye);
+            im.set((int)(sx(1.f) + ex), (int)(hy - 1), dead ? s.dark : s.eye);
+            if (snake && !dead && frame & 1) im.line((int)sx(1.f), (int)(hy + hr), (int)sx(1.f), (int)(hy + hr + 2), HEX(0xe56b7a));  // a flicking tongue
+            if (gator) im.rect((int)(sx(1.f) - 1), (int)(hy + hr * 1.2f), 2, 1, s.dark);  // nostrils
+        }
+        if (snake && !back && s.tail == 9) im.rect((int)(sx(0.f) - 1), (int)yAt(0.f) - 2, 2, 3, s.dark);  // rattle
+        if (snake && back && s.tail == 9) im.rect((int)(sx(0.f) - 1), (int)yAt(0.f) + 1, 2, 3, s.dark);
+    }
+    (void)headAt;
+    im.outline(OUT);
+    if (dead) im = im.flippedV();
+    return im;
+}
+
 inline Img paintAnimal(int kind, const QuadSpec& s, int frame, bool dead) {
     switch (ANIMAL[kind].art) {
-        case ART_BIRD: return drawBird(s, frame, dead);
         case ART_SNAKE: return drawSnake(s, frame, dead);
         case ART_FROG: return drawFrog(s, frame, dead);
         case ART_LIZARD: return drawLizard(s, frame, dead);
         case ART_GATOR: return drawGator(s, frame, dead);
-        default: return drawQuad(s, frame, dead);
+        default: return Img(1, 1);  // (the species with a full animation set are drawn by the rig: sprites_rig.hpp)
     }
 }
 
 // Builds a.animal[kind][form + 2 * tier][frame] for every species, form and tier.
 template <class AssetsT>
 inline void buildFauna(SDL_Renderer* r, AssetsT& a) {
-    for (int k = 0; k < A_COUNT; k++)
+    for (int k = 0; k < A_COUNT; k++) {
+        if (animalClips(k)) continue;  // the species with a full animation set are built by buildRichAnimals
         for (int form = 0; form < ANIMAL[k].forms; form++)
             for (int tier = 0; tier < TR_COUNT; tier++) {
                 QuadSpec sp = fauSpec(k, form, tier);
@@ -460,5 +451,13 @@ inline void buildFauna(SDL_Renderer* r, AssetsT& a) {
                     styleActor(im, OUT, 1);
                     out[f] = makeSpr(r, im, (int)sp.cx, f < 4 ? sp.H - 2 : 1, true);
                 }
+                if (ANIMAL[k].art != ART_QUAD && ANIMAL[k].art != ART_BIRD)  // the crawlers also get a front (down) and a back (up) view
+                    for (int back = 0; back < 2; back++)
+                        for (int f = 0; f < 5; f++) {
+                            Img im = drawCrawlerNS(ANIMAL[k].art, sp, f < 4 ? f : 0, f == 4, back == 1);
+                            styleActor(im, OUT, 1);
+                            a.animalNS[k][form + 2 * tier][back][f] = makeSpr(r, im, im.w / 2, f < 4 ? im.h - 2 : im.h / 2, true);
+                        }
             }
+    }
 }

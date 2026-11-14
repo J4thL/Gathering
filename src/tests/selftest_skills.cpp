@@ -357,7 +357,7 @@ void testSkillsAndTrophies(SelfTest& t) {
     }
     {  // ---- the boar's full animation set
         const AnimalClips* bc = animalClips(A_BOAR);
-        check(bc && animalClips(A_WOLF) && animalClips(A_DEER) && animalClips(A_RABBIT) && animalClips(A_HARE) && animalClips(A_SNOWHARE) && !animalClips(A_FENNEC) && g.A.rich[A_BOAR] && g.A.rich[A_RABBIT] && !g.A.rich[A_FENNEC], "boar, wolf, deer, rabbit and the hares have a full animation set; the others keep the walk cycle");
+        check(bc && animalClips(A_WOLF) && animalClips(A_DEER) && animalClips(A_RABBIT) && animalClips(A_HARE) && animalClips(A_SNOWHARE) && animalClips(A_FENNEC) && !animalClips(A_RATTLER) && g.A.rich[A_BOAR] && g.A.rich[A_RABBIT] && g.A.rich[A_FENNEC] && !g.A.rich[A_RATTLER], "every four-legged species, the hoppers and the birds have a full animation set; only the crawlers keep the walk cycle");
         check(g.A.rich[A_BOAR]->built[0] && g.A.rich[A_EAGLE]->built[0], "the common sprites of every full-set species are drawn at start-up");
         {  // rarer tiers are drawn when the first one spawns
             const int legIdx = 2 * TR_LEGENDARY;
