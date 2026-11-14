@@ -176,23 +176,14 @@ inline int exportAll(const std::string& root) {
             for (int st = 0; st < AN_COUNT; st++) {
                 if (C.poses[st] <= 0) continue;
                 std::vector<std::vector<Img>> fr(AV_VIEWS);
-                int ma = 0, mb = 0;
-                float md = 1.f;
                 for (int v = 0; v < AV_VIEWS; v++)
                     for (int i = 0; i < C.poses[st]; i++) {
-                        if (R.model) {  // a 3D model rendered into a 64x64 cell, drawn in the game at displayScale
-                            ModelOut mo = paintModel(spec, R, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
-                            styleActor(mo.im, OUT, 0);
-                            ma = mo.ax; mb = mo.ay; md = mo.disp;
-                            fr[v].push_back(mo.im);
-                            continue;
-                        }
                         Img im = paintQuad(spec, R, TIER[0].scale, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
                         styleActor(im, OUT, R.flat ? 2 : 0);
                         fr[v].push_back(im);
                     }
-                exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], R.model ? ma : fr[0][0].w / 2,
-                            R.model ? mb : (int)(fr[0][0].h - 6.f * k), cnt, true, R.model ? md : 1.f);
+                exportState(root, "animal", "animals/" + sp, sp + "_" + AN[st], "animals/" + sp + "_" + AN[st], fr, C.clip[st], fr[0][0].w / 2,
+                            (int)(fr[0][0].h - 6.f * k), cnt, true, 1.f);
             }
         }
     const std::string mp = root + "/animations/manifest.json";

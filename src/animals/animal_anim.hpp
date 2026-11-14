@@ -74,13 +74,15 @@ inline const AnimalClips& birdClipSet() {
     return C;
 }
 
-// every species that has a full animation set
-constexpr int RICH_KINDS[] = {A_BOAR, A_WOLF, A_DEER, A_RABBIT, A_HARE, A_SNOWHARE, A_ROADRUNNER, A_DUCK, A_EAGLE};
+// every species that has a full animation set (all the four-legged ones, the hoppers and the birds; only the crawlers are left)
+constexpr int RICH_KINDS[] = {A_BOAR, A_WOLF, A_DEER, A_RABBIT, A_HARE, A_SNOWHARE, A_ROADRUNNER, A_DUCK, A_EAGLE,
+                              A_FENNEC, A_COYOTE, A_DUNELION, A_MARSHDEER, A_PANTHER, A_ARCTICFOX, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR, A_GOAT, A_BIGHORN, A_MARMOT, A_MTLION};
 
 // Clips for the species that have a full animation set; nullptr for the others (they keep the four-frame walk cycle).
 inline const AnimalClips* animalClips(int kind) {
     switch (kind) {
-        case A_BOAR: case A_WOLF: case A_DEER: return &quadClipSet();
+        case A_BOAR: case A_WOLF: case A_DEER: case A_FENNEC: case A_COYOTE: case A_DUNELION: case A_MARSHDEER: case A_PANTHER: case A_ARCTICFOX:
+        case A_REINDEER: case A_MOOSE: case A_LYNX: case A_POLARBEAR: case A_GOAT: case A_BIGHORN: case A_MARMOT: case A_MTLION: return &quadClipSet();
         case A_RABBIT: case A_HARE: case A_SNOWHARE: return &hopClipSet();
         case A_ROADRUNNER: case A_DUCK: case A_EAGLE: return &birdClipSet();
         default: return nullptr;

@@ -103,13 +103,20 @@ void Game::renderWorld(bool) {
     for (auto& a : animals) {
         if (!a.dead) continue;
         if (a.pos.x < camX - 50 || a.pos.x > camX + LW + 50 || a.pos.y < camY - 50 || a.pos.y > camY + LH + 50) continue;
-        const Spr& s = A.animal[a.kind][a.variant + 2 * a.tier][4];
+        const int bi = a.variant + 2 * a.tier;
+        const AnimalClips* dc = animalClips(a.kind);
+        const RichAnimal* rb = A.rich[a.kind].get();
+        const bool vert = !dc && (a.face8 == F_S || a.face8 == F_N) && A.animalNS[a.kind][bi][0][0].ok();
+        // species with a full set lie in the last pose of their death clip; the crawlers use their dead sprite (a mirror for west)
+        const Spr& s = (dc && rb) ? rb->s[bi][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][AN_DEATH][dc->poses[AN_DEATH] - 1]
+                       : (vert ? A.animalNS[a.kind][bi][a.face8 == F_N][4] : A.animal[a.kind][bi][4]);
+        const bool flipC = !(dc && rb) && !vert && (a.face8 == F_W || (a.face8 != F_E && a.face < 0));
         sprW(A.shadow[1], a.pos.x, a.pos.y + 2, false, 0.7f * a.fade);
-        sprW(s, a.pos.x, a.pos.y - 6, a.face < 0, a.fade);
+        sprW(s, a.pos.x, a.pos.y - ((dc && rb) ? 0 : 6), flipC, a.fade);
         if (a.flash > 0) {
             Spr f = s;
             f.t = s.flash;
-            sprW(f, a.pos.x, a.pos.y - 6, a.face < 0, a.flash / 0.16f * 0.8f);
+            sprW(f, a.pos.x, a.pos.y - ((dc && rb) ? 0 : 6), flipC, a.flash / 0.16f * 0.8f);
         }
         if (a.totalRemain > 0 && fmodf(timeAcc * 0.8f + a.pos.x, 2.f) < 0.3f) {
             int gx = (int)a.pos.x - camX + 4, gy = (int)a.pos.y - camY - 10;
@@ -467,6 +474,11 @@ void Game::renderWorld(bool) {
             const RichAnimal* rich = A.rich[a.kind].get();
             bool mirror = a.face < 0;
             const Spr* sp = &A.animal[a.kind][a.variant + 2 * a.tier][a.dead ? 4 : fr];
+            const bool vertical = !animalClips(a.kind) && (a.face8 == F_S || a.face8 == F_N) && A.animalNS[a.kind][a.variant + 2 * a.tier][0][0].ok();
+            if (vertical) {  // crawlers: front and back views
+                sp = &A.animalNS[a.kind][a.variant + 2 * a.tier][a.face8 == F_N][a.dead ? 4 : fr];
+                mirror = false;
+            } else if (!animalClips(a.kind)) mirror = a.face8 == F_W || (a.face8 != F_E && a.face < 0);
             if (rich) {
                 const AnimalClips* ac = animalClips(a.kind);
                 const int st = std::max(0, std::min((int)AN_COUNT - 1, a.anim.state));
