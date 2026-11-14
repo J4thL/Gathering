@@ -398,6 +398,9 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.setCam(0, true);
         frames(2);
         shot("28_mount_ride.bmp");
+        g.p.inv.addIgnoringWeight(itemBaby(A_WOLF), 1, 3);
+        for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == itemBaby(A_WOLF)) g.invSel = i;
+        g.in.mx = 400; g.in.my = 300; g.state = ST_INVENTORY; frames(3); shot("30_pack_baby.bmp"); g.state = ST_PLAY;
     }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }

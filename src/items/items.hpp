@@ -13,7 +13,8 @@
 #include "core/data.hpp"
 
 enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED, IK_BABY };
-[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR"};
+[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR", "BABY ANIMAL"};
+static_assert(sizeof(ITEM_KIND_NAME) / sizeof(ITEM_KIND_NAME[0]) == IK_BABY + 1, "every item kind needs a display name");
 
 // ---- id space: contiguous ranges, in the order of the legacy enums
 constexpr int ITEM_MAT0 = 0;
