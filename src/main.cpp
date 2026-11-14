@@ -67,6 +67,7 @@ static void pollInput(Game& g) {
                     else if (sc == K[K_BUILD]) in.buildToggle = true;
                     else if (sc == K[K_ROTATE]) in.rotPressed = true;
                     else if (sc == K[K_DEMOLISH]) in.delPressed = true;
+                    else if (sc == K[K_MOUNT]) in.mountPressed = true;
                     break;
                 }
                 switch (e.key.keysym.sym) {
@@ -113,7 +114,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.enterPressed = g.in.tabPressed = false;
             g.in.selectKey = -1;
             g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
-            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
+            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = false;
         }
         g.render();
     };
@@ -373,6 +374,30 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.exitBuilding();
         }
         g.p.pos = keepPos;
+    }
+    {   // a raised mount: its panel at the homestead, then the rider
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.p.pos = g.world.hportal + V2(0, 16);
+        g.homesteadInteract();
+        g.state = ST_PLAY;
+        g.hsAddAnimal(DA_MOUNT, g.p.pos + V2(30, 10), false, -1, A_DEER, 3);
+        g.hsAddAnimal(DA_MOUNT, g.p.pos + V2(-30, 10), true, -1, A_WOLF, 1);
+        g.hs.animals[0].saddled = true;
+        g.animSelId = g.hs.animals[0].id;
+        g.state = ST_ANIMAL;
+        frames(3);
+        shot("27_mount_panel.bmp");
+        g.state = ST_PLAY;
+        g.p.pos = V2(g.hs.animals[0].px, g.hs.animals[0].py);
+        g.toggleMount();
+        g.in.right = true;
+        frames(30);
+        g.in.right = false;
+        g.setCam(0, true);
+        frames(2);
+        shot("28_mount_ride.bmp");
     }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
@@ -1040,7 +1065,7 @@ int main(int argc, char** argv) {
             if (first) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
                 g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
-                g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = false;
+                g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
                 first = false;

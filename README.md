@@ -88,6 +88,12 @@ and the birds as side, front and back elevations (camera pitch `kCamPhi`) with i
 (`quadShapeFromSpec`). Only the crawlers (snakes, lizard, frog, gator) keep the four-frame walk cycle, with their own front and back views
 (`drawCrawlerNS`). `--export-sprites DIR` writes sprite sheets for every species and direction.
 
+## Mounts
+
+Any listed wild animal (boar, the deer family, goat, bighorn, wolf, coyote, panther, lynx, lions, polar bear; table in `src/animals/mounts.hpp`) has a small chance to leave a **baby** when you hunt it: higher for rarer tiers. Pick it up (it weighs 3 kg and keeps its tier), then use it at the Homestead to set it down as a growing animal; feed it and it grows up over a few minutes.
+
+An adult is saddled in the animal panel (SADDLE / UNSADDLE, one at a time). Press **V** (rebindable) near it to ride: faster travel and extra carry weight by species and tier, and you can still throw and shoot from the saddle. Mounts cannot enter buildings, caves or mines. Dismounting away from the Homestead sends it back to its pen. Species, tier and saddle are saved; a ridden mount is back in its pen after loading.
+
 ## Items and ranged weapons
 `src/items/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
 thrown weapons, launchers, ammo, consumables and backpacks, built from the tables in `data.hpp`.

@@ -405,23 +405,41 @@ void Game::renderWorld(bool) {
                  elderMoving ? elderFaceLeft : p.pos.x < world.questGiver.x);
         } else if (e.t == 2) {
             const FacingView fv = facingView(p.face8);
-            const int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));
+            HAnimal* mount = p.dead ? nullptr : riddenMount();
+            int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));
+            if (mount && (st == HS_WALK || st == HS_RUN)) st = HS_IDLE;  // the mount does the walking
             const int pose = std::min(p.anim.frame(), hunterPoseCount(st) - 1);
             const Spr& s = A.hunter[fv.view][st][pose];
             const bool fl = fv.mirror;
+            float rise = 0.f;
+            if (mount) {  // the mount is drawn under the rider, who sits up on its back
+                const RichAnimal* rb = A.rich[mount->species].get();
+                const AnimalClips* ac = animalClips(mount->species);
+                if (rb && ac) {
+                    const bool mv = mountMoving;
+                    const int ms = mv ? AN_WALK : AN_IDLE;
+                    const int mf = mv ? (int)(mountAnimT * 7.f) % std::max(1, ac->poses[ms]) : 0;
+                    const Spr& msp = rb->s[2 * mount->tier][std::max(0, std::min((int)AV_VIEWS - 1, p.face8))][ms][std::min(mf, ac->poses[ms] - 1)];
+                    sprW(A.shadow[1], p.pos.x, p.pos.y, false, 0.8f);
+                    if (msp.ok()) {
+                        sprW(msp, p.pos.x, p.pos.y, false);
+                        rise = std::max(6.f, std::min(44.f, 0.6f * msp.ay * msp.sc));  // the rider sits on the back, about 60% of the way up
+                    }
+                }
+            }
             // the light comes from the upper left: one shadow shape for every pose, falling to the lower right
             if (p.dead) sprW(A.shadow[1], p.pos.x, p.pos.y, false, 0.6f);
-            else sprW(A.shadowCast, p.pos.x - 1, p.pos.y, false, st == HS_RUN ? 0.85f : 1.f);
+            else if (!mount) sprW(A.shadowCast, p.pos.x - 1, p.pos.y, false, st == HS_RUN ? 0.85f : 1.f);
             if (p.dead) {
                 // stagger, sink to the knees, then topple over
                 const float fall = clampf((p.deadT - 0.32f) / 0.22f, 0.f, 1.f);
                 sprW(s, p.pos.x, p.pos.y, fl, 0.9f, (fl ? -90.0 : 90.0) * fall, true);
             } else {
-                sprW(s, p.pos.x, p.pos.y, fl);
+                sprW(s, p.pos.x, p.pos.y - rise, fl);
                 if (p.invuln > 0 && (((int)(timeAcc * 18)) & 1)) {
                     Spr f = s;
                     f.t = s.flash;
-                    sprW(f, p.pos.x, p.pos.y, fl, 0.55f);
+                    sprW(f, p.pos.x, p.pos.y - rise, fl, 0.55f);
                 }
                 // a farm tool swinging at the soil: the hoe and sickle arc down like the axe, the can tips over the plot
                 if (p.farmT > 0 && p.farmType >= 0 && p.farmType < HAND_SEED0 && p.tool[p.farmType] >= 0) {

@@ -17,6 +17,7 @@ const Spr& Game::itemIcon(int id) const {
         case IK_AMMO: return A.ammoIcon[D.ref];
         case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(4, D.ref + 1)];  // tiers 1-4 of the bag art
         case IK_CARRIED: return A.carryIcon[D.ref];
+        case IK_BABY: return A.babyIcon[D.ref];
         case IK_TOOL: return A.R.toolIcon[D.ref];
         case IK_PLACEABLE: return A.R.placeIcon[D.ref];
         default: return D.ref == C_BANDAGE ? A.bandage : A.R.consIcon[D.ref];

@@ -12,7 +12,7 @@
 #include <string>
 #include "core/data.hpp"
 
-enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED };
+enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED, IK_BABY };
 [[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR"};
 
 // ---- id space: contiguous ranges, in the order of the legacy enums
@@ -53,7 +53,10 @@ constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
                  CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_COUNT };  // the last six: mine and dungeon gear
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
-constexpr int ITEM_COUNT = ITEM_CARRY0 + CG_COUNT;
+// a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
+constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
+constexpr int ITEM_COUNT = ITEM_BABY0 + A_COUNT;
+constexpr int itemBaby(int kind) { return ITEM_BABY0 + kind; }
 constexpr int itemCarry(int c) { return ITEM_CARRY0 + c; }
 constexpr int itemTool(int t) { return ITEM_TOOL0 + t; }
 constexpr int itemPlace(int k) { return ITEM_PLACE0 + k; }
@@ -155,6 +158,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
         };
         for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, 1, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, 1, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
         // weights: one table per category (materials / weapons above); the rest by kind
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)].weight = matWeight(m);
         for (int w = 0; w < W_COUNT; w++) t[itemWpn(w)].weight = wpnWeight(w);
@@ -171,7 +175,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
 }
 inline const ItemDef& item(int id) { return itemTable()[id]; }
 // only crafted things have a quality: raw and processed materials never do (their icons get no border)
-inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL; }
+inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL && item(id).kind != IK_BABY; }  // (a baby's q is its rarity tier)
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
 
 // ---- recipes in terms of items

@@ -3,7 +3,7 @@
 #pragma once
 #include <SDL.h>
 
-enum KeyAct { K_UP, K_DOWN, K_LEFT, K_RIGHT, K_SPRINT, K_USE, K_HEAL, K_MAP, K_HELP, K_PACK, K_BUILD, K_ROTATE, K_DEMOLISH, K_COUNT };
+enum KeyAct { K_UP, K_DOWN, K_LEFT, K_RIGHT, K_SPRINT, K_USE, K_HEAL, K_MAP, K_HELP, K_PACK, K_BUILD, K_ROTATE, K_DEMOLISH, K_MOUNT, K_COUNT };
 
 struct KeyInfo {
     const char* label;
@@ -13,7 +13,7 @@ static const KeyInfo KEYINFO[K_COUNT] = {
     {"MOVE UP", SDL_SCANCODE_W},   {"MOVE DOWN", SDL_SCANCODE_S}, {"MOVE LEFT", SDL_SCANCODE_A},     {"MOVE RIGHT", SDL_SCANCODE_D},
     {"SPRINT", SDL_SCANCODE_LSHIFT}, {"INTERACT", SDL_SCANCODE_E}, {"BANDAGE", SDL_SCANCODE_Q},       {"MAP", SDL_SCANCODE_M},
     {"HELP CARD", SDL_SCANCODE_H}, {"PACK", SDL_SCANCODE_I},      {"BUILD MENU", SDL_SCANCODE_B},    {"ROTATE", SDL_SCANCODE_R},
-    {"DEMOLISH", SDL_SCANCODE_X},
+    {"DEMOLISH", SDL_SCANCODE_X}, {"MOUNT", SDL_SCANCODE_V},
 };
 
 // keys that cannot be given to an action

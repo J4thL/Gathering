@@ -205,10 +205,11 @@ void Game::drawAnimalMenu() {
         const int y = top + r * rowH;
         const bool hov = inRect(PX + 6, y, 150, rowH - 1);
         panel(PX + 6, y, 150, rowH - 1, a.id == animSelId ? HEX(0x6a4a2a) : hov ? HEX(0x4a3624) : HEX(0x33241a));
-        text(PX + 10, y + 3, a.adult(D) ? D.name : D.babyName, C_TEXT);
+        text(PX + 10, y + 3, a.label(D), C_TEXT);
         bar(PX + 80, y + 3, 30, 3, a.full / 100.f, HEX(0xd89a3a));
         bar(PX + 80, y + 8, 30, 3, a.happy / 100.f, HEX(0xe0709a));
-        if (a.stock > 0) icon(A.matIcon[D.product], PX + 120, y + 7, 10), text(PX + 126, y + 3, S(a.stock), C_GOLD);
+        if (a.stock > 0 && D.product >= 0) icon(A.matIcon[D.product], PX + 120, y + 7, 10), text(PX + 126, y + 3, S(a.stock), C_GOLD);
+        else if (a.saddled) text(PX + 118, y + 3, "RIDE", C_GREEN, 1, false);
         if (hov && in.uiClick) {
             in.uiClick = false;
             in.lPressed = false;
@@ -223,10 +224,16 @@ void Game::drawAnimalMenu() {
         const DomDef& D = DOMS[sel->kind];
         const bool adult = sel->adult(D);
         ensureDomArt();
-        const Spr& pv = A.Dom.get(sel->kind, 0, DS_IDLE, 0);
+        Spr pv = A.Dom.get(sel->kind, 0, DS_IDLE, 0);
+        if (sel->kind == DA_MOUNT) {
+            if (ren) ensureRichBank(ren, A, sel->species, 0, sel->tier);
+            if (const RichAnimal* rb = A.rich[sel->species].get()) pv = rb->s[2 * sel->tier][F_E][AN_IDLE][0];
+            else pv = Spr();
+            if (pv.ok() && !adult) pv.sc *= 0.5f + 0.5f * std::min(1.f, sel->age / sel->growSec(D));
+        }
         if (pv.ok()) sprS(pv, dx + 28, top + 36);
-        text(dx + 56, top + 4, adult ? D.name : D.babyName, C_GOLD);
-        text(dx + 56, top + 13, adult ? "GROWN" : "GROWS UP IN " + S((int)(D.growSec - sel->age)) + "S", C_DIM, 1, false);
+        text(dx + 56, top + 4, sel->label(D), sel->kind == DA_MOUNT ? TIER[sel->tier].col : C_GOLD);
+        text(dx + 56, top + 13, adult ? "GROWN" : "GROWS UP IN " + S((int)(sel->growSec(D) - sel->age)) + "S", C_DIM, 1, false);
         const char* lb[3] = {"FED", "HAPPY", "HEALTH"};
         const float v[3] = {sel->full, sel->happy, sel->health};
         const u32 cl[3] = {HEX(0xd89a3a), HEX(0xe0709a), HEX(0x59b543)};
@@ -237,8 +244,8 @@ void Game::drawAnimalMenu() {
         std::string homeName = "FREE RANGE";
         if (const HPiece* hp = hsPiece(sel->home)) homeName = HPDEF[hp->kind].name;
         text(dx + 6, top + 82, "HOME: " + homeName, C_TEXT);
-        text(dx + 6, top + 92, adult && D.product >= 0 ? std::string(D.prodName) + " WAITING: " + S(sel->stock) : "NOT PRODUCING YET", C_DIM, 1, false);
-        text(dx + 6, top + 102, sel->breedCd > 0 && adult ? "BREEDS AGAIN IN " + S((int)sel->breedCd) + "S" : (adult ? "READY TO BREED" : ""), C_DIM, 1, false);
+        text(dx + 6, top + 92, sel->kind == DA_MOUNT ? (!adult ? "TOO YOUNG TO RIDE" : sel->saddled ? "SADDLED - PRESS V TO RIDE" : "SADDLE IT TO RIDE (V)") : adult && D.product >= 0 ? std::string(D.prodName) + " WAITING: " + S(sel->stock) : "NOT PRODUCING YET", C_DIM, 1, false);
+        text(dx + 6, top + 102, sel->kind == DA_MOUNT ? "" : sel->breedCd > 0 && adult ? "BREEDS AGAIN IN " + S((int)sel->breedCd) + "S" : (adult ? "READY TO BREED" : ""), C_DIM, 1, false);
         const int by = top + 122, bw = (dw - 6) / 2;
         if (button(dx, by, bw, 14, "FEED", true, HEX(0x5d7a2e))) hsFeed(*sel);
         if (button(dx + bw + 4, by, bw, 14, "COLLECT", sel->stock > 0, HEX(0x7a5a2a))) hsCollect(*sel);
@@ -257,7 +264,13 @@ void Game::drawAnimalMenu() {
                 }
             }
         }
-        if (button(dx + bw + 4, by + 17, bw, 14, "SELL +" + S(D.price / 2), true, HEX(0x7a3a2a))) {
+        if (sel->kind == DA_MOUNT) {
+            if (button(dx + bw + 4, by + 17, bw, 14, sel->saddled ? "UNSADDLE" : "SADDLE", adult, HEX(0x6a4a2a))) {
+                if (!sel->saddled) for (auto& o : hs.animals) o.saddled = false;  // one saddled mount at a time
+                sel->saddled = !sel->saddled;
+                msg(sel->saddled ? "SADDLED - PRESS V TO RIDE" : "SADDLE REMOVED", C_GREEN);
+            }
+        } else if (button(dx + bw + 4, by + 17, bw, 14, "SELL +" + S(D.price / 2), true, HEX(0x7a3a2a))) {
             p.coins += D.price / 2;
             ftext(p.pos + V2(0, -24), "+" + S(D.price / 2) + " COINS", C_GOLD);
             audio.play(S_COIN);

@@ -120,6 +120,16 @@ bool Game::useSlot(int slot) {
             msg("YOU HAVE NOTHING THAT FIRES " + D.name + "S", C_RED);
             audio.play(S_ERROR);
             return false;
+        case IK_BABY: {  // raise it at the homestead: it becomes a growing mount in the yard
+            if (!inHomestead()) { msg("RAISE IT AT YOUR HOMESTEAD", C_DIM); return false; }
+            if ((int)hs.animals.size() >= H_MAX_ANIMALS) { msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED); audio.play(S_ERROR); return false; }
+            const int tier = p.inv.slots[slot].q;
+            p.inv.removeQ(id, tier, 1);
+            hsAddAnimal(DA_MOUNT, p.pos + V2(frng.range(-14, 14), 18), true, -1, D.ref, tier);
+            msg(std::string("YOU SET THE BABY ") + ANIMAL[D.ref].name + " DOWN - FEED IT AND IT WILL GROW", C_GREEN);
+            audio.play(S_CLICK);
+            return true;
+        }
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
             if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
