@@ -224,11 +224,11 @@ void Game::drawAnimalMenu() {
         const DomDef& D = DOMS[sel->kind];
         const bool adult = sel->adult(D);
         ensureDomArt();
-        Spr pv = A.Dom.get(sel->kind, 0, DS_IDLE, 0);
-        if (sel->kind == DA_MOUNT) {
+        Spr pv;
+        if (sel->kind != DA_MOUNT) pv = A.Dom.get(sel->kind, 0, DS_IDLE, 0);  // (the mount has no farm-animal art: it uses its wild species' art)
+        else {
             if (ren) ensureRichBank(ren, A, sel->species, 0, sel->tier);
             if (const RichAnimal* rb = A.rich[sel->species].get()) pv = rb->s[2 * sel->tier][F_E][AN_IDLE][0];
-            else pv = Spr();
             if (pv.ok() && !adult) pv.sc *= 0.5f + 0.5f * std::min(1.f, sel->age / sel->growSec(D));
         }
         if (pv.ok()) sprS(pv, dx + 28, top + 36);

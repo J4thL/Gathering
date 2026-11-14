@@ -413,6 +413,7 @@ void Game::renderWorld(bool) {
             const bool fl = fv.mirror;
             float rise = 0.f;
             if (mount) {  // the mount is drawn under the rider, who sits up on its back
+                if (ren) ensureRichBank(ren, A, mount->species, 0, mount->tier);
                 const RichAnimal* rb = A.rich[mount->species].get();
                 const AnimalClips* ac = animalClips(mount->species);
                 if (rb && ac) {
