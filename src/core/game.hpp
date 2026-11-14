@@ -164,6 +164,14 @@ struct Proj {
     int q = 0;      // quality of the thrown weapon / launcher
     int aq = 0;     // quality of the arrow / bolt
 };
+// how long things lie around before they are gone (seconds); the last DESPAWN_WARN seconds they blink
+constexpr float THROWN_LIFE = 300.f;         // a thrown weapon or an arrow
+constexpr float DROP_LIFE = 600.f;           // a stack the hunter dropped (or a baby a kill left)
+constexpr float CORPSE_LIFE = 180.f;         // a carcass; a legendary one lasts CORPSE_LIFE_LEGEND
+constexpr float CORPSE_LIFE_LEGEND = 300.f;
+constexpr float DESPAWN_WARN = 20.f;
+inline bool despawnBlink(float timeAcc) { return (int)(timeAcc * 5.f) & 1; }  // true on the "off" beat
+
 struct GroundItem {
     V2 pos;
     int wpn;

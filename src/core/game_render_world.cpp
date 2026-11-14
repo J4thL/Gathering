@@ -88,6 +88,8 @@ void Game::renderWorld(bool) {
     }
     // thrown weapons lying on the ground
     for (auto& it : items) {
+        const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
+        if (left < DESPAWN_WARN && despawnBlink(timeAcc + it.pos.x * 0.01f)) continue;  // about to vanish: blinks
         sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f);
         if (it.item >= 0) sprW(itemIcon(it.item), it.pos.x, it.pos.y - 5, false, 1.f);  // a stack the hunter dropped
         else sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
@@ -111,8 +113,10 @@ void Game::renderWorld(bool) {
         const Spr& s = (dc && rb) ? rb->s[bi][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][AN_DEATH][dc->poses[AN_DEATH] - 1]
                        : (vert ? A.animalNS[a.kind][bi][a.face8 == F_N][4] : A.animal[a.kind][bi][4]);
         const bool flipC = !(dc && rb) && !vert && (a.face8 == F_W || (a.face8 != F_E && a.face < 0));
-        sprW(A.shadow[1], a.pos.x, a.pos.y + 2, false, 0.7f * a.fade);
-        sprW(s, a.pos.x, a.pos.y - ((dc && rb) ? 0 : 6), flipC, a.fade);
+        const float corpseLeft = (a.tier == TR_LEGENDARY ? CORPSE_LIFE_LEGEND : CORPSE_LIFE) - a.deadT;
+        const float blink = (a.dead && a.fade >= 1.f && corpseLeft < DESPAWN_WARN && despawnBlink(timeAcc)) ? 0.45f : 1.f;  // about to vanish: pulses
+        sprW(A.shadow[1], a.pos.x, a.pos.y + 2, false, 0.7f * a.fade * blink);
+        sprW(s, a.pos.x, a.pos.y - ((dc && rb) ? 0 : 6), flipC, a.fade * blink);
         if (a.flash > 0) {
             Spr f = s;
             f.t = s.flash;

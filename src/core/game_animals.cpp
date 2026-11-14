@@ -228,7 +228,7 @@ void Game::updateAnimals(float dt) {
         if (a.dead) {
             a.deadT += dt;
             updateAnimalAnim(a, dt);
-            if (a.deadT > 170) a.fade -= dt / 8.f;
+            if (a.deadT > (a.tier == TR_LEGENDARY ? CORPSE_LIFE_LEGEND : CORPSE_LIFE)) a.fade -= dt / 8.f;
             if (a.totalRemain <= 0) a.fade -= dt * 1.6f;
             if (a.fade <= 0) a.gone = true;
             continue;

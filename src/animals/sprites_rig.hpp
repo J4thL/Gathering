@@ -48,22 +48,28 @@ struct BPose {
 inline BPose quadPose(int st, int i) {
     BPose p;
     switch (st) {
-        case AN_IDLE: {
-            static const float HZ[4] = {0.f, 0.4f, 0.f, -0.35f};
-            p.breathe = sinf(i * 1.5708f) * 0.35f;
+        case AN_IDLE: {  // six poses: a slow breath, the head sweeping up and round, a weight shift, an ear flick and a tail swish
+            static const float HZ[6] = {0.f, 0.3f, 0.6f, 0.25f, -0.3f, -0.1f}, HX[6] = {0.f, 0.2f, 0.5f, 0.25f, 0.f, -0.2f},
+                               EAR[6] = {0.f, 0.f, 1.f, 0.f, 0.f, 0.6f}, TAIL[6] = {0.f, 0.6f, 1.f, 0.6f, 0.f, -0.6f}, BOB[6] = {0.f, 0.f, 0.12f, 0.12f, 0.f, 0.f};
+            p.breathe = sinf(i * 1.0472f) * 0.35f;
             p.headDz = HZ[i];
-            p.headDx = (i == 1) ? 0.3f : 0.f;
-            p.ear = (i == 2) ? 1.f : 0.f;
-            p.tail = (i & 1) ? 1.f : 0.f;
+            p.headDx = HX[i];
+            p.ear = EAR[i];
+            p.tail = TAIL[i];
+            p.bob = BOB[i];
+            p.pitch = 0.08f * HZ[i];
             break;
         }
         case AN_WALK:
             p.phase = i * 6.28318f / 6.f;
             p.stride = 2.7f;
             p.lift = 1.7f;
-            p.bob = 0.45f * cosf(p.phase * 2.f);
-            p.headDz = 0.3f * cosf(p.phase * 2.f);
-            p.tail = (i & 1) ? 1.f : 0.f;
+            p.bob = 0.7f * fabsf(cosf(p.phase)) - 0.2f;  // rises over each planted leg pair
+            p.headDz = 0.4f * cosf(p.phase * 2.f);       // the head nods with the stride
+            p.headDx = 0.4f * sinf(p.phase);
+            p.pitch = 0.05f * sinf(p.phase * 2.f);
+            p.tail = 0.8f * sinf(p.phase);                // the tail sways side to side
+            p.ear = 0.25f * (1.f + sinf(p.phase * 2.f));
             break;
         case AN_RUN: {
             static const float BOB[5] = {0.3f, 0.9f, 1.6f, 0.9f, 0.3f};
@@ -76,6 +82,9 @@ inline BPose quadPose(int st, int i) {
             p.bodyDx = 0.6f;
             p.air = (i == 2) ? 1.2f : 0.f;
             p.tail = 1.f;
+            static const float PIT[5] = {-0.2f, 0.1f, 0.3f, 0.1f, -0.2f};  // gather (back arched, nose down), then stretch out
+            p.pitch = PIT[i];
+            p.squash = (i == 0) ? 0.25f : 0.f;
             break;
         }
         case AN_ATTACK: {
@@ -816,7 +825,16 @@ inline Img paintQuad(const QuadSpec& sp, const RigShape& R, float tierK, int vie
         }
         // flat finish: the leg nearer the camera is brown like the body, the far one the dark maroon (as in the reference); otherwise left / right
         const bool nearLeg = R.flat ? (ly * cp <= 0.f) : left;
-        stroke(lx, ly, hipZ, fx, ly * (1.f + 0.15f * P.limp), fz + 0.6f, nearLeg ? body : dk, dk, R.legW);
+        const float footY = ly * (1.f + 0.15f * P.limp);
+        if (P.stride > 0.f && P.limp <= 0.f && P.lie <= 0.f) {  // a jointed leg: the knee (front) or hock (hind) bends, more as the foot lifts
+            const float up = std::min(1.f, std::max(0.f, (fz - P.air) / std::max(0.1f, P.lift)));
+            const float bend = (front ? 1.f : -1.f) * (0.55f + 1.1f * up);
+            const float mx = (lx + fx) * 0.5f + bend, mz = (hipZ + fz + 0.6f) * 0.5f + 0.25f * up;
+            const u32 lc = nearLeg ? body : dk;
+            stroke(lx, ly, hipZ, mx, ly, mz, lc, dk, R.legW);
+            stroke(mx, ly, mz, fx, footY, fz + 0.6f, lc, dk, std::max(1, R.legW - (R.legW > 2 ? 1 : 0)));
+        } else
+        stroke(lx, ly, hipZ, fx, footY, fz + 0.6f, nearLeg ? body : dk, dk, R.legW);
         if (R.flat) {  // a muscular upper leg tapering to a slim shank, and a two-pixel hoof
             ell(lx + (fx - lx) * 0.12f, ly, hipZ - 0.8f, front ? 1.9f : 2.5f, 1.15f, 3.1f, nearLeg ? light : dk, nearLeg ? body : dk, dk);
             dot(fx + 0.8f, ly, fz, hoof);

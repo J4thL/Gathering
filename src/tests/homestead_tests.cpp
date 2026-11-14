@@ -734,6 +734,48 @@ int homesteadTest(Game& g) {
         check(ld && back && back->species == A_DEER && back->tier == 2 && back->saddled && !back->ridden && g.p.carryLimit() == lim0, "the mount (species, tier, saddle) survives save and load; a ridden one is back in its pen");
         g.state = ST_PLAY;
     }
+    printf("--- despawn timers: ground items and corpses\n");
+    {
+        g.state = ST_PLAY;
+        g.items.clear();
+        const V2 far = g.p.pos + V2(400, 0);  // out of pickup reach
+        GroundItem stack{far, 0, 0.f, 0.f};
+        stack.item = itemMat(M_WOOD); stack.n = 1; stack.t = DROP_LIFE - 30.f;
+        GroundItem thrown{far + V2(20, 0), W_FLINT, 0.f, THROWN_LIFE - 30.f};
+        GroundItem fresh = stack; fresh.pos = far + V2(40, 0); fresh.t = 0.f;
+        g.items.push_back(stack); g.items.push_back(thrown); g.items.push_back(fresh);
+        for (int i = 0; i < 40; i++) g.update(0.5f);  // 20 s: all still there
+        check(g.items.size() == 3, "items still lie there with time left on the clock");
+        for (int i = 0; i < 40; i++) g.update(0.5f);  // 40 s total: the two old ones are gone
+        int stacks = 0, thr = 0;
+        for (auto& it : g.items) { if (it.item >= 0) stacks++; else thr++; }
+        check(stacks == 1 && thr == 0, "a dropped stack and a thrown weapon vanish when their time is up; a fresh stack stays");
+        check(THROWN_LIFE < DROP_LIFE && CORPSE_LIFE < CORPSE_LIFE_LEGEND && DESPAWN_WARN < CORPSE_LIFE, "a legendary carcass and a dropped stack outlast ordinary ones");
+        g.items.clear();
+        GroundItem old = stack; old.t = 123.f;
+        g.items.push_back(old);
+        g.save();
+        g.newGame();
+        g.load();
+        g.state = ST_PLAY;
+        bool kept = false;
+        for (int m = 0; m < B_COUNT && !kept; m++) for (auto& it : (g.world.mapId == m ? g.items : g.mapMem[m].items)) kept = kept || (it.item == itemMat(M_WOOD) && it.t > 100.f && it.t < 130.f);
+        check(kept, "the time a dropped stack has lain there survives save and load");
+        g.animals.clear();
+        Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+        Animal* l = g.spawnAnimal(A_DEER, g.p.pos + V2(80, 0), 0, TR_LEGENDARY);
+        if (d && l) {
+            g.killAnimal(*d, true);
+            g.killAnimal(*l, true);
+            d->deadT = CORPSE_LIFE + 1.f;
+            l->deadT = CORPSE_LIFE + 1.f;
+            for (int i = 0; i < 40; i++) g.updateAnimals(0.5f);
+            int common = 0, legend = 0;
+            for (auto& a : g.animals) if (a.dead) { if (a.tier == TR_LEGENDARY) legend++; else common++; }
+            check(common == 0 && legend == 1, "an ordinary carcass is gone after its time; a legendary one is still there");
+        } else
+            check(false, "spawned the test deer");
+    }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out.write(savedBytes.data(), (std::streamsize)savedBytes.size());

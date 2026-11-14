@@ -68,7 +68,7 @@ void Game::save() {
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
             for (auto& g : mm.items)  // stacks the hunter dropped lie where they were left
-                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << (g.q > 0 ? " " + std::to_string(g.q) : std::string()) << "\n";
+                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << (g.q > 0 || g.t >= 1.f ? " " + std::to_string(g.q) : std::string()) << (g.t >= 1.f ? " " + std::to_string((int)g.t) : std::string()) << "\n";
         }
         f.flush();
         if (!f) {
@@ -113,7 +113,7 @@ bool Game::load() {
     std::string bagKey = "-", hotKeys[HOT_N];
     bool sawBag = false, sawHotbar = false, sawFarm = false;
     std::vector<std::string> farmKeys;
-    struct DropLine { std::string key; int n, x, y, q; };
+    struct DropLine { std::string key; int n, x, y, q; float age; };
     std::vector<DropLine> dropLines[B_COUNT];
     struct SlotLine {
         std::string key;
@@ -175,9 +175,13 @@ bool Game::load() {
         } else if (k == "drop") {
             std::string key;
             int n = 0, x = 0, y = 0, q = 0;
+            float age = 0.f;
             ss >> key >> n >> x >> y;
-            if (ss && !(ss >> q)) q = 0;  // the quality is optional (older saves have none)
-            if (curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y, clampQuality(q)});
+            if (ss) {  // the quality and the seconds it has lain there are optional (older saves have neither)
+                if (!(ss >> q)) q = 0;
+                else if (!(ss >> age)) age = 0.f;
+            }
+            if (curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y, clampQuality(q), std::max(0.f, std::min(age, DROP_LIFE))});
         } else if (k == "map") {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
@@ -401,6 +405,7 @@ bool Game::load() {
             g.item = id;
             g.n = d.n;
             g.q = d.q;
+            g.t = d.age;
             g.ammo = -1;
             mapMem[m].items.push_back(g);
             mapMem[m].visited = true;
