@@ -11,41 +11,40 @@ inline u32 mixRGB(u32 a, u32 b, float t) {  // t = 0 -> a, 1 -> b
     return HEX((u32)((ch(16) << 16) | (ch(8) << 8) | ch(0)));
 }
 
-// 16 x 16 flat grass: the shade's colour with a few lighter and darker specks and tiny blade marks (pack: light, medium, dark)
+// The meadow's greens, in the bright lime of the new reference: four tones per shade, darkest to lightest
+static const u32 MEADOW_TONE[GRASS_SHADES][4] = {{0x6fb014, 0x8fd01c, 0xb4e62c, 0xd8f56a},   // light meadow
+                                                 {0x4f9a14, 0x6fb014, 0x8fd01c, 0xb4e62c},   // medium
+                                                 {0x2f6e0e, 0x4f9a14, 0x6fb014, 0x8fd01c}};  // dark grass
+
+// 16 x 16 grass covered end to end in blades, tufted like the reference: soft light and dark patches across the tile, small fans of three blades
+// (one upright, two leaning out) with pale tips, and dark gaps between them. Strokes wrap at the edges, so tiles join up seamlessly.
 inline Img mkGrassTile(int shade, int variant) {
-    static const u32 BASE[GRASS_SHADES] = {0x6fc86e, 0x48a948, 0x29752a};
     Img im(16, 16);
     Rng r(0x9a55u + shade * 331u + variant * 57u);
-    const u32 base = BASE[shade];
-    im.fill(HEX(base));
-    const u32 lite = mixRGB(base, 0xffffff, 0.16f), dark = mixRGB(base, 0x0a2a0c, 0.22f);
-    for (int i = 0; i < 7; i++) im.set(r.irange(0, 15), r.irange(0, 15), lite);
-    for (int i = 0; i < 9; i++) im.set(r.irange(0, 15), r.irange(0, 15), dark);
-    for (int i = 0; i < 3; i++) {  // a blade mark: two pixels, one above the other
-        const int x = r.irange(1, 14), y = r.irange(2, 14);
-        im.set(x, y, dark);
-        im.set(x, y - 1, lite);
-    }
-    return im;
-}
-
-// Grass made of thin straight blades, not rounded tufts: every blade is a one pixel line from the ground to its tip, leaning a little and bending
-// further at the tip as it sways. The tree-root grass and the meadow's clumps are both drawn from this, in the set's own three greens (a light, b mid, c dark).
-inline Img mkLineGrass(int w, int h, const u32* pal, int frame, uint32_t seed) {
-    Img im(w, h);
-    Rng r(seed);
-    const float ph = frame * 6.2832f / 24.f;
-    const int n = std::max(5, w * 7 / 10);
-    for (int i = 0; i < n; i++) {
-        const int x0 = 1 + (int)((w - 2) * (i + r.irange(0, 6) / 10.f) / n), bh = std::max(2, h - 2 - r.irange(0, std::max(1, h / 2)));
-        const float lean = (r.irange(0, 10) - 5) * 0.07f, phase = r.irange(0, 628) / 100.f;
-        const float sway = sinf(ph + phase + x0 * 0.25f) * 1.3f;
-        for (int y = 0; y < bh; y++) {
-            const float f = (float)y / bh;
-            const int x = x0 + (int)lroundf(lean * y + sway * f * f), py = h - 1 - y;
-            if (x < 0 || x >= w) continue;
-            im.set(x, py, pal[y == bh - 1 ? 0 : (f > 0.5f ? 1 : 2)]);  // dark at the root, mid, light at the tip
+    const u32* tn = MEADOW_TONE[shade];
+    auto put = [&](int x, int y, u32 c) { im.set(((x % 16) + 16) % 16, ((y % 16) + 16) % 16, HEX(c)); };
+    const float ph = r.irange(0, 628) / 100.f;
+    for (int y = 0; y < 16; y++)  // soft patches: the base swings between the two middle tones (wraps every 16 pixels)
+        for (int x = 0; x < 16; x++) {
+            const float n = sinf(x * 0.3927f * 1.f + ph) + sinf(y * 0.3927f * 2.f - ph) + sinf((x + y) * 0.3927f + ph * 2.f);
+            put(x, y, n > 0.7f ? tn[2] : (n < -0.9f ? tn[0] : tn[1]));
         }
+    for (int i = 0; i < 28; i++) {  // dark gaps between the blades, drawn first so the lighter blades overlap them
+        const int x = r.irange(0, 15), y = r.irange(0, 15);
+        put(x, y, tn[0]);
+        put(x, y + 1, tn[0]);
+    }
+    for (int i = 0; i < 9; i++) {  // a tuft: a fan of three blades from one root
+        const int x = r.irange(0, 15), y = r.irange(2, 17), h = r.irange(3, 5);
+        for (int k = 0; k < h; k++) {
+            put(x, y - k, tn[k >= h - 1 ? 3 : (k < h / 2 ? 1 : 2)]);
+            if (k >= 1) put(x - (k + 1) / 2, y - k, tn[k >= h - 1 ? 3 : 2]);
+            if (k >= 1) put(x + (k + 1) / 2, y - k, tn[k >= h - 1 ? 3 : 1]);
+        }
+    }
+    for (int i = 0; i < 24; i++) {  // single short blades filling the rest
+        const int x = r.irange(0, 15), y = r.irange(0, 15), len = r.irange(2, 3);
+        for (int k = 0; k < len; k++) put(x, y - k, tn[k == len - 1 ? 3 : 1 + (k & 1)]);
     }
     return im;
 }

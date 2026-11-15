@@ -1,11 +1,12 @@
 // clumps.cpp - the little swaying grass clumps scattered over the ground: wide ones at the foot of the town's buildings, small ones along
-// the edges of roads and paving and over the open grass (about two in five grass tiles have one). They are drawn in the depth-sorted layer (so a hunter walking through
+// the edges of roads and paving and over the open grass (nearly every grass tile has one). They are drawn in the depth-sorted layer (so a hunter walking through
 // is covered up to the shins) and animated with the same 24-frame sway as the grass round the tree roots. Placement is a pure function of
 // the tile (no random stream), so the same map always grows the same grass.
 #include "core/game.hpp"
 
 void World::genClumps() {
     clumps.clear();
+    return;  // the meadow has no grass clumps on top of the ground tile any more (kept as a hook)
     if (isInterior() || mapId == B_HOMESTEAD) return;  // rooms and mines have none; the Homestead is built over by the player
     static std::vector<uint8_t> bld;                   // 1 = a town building's footprint
     bld.assign((size_t)MW * MH, 0);
@@ -34,15 +35,15 @@ void World::genClumps() {
                     if (isBld(tx + dx, ty + dy)) { nearBld = true; break; }
             if (nearBld) {  // the foot of a building: grass pushing up along the front, tufts at the sides (a few weeds between the paving stones)
                 const bool front = isBld(tx, ty - 1);  // the row just under a building: right up against its base
-                if (grassy ? roll < 0.5f : roll < (front ? 0.34f : 0.14f)) {
+                if (grassy ? roll < 0.8f : roll < (front ? 0.34f : 0.14f)) {
                     add(jx, front ? ty * (float)TS + 3.f + (float)((h >> 20) % 4) : jy, h, grassy && (h & 0x100000) ? 0 : 1);
                 }
             } else if (grassy && (road(tx - 1, ty) || road(tx + 1, ty) || road(tx, ty - 1) || road(tx, ty + 1))) {  // the edge of a road
-                if (roll < 0.55f) add(jx, jy, h, (h & 0x100000) ? 0 : 1);
-            } else if (grassy) {  // open grass: blades over some tiles, a second one on a few
-                if (roll < 0.4f) add(jx, jy, h, 1);
+                if (roll < 0.9f) add(jx, jy, h, (h & 0x100000) ? 0 : 1);
+            } else if (grassy) {  // open grass: blades over (nearly) every tile, a second one on many
+                if (roll < 0.85f) add(jx, jy, h, 1);
                 const uint32_t h2 = hash2(tx, ty, 0x51ed5u);
-                if ((h2 & 255) < 35) add(tx * (float)TS + 1.f + (float)((h2 >> 8) % 14), ty * (float)TS + 5.f + (float)((h2 >> 20) % 10), h2, 1);
+                if ((h2 & 255) < 90) add(tx * (float)TS + 1.f + (float)((h2 >> 8) % 14), ty * (float)TS + 5.f + (float)((h2 >> 20) % 10), h2, 1);
             }
         }
     std::sort(clumps.begin(), clumps.end(), [](const Clump& a, const Clump& b) { return a.y < b.y; });
