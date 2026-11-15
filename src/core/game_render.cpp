@@ -30,7 +30,20 @@ void Game::icon(const Spr& s, int cx, int cy, int size, float alpha) {
     SDL_SetTextureAlphaMod(s.t, 255);
 }
 
+// ---- the pack skin: dark panel fills become tan insets or copper frames, light text turns dark brown
+static int lumaOf(u32 c) { return (cR(c) * 3 + cG(c) * 6 + cB(c)) / 10; }
+u32 Game::skinFill(u32 c) const {
+    if (!packSkin) return c;
+    const int l = lumaOf(c);
+    return l < 48 ? HEX(0xe0a878) : l < 70 ? HEX(0xb5704d) : l < 100 ? HEX(0xf5d9a8) : c;  // inset / frame / highlight; brighter colours are already skin colours
+}
+static u32 skinText(u32 c) {
+    const int l = lumaOf(c), f = l > 180 ? 28 : 50;  // pale text gets very dark, coloured text a little less
+    return HEX((u32)(((cR(c) * f / 100) << 16) | ((cG(c) * f / 100) << 8) | (cB(c) * f / 100)));
+}
+
 void Game::text(int x, int y, const std::string& s, u32 col, int sc, bool shadow, float alpha) {
+    if (packSkin) { col = skinText(col); shadow = false; }
     int cx = x;
     int so = std::max(1, sc / 2);
     for (char ch : s) {
@@ -82,6 +95,8 @@ void Game::qualityFrame(int x, int y, int w, int h, int q) {
 }
 
 void Game::panel(int x, int y, int w, int h, u32 fill) {
+    const u32 UI_BORDER = packSkin ? HEX(0x4a2a22) : ::UI_BORDER;
+    fill = skinFill(fill);
     fillRect(x + 1, y, w - 2, h, UI_BORDER);
     fillRect(x, y + 1, w, h - 2, UI_BORDER);
     fillRect(x + 1, y + 1, w - 2, h - 2, fill);
@@ -105,8 +120,15 @@ void Game::bar(int x, int y, int w, int h, float f, u32 fill, u32 back) {
 bool Game::button(int x, int y, int w, int h, const std::string& label, bool enabled, u32 base) {
     bool hov = enabled && inRect(x, y, w, h);
     bool down = hov && in.l;
-    panel(x, y + (down ? 1 : 0), w, h, !enabled ? UI_BTN_OFF : hov ? UI_BTN_HOV : base);
-    textC(x + w / 2, y + (h - 5) / 2 + (down ? 1 : 0), label, enabled ? C_TEXT : HEX(0x6e5f4a));
+    if (packSkin) {  // tan buttons, tinted by the colour they would have had, lighter under the mouse
+        const u32 tint = base == HEX(0x8a6a3a) ? HEX(0xffeec8) : base == UI_BTN ? HEX(0xe0a878) : HEX(((cR(base) + 0xe0 * 2) / 3 << 16) | ((cG(base) + 0xa8 * 2) / 3 << 8) | ((cB(base) + 0x78 * 2) / 3));
+        const u32 fill = !enabled ? HEX(0xb08a68) : hov ? HEX(0xf8dcae) : tint;
+        panel(x, y + (down ? 1 : 0), w, h, fill);
+        textC(x + w / 2, y + (h - 5) / 2 + (down ? 1 : 0), label, enabled ? C_TEXT : HEX(0x9a7a5a));
+    } else {
+        panel(x, y + (down ? 1 : 0), w, h, !enabled ? UI_BTN_OFF : hov ? UI_BTN_HOV : base);
+        textC(x + w / 2, y + (h - 5) / 2 + (down ? 1 : 0), label, enabled ? C_TEXT : HEX(0x6e5f4a));
+    }
     if (hov && in.uiClick) {
         in.uiClick = false;   // only one button may react to a click
         in.lPressed = false;  // don't also start a weapon throw

@@ -245,10 +245,16 @@ void Game::drawShop() {
 // ================================================================= inventory screen
 void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 16;
-    fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
+    struct Skin {  // the tan and copper look of the reference, for everything drawn in the pack (and put back afterwards)
+        bool& f;
+        explicit Skin(bool& flag) : f(flag) { f = true; }
+        ~Skin() { f = false; }
+    } skin(packSkin);
+    fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
     const int X = 24, Y = 12, W = 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    fillRect(X + 3, Y + 3, W - 6, 14, HEX(0xe0a878));
+    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
     text(X + 8, Y + 7, "PACK", C_GOLD);
     const int cap = p.bagCap(), used = p.bagUsed();
     textC(X + W / 2, Y + 7, "I / ESC CLOSE  TAB NEXT PAGE", C_DIM, 1, false);
@@ -262,7 +268,7 @@ void Game::drawInventory() {
         int tx = X + 8;
         for (int i = 0; i < 4; i++) {
             const int w = textW(tabs[i]) + 10;
-            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = i;
+            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invTab = i;
             tx += w + 2;
         }
     }
@@ -280,7 +286,7 @@ void Game::drawInventory() {
         int fx = X + 8;
         for (int i = 0; i < 5; i++) {
             int w = textW(fl[i]) + 10;
-            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
+            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invFilter = i;
             fx += w + 2;
         }
     }
@@ -346,11 +352,11 @@ void Game::drawInventory() {
             const Slot& sl = p.inv.slots[i];
             bool sel = i == invSel;
             panel(x, y, CELL - 1, CELL - 1, sel ? HEX(0x6a4a2a) : hover == i ? HEX(0x4a3624) : HEX(0x33241a));
-            if (sel) {
-                fillRect(x, y + 1, 1, CELL - 3, C_GOLD);
-                fillRect(x + CELL - 2, y + 1, 1, CELL - 3, C_GOLD);
-                fillRect(x + 1, y, CELL - 3, 1, C_GOLD);
-                fillRect(x + 1, y + CELL - 2, CELL - 3, 1, C_GOLD);
+            if (sel) {  // a bright green frame, like the reference's selected slot
+                fillRect(x, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
+                fillRect(x + CELL - 2, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
+                fillRect(x + 1, y, CELL - 3, 1, HEX(0x3f9a2a));
+                fillRect(x + 1, y + CELL - 2, CELL - 3, 1, HEX(0x3f9a2a));
             }
             if (!sl.empty()) {
                 if (itemHasQuality(sl.item) && !sel) qualityFrame(x, y, CELL - 1, CELL - 1, sl.q);
@@ -370,7 +376,8 @@ void Game::drawInventory() {
         text(dx, cy + 1, "CARRYING WEIGHT", C_DIM);
         const std::string ws = kgNum(tw) + " / " + kgNum(mw) + " KG";
         text(dx + dw - textW(ws), cy + 1, ws, wcol);
-        fillRect(dx, cy + 10, dw, 9, HEX(0x1a120b));
+        fillRect(dx - 1, cy + 9, dw + 2, 11, HEX(0x4a2a22));
+        fillRect(dx, cy + 10, dw, 9, HEX(0xe0a878));
         fillRect(dx + 1, cy + 11, (int)((dw - 2) * frac), 7, wcol);
         textC(dx + dw / 2, cy + 12, S((int)lroundf(mw > 0 ? 100.f * tw / mw : 100.f)) + "%", C_TEXT, 1, false);
         text(dx, cy + 24, p.bag >= 0 ? item(itemPack(p.bag)).name : "NO BAG WORN", p.bag >= 0 ? C_TEXT : C_DIM);

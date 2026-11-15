@@ -259,6 +259,8 @@ struct Game {
     float presScale = 3, offX = 0, offY = 0;
     bool running = true;
     bool fullscreen = false;
+    bool packSkin = false;  // while the pack is drawn: tan and copper panels with dark text (the inventory look), applied by panel/button/text
+    u32 skinFill(u32 c) const;  // a panel fill in the pack skin (unchanged when the skin is off)
     // content
     Assets A;
     Audio audio;

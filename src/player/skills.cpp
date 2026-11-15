@@ -48,7 +48,7 @@ void Game::drawSkillsTab(int X, int Y, int W, int H) {
         const int y = cy + k * rowH;
         const int lv = p.sk.level(k);
         if (inRect(x0, y, W - 16, rowH)) hover = k;
-        if (hover == k) fillRect(x0 - 2, y - 1, W - 12, rowH, HEX(0x3f3220));
+        if (hover == k) fillRect(x0 - 2, y - 1, W - 12, rowH, skinFill(HEX(0x3f3220)));
         text(x0, y, SKILL[k].name, lv > 1 || p.sk.s[k].xp > 0 ? C_GOLD : HEX(0xa89060));
         const std::string lvs = "LV " + S(lv);
         text(x0 + 82, y, lvs, C_TEXT);
