@@ -282,7 +282,7 @@ void Game::updateFx(float dt) {
     }
     for (size_t i = 0; i < items.size();) {
         items[i].t += dt;
-        if (items[i].t > 300 && items[i].item < 0) items.erase(items.begin() + i);  // dropped stacks stay until picked up
+        if (items[i].t > (items[i].item >= 0 ? DROP_LIFE : THROWN_LIFE)) items.erase(items.begin() + i);
         else i++;
     }
     for (auto& m : msgs) m.t -= dt;
