@@ -480,7 +480,6 @@ struct Game {
     std::vector<signed char> grassDir;
     V2 grassPrev;
     float grassPuffCd = 0.f;
-    float grassLean = 0.f;  // degrees: the grass round the hunter's feet leans against his movement
     void updateGrass(float dt);
     float grassBend(size_t decorIndex) const;
     HAnimal* riddenMount();

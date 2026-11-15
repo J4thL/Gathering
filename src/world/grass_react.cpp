@@ -4,7 +4,7 @@
 #include "core/game.hpp"
 
 void Game::updateGrass(float dt) {
-    const size_t nd = world.decor.size(), n = nd + world.clumps.size();  // decor first, then the clumps
+    const size_t n = world.decor.size();
     if (grassMap != world.mapId || grassT.size() != n) {  // another map: start with calm grass
         grassMap = world.mapId;
         grassT.assign(n, -100.f);
@@ -28,11 +28,8 @@ void Game::updateGrass(float dt) {
     int nm = 0;
     if (!p.dead && interior < 0) {
         const float sp = (p.pos - grassPrev).len() / dt;
-        const float target = std::max(-16.f, std::min(16.f, -(p.pos.x - grassPrev.x) / dt * 0.16f));
-        grassLean += (target - grassLean) * std::min(1.f, dt * 10.f);
         ms[nm++] = {p.pos, sp, riddenMount() ? 15.f : 11.f, true};
     }
-    else grassLean = 0.f;
     grassPrev = p.pos;
     for (const auto& a : animals) {
         if (nm >= 40) break;
@@ -54,10 +51,6 @@ void Game::updateGrass(float dt) {
                 default: break;
             }
             kicked = reactTo((size_t)(it - world.decor.begin()), dx, amp) || kicked;
-        }
-        for (auto it = std::lower_bound(world.clumps.begin(), world.clumps.end(), mv.pos.y - 8.f, [](const Clump& c, float y) { return c.y < y; }); it != world.clumps.end() && it->y <= mv.pos.y + 8.f; ++it) {
-            const float dx = it->x - mv.pos.x;
-            if (std::fabs(dx) <= mv.reach + 3.f) kicked = reactTo(nd + (size_t)(it - world.clumps.begin()), dx, amp) || kicked;
         }
         if (kicked && mv.hunter && mv.speed > 70.f && grassPuffCd <= 0.f) {  // a few torn blades fly up when you run through it
             grassPuffCd = 0.16f;

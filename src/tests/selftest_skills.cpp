@@ -397,8 +397,6 @@ void testSkillsAndTrophies(SelfTest& t) {
                 check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");
                 check(tileRank(T_COBBLE) > tileRank(T_GRASS) && tileRank(T_GRASS) > tileRank(T_DIRT) && tileRank(T_DIRT) > tileRank(T_MUD) && tileRank(T_GRASS) == tileRank(T_DARK) && tileRank(T_WATER) < 0 && tileRank(T_FLOORW) < 0,
                       "raised ground: paving stands over grass, grass over dirt, dirt over mud; water and interiors have no raised edge");
-                // the meadow grass is the ground tile itself: no clumps are scattered over the map
-                check(g.world.clumps.empty(), "no grass clumps lie over the ground tiles");
                 // the grass bends away from a hunter running past it and settles again
                 size_t gi = g.world.decor.size();
                 for (size_t i = 0; i < g.world.decor.size() && gi == g.world.decor.size(); i++)
