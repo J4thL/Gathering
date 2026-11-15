@@ -397,19 +397,8 @@ void testSkillsAndTrophies(SelfTest& t) {
                 check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");
                 check(tileRank(T_COBBLE) > tileRank(T_GRASS) && tileRank(T_GRASS) > tileRank(T_DIRT) && tileRank(T_DIRT) > tileRank(T_MUD) && tileRank(T_GRASS) == tileRank(T_DARK) && tileRank(T_WATER) < 0 && tileRank(T_FLOORW) < 0,
                       "raised ground: paving stands over grass, grass over dirt, dirt over mud; water and interiors have no raised edge");
-                // grass clumps (clumps.cpp): they exist on the town map, are sorted by y, never lie on a solid tile and grow the same way every time
-                {
-                    bool sorted = true, okTiles = true;
-                    for (size_t i = 0; i < g.world.clumps.size(); i++) {
-                        if (i && g.world.clumps[i].y < g.world.clumps[i - 1].y) sorted = false;
-                        const Clump& c = g.world.clumps[i];
-                        const int cx = (int)(c.x / TS), cy = (int)(c.y / TS);
-                        if (cx < 0 || cy < 0 || cx >= MW || cy >= MH || g.world.solid[cy][cx]) okTiles = false;
-                    }
-                    const size_t n0 = g.world.clumps.size();
-                    g.world.genClumps();
-                    check(g.world.mapId != B_HOME || (n0 > 500 && sorted && okTiles && g.world.clumps.size() == n0), "grass clumps are scattered over the town map: sorted, never on a solid tile, and the same every time");
-                }
+                // the meadow grass is the ground tile itself: no clumps are scattered over the map
+                check(g.world.clumps.empty(), "no grass clumps lie over the ground tiles");
                 // the grass bends away from a hunter running past it and settles again
                 size_t gi = g.world.decor.size();
                 for (size_t i = 0; i < g.world.decor.size() && gi == g.world.decor.size(); i++)

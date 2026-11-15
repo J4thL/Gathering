@@ -869,7 +869,7 @@ struct Assets {
     Spr grassT[GRASS_SHADES][GRASS_VARIANTS], soilPatch[SOIL_PATCHES];  // pack-style grass tiles in three shades, and soil patches
     Spr waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art: grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
-    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], lineGrass[2][GRASS_FRAMES], rock[2];
+    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
     Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], snowSpruceShadow, deadSpruce[DEAD_SPRUCE_FRAMES], deadSpruceShadow;  // animated snow and dead spruces
     Spr rockTiny[ROCK_LOOKS], rockSmall[ROCK_LOOKS], rockLarge[ROCK_LOOKS], pebbleSet[ROCK_LOOKS];  // pebbleSet lies around small rocks and boulders, like the grass around trees
       // rock_sprites.hpp
@@ -940,11 +940,6 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.pineShadow = makeSpr(r, mkShadow(PINE_SW, PINE_SH), PINE_SW / 2, PINE_SH / 2);
     for (int g = 0; g < GRASS_SETS; g++)
         for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);  // round tufts round the roots
-    for (int k = 0; k < 2; k++)  // the meadow's line blades: wide (oak size) and small (sapling size)
-        for (int f = 0; f < GRASS_FRAMES; f++) {
-            const GrassSet& gs = GRASS_SET[k == 0 ? GRASS_OAK : GRASS_SAPLING];
-            a.lineGrass[k][f] = makeSpr(r, mkLineGrass(gs.w, gs.h, gs.pal, f, 0x7b00u + k), gs.ax, gs.ay);
-        }
     for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrass[f] = makeSpr(r, mkSnowGrassFrame(f), GRASS_SET[GRASS_SPRUCE].ax, GRASS_SET[GRASS_SPRUCE].ay);
     for (int f = 0; f < SNOW_SPRUCE_FRAMES; f++) a.snowSpruce[f] = makeSpr(r, mkSnowSpruceFrame(f), SNOW_SPRUCE_AX, SNOW_SPRUCE_AY);
     a.snowSpruceShadow = makeSpr(r, mkShadow(SNOW_SPRUCE_SW, SNOW_SPRUCE_SH), SNOW_SPRUCE_SW / 2, SNOW_SPRUCE_SH / 2);
