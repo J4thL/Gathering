@@ -24,6 +24,7 @@ void World::genClumps() {
             const uint8_t t = tile[ty][tx];
             const bool grassy = t == T_GRASS || t == T_DARK;
             if ((!grassy && t != T_COBBLE) || solid[ty][tx] || isBld(tx, ty)) continue;
+            if (soilPatchAt(*this, tx, ty)) continue;  // bare soil: nothing grows on it
             const uint32_t h = hash2(tx, ty, 0x6a55u);
             const float roll = (h & 255) / 255.f;
             const float jx = tx * (float)TS + 2.f + (float)((h >> 8) % 12), jy = ty * (float)TS + 6.f + (float)((h >> 20) % 9);

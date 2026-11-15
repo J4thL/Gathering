@@ -388,10 +388,15 @@ void testSkillsAndTrophies(SelfTest& t) {
         {  // birds: the flight states and the air logic
             {
                 bool tiles = true;
-                for (int d = 0; d < 2; d++) for (int i = 0; i < 100; i++) tiles = tiles && g.A.grassW[d][i].ok();
+                for (int sh = 0; sh < GRASS_SHADES; sh++) for (int v = 0; v < GRASS_VARIANTS; v++) tiles = tiles && g.A.grassT[sh][v].ok();
+                for (int v = 0; v < SOIL_PATCHES; v++) tiles = tiles && g.A.soilPatch[v].ok();
                 for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
                 for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
-                check(tiles, "the grass, water and bank tile art is all built");
+                for (int st = 0; st < LIP_COUNT; st++) for (int i = 0; i < 4; i++) tiles = tiles && g.A.lip[st][i].ok();
+                for (int t = 0; t < 3; t++) { for (int v = 0; v < 4; v++) tiles = tiles && g.A.dirtTone[t][v].ok(); for (int v = 0; v < 2; v++) tiles = tiles && g.A.dirtRock[t][v].ok(); }
+                check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");
+                check(tileRank(T_COBBLE) > tileRank(T_GRASS) && tileRank(T_GRASS) > tileRank(T_DIRT) && tileRank(T_DIRT) > tileRank(T_MUD) && tileRank(T_GRASS) == tileRank(T_DARK) && tileRank(T_WATER) < 0 && tileRank(T_FLOORW) < 0,
+                      "raised ground: paving stands over grass, grass over dirt, dirt over mud; water and interiors have no raised edge");
                 // grass clumps (clumps.cpp): they exist on the town map, are sorted by y, never lie on a solid tile and grow the same way every time
                 {
                     bool sorted = true, okTiles = true;

@@ -14,9 +14,17 @@ void Game::renderWorld(bool) {
             int sx = tx * TS - camX, sy = ty * TS - camY;
             uint32_t h = hash2(tx - COX, ty - COY, 5);  // home-relative, so the original area keeps its exact tile variants
             switch (world.tile[ty][tx]) {
-                case T_GRASS: sprS(A.grassW[0][(tx % 10) + (ty % 10) * 10], sx, sy); break;  // one seamless texture across the world
-                case T_DARK: sprS(A.grassW[1][(tx % 10) + (ty % 10) * 10], sx, sy); break;
-                case T_DIRT: sprS(A.dirt[h % 2], sx, sy); break;
+                case T_GRASS: case T_DARK: {  // flat pack-style grass: light and medium meadows, dark grass; soil patches show through in some areas
+                    const int shade = world.tile[ty][tx] == T_DARK ? 2 : (hash2(tx / 7, ty / 7, 31) & 1);
+                    sprS(A.grassT[shade][(h >> 3) % GRASS_VARIANTS], sx, sy);
+                    if (soilPatchAt(world, tx, ty)) sprS(A.soilPatch[(h >> 7) % SOIL_PATCHES], sx + (int)((h >> 11) % 3) - 1, sy + (int)((h >> 13) % 3) - 1);
+                    break;
+                }
+                case T_DIRT: {  // patches of light, medium and dark soil; a few tiles are rocky
+                    const int tone = (int)((hash2(tx / 6, ty / 6, 11) + ((h % 7) == 0 ? 1u : 0u)) % 3);
+                    sprS((h % 9) == 0 ? A.dirtRock[tone][(h >> 4) & 1] : A.dirtTone[tone][(h >> 3) & 3], sx, sy);
+                    break;
+                }
                 case T_SAND: sprS(A.B.sand[h % 3], sx, sy); break;
                 case T_DUNE: sprS(A.B.dune[h % 2], sx, sy); break;
                 case T_MUD: sprS(A.B.mud[h % 2], sx, sy); break;
@@ -80,6 +88,10 @@ void Game::renderWorld(bool) {
                     }
                     break;
                 }
+            }
+            if (ty > 0 && !world.solid[ty][tx]) {  // ground standing higher than the tile below it: its face shows along the top of that tile
+                const int rk = tileRank(world.tile[ty][tx]), upRk = tileRank(world.tile[ty - 1][tx]);
+                if (rk >= 0 && upRk > rk) sprS(A.lip[tileLipStyle(world.tile[ty - 1][tx])][(tx * 7 + ty * 3) & 3], sx, sy);
             }
         }
     // blood stains
