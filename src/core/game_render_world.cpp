@@ -251,12 +251,12 @@ void Game::renderWorld(bool) {
     for (auto& e : dl) {
         if (e.t == 14) {
             const int fr = ((int)(timeAcc * OAK_FPS + p.pos.x * 0.3f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES;
-            sprW(A.treeGrass[GRASS_SAPLING][fr], p.pos.x - 1.f, p.pos.y + 2.f, false, 1.f, grassLean, true);
-            sprW(A.treeGrass[GRASS_SAPLING][(fr + 11) % GRASS_FRAMES], p.pos.x + 4.f, p.pos.y + 3.f, false, 1.f, grassLean * 0.8f, true);
+            sprW(A.lineGrass[1][fr], p.pos.x - 1.f, p.pos.y + 2.f, false, 1.f, grassLean, true);
+            sprW(A.lineGrass[1][(fr + 11) % GRASS_FRAMES], p.pos.x + 4.f, p.pos.y + 3.f, false, 1.f, grassLean * 0.8f, true);
         } else if (e.t == 13) {  // a clump of grass: it sways like the grass round a tree and bends away from whoever walks through it
             const Clump& c = world.clumps[e.i];
             const int fr = ((int)(timeAcc * OAK_FPS + c.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES;
-            sprW(A.treeGrass[c.set == 0 ? GRASS_OAK : GRASS_SAPLING][fr], c.x, c.y, false, 1.f, grassBend(world.decor.size() + (size_t)e.i), true);
+            sprW(A.lineGrass[c.set == 0 ? 0 : 1][fr], c.x, c.y, false, 1.f, grassBend(world.decor.size() + (size_t)e.i), true);
         } else if (e.t == 0) {
             const Prop& pr = world.props[e.i];
             const int camSave = camX;
