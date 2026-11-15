@@ -192,6 +192,8 @@ void Game::renderWorld(bool) {
         if (it->x < camX - 80 || it->x > camX + LW + 80) continue;
         dl.push_back({it->y, 0, (int)(it - world.props.begin())});
     }
+    for (auto it = std::lower_bound(world.clumps.begin(), world.clumps.end(), camY - 6.f, yLess); it != world.clumps.end() && it->y <= camY + LH + 14; ++it)
+        if (it->x >= camX - 20 && it->x <= camX + LW + 20) dl.push_back({it->y, 13, (int)(it - world.clumps.begin())});
     for (size_t i = 0; i < structs.size(); i++) dl.push_back({structs[i].pos().y, 5, (int)i});
     dl.push_back({world.keeper.y, 1, 0});
     dl.push_back({world.questGiver.y, 4, 0});
@@ -199,6 +201,10 @@ void Game::renderWorld(bool) {
     if (world.mapId == B_HOME && interior < 0)
         for (size_t i = 0; i < villagers.size(); i++) dl.push_back({villagers[i].pos.y, 12, (int)i});
     dl.push_back({p.pos.y, 2, 0});
+    {   // standing in grass: blades over the hunter's feet (not on a mount)
+        const uint8_t ft = world.tileAt(p.pos.x, p.pos.y);
+        if (!p.dead && !riddenMount() && interior < 0 && !world.isInterior() && (ft == T_GRASS || ft == T_DARK)) dl.push_back({p.pos.y + 0.5f, 14, 0});
+    }
     if (delve >= 0) {
         for (size_t i = 0; i < mons.size(); i++) dl.push_back({mons[i].pos.y - (mons[i].state == MN_DEAD ? 4.f : 0.f), 7, (int)i});
         for (size_t i = 0; i < dchests.size(); i++) dl.push_back({dchests[i].pos.y, 8, (int)i});
@@ -231,7 +237,15 @@ void Game::renderWorld(bool) {
         sprW(A.pebbleSet[std::abs(tx * 11 + ty * 5) % ROCK_LOOKS], pr.x, pr.y + 2, ((tx + ty) & 1) != 0);
     };
     for (auto& e : dl) {
-        if (e.t == 0) {
+        if (e.t == 14) {
+            const int fr = ((int)(timeAcc * OAK_FPS + p.pos.x * 0.3f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES;
+            sprW(A.treeGrass[GRASS_SAPLING][fr], p.pos.x - 1.f, p.pos.y + 2.f, false, 1.f, grassLean, true);
+            sprW(A.treeGrass[GRASS_SAPLING][(fr + 11) % GRASS_FRAMES], p.pos.x + 4.f, p.pos.y + 3.f, false, 1.f, grassLean * 0.8f, true);
+        } else if (e.t == 13) {  // a clump of grass: it sways like the grass round a tree and bends away from whoever walks through it
+            const Clump& c = world.clumps[e.i];
+            const int fr = ((int)(timeAcc * OAK_FPS + c.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES;
+            sprW(A.treeGrass[c.set == 0 ? GRASS_OAK : GRASS_SAPLING][fr], c.x, c.y, false, 1.f, grassBend(world.decor.size() + (size_t)e.i), true);
+        } else if (e.t == 0) {
             const Prop& pr = world.props[e.i];
             const int camSave = camX;
             const int rs = propRsId[e.i];

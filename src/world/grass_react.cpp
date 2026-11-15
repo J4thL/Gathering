@@ -4,7 +4,7 @@
 #include "core/game.hpp"
 
 void Game::updateGrass(float dt) {
-    const size_t n = world.decor.size();
+    const size_t nd = world.decor.size(), n = nd + world.clumps.size();  // decor first, then the clumps
     if (grassMap != world.mapId || grassT.size() != n) {  // another map: start with calm grass
         grassMap = world.mapId;
         grassT.assign(n, -100.f);
@@ -15,13 +15,24 @@ void Game::updateGrass(float dt) {
     }
     grassPuffCd = std::max(0.f, grassPuffCd - dt);
     if (n == 0 || dt <= 0.f) return;
+    auto reactTo = [&](size_t i, float dx, float amp) {
+        const float left = grassAmp[i] * std::max(0.f, 1.f - (timeAcc - grassT[i]) / GRASS_REST);
+        if (amp <= left && grassT[i] > timeAcc - GRASS_REST * 0.5f) return false;  // still swaying harder than this would make it
+        grassT[i] = timeAcc;
+        grassAmp[i] = amp;
+        grassDir[i] = dx >= 0.f ? 1 : -1;
+        return true;
+    };
     struct Mover { V2 pos; float speed, reach; bool hunter; };
     Mover ms[40];
     int nm = 0;
     if (!p.dead && interior < 0) {
         const float sp = (p.pos - grassPrev).len() / dt;
+        const float target = std::max(-16.f, std::min(16.f, -(p.pos.x - grassPrev.x) / dt * 0.16f));
+        grassLean += (target - grassLean) * std::min(1.f, dt * 10.f);
         ms[nm++] = {p.pos, sp, riddenMount() ? 15.f : 11.f, true};
     }
+    else grassLean = 0.f;
     grassPrev = p.pos;
     for (const auto& a : animals) {
         if (nm >= 40) break;
@@ -42,13 +53,11 @@ void Game::updateGrass(float dt) {
                 case D_PEBBLES: case D_SKULL: case D_BUBBLES: case D_DRIFT: case D_LILY: case D_MUSHROOM: case D_BUSH0: case D_BUSH1: continue;
                 default: break;
             }
-            const size_t i = (size_t)(it - world.decor.begin());
-            const float left = grassAmp[i] * std::max(0.f, 1.f - (timeAcc - grassT[i]) / GRASS_REST);
-            if (amp <= left && grassT[i] > timeAcc - GRASS_REST * 0.5f) continue;  // still swaying harder than this would make it
-            grassT[i] = timeAcc;
-            grassAmp[i] = amp;
-            grassDir[i] = dx >= 0.f ? 1 : -1;
-            kicked = true;
+            kicked = reactTo((size_t)(it - world.decor.begin()), dx, amp) || kicked;
+        }
+        for (auto it = std::lower_bound(world.clumps.begin(), world.clumps.end(), mv.pos.y - 8.f, [](const Clump& c, float y) { return c.y < y; }); it != world.clumps.end() && it->y <= mv.pos.y + 8.f; ++it) {
+            const float dx = it->x - mv.pos.x;
+            if (std::fabs(dx) <= mv.reach + 3.f) kicked = reactTo(nd + (size_t)(it - world.clumps.begin()), dx, amp) || kicked;
         }
         if (kicked && mv.hunter && mv.speed > 70.f && grassPuffCd <= 0.f) {  // a few torn blades fly up when you run through it
             grassPuffCd = 0.16f;

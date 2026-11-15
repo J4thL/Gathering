@@ -144,6 +144,11 @@ inline float fbm(float x, float y, uint32_t seed) {
     return (vnoise(x, y, seed) * 0.5f + vnoise(x * 2, y * 2, seed + 11) * 0.25f + vnoise(x * 4, y * 4, seed + 23) * 0.125f) / 0.875f;
 }
 
+struct Clump {  // a swaying clump of grass (clumps.cpp): set 0 wide (28 px), 1 small (16 px)
+    float x, y, ph;
+    uint8_t set;
+};
+
 struct World {
     uint8_t tile[MH][MW];
     uint8_t biome[MH][MW];
@@ -151,6 +156,7 @@ struct World {
     bool occ[MH][MW];  // tall things that stop light: buildings, huts, caves, boulders, cliffs (buildOccluders, worldgen.hpp)
     std::vector<Prop> props;  // sorted by y once generation is done
     std::vector<Decor> decor;  // sorted by y
+    std::vector<Clump> clumps;  // sorted by y; drawn in the depth-sorted layer, over the feet of whoever walks through
     std::vector<ResNode> nodes;  // sorted by y
     std::vector<Landmark> landmarks;
     std::vector<Lantern> lanterns;
@@ -225,6 +231,7 @@ struct World {
         mapId = map;
         props.clear();
         decor.clear();
+        clumps.clear();
         nodes.clear();
         landmarks.clear();
         lanterns.clear();
@@ -250,6 +257,7 @@ struct World {
         std::sort(props.begin(), props.end(), [](const Prop& a, const Prop& b) { return a.y < b.y; });
         std::sort(decor.begin(), decor.end(), [](const Decor& a, const Decor& b) { return a.y < b.y; });
         std::sort(nodes.begin(), nodes.end(), [](const ResNode& a, const ResNode& b) { return a.y < b.y; });
+        genClumps();       // clumps.cpp
     }
 
     // The original map. This is the pre-expansion generator, unchanged except that every position is
@@ -368,6 +376,7 @@ struct World {
     void addTownBelt();         // worldgen.hpp
     void fitRocks();            // worldgen.hpp
     void buildOccluders();      // worldgen.hpp
+    void genClumps();           // clumps.cpp
     // true when a standing tree (oak, pine, spruce, dead or bare tree) is within maxDist px of the point: where fallen branches may lie
     bool nearTree(float x, float y, float maxDist) const {
         for (const Prop& p : props) {

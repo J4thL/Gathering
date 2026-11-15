@@ -392,6 +392,19 @@ void testSkillsAndTrophies(SelfTest& t) {
                 for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
                 for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
                 check(tiles, "the grass, water and bank tile art is all built");
+                // grass clumps (clumps.cpp): they exist on the town map, are sorted by y, never lie on a solid tile and grow the same way every time
+                {
+                    bool sorted = true, okTiles = true;
+                    for (size_t i = 0; i < g.world.clumps.size(); i++) {
+                        if (i && g.world.clumps[i].y < g.world.clumps[i - 1].y) sorted = false;
+                        const Clump& c = g.world.clumps[i];
+                        const int cx = (int)(c.x / TS), cy = (int)(c.y / TS);
+                        if (cx < 0 || cy < 0 || cx >= MW || cy >= MH || g.world.solid[cy][cx]) okTiles = false;
+                    }
+                    const size_t n0 = g.world.clumps.size();
+                    g.world.genClumps();
+                    check(g.world.mapId != B_HOME || (n0 > 500 && sorted && okTiles && g.world.clumps.size() == n0), "grass clumps are scattered over the town map: sorted, never on a solid tile, and the same every time");
+                }
                 // the grass bends away from a hunter running past it and settles again
                 size_t gi = g.world.decor.size();
                 for (size_t i = 0; i < g.world.decor.size() && gi == g.world.decor.size(); i++)
