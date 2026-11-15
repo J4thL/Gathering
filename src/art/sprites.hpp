@@ -26,6 +26,8 @@ inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)
 #include "art/tree_dead_spruce.hpp"
 #include "art/rock_sprites.hpp"
 #include "art/tiles_user.hpp"
+#include "art/tiles_soil.hpp"
+#include "art/tiles_grasspack.hpp"
 
 // ================================================================= tiles
 inline Img mkGrass(int variant, Rng& r) {
@@ -863,9 +865,11 @@ inline Img mkAmmoWorld(int a) {
 // ================================================================= the sprite bank
 struct Assets {
     Spr grass[4], dirt[2], water[4];  // (grass[] and water[] are the older generated tiles; the world is drawn with the three arrays below)
-    Spr grassW[2][100], waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art: grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles
+    Spr lip[LIP_COUNT][4], dirtTone[3][4], dirtRock[3][2];  // the face of raised ground (grass, sand, snow, stone, paving); dirt in three tones, and rocky dirt
+    Spr grassT[GRASS_SHADES][GRASS_VARIANTS], soilPatch[SOIL_PATCHES];  // pack-style grass tiles in three shades, and soil patches
+    Spr waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art: grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
-    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
+    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], lineGrass[2][GRASS_FRAMES], rock[2];
     Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], snowSpruceShadow, deadSpruce[DEAD_SPRUCE_FRAMES], deadSpruceShadow;  // animated snow and dead spruces
     Spr rockTiny[ROCK_LOOKS], rockSmall[ROCK_LOOKS], rockLarge[ROCK_LOOKS], pebbleSet[ROCK_LOOKS];  // pebbleSet lies around small rocks and boulders, like the grass around trees
       // rock_sprites.hpp
@@ -910,8 +914,15 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 4; i++) a.grass[i] = makeSpr(r, mkGrass(i, rg), 0, 0);
     for (int i = 0; i < 2; i++) a.dirt[i] = makeSpr(r, mkDirt(i, rg), 0, 0);
     for (int i = 0; i < 4; i++) a.water[i] = makeSpr(r, mkWater(i), 0, 0);
-    for (int d = 0; d < 2; d++)
-        for (int i = 0; i < 100; i++) a.grassW[d][i] = makeSpr(r, tileCrop(GRASS_ROWS, GRASS_TEX, GRASS_TEX, (i % 10) * 16, (i / 10) * 16, 16, 16, d ? 0.7f : 1.f), 0, 0);
+    for (int st = 0; st < LIP_COUNT; st++)
+        for (int i = 0; i < 4; i++) a.lip[st][i] = makeSpr(r, mkLip(st, i), 0, 0);
+    for (int t = 0; t < 3; t++) {
+        for (int v = 0; v < 4; v++) a.dirtTone[t][v] = makeSpr(r, mkDirtTone(t, v, false), 0, 0);
+        for (int v = 0; v < 2; v++) a.dirtRock[t][v] = makeSpr(r, mkDirtTone(t, v, true), 0, 0);
+    }
+    for (int sh = 0; sh < GRASS_SHADES; sh++)
+        for (int v = 0; v < GRASS_VARIANTS; v++) a.grassT[sh][v] = makeSpr(r, mkGrassTile(sh, v), 0, 0);
+    for (int v = 0; v < SOIL_PATCHES; v++) a.soilPatch[v] = makeSpr(r, mkSoilPatch(v), 0, 0);
     for (int i = 0; i < WATER_TEX_W; i++) a.waterW[i] = makeSpr(r, tileCrop(WATER_ROWS, WATER_TEX_W, WATER_TEX_H, i, 0, 16, 16), 0, 0);
     for (int i = 0; i < BANK_TEX_W / 16; i++) a.bankW[i] = makeSpr(r, tileCrop(BANK_ROWS, BANK_TEX_W, BANK_TEX_H, i * 16, 0, 16, 16), 0, 0);
     a.flower[0] = makeSpr(r, mkFlower(HEX(0xe8584f)), 4, 7);
@@ -928,7 +939,12 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int f = 0; f < PINE_FRAMES; f++) a.pine[f] = makeSpr(r, mkPineFrame(f), PINE_AX, PINE_AY);
     a.pineShadow = makeSpr(r, mkShadow(PINE_SW, PINE_SH), PINE_SW / 2, PINE_SH / 2);
     for (int g = 0; g < GRASS_SETS; g++)
-        for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);
+        for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);  // round tufts round the roots
+    for (int k = 0; k < 2; k++)  // the meadow's line blades: wide (oak size) and small (sapling size)
+        for (int f = 0; f < GRASS_FRAMES; f++) {
+            const GrassSet& gs = GRASS_SET[k == 0 ? GRASS_OAK : GRASS_SAPLING];
+            a.lineGrass[k][f] = makeSpr(r, mkLineGrass(gs.w, gs.h, gs.pal, f, 0x7b00u + k), gs.ax, gs.ay);
+        }
     for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrass[f] = makeSpr(r, mkSnowGrassFrame(f), GRASS_SET[GRASS_SPRUCE].ax, GRASS_SET[GRASS_SPRUCE].ay);
     for (int f = 0; f < SNOW_SPRUCE_FRAMES; f++) a.snowSpruce[f] = makeSpr(r, mkSnowSpruceFrame(f), SNOW_SPRUCE_AX, SNOW_SPRUCE_AY);
     a.snowSpruceShadow = makeSpr(r, mkShadow(SNOW_SPRUCE_SW, SNOW_SPRUCE_SH), SNOW_SPRUCE_SW / 2, SNOW_SPRUCE_SH / 2);
