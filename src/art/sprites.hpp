@@ -25,6 +25,7 @@ inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)
 #include "art/tree_snow_spruce.hpp"
 #include "art/tree_dead_spruce.hpp"
 #include "art/rock_sprites.hpp"
+#include "art/tiles_user.hpp"
 
 // ================================================================= tiles
 inline Img mkGrass(int variant, Rng& r) {
@@ -861,7 +862,8 @@ inline Img mkAmmoWorld(int a) {
 
 // ================================================================= the sprite bank
 struct Assets {
-    Spr grass[4], dirt[2], water[4];
+    Spr grass[4], dirt[2], water[4];  // (grass[] and water[] are the older generated tiles; the world is drawn with the three arrays below)
+    Spr grassW[2][100], waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art: grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles
     Spr flower[3], tuft, mushroom, pebbles, bush[2];
     Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
     Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], snowSpruceShadow, deadSpruce[DEAD_SPRUCE_FRAMES], deadSpruceShadow;  // animated snow and dead spruces
@@ -908,6 +910,10 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int i = 0; i < 4; i++) a.grass[i] = makeSpr(r, mkGrass(i, rg), 0, 0);
     for (int i = 0; i < 2; i++) a.dirt[i] = makeSpr(r, mkDirt(i, rg), 0, 0);
     for (int i = 0; i < 4; i++) a.water[i] = makeSpr(r, mkWater(i), 0, 0);
+    for (int d = 0; d < 2; d++)
+        for (int i = 0; i < 100; i++) a.grassW[d][i] = makeSpr(r, tileCrop(GRASS_ROWS, GRASS_TEX, GRASS_TEX, (i % 10) * 16, (i / 10) * 16, 16, 16, d ? 0.7f : 1.f), 0, 0);
+    for (int i = 0; i < WATER_TEX_W; i++) a.waterW[i] = makeSpr(r, tileCrop(WATER_ROWS, WATER_TEX_W, WATER_TEX_H, i, 0, 16, 16), 0, 0);
+    for (int i = 0; i < BANK_TEX_W / 16; i++) a.bankW[i] = makeSpr(r, tileCrop(BANK_ROWS, BANK_TEX_W, BANK_TEX_H, i * 16, 0, 16, 16), 0, 0);
     a.flower[0] = makeSpr(r, mkFlower(HEX(0xe8584f)), 4, 7);
     a.flower[1] = makeSpr(r, mkFlower(HEX(0xf4f0ea)), 4, 7);
     a.flower[2] = makeSpr(r, mkFlower(HEX(0x8f6fe0)), 4, 7);

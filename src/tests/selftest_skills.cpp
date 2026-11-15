@@ -386,6 +386,35 @@ void testSkillsAndTrophies(SelfTest& t) {
         }
         check(bankOk, "every boar, wolf, deer, rabbit and hare form / rarity / view / state / pose is drawn");
         {  // birds: the flight states and the air logic
+            {
+                bool tiles = true;
+                for (int d = 0; d < 2; d++) for (int i = 0; i < 100; i++) tiles = tiles && g.A.grassW[d][i].ok();
+                for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
+                for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
+                check(tiles, "the grass, water and bank tile art is all built");
+                // the grass bends away from a hunter running past it and settles again
+                size_t gi = g.world.decor.size();
+                for (size_t i = 0; i < g.world.decor.size() && gi == g.world.decor.size(); i++)
+                    if (g.world.decor[i].kind == D_TUFT) gi = i;
+                if (gi < g.world.decor.size()) {
+                    const Decor dc = g.world.decor[gi];
+                    g.p.dead = false;
+                    g.interior = -1;
+                    g.p.pos = V2(dc.x - 6, dc.y);
+                    g.updateGrass(1.f / 60.f);  // (sets the map's grass up)
+                    g.p.pos.x += 2.f;           // 2 px in a sixtieth of a second: a run
+                    g.updateGrass(1.f / 60.f);
+                    const float bent = g.grassBend(gi);
+                    g.timeAcc += Game::GRASS_REST + 0.1f;
+                    check(bent > 5.f && g.grassBend(gi) == 0.f, "a tuft leans away from a hunter running past it (to the right of him: clockwise) and settles after a moment");
+                    g.p.pos.x = dc.x - 6;
+                    g.updateGrass(1.f);  // standing still next to it
+                    g.p.pos.x = dc.x - 6;
+                    g.updateGrass(1.f);
+                    check(g.grassBend(gi) == 0.f, "standing still in the grass does not bend it");
+                } else
+                    check(false, "found a tuft of grass to test");
+            }
             check(animalClips(A_DUCK) && animalClips(A_EAGLE) && animalClips(A_ROADRUNNER) && g.A.rich[A_EAGLE] && animalClips(A_EAGLE)->poses[AN_FLY] == 6 && animalClips(A_EAGLE)->clip[AN_FLY].loop && !animalClips(A_EAGLE)->clip[AN_TAKEOFF].loop && !animalClips(A_EAGLE)->clip[AN_LAND].loop, "duck, eagle and roadrunner have bird sets with looping flight and one-shot takeoff / landing");
             g.animals.clear();
             g.p.pos = V2(0, 0);

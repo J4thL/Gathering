@@ -75,6 +75,7 @@ as a `gates` line; a save from before gates existed keeps every gate open.
 - **Bestiary card**: hover a hunted species in the BESTIARY tab to see its health, whether it fights back, which rarity tiers you have hunted and its drops (form and legendary extras are tagged).
 - **Time limits**: nothing lies around forever. A carcass is gone after 3 minutes (5 for a legendary), a thrown weapon or arrow after 5 minutes, and a stack you dropped (or a baby a kill left) after 10. The last 20 seconds it blinks. How long a dropped stack has lain there is saved.
 - **Animation**: four-legged animals have jointed legs (knees and hocks bend as a foot lifts), a bobbing walk with a nodding head and swaying tail, a gathering and stretching gallop, and a six-pose idle with a head sweep, ear flicks and a tail swish.
+- **Living grass**: tufts, flowers, reeds and other plants lean away from a hunter or animal moving past them and rustle back to rest; running through grass throws up a few blades. Standing still does not disturb it.
 - **Wounded quarry**: if an animal you hurt bleeds out beyond 150 px, its carcass blinks with a gold ring on the minimap and the map until you reach it.
 - Saved lines: `rep`, `demand`, `order`, and `bestiary <kind> <kills> <tier mask>`. Older saves load with defaults.
 
