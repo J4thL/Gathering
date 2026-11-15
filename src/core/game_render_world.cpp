@@ -14,8 +14,8 @@ void Game::renderWorld(bool) {
             int sx = tx * TS - camX, sy = ty * TS - camY;
             uint32_t h = hash2(tx - COX, ty - COY, 5);  // home-relative, so the original area keeps its exact tile variants
             switch (world.tile[ty][tx]) {
-                case T_GRASS: sprS(A.grass[h % 3], sx, sy); break;
-                case T_DARK: sprS(A.grass[3], sx, sy); break;
+                case T_GRASS: sprS(A.grassW[0][(tx % 10) + (ty % 10) * 10], sx, sy); break;  // one seamless texture across the world
+                case T_DARK: sprS(A.grassW[1][(tx % 10) + (ty % 10) * 10], sx, sy); break;
                 case T_DIRT: sprS(A.dirt[h % 2], sx, sy); break;
                 case T_SAND: sprS(A.B.sand[h % 3], sx, sy); break;
                 case T_DUNE: sprS(A.B.dune[h % 2], sx, sy); break;
@@ -70,12 +70,14 @@ void Game::renderWorld(bool) {
                     break;
                 }
                 case T_WATER: {
-                    sprS(A.water[(wf + (hash2((tx - COX) / 2, (ty - COY) / 2, 9) & 3)) & 3], sx, sy);
+                    sprS(A.waterW[(tx * TS + (int)(timeAcc * 3.f)) & (WATER_TEX_W - 1)], sx, sy);  // the water texture drifts sideways
                     u32 foam = RGBA(235, 248, 255, 150);
-                    if (!world.water(tx, ty - 1)) fillRect(sx, sy, TS, 2, foam);
+                    if (!world.water(tx, ty - 1)) sprS(A.bankW[tx & 3], sx, sy);  // land to the north: a dirt bank and a stone ledge
                     if (!world.water(tx, ty + 1)) fillRect(sx, sy + TS - 2, TS, 2, foam);
-                    if (!world.water(tx - 1, ty)) fillRect(sx, sy, 2, TS, foam);
-                    if (!world.water(tx + 1, ty)) fillRect(sx + TS - 2, sy, 2, TS, foam);
+                    if (world.water(tx, ty - 1)) {  // (a bank tile has no side foam)
+                        if (!world.water(tx - 1, ty)) fillRect(sx, sy, 2, TS, foam);
+                        if (!world.water(tx + 1, ty)) fillRect(sx + TS - 2, sy, 2, TS, foam);
+                    }
                     break;
                 }
             }
@@ -154,7 +156,7 @@ void Game::renderWorld(bool) {
             case D_ALPINE: s = &A.B.alpine; break;
             default: s = &A.B.gravel; sway = false; break;
         }
-        float ang = sway ? sinf(timeAcc * 1.9f + d.ph + d.x * 0.02f) * swayAmt : 0.f;
+        float ang = sway ? sinf(timeAcc * 1.9f + d.ph + d.x * 0.02f) * swayAmt + grassBend((size_t)(it - world.decor.begin())) : 0.f;  // plus the lean from whoever just walked through
         sprW(*s, d.x, d.y, false, alpha, ang, true);
     }
     // resource nodes: a soft shadow, the plant or ore, and a slow glint so they read as "pick me"

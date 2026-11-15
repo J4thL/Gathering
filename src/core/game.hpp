@@ -473,6 +473,15 @@ struct Game {
     // mounts (mount_ride.cpp): a saddled, grown mount from the homestead is ridden with V - faster, more carry weight, no buildings or caves
     float mountAnimT = 0;
     bool mountMoving = false;
+    // the grass bends away from whoever walks through it (grass_react.cpp)
+    static constexpr float GRASS_REST = 1.3f;  // seconds a kicked tuft takes to settle
+    int grassMap = -1;
+    std::vector<float> grassT, grassAmp;
+    std::vector<signed char> grassDir;
+    V2 grassPrev;
+    float grassPuffCd = 0.f;
+    void updateGrass(float dt);
+    float grassBend(size_t decorIndex) const;
     HAnimal* riddenMount();
     HAnimal* saddledMount();
     bool toggleMount();
