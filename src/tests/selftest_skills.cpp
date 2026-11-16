@@ -221,6 +221,19 @@ void testSkillsAndTrophies(SelfTest& t) {
             check(g.p.sk.perk[SK_HUNTING][0] == -1, "(setup) a new game starts with no perks");
             check(g.load() && g.p.sk.perk[SK_HUNTING][0] == 0 && g.p.sk.perk[SK_HUNTING][1] == 1 && g.p.sk.perk[SK_HUNTING][2] == -1 && g.p.sk.perk[SK_WOODCUTTING][0] == 1, "perks survive a save / load");
         }
+        // hunter rank: from the sum of skill levels, with a real carry bonus
+        {
+            const SkillSet keep = g.p.sk;
+            SkillSet fresh;
+            check(fresh.totalLevels() == SK_COUNT && fresh.rank() == 0, "a new hunter is an Apprentice");
+            const int limit0 = g.p.carryLimit() - RANK_CARRY_KG * g.p.sk.rank();
+            for (int k = 0; k < SK_COUNT; k++) g.p.sk.s[k].xp = SkillState::capXp();
+            check(g.p.sk.totalLevels() == SK_COUNT * MAX_LEVEL && g.p.sk.rank() == RANK_COUNT - 1, "all skills maxed is the top rank");
+            g.p.syncPack();
+            check(g.p.carryLimit() == limit0 + RANK_CARRY_KG * (RANK_COUNT - 1) && (int)g.p.inv.maxWeight == g.p.carryLimit(), "each rank raises the carry limit");
+            g.p.sk = keep;
+            g.p.syncPack();
+        }
         // persistence
         g.p.sk.s[SK_COOKING].xp = 12345;
         g.p.sk.s[SK_DEFENSE].xp = 7;

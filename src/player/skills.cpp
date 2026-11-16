@@ -7,7 +7,7 @@
 int Game::grantXp(int skill, int amount) {
     if (skill < 0 || skill >= SK_COUNT || amount <= 0 || p.dead) return 0;
     amount = std::max(1, (int)lroundf(amount * (1.f + p.sk.perkLearn(skill))));  // the QUICK STUDY perks
-    const int before = p.sk.level(skill);
+    const int before = p.sk.level(skill), rankBefore = p.sk.rank();
     const int gained = p.sk.add(skill, amount);
     if (before >= MAX_LEVEL) return 0;  // capped: no toast spam
     int live = 0;  // XP numbers still rising: stack the new one above them so two skills gained at once do not overprint
@@ -19,6 +19,10 @@ int Game::grantXp(int skill, int amount) {
         msg(std::string(SKILL[skill].name) + " LEVEL " + S(now) + "!", C_GOLD);
         ftext(p.pos + V2(0, -44), "LEVEL UP!", C_GOLD, 1.4f);
         audio.play(S_CRAFT);
+        if (p.sk.rank() > rankBefore) {
+            p.syncPack();
+            msg(std::string("HUNTER RANK: ") + RANK_NAME[p.sk.rank()] + " - CARRY +" + S(RANK_CARRY_KG) + " KG", C_GOLD);
+        }
         for (int m : MILESTONES)
             if (before < m && now >= m) msg(std::string(SKILL[skill].name) + " MILESTONE " + S(m) + ": +" + S((int)lroundf(skillBonusAt(skill, now) * 100.f)) + "% " + SKILL[skill].effect + " - PICK A PERK IN SKILLS", C_GREEN);
     }
@@ -80,7 +84,7 @@ void Game::drawSkillsTab(int X, int Y, int W, int H) {
         skillSel = hover;
         audio.play(S_CLICK, 0.5f);
     }
-    std::string foot = "CLICK A SKILL FOR ITS PERKS   TAB BACK";
+    std::string foot = std::string("RANK ") + RANK_NAME[p.sk.rank()] + " " + S(p.sk.totalLevels()) + "   CLICK A SKILL FOR PERKS   TAB BACK";
     if (hover >= 0) {
         const int lv = p.sk.level(hover), nm = nextMilestone(lv);
         const int pct = (int)lroundf(skillBonusAt(hover, lv) * 100.f);

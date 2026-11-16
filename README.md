@@ -168,6 +168,8 @@ saves without skills load at level 1.
 **Perks:** each milestone opens a one-time choice per skill (click the skill row; a "!" marks skills with a pending choice). A is MASTERY (adds
 8 / 10 / 12 / 15% of the skill's cap to its bonus); B is extra XP for that skill (10 / 15 / 20 / 30%), or extra speed for woodcutting and mining.
 A choice is final and saved as `perk <key> <tier> <0|1>`.
+**Hunter rank:** the sum of all skill levels (max 1500) sets your rank: Apprentice, Tracker (60), Warden (250), Master (600), Grandmaster (1000). Every rank adds 10 kg
+to the carry limit, and Warden and up are offered one quality step better on the orders board. It is derived from the skills, so nothing extra is saved.
 
 ## Gathering
 Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/gathering/resources.hpp`, behaviour in `src/gathering/gathering.cpp`).

@@ -145,7 +145,7 @@ struct Player {
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
-    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg; }  // kg
+    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank(); }  // kg (+ the hunter rank)
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
