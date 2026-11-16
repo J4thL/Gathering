@@ -145,7 +145,7 @@ struct Player {
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
-    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg; }  // kg
+    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank(); }  // kg (+ the hunter rank)
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
@@ -447,7 +447,7 @@ struct Game {
     void updateInventory(float dt);
     void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
     void killAnimal(Animal& a, bool byHunter = true);  // byHunter=false: a predator made the kill (no XP, quest, bounty or kill count)
-    float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)); }  // see skills.hpp
+    float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)) + p.sk.perkMastery(skill); }  // see skills.hpp (+ the MASTERY perks)
     void hurtPlayer(float dmg, V2 from, int srcKind = -1);
     void gatherStep(Animal& c);
     bool stepAnimal(Animal& a, V2 dir, float speed, float dt);
@@ -662,8 +662,10 @@ struct Game {
     // skills (skills.cpp)
     int grantXp(int skill, int amount);          // adds XP, shows the toast, announces level-ups; returns levels gained
     void skillSave(std::ostream& f) const;
+    void perkLoadLine(std::istringstream& ss);   // the rest of a "perk <key> <step> <choice>" line
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
+    int skillSel = -1;  // the skill whose perk choices are open in the SKILLS tab
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
     void bestiaryKill(int kind, int tier = 0);
     // economy

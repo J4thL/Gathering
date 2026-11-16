@@ -82,7 +82,7 @@ void Game::makeOrders(int day) {
     }
     for (Order& o : orders) o = Order();
     Rng r((uint32_t)(9001 + day * 104729));
-    const int maxQ = std::min((int)Q_COUNT - 1, repLevel());
+    const int maxQ = std::min((int)Q_COUNT - 1, repLevel() + (p.sk.rank() >= 2 ? 1 : 0));  // Warden and up are offered better work
     for (int i = 0; i < 3 && !pool.empty(); i++) {
         const int pi = r.irange(0, (int)pool.size() - 1);
         Order& o = orders[i];

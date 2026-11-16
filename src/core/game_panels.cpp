@@ -286,6 +286,7 @@ void Game::drawInventory() {
             fx += w + 2;
         }
     }
+    if (invTab != 2) skillSel = -1;  // the perk choices close when you leave the SKILLS tab
     const int cy = invTab == 0 ? Y + 50 : Y + 38;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
     auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };

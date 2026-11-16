@@ -258,6 +258,7 @@ bool Game::load() {
         }
         else if (k == "rep" || k == "demand" || k == "order") economyLoadLine(k, ss);
         else if (k == "skill") skillLoadLine(ss);
+        else if (k == "perk") perkLoadLine(ss);
         else if (k == "disc") {
             std::string bits;
             ss >> bits;

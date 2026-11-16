@@ -448,6 +448,7 @@ inline void buildFauna(SDL_Renderer* r, AssetsT& a) {
                 Spr* out = a.animal[k][form + 2 * tier];
                 for (int f = 0; f < 5; f++) {
                     Img im = paintAnimal(k, sp, f < 4 ? f : 0, f == 4);
+                    richenActor(im, OUT);
                     styleActor(im, OUT, 1);
                     out[f] = makeSpr(r, im, (int)sp.cx, f < 4 ? sp.H - 2 : 1, true);
                 }
@@ -455,6 +456,7 @@ inline void buildFauna(SDL_Renderer* r, AssetsT& a) {
                     for (int back = 0; back < 2; back++)
                         for (int f = 0; f < 5; f++) {
                             Img im = drawCrawlerNS(ANIMAL[k].art, sp, f < 4 ? f : 0, f == 4, back == 1);
+                            richenActor(im, OUT);
                             styleActor(im, OUT, 1);
                             a.animalNS[k][form + 2 * tier][back][f] = makeSpr(r, im, im.w / 2, f < 4 ? im.h - 2 : im.h / 2, true);
                         }
