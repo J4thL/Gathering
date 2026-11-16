@@ -15,7 +15,6 @@ set(WILDWOOD_CORE
     src/core/game_player.cpp
     src/animals/mount_ride.cpp
     src/world/grass_react.cpp
-    src/world/clumps.cpp
     src/core/game_inventory.cpp
     src/core/game_render.cpp
     src/core/game_render_world.cpp

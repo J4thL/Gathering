@@ -30,7 +30,7 @@ void Game::drawBestiaryTab(int X, int Y, int W, int H) {
         const int n = bestKills[k];
         if (n > 0) found++;
         if (inRect(x - 2, y - 1, colW - 4, rowH)) hover = k;
-        if (hover == k) fillRect(x - 2, y - 1, colW - 4, rowH, HEX(0x3f3220));
+        if (hover == k) fillRect(x - 2, y - 1, colW - 4, rowH, skinFill(HEX(0x3f3220)));
         text(x, y, n > 0 ? std::string(ANIMAL[k].name) : std::string("???"), n > 0 ? C_GOLD : HEX(0x7a6a4a));
         text(x + 82, y, n > 0 ? "x" + S(n) : std::string("-"), n > 0 ? C_TEXT : C_DIM);
         for (int s = 0; s < 3; s++)  // one pip per reward reached
