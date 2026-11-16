@@ -5,7 +5,66 @@
 static constexpr int BEST_STEP[3] = {5, 20, 50};      // kills of one species that earn a reward
 static constexpr int BEST_MUL[3] = {1, 3, 8};          // reward = (8 + health / 3) coins x this
 
+// trophies: milestones read from the bestiary data (so old saves count too); each pays coins once
+struct TrophyDef { const char* name; const char* what; int kind; int need; int coins; };  // kind 0 species found, 1 legends hunted, 2 total kills
+static const TrophyDef TROPHY[TROPHY_COUNT] = {
+    {"NATURALIST", "FIND 10 SPECIES", 0, 10, 100},   {"FIELD GUIDE", "FIND 20 SPECIES", 0, 20, 300},   {"COMPLETE BESTIARY", "FIND EVERY SPECIES", 0, A_COUNT, 1000},
+    {"LEGEND SEEKER", "HUNT A LEGENDARY", 1, 1, 150}, {"LEGEND HUNTER", "HUNT 5 LEGENDARIES", 1, 5, 500}, {"LEGEND SLAYER", "HUNT 10 LEGENDARIES", 1, 10, 1500},
+    {"HUNTER", "HUNT 100 ANIMALS", 2, 100, 150},      {"VETERAN", "HUNT 500 ANIMALS", 2, 500, 600},      {"WARLORD", "HUNT 2000 ANIMALS", 2, 2000, 2000},
+};
+
+int Game::trophyProgress(int t) const {
+    int n = 0;
+    const int kind = TROPHY[t].kind;
+    for (int k = 0; k < A_COUNT; k++) {
+        if (kind == 0) n += bestKills[k] > 0;
+        else if (kind == 1) n += (bestMask[k] >> TR_LEGENDARY) & 1;
+        else n += bestKills[k];
+    }
+    return n;
+}
+
+void Game::checkTrophies() {
+    for (int t = 0; t < TROPHY_COUNT; t++)
+        if (!(trophyMask >> t & 1) && trophyProgress(t) >= TROPHY[t].need) {
+            trophyMask |= 1 << t;
+            p.coins += TROPHY[t].coins;
+            msg(std::string("TROPHY: ") + TROPHY[t].name + "  +" + S(TROPHY[t].coins) + " COINS", C_GOLD);
+            audio.play(S_CRAFT);
+        }
+}
+
 static int bestReward(int kind, int step) { return (8 + ANIMAL[kind].hp / 3) * BEST_MUL[step]; }
+
+// The daily hunt trial: a species the hunter has already found (a rabbit at the start), a count that grows with hunter rank, paid once.
+// Warden and up are given a legendary hunt every third day. The result is saved, so reloading the day does not change it.
+void Game::makeTrial(int day) {
+    Rng r((uint32_t)(4242 + day * 6151));
+    trial = Trial();
+    if (p.sk.rank() >= 2 && day % 3 == 0) {
+        trial.kind = 1;
+        trial.need = 1;
+        trial.pay = 400 + 100 * p.sk.rank();
+        return;
+    }
+    std::vector<int> found;
+    for (int k = 0; k < A_COUNT; k++)
+        if (bestKills[k] > 0) found.push_back(k);
+    trial.species = found.empty() ? (int)A_RABBIT : found[r.irange(0, (int)found.size() - 1)];
+    trial.need = 3 + p.sk.rank() * 2 + r.irange(0, 2);
+    trial.pay = trial.need * (8 + ANIMAL[trial.species].hp / 3) * 2;
+}
+
+void Game::trialKill(int kind, int tier) {
+    if (trial.done || trial.need <= 0) return;
+    if (trial.kind == 1 ? tier != TR_LEGENDARY : kind != trial.species) return;
+    if (++trial.got < trial.need) return;
+    trial.done = true;
+    p.coins += trial.pay;
+    addRep(6);
+    msg("HUNT TRIAL DONE: +" + S(trial.pay) + " COINS", C_GOLD);
+    audio.play(S_CRAFT);
+}
 
 void Game::bestiaryKill(int kind, int tier) {
     if (kind < 0 || kind >= A_COUNT) return;
@@ -19,6 +78,8 @@ void Game::bestiaryKill(int kind, int tier) {
             msg(std::string("BESTIARY: ") + S(n) + " " + ANIMAL[kind].name + " HUNTED  +" + S(c) + " COINS", C_GOLD);
             audio.play(S_CRAFT);
         }
+    trialKill(kind, tier);
+    checkTrophies();
 }
 
 void Game::drawBestiaryTab(int X, int Y, int W, int H) {
@@ -64,6 +125,33 @@ void Game::drawBestiaryTab(int X, int Y, int W, int H) {
             if (D.drop[m][1] > 0) line(m, D.drop[m][0], D.drop[m][1], "");
         if (D.formDrop[0] >= 0) line(D.formDrop[0], D.formDrop[1], D.formDrop[2], "FORM");
         if (D.legendDrop[0] >= 0) line(D.legendDrop[0], D.legendDrop[1], D.legendDrop[2], "LEGEND");
+    }
+    {  // the TROPHIES button opens the list over the page
+        int got = 0;
+        for (int t = 0; t < TROPHY_COUNT; t++) got += trophyMask >> t & 1;
+        const int bw = 84, bh = 11, bx = X + W - bw - 10, by = Y + H - 24;
+        if (!trophyOpen && button(bx, by, bw, bh, "TROPHIES " + S(got) + "/" + S((int)TROPHY_COUNT))) trophyOpen = true;
+    }
+    {  // today's hunt trial, beside the TROPHIES button
+        std::string s = "TODAY: " + std::string(trial.kind == 1 ? "HUNT A LEGENDARY" : "HUNT " + S(trial.need) + " " + ANIMAL[trial.species].name);
+        s += trial.done ? "  DONE" : "  " + S(trial.got) + "/" + S(trial.need) + "  +" + S(trial.pay);
+        text(X + 10, Y + H - 22, s, trial.done ? C_GREEN : C_TEXT, 1, false);
+    }
+    if (trophyOpen) {
+        const int ox = X + 14, oy = Y + 30, ow = W - 28, oh = 150;
+        panel(ox, oy, ow, oh, HEX(0x3a2a1a));
+        text(ox + 8, oy + 6, "TROPHIES", C_GOLD, 1, false);
+        for (int t = 0; t < TROPHY_COUNT; t++) {
+            const int y = oy + 20 + t * 13;
+            const bool done = trophyMask >> t & 1;
+            const int have = std::min(trophyProgress(t), TROPHY[t].need);
+            fillRect(ox + 8, y + 1, 6, 6, done ? C_GOLD : HEX(0x4a3a2a));
+            text(ox + 20, y, TROPHY[t].name, done ? C_GOLD : C_TEXT, 1, false);
+            text(ox + 112, y, TROPHY[t].what, C_DIM, 1, false);
+            const std::string r = done ? std::string("DONE") : S(have) + "/" + S(TROPHY[t].need) + "  +" + S(TROPHY[t].coins);
+            text(ox + ow - 8 - textW(r), y, r, done ? C_GREEN : C_DIM, 1, false);
+        }
+        if (button(ox + ow - 50, oy + oh - 15, 42, 11, "BACK")) trophyOpen = false;
     }
     std::string foot = "SPECIES FOUND " + S(found) + "/" + S((int)A_COUNT) + "   HUNT 5, 20 AND 50 OF ONE FOR COINS   TAB BACK";
     if (hover >= 0 && bestKills[hover] > 0) {

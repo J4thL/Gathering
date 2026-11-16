@@ -234,6 +234,60 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.p.sk = keep;
             g.p.syncPack();
         }
+        // trophies: read from the bestiary, paid once, saved
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            const int c0 = g.p.coins;
+            for (int i = 0; i < 10; i++) g.bestKills[i] = 1;  // ten species found (set directly, as an old save would)
+            g.bestiaryKill(A_RABBIT);
+            check(g.trophyMask == 1 && g.p.coins - c0 >= 100, "ten species found pays the NATURALIST trophy");
+            const int c1 = g.p.coins;
+            g.bestiaryKill(A_RABBIT);
+            check(g.p.coins == c1 && g.trophyMask == 1, "a trophy is paid only once");
+            g.bestiaryKill(A_WOLF, TR_LEGENDARY);
+            check(g.trophyMask & (1 << 3), "a legendary kill earns LEGEND SEEKER");
+            g.save();
+            const int m = g.trophyMask;
+            g.newGame();
+            check(g.trophyMask == 0 && g.load() && g.trophyMask == m, "paid trophies survive a save / load");
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
+        // daily hunt trial: a kill goal paid once, saved with the game
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.p.sk = SkillSet();
+            g.makeTrial(4);
+            check(g.trial.kind == 0 && g.trial.need >= 3 && g.trial.pay > 0 && !g.trial.done, "a fresh hunter's trial is a species hunt");
+            const int sp = g.trial.species;
+            g.bestiaryKill(sp == A_WOLF ? A_RABBIT : A_WOLF);  // some other species does not count
+            check(g.trial.got == 0 || sp == A_WOLF || sp == A_RABBIT, "(setup) other species leave the count alone");
+            g.trial.got = 0;
+            for (int i = 0; i < g.trial.need - 1; i++) g.bestiaryKill(sp);
+            check(!g.trial.done && g.trial.got == g.trial.need - 1, "the trial counts only its species");
+            g.save();
+            g.newGame();
+            check(g.load() && g.trial.species == sp && g.trial.got == g.trial.need - 1, "trial progress survives a save / load");
+            const int c1 = g.p.coins;
+            g.bestiaryKill(sp);
+            check(g.trial.done && g.p.coins - c1 >= g.trial.pay, "finishing the trial pays it");
+            const int c2 = g.p.coins;
+            g.bestiaryKill(sp);
+            check(g.p.coins == c2 && g.trial.got == g.trial.need, "it pays only once");
+            for (int k = 0; k < SK_COUNT; k++) g.p.sk.s[k].xp = 400000;
+            g.makeTrial(3);
+            check(g.trial.kind == 1, "Warden and up get a legendary hunt every third day");
+            g.bestiaryKill(A_DEER, TR_COMMON);
+            check(!g.trial.done, "a common kill does not finish a legendary hunt");
+            g.bestiaryKill(A_DEER, TR_LEGENDARY);
+            check(g.trial.done, "a legendary kill does");
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
         // persistence
         g.p.sk.s[SK_COOKING].xp = 12345;
         g.p.sk.s[SK_DEFENSE].xp = 7;

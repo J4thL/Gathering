@@ -250,6 +250,8 @@ struct Structure {
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
                ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
+constexpr int TROPHY_COUNT = 9;  // see bestiary.cpp
+
 struct Game {
     // platform
     SDL_Window* win = nullptr;
@@ -331,8 +333,12 @@ struct Game {
     struct Order { int item = -1, q = 0, n = 0, pay = 0, rep = 0; bool done = false; };
     int rep = 0, repAcc = 0, lastDay = 1;  // reputation points, coins sold toward the next point, the day the market last moved
     float demand[M_COUNT] = {};               // what the store pays for each material, as a multiplier (0.7 .. 1.3)
+    // today's hunt trial (bestiary.cpp): a daily kill goal - a number of one species, or (Warden and up, some days) a legendary animal
+    struct Trial { int kind = 0 /*0 species, 1 legendary*/, species = 0, need = 0, got = 0, pay = 0; bool done = false; } trial;
     Order orders[3];                       // today's orders (rebuilt from the day number; only `done` is saved)
     int bestMask[A_COUNT] = {};            // bestiary: which tiers (bit per tier 0..3) of each species the hunter has killed
+    int trophyMask = 0;           // trophies already paid out (bit per trophy, saved as "trophy <mask>")
+    bool trophyOpen = false;      // the TROPHIES list is showing over the bestiary tab
     int bestKills[A_COUNT] = {};  // bestiary: hunter kills per species (saved as "bestiary <kind> <n>" lines)
     float titleT = 0;
     // quests: questIdx is how many are done (= the current quest's number); only these 3 numbers are saved
@@ -668,6 +674,10 @@ struct Game {
     int skillSel = -1;  // the skill whose perk choices are open in the SKILLS tab
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
     void bestiaryKill(int kind, int tier = 0);
+    int trophyProgress(int t) const;   // the count a trophy measures (species found, legends hunted, total kills)
+    void checkTrophies();
+    void makeTrial(int day);           // today's hunt trial (rebuilt from the day number)
+    void trialKill(int kind, int tier);  // counts a kill toward it and pays it once              // pays each newly reached trophy once
     // economy
     static constexpr int REP_LEVELS = 4;
     int repLevel() const;
