@@ -170,6 +170,10 @@ saves without skills load at level 1.
 A choice is final and saved as `perk <key> <tier> <0|1>`.
 **Hunter rank:** the sum of all skill levels (max 1500) sets your rank: Apprentice, Tracker (60), Warden (250), Master (600), Grandmaster (1000). Every rank adds 10 kg
 to the carry limit, and Warden and up are offered one quality step better on the orders board. It is derived from the skills, so nothing extra is saved.
+**Trophies:** the BESTIARY tab's TROPHIES button lists nine milestones read from the bestiary (10 / 20 / all species found, 1 / 5 / 10 legendary animals hunted, 100 / 500 / 2000 total
+kills). Each pays coins once when reached (saved as `trophy <mask>`); older saves earn the ones they already qualify for on the next kill.
+**Daily hunt trial:** shown on the BESTIARY tab. Each day sets one kill goal: a number (3 + 2 per hunter rank, plus 0-2) of a species you have already found, or, for Warden and up on every third day, one legendary animal.
+Finishing it pays coins and a little reputation once. The day's trial and its progress are saved as `trial <kind> <species> <need> <got> <pay> <done>`.
 
 ## Gathering
 Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/gathering/resources.hpp`, behaviour in `src/gathering/gathering.cpp`).

@@ -33,6 +33,7 @@ void Game::save() {
         f << "\n";
         for (int k = 0; k < A_COUNT; k++)
             if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << ' ' << bestMask[k] << "\n";
+        if (trophyMask) f << "trophy " << trophyMask << "\n";
         economySave(f);
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
@@ -248,6 +249,10 @@ bool Game::load() {
                 if (ss >> v && (b == B_HOME || b == B_HOMESTEAD || v != 0)) gateOpen[b] = true;
             }
         }
+        else if (k == "trophy") {
+            long long m = 0;
+            if (ss >> m) trophyMask = (int)(m & ((1 << TROPHY_COUNT) - 1));
+        }
         else if (k == "bestiary") {
             long long kind = -1, n = 0, mask = 1;  // (older saves have no tier mask: assume a common one)
             if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) {
@@ -256,7 +261,7 @@ bool Game::load() {
                 bestMask[kind] = (int)(mask & ((1 << TR_COUNT) - 1));
             }
         }
-        else if (k == "rep" || k == "demand" || k == "order") economyLoadLine(k, ss);
+        else if (k == "rep" || k == "demand" || k == "order" || k == "trial") economyLoadLine(k, ss);
         else if (k == "skill") skillLoadLine(ss);
         else if (k == "perk") perkLoadLine(ss);
         else if (k == "disc") {

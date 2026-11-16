@@ -97,6 +97,8 @@ void Game::newGame() {
     kills = 0;
     for (int& b : bestKills) b = 0;
     for (int& b : bestMask) b = 0;
+    trophyMask = 0;
+    trophyOpen = false;
     for (int b = 0; b < B_COUNT; b++) gateOpen[b] = b == B_HOME || b == B_HOMESTEAD;  // the four biomes start sealed
     gatesSeen = false;
     sold = 0;

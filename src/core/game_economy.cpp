@@ -80,6 +80,7 @@ void Game::makeOrders(int day) {
         if (itemSellBase(id) <= 0 || std::find(pool.begin(), pool.end(), id) != pool.end()) continue;
         pool.push_back(id);
     }
+    makeTrial(day);
     for (Order& o : orders) o = Order();
     Rng r((uint32_t)(9001 + day * 104729));
     const int maxQ = std::min((int)Q_COUNT - 1, repLevel() + (p.sk.rank() >= 2 ? 1 : 0));  // Warden and up are offered better work
@@ -124,6 +125,7 @@ void Game::fillOrder(int i) {
 }
 
 void Game::economySave(std::ostream& f) const {
+    f << "trial " << trial.kind << ' ' << trial.species << ' ' << trial.need << ' ' << trial.got << ' ' << trial.pay << ' ' << (trial.done ? 1 : 0) << "\n";
     f << "rep " << rep << ' ' << repAcc << ' ' << lastDay << "\ndemand";
     for (int m = 0; m < M_COUNT; m++) f << ' ' << (int)(((demand[m] > 0 ? demand[m] : 1.f) * 1000.f) + 0.5f);
     f << "\n";
@@ -146,6 +148,15 @@ void Game::economyLoadLine(const std::string& k, std::istringstream& ss) {
             if (!(ss >> v)) break;
             demand[m] = std::max(DEMAND_MIN, std::min(DEMAND_MAX, (float)v / 1000.f));
         }
+    } else if (k == "trial") {
+        long long kd = 0, sp = 0, nd = 0, gt = 0, py = 0, dn = 0;
+        if (!(ss >> kd >> sp >> nd >> gt >> py >> dn) || (kd != 0 && kd != 1) || sp < 0 || sp >= A_COUNT || nd < 1 || nd > 999) return;
+        trial.kind = (int)kd;
+        trial.species = (int)sp;
+        trial.need = (int)nd;
+        trial.got = (int)std::max(0LL, std::min(nd, gt));
+        trial.pay = (int)std::max(0LL, std::min(1000000LL, py));
+        trial.done = dn != 0;
     } else if (k == "order") {
         long long i = -1, q = 0, n = 0, pay = 0, rp = 0, dn = 0;
         std::string key;
