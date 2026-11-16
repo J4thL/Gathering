@@ -378,7 +378,7 @@ inline const std::vector<Def>& defs() {
          {{'a', 1, 0, HEX(0x823e19)}, {'b', 8, .12f, HEX(0x793819)}, {'m', 4, 0, HEX(0x5b131b)}, {'d', 8, .55f, HEX(0x682412)}, {'c', 3, 0, HEX(0xd8a284)},
           {'t', 9, .45f, HEX(0xba7d5b)}, {'k', 5, 0, HEX(0x3d0d12)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
         // 2 wolf (also the arctic wolf: the roles take the spec's colours)
-        {WOLF_SIDE, WOLF_W, WOLF_H, false, 19, 14, 31, 31.f, 12.f, 6.f, 10, 7, 24, 10.5f, 11.f, WOLF_FRONT, WOLF_BACK, WOLF_FW, WOLF_FH, 18, 12, 13.f, 5,
+        {WOLF_SIDE, WOLF_W, WOLF_H, false, 19, 14, 47, 50.f, 9.f, 6.f, 22, 6, 19, 22.f, 10.f, WOLF_FRONT, WOLF_BACK, WOLF_FW, WOLF_FH, 18, 12, 13.f, 5,
          0, 0,
          {{'a', 1, 0, 0}, {'b', 2, 0, 0}, {'c', 3, 0, 0}, {'m', 4, 0, 0}, {'k', 5, 0, 0}, {'t', 6, 0, 0}, {'e', 7, 0, 0}, {'d', 8, .5f, 0}}},
         // 3 boar

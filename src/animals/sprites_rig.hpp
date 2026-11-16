@@ -415,6 +415,7 @@ inline RigShape wolfShape() {
     r.strideMul = 1.25f; r.liftMul = 1.2f; r.airMul = 1.2f;
     r.scale = 1.4f;
     r.W = 52; r.H = 42;
+    r.flat = true; r.ref = 2;  // the wolf is hand-drawn pixel art (ref_art_wolfboar.hpp), like the deer and the boar
     return r;
 }
 // The deer follows the pixel-art reference (a doe and a stag in profile): about 47 px tall, a long neck and small pointed head, big leaf
@@ -954,6 +955,7 @@ inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form
         int ax, ay;
         const BPose pose = R.bird ? birdPose(jb.st, jb.i) : (R.hopper ? hopPose(jb.st, jb.i) : quadPose(jb.st, jb.i));
         im = paintQuad(sp, R, TIER[tier].scale, jb.v, pose);
+        if (!R.flat) richenActor(im, OUT);  // the reference-finish animals (deer, boar) keep their own palette
         styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
         ax = im.w / 2;
         ay = (int)(im.h - 6.f * k);
