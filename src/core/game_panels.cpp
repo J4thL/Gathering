@@ -245,11 +245,7 @@ void Game::drawShop() {
 // ================================================================= inventory screen
 void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 16;
-    struct Skin {  // the tan and copper look of the reference, for everything drawn in the pack (and put back afterwards)
-        bool& f;
-        explicit Skin(bool& flag) : f(flag) { f = true; }
-        ~Skin() { f = false; }
-    } skin(packSkin);
+    SkinScope skin(packSkin);  // the tan and copper look of the reference, for everything drawn in the pack
     fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
     const int X = 24, Y = 12, W = 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
     panel(X, Y, W, H, HEX(0x4a3524));

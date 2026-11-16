@@ -121,7 +121,7 @@ bool Game::button(int x, int y, int w, int h, const std::string& label, bool ena
     bool hov = enabled && inRect(x, y, w, h);
     bool down = hov && in.l;
     if (packSkin) {  // tan buttons, tinted by the colour they would have had, lighter under the mouse
-        const u32 tint = base == HEX(0x8a6a3a) ? HEX(0xffeec8) : base == UI_BTN ? HEX(0xe0a878) : HEX(((cR(base) + 0xe0 * 2) / 3 << 16) | ((cG(base) + 0xa8 * 2) / 3 << 8) | ((cB(base) + 0x78 * 2) / 3));
+        const u32 tint = base == HEX(0x8a6a3a) ? HEX(0xffeec8) : base == UI_BTN ? HEX(0xe0a878) : HEX(((cR(base) + 0xe0) / 2 << 16) | ((cG(base) + 0xa8) / 2 << 8) | ((cB(base) + 0x78) / 2));
         const u32 fill = !enabled ? HEX(0xb08a68) : hov ? HEX(0xf8dcae) : tint;
         panel(x, y + (down ? 1 : 0), w, h, fill);
         textC(x + w / 2, y + (h - 5) / 2 + (down ? 1 : 0), label, enabled ? C_TEXT : HEX(0x9a7a5a));

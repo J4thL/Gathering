@@ -260,6 +260,11 @@ struct Game {
     bool running = true;
     bool fullscreen = false;
     bool packSkin = false;  // while the pack is drawn: tan and copper panels with dark text (the inventory look), applied by panel/button/text
+    struct SkinScope {  // switches the pack skin on for a scope
+        bool& f;
+        explicit SkinScope(bool& flag) : f(flag) { f = true; }
+        ~SkinScope() { f = false; }
+    };
     u32 skinFill(u32 c) const;  // a panel fill in the pack skin (unchanged when the skin is off)
     // content
     Assets A;
@@ -295,6 +300,8 @@ struct Game {
     int sellScroll = 0, invFilter = 0;  // shop SELL list scroll; pack filter chip (0 all, 1 materials, 2 weapons, 3 tools, 4 supplies)
     int craftCat = -1;                   // category filter, -1 = all
     int craftScroll = 0;
+    int craftSel = -1;                   // the recipe picked in a station's crafting panel
+    void drawStationCraft(int X, int Y, int W, int H);  // the smith / leather / workshop panel: recipe grid, ingredients and CREATE, description
     bool craftOnly = false;              // show only what can be made right now
     // structures (structures.cpp)
     std::vector<Structure> structs;
