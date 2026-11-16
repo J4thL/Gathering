@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstring>
 
 enum SkillId {
     SK_WOODCUTTING, SK_MINING, SK_FORAGING,          // gathering
@@ -74,8 +75,46 @@ struct SkillState {
     }
 };
 
+// ---- perks: at each milestone level a skill offers a choice of two, once, for good.
+//   A (all skills):  MASTERY  - a share of the skill's cap is added on top of its bonus (so a 30% cap skill gets a few points more)
+//   B (skills that learn):  LEARN  - that skill earns more XP; woodcutting and mining take SPEED instead (chopping / mining faster)
+constexpr int PERK_TIERS = 4;  // one per milestone, in the order of MILESTONES
+static const float PERK_MASTERY_SHARE[PERK_TIERS] = {0.08f, 0.10f, 0.12f, 0.15f};  // of the skill's cap
+static const float PERK_B_VALUE[PERK_TIERS] = {0.10f, 0.15f, 0.20f, 0.30f};         // extra XP, or extra speed
+static const char* const PERK_NAME_A[PERK_TIERS] = {"HONED", "SHARPENED", "MASTERFUL", "LEGENDARY"};
+static const char* const PERK_NAME_LEARN[PERK_TIERS] = {"QUICK STUDY", "EAGER LEARNER", "PRODIGY", "SAGE"};
+static const char* const PERK_NAME_SPEED[PERK_TIERS] = {"BRISK", "SWIFT", "TIRELESS", "RELENTLESS"};
+inline bool perkBIsSpeed(int skill) { return skill == SK_WOODCUTTING || skill == SK_MINING; }
+
 struct SkillSet {
     SkillState s[SK_COUNT];
+    int8_t perk[SK_COUNT][PERK_TIERS];  // -1 not chosen yet, 0 = A, 1 = B
+    SkillSet() { std::memset(perk, -1, sizeof perk); }
+    bool canChoose(int k, int t) const { return k >= 0 && k < SK_COUNT && t >= 0 && t < PERK_TIERS && perk[k][t] < 0 && s[k].level() >= MILESTONES[t]; }
+    bool choose(int k, int t, int c) {  // false if that step is not open (or already chosen)
+        if (!canChoose(k, t) || (c != 0 && c != 1)) return false;
+        perk[k][t] = (int8_t)c;
+        return true;
+    }
+    int pending(int k) const {  // steps reached but not yet chosen
+        int n = 0;
+        for (int t = 0; t < PERK_TIERS; t++) n += canChoose(k, t);
+        return n;
+    }
+    float perkMastery(int k) const {  // added to the skill's own bonus (a fraction)
+        float v = 0.f;
+        for (int t = 0; t < PERK_TIERS; t++)
+            if (perk[k][t] == 0) v += PERK_MASTERY_SHARE[t] * SKILL[k].cap;
+        return v;
+    }
+    float perkB(int k) const {  // the sum of the chosen B perks (extra XP or extra speed, a fraction)
+        float v = 0.f;
+        for (int t = 0; t < PERK_TIERS; t++)
+            if (perk[k][t] == 1) v += PERK_B_VALUE[t];
+        return v;
+    }
+    float perkLearn(int k) const { return perkBIsSpeed(k) ? 0.f : perkB(k); }
+    float perkSpeed(int k) const { return perkBIsSpeed(k) ? perkB(k) : 0.f; }
     int level(int k) const { return s[k].level(); }
     // Adds XP (clamped so a skill never passes the cap) and returns how many levels were gained.
     int add(int k, int64_t amount) {

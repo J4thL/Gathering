@@ -199,6 +199,28 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.p.dead = true;
         check(g.grantXp(SK_MINING, 50) == 0 && g.p.sk.s[SK_MINING].xp == 0, "a dead hunter earns no XP");
         g.p.dead = false;
+        // perks: a pair of choices at each milestone, final, saved, and really applied
+        {
+            g.p.dead = false;
+            check(!g.p.sk.canChoose(SK_HUNTING, 0) && !g.p.sk.choose(SK_HUNTING, 0, 0), "a perk is closed until its milestone level");
+            g.p.sk.s[SK_HUNTING].xp = 80000;  // level 50: three steps open
+            g.p.sk.s[SK_WOODCUTTING].xp = 80000;
+            check(g.p.sk.pending(SK_HUNTING) == 3 && !g.p.sk.canChoose(SK_HUNTING, 3), "the steps up to the hunter's level are open");
+            const float base = g.skillBonus(SK_HUNTING);
+            check(g.p.sk.choose(SK_HUNTING, 0, 0) && !g.p.sk.choose(SK_HUNTING, 0, 1) && !g.p.sk.choose(SK_HUNTING, 1, 2), "a perk is chosen once and only with a valid option");
+            check(fabsf(g.skillBonus(SK_HUNTING) - base - PERK_MASTERY_SHARE[0] * SKILL[SK_HUNTING].cap) < 1e-4f, "a MASTERY perk adds its share of the cap to the bonus");
+            const int before = g.p.sk.level(SK_HUNTING);
+            g.p.sk.choose(SK_HUNTING, 1, 1);
+            const int64_t xp0 = g.p.sk.s[SK_HUNTING].xp;
+            g.grantXp(SK_HUNTING, 100);
+            check(g.p.sk.s[SK_HUNTING].xp - xp0 == 115 && g.p.sk.level(SK_HUNTING) >= before, "a QUICK STUDY perk pays its extra XP");
+            g.p.sk.choose(SK_WOODCUTTING, 0, 1);
+            check(fabsf(g.p.sk.perkSpeed(SK_WOODCUTTING) - PERK_B_VALUE[0]) < 1e-6f && g.p.sk.perkLearn(SK_WOODCUTTING) == 0.f, "woodcutting's second perk is speed, not XP");
+            g.save();
+            g.newGame();
+            check(g.p.sk.perk[SK_HUNTING][0] == -1, "(setup) a new game starts with no perks");
+            check(g.load() && g.p.sk.perk[SK_HUNTING][0] == 0 && g.p.sk.perk[SK_HUNTING][1] == 1 && g.p.sk.perk[SK_HUNTING][2] == -1 && g.p.sk.perk[SK_WOODCUTTING][0] == 1, "perks survive a save / load");
+        }
         // persistence
         g.p.sk.s[SK_COOKING].xp = 12345;
         g.p.sk.s[SK_DEFENSE].xp = 7;
