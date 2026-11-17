@@ -588,6 +588,7 @@ void Game::renderWorld(bool) {
         }
     }
     drawCompanion();
+    drawParked();
     drawFishing();
     drawSkyFx(night2);  // aurora, shimmer, wisps, rain
     sprS(A.vignette, 0, 0);

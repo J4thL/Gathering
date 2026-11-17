@@ -253,6 +253,7 @@ void Game::drawAnimalMenu() {
                 const bool on = !sel->companion;
                 for (auto& o : hs.animals) o.companion = false;  // one companion at a time
                 sel->companion = on;
+                if (on) sel->saddled = false;  // a partner walks beside you; a mount carries you - never both
                 msg(on ? "COMPANION CHOSEN - IT WALKS WITH YOU OUTSIDE" : "COMPANION DISMISSED", C_GREEN);
             }
         } else if (button(dx + bw + 4, by, bw, 14, "COLLECT", sel->stock > 0, HEX(0x7a5a2a))) hsCollect(*sel);
@@ -275,6 +276,7 @@ void Game::drawAnimalMenu() {
             if (button(dx + bw + 4, by + 17, bw, 14, sel->saddled ? "UNSADDLE" : "SADDLE", adult, HEX(0x6a4a2a))) {
                 if (!sel->saddled) for (auto& o : hs.animals) o.saddled = false;  // one saddled mount at a time
                 sel->saddled = !sel->saddled;
+                if (sel->saddled) sel->companion = false;
                 msg(sel->saddled ? "SADDLED - PRESS V TO RIDE" : "SADDLE REMOVED", C_GREEN);
             }
         } else if (button(dx + bw + 4, by + 17, bw, 14, "SELL +" + S(D.price / 2), true, HEX(0x7a3a2a))) {

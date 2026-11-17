@@ -243,11 +243,79 @@ void Game::drawShop() {
 }
 
 // ================================================================= inventory screen
+// The equipment column of the pack: weapon in hand, worn bag, the six tools and the mount. Counts show how many of a piece are stacked in the
+// pack; clicking the bag takes it off, clicking the mount mounts / dismounts / summons it (the same as its key).
+void Game::drawGearColumn(int x0, int y0) {
+    struct GearSlot { int id; bool on; const char* lab; };
+    GearSlot gs[9];
+    int n = 0;
+    gs[n++] = {itemWpn(p.sel), true, "WEAPON"};
+    gs[n++] = {p.bag >= 0 ? itemPack(p.bag) : -1, p.bag >= 0, "BAG"};
+    static const char* TL[TT_COUNT] = {"AXE", "PICKAXE", "HOE", "CAN", "SICKLE", "ROD"};
+    for (int t = 0; t < TT_COUNT; t++) gs[n++] = {p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, p.tool[t] >= 0, TL[t]};
+    HAnimal* sm = saddledMount();
+    const bool riding = riddenMount() != nullptr;
+    gs[n++] = {sm ? itemBaby(sm->species) : -1, riding || parked.active, "MOUNT"};
+    text(x0, y0 + 1, "GEAR", C_DIM, 1, false);
+    int hover = -1;
+    for (int i = 0; i < n; i++) {
+        const int x = x0 + (i % 2) * 20, y = y0 + 9 + (i / 2) * 18;
+        const bool over = inRect(x, y, 19, 17);
+        if (over) hover = i;
+        panel(x, y, 19, 17, over ? HEX(0x4a3624) : HEX(0x33241a));
+        const int id = gs[i].id;
+        if (id >= 0) {
+            if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(x, y, 19, 17, p.inv.bestQuality(id));
+            icon(itemIcon(id), x + 10, y + 8, 12);
+            const int have = p.inv.count(id);
+            if (have > 1) {
+                const std::string c = S(have);
+                text(x + 18 - textW(c), y + 10, c, C_TEXT, 1, false);
+            }
+            if (gs[i].on) fillRect(x + 1, y + 15, 17, 1, riding && i == 8 ? C_GREEN : HEX(0x4a8ad0));
+        } else {
+            textC(x + 10, y + 6, "-", HEX(0x6a5a44), 1, false);
+        }
+        if (over && in.uiClick) {
+            if (i == 1 && p.bag >= 0) { in.uiClick = false; in.lPressed = false; unequipBag(); }
+            else if (i == 8) { in.uiClick = false; in.lPressed = false; toggleMount(); }
+        }
+    }
+    // name of the hovered slot (or the mount's state), wrapped to the column
+    const int ty = y0 + 9 + 5 * 18 + 3;
+    std::string a, b;
+    if (hover >= 0) {
+        a = gs[hover].id >= 0 ? item(gs[hover].id).name : std::string(gs[hover].lab);
+        if (gs[hover].id < 0) b = "EMPTY";
+        else if (hover == 8) b = riding ? "RIDING - CLICK TO GET OFF" : parked.active ? "WAITING - CLICK TO MOUNT" : "CLICK TO CALL IT";
+        else if (hover == 1) b = "CLICK TO TAKE OFF";
+    } else {
+        a = sm ? (riding ? "RIDING" : parked.active ? "MOUNT WAITS" : "MOUNT AT HOME") : "NO MOUNT";
+    }
+    auto line = [&](const std::string& s, int yy, u32 col) {
+        size_t pos = 0;
+        while (pos < s.size() && yy < y0 + 9 + 5 * 18 + 40) {
+            size_t len = std::min<size_t>(10, s.size() - pos);
+            if (pos + len < s.size()) {
+                size_t sp = s.rfind(' ', pos + len);
+                if (sp != std::string::npos && sp > pos) len = sp - pos;
+            }
+            text(x0, yy, s.substr(pos, len), col, 1, false);
+            yy += 8;
+            pos += len;
+            while (pos < s.size() && s[pos] == ' ') pos++;
+        }
+        return yy;
+    };
+    const int e = line(a, ty, hover >= 0 ? C_GOLD : C_DIM);
+    if (!b.empty()) line(b, e, C_DIM);
+}
+
 void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 16;
     SkinScope skin(packSkin);  // the tan and copper look of the reference, for everything drawn in the pack
     fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
-    const int X = 24, Y = 12, W = 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
+    const int X = invTab == 0 ? 4 : 24, Y = 12, W = invTab == 0 ? 392 : 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, HEX(0xe0a878));
     fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
@@ -294,7 +362,9 @@ void Game::drawInventory() {
 
     if (invTab == 0) {
         // ---- the 100-slot grid (10 x 10): always exactly 100 slots, bags never change it
-        const int gx = X + 8, gy = cy;
+        constexpr int GEARW = 42;  // the equipment column left of the grid
+        const int gx = X + 8 + GEARW, gy = cy;
+        drawGearColumn(X + 8, cy);
         int hover = -1;
         for (int i = 0; i < cap; i++) {
             int x = gx + (i % COLS) * CELL, y = gy + (i / COLS) * CELL;

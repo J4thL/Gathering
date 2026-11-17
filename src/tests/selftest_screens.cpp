@@ -119,7 +119,7 @@ void testScreensAndSaves(SelfTest& t) {
         frame();
         check(g.p.bandages() == b0 - 1 && g.p.hp == 30 + BANDAGE_HEAL, "ENTER on a bandage heals 45 HP and uses one");
         // ---- mouse: click a slot
-        g.in.mx = 24 + 8 + 5 * 16 + 8;  // slot 5, as laid out by drawInventory (16-pixel cells, 10 columns)
+        g.in.mx = 4 + 8 + 42 + 5 * 16 + 8;  // slot 5, as laid out by drawInventory (16-pixel cells, 10 columns)
         g.in.my = 12 + 50 + 8;
         g.in.uiClick = true;
         g.render();
@@ -212,7 +212,7 @@ void testScreensAndSaves(SelfTest& t) {
         check(cr && g.p.bandages() == 10, "bandages stack (up to 999) and crafted bandages join the existing stack");
         g.p.inv.clear();
         g.p.inv.maxWeight = 1e6f;
-        for (int i = 0; i < g.p.bagCap() - 2; i++) g.p.inv.add(itemWpn(W_BOW), 1);  // one slot per bow: nearly full
+        g.p.inv.add(itemWpn(W_BOW), 999 * (g.p.bagCap() - 2));  // full stacks of bows: nearly full
         g.p.inv.add(HIDE, 5);
         g.p.inv.add(itemMat(M_ORGAN), 3);
         int hide0 = g.p.mat(M_HIDE), org0 = g.p.mat(M_ORGAN), fs = g.p.inv.freeSlots();
@@ -516,11 +516,11 @@ void testScreensAndSaves(SelfTest& t) {
     }
     {   // v2 with an item from the future, and more slots than the pack has
         std::string s2 = "version 2\ncoins 10\nup 0 0 0 0\nslot raw_meat 12\nslot unicorn_horn 3\nslot hide 4\n";
-        for (int i = 0; i < 105; i++) s2 += std::string("slot hunting_bow 1\n");
+        for (int i = 0; i < 105; i++) s2 += std::string("slot hunting_bow 999\n");
         writeFile(s2);
         bool ld = g.load();
         check(ld && g.loadReport.unknown == 1 && g.p.mat(M_MEAT) == 12 && g.p.mat(M_HIDE) == 4, "an unknown item in a v2 file is skipped; the rest of the save loads");
-        check(g.loadReport.dropped == 105 - (100 - 2) && g.p.bagUsed() == 100, "more stacks than the pack holds: what fits is kept, the rest is counted as dropped");
+        check(g.loadReport.dropped == (105 - (100 - 2)) * 999 && g.p.bagUsed() == 100, "more stacks than the pack holds: what fits is kept, the rest is counted as dropped");
         removeAll();
     }
     {   // not a save at all

@@ -431,6 +431,43 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.p.sk = keepSk;
             g.p.dead = false;
         }
+        // the mount: dismounting outdoors parks it there; walking away sends it home; the mount key summons it again
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.hsAddAnimal(DA_MOUNT, g.p.pos, false, -1, A_WOLF, 1);
+            HAnimal& m = g.hs.animals.back();
+            m.age = 1e6f;
+            m.saddled = true;
+            check(g.inWilds(), "(setup) the hunter is outdoors");
+            check(g.toggleMount() && g.riddenMount() == &m && !m.away, "outdoors the mount key calls the saddled mount and mounts it");
+            g.p.pos += V2(100, 0);
+            const V2 spot = g.p.pos;
+            g.dismount();
+            check(!g.riddenMount() && g.parked.active && m.away && dist(g.parked.pos, spot) < 8.f, "dismounting outdoors leaves the mount waiting where you got off");
+            g.updateParked(0.5f);
+            check(g.parked.active, "it stays while the hunter is within range");
+            g.p.pos += V2(Game::PARK_RANGE - 20.f, 0);
+            g.updateParked(0.5f);
+            check(g.parked.active, "...still in range at the edge");
+            g.p.pos += V2(60, 0);
+            g.updateParked(0.5f);
+            check(!g.parked.active && !m.away, "out of range it goes back to its pen");
+            check(g.toggleMount() && g.riddenMount() == &m && dist(V2(m.px, m.py), g.p.pos) < 2.f, "the mount key summons it beside the hunter and mounts it");
+            g.dismount();
+            check(g.parked.active, "(setup) parked again");
+            g.toggleMount();
+            check(g.riddenMount() == &m && !g.parked.active && !m.away, "pressing the key next to the parked mount climbs on");
+            g.dismount(true);
+            check(!g.parked.active, "a quiet dismount (a building or cave) sends it home rather than parking it");
+            m.saddled = false;
+            m.companion = true;
+            check(g.companionAnimal() == &m && !g.saddledMount(), "a companion is not a saddled mount (set in the animal panel)");
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
         // persistence
         g.p.sk.s[SK_COOKING].xp = 12345;
         g.p.sk.s[SK_DEFENSE].xp = 7;

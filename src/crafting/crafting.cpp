@@ -89,9 +89,9 @@ bool Game::craft(int r) {
     // results (weapons, gear, structures) hand back one of the first ingredient instead. Never when it would not fit.
     if (R.kind != RK_GEAR && rng.chance(skillBonus(R.skill))) {
         const int out = recipeItem(R);
-        if (item(out).stack > 1 && p.inv.add(out, 1, q) == 1) {
+        if (!itemIsGear(out) && item(out).stack > 1 && p.inv.add(out, 1, q) == 1) {
             ftext(p.pos + V2(0, -18), "EXTRA!", C_GREEN, 1.1f);
-        } else if (item(out).stack == 1 && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
+        } else if (itemIsGear(out) && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
             ftext(p.pos + V2(0, -18), "SAVED A MATERIAL!", C_GREEN, 1.1f);
         }
     }

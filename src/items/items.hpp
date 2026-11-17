@@ -85,6 +85,7 @@ struct ItemDef {
 constexpr int INV_SLOTS = 100;
 constexpr int MAX_STACK = 999;
 constexpr int STACK_MAT = MAX_STACK, STACK_AMMO = MAX_STACK, STACK_CONS = MAX_STACK, STACK_WPN = MAX_STACK;
+constexpr int STACK_GEAR = MAX_STACK;  // launchers, tools, bags, carried gear and babies stack too (one tier per stack; wearing or using takes one out)
 constexpr int BASE_CARRY_KG = 50;                              // with no bag
 constexpr int PACK_CARRY_KG[PK_COUNT] = {100, 150, 200, 300};  // satchel, trapper, explorer, expedition
 constexpr int itemPack(int k) { return ITEM_PACK0 + k; }
@@ -121,7 +122,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         std::array<ItemDef, ITEM_COUNT> t{};
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)] = {MAT_NAME[m], IK_MATERIAL, STACK_MAT, MAT_PRICE[m], MAT_PRICE[m] >= 20 ? 2 : (MAT_PRICE[m] >= 12 ? 1 : 0), MAT_BLURB[m], m, 0};
         for (int w = 0; w < W_COUNT; w++)
-            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? 1 : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
+            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? STACK_GEAR : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "USED UP WHEN IT HITS, A MISS CAN BE PICKED UP", a, 0};
         t[ITEM_CONS0 + C_BANDAGE] = {"BANDAGE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 45 HP", C_BANDAGE, 0};
         t[ITEM_CONS0 + C_SALVE] = {"HERBAL SALVE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 30 HP - MADE FROM WILD HERBS", C_SALVE, 0};
@@ -138,10 +139,10 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK", "EXPEDITION PACK"};
         static const float pw[PK_COUNT] = {1.0f, 1.5f, 2.0f, 2.5f};
         for (int k = 0; k < PK_COUNT; k++) {
-            t[itemPack(k)] = {pn[k], IK_BACKPACK, 1, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
+            t[itemPack(k)] = {pn[k], IK_BACKPACK, STACK_GEAR, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
             t[itemPack(k)].blurb = "WEARABLE BAG - CARRY UP TO " + std::to_string(PACK_CARRY_KG[k]) + " KG";
         }
-        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, 1, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
+        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, STACK_GEAR, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
         t[itemPlace(PL_CAMPFIRE)] = {"CAMPFIRE", IK_PLACEABLE, STACK_CONS, 0, 0, "SMELT, COOK AND KEEP WARM - USE TO PLACE", PL_CAMPFIRE, 0};
         t[itemPlace(PL_CHEST)] = {"STORAGE CHEST", IK_PLACEABLE, STACK_CONS, 0, 0, "20 SLOTS OF STORAGE - USE TO PLACE", PL_CHEST, 0};
         struct CarriedText { const char* name; const char* blurb; int rarity; };
@@ -160,8 +161,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"CROWN OF THE FROSTBOUND KING", "CARRIED: +15% DAMAGE DEALT, -10% DAMAGE TAKEN", 3},
             {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
         };
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, 1, 0, ct[k].rarity, ct[k].blurb, k, 0};
-        for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, 1, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
+        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, STACK_GEAR, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
         // weights: one table per category (materials / weapons above); the rest by kind
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)].weight = matWeight(m);
         for (int w = 0; w < W_COUNT; w++) t[itemWpn(w)].weight = wpnWeight(w);
@@ -178,6 +179,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
 }
 inline const ItemDef& item(int id) { return itemTable()[id]; }
 // only crafted things have a quality: raw and processed materials never do (their icons get no border)
+// gear: the things that are one-off results of a craft (a launcher, a tool, a bag, carried gear): never doubled by a skill bonus
+inline bool itemIsGear(int id) { return id >= 0 && (item(id).kind == IK_LAUNCHER || item(id).kind == IK_TOOL || item(id).kind == IK_BACKPACK || item(id).kind == IK_CARRIED || item(id).kind == IK_BABY); }
 inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL && item(id).kind != IK_BABY; }  // (a baby's q is its rarity tier)
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
 
