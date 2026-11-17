@@ -16,6 +16,7 @@ enum HPKind {
     HP_WALL_WOOD, HP_WALL_STONE, HP_FLOOR_WOOD, HP_FLOOR_STONE, HP_FENCE, HP_GATE, HP_DOOR, HP_ROOF, HP_FOUNDATION,   // basic structures
     HP_SHED, HP_HOUSE, HP_BARN, HP_PEN, HP_COOP, HP_WORKSHOP, HP_WAREHOUSE, HP_GREENHOUSE,                           // functional buildings
     HP_BRIDGE, HP_WELL, HP_CAMPFIRE, HP_PLOT, HP_BENCH, HP_PLANTER, HP_BARREL, HP_SCARECROW, HP_SIGN, HP_LAMP, HP_TORCH,  // outdoor structures and decoration
+    HP_TROPHY,  // trophy wall: shows the trophies the hunter has earned (appended last so older saves keep their piece numbers)
     HP_COUNT
 };
 enum HPLayer { HL_GROUND, HL_OBJECT, HL_ROOF };
@@ -62,6 +63,7 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"SIGNPOST", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_BRANCH, -1}, {1, 1, 0}, 0, 0, 0, "POINTS THE WAY"},
     {"LAMP POST", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_IRONBAR, M_PLANK, M_GREASE}, {1, 1, 1}, 0, 0, 80.f, "LIGHTS THE NIGHT"},
     {"TORCH", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_BRANCH, M_GREASE, -1}, {2, 1, 0}, 0, 0, 56.f, "A SMALL FLAME"},
+    {"TROPHY WALL", 4, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_ROPE, -1}, {6, 1, 0}, 0, 0, 0, "SHOWS EVERY TROPHY YOU HAVE EARNED"},
 };
 constexpr int H_MAX_PIECES = 900;
 
@@ -158,6 +160,9 @@ struct HAnimal {
     int home = -1;                   // id of the pen / coop / barn it lives in (-1 = free)
     int species = -1, tier = 0;      // DA_MOUNT only: the wild species (A_*) and its rarity tier
     bool saddled = false;            // DA_MOUNT only: the one the hunter rides (Game::toggleMount)
+    bool companion = false;          // DA_MOUNT only: the one that walks along with the hunter (companion.cpp)
+    bool away = false;               // with the hunter outside the homestead (not simulated or drawn as a pen animal)
+    int bond = 0;                    // kills the hunter made with it close by: sets its level
     bool ridden = false;             // currently carrying the hunter (not simulated or drawn as a pen animal)
     float growSec(const DomDef& d) const {
         const MountDef* m = kind == DA_MOUNT ? mountDef(species) : nullptr;

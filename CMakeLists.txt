@@ -26,6 +26,9 @@ set(WILDWOOD_CORE
 set(WILDWOOD_PLAYER
     src/player/skills.cpp
     src/core/bestiary.cpp
+    src/core/journal.cpp
+    src/gathering/fishing.cpp
+    src/animals/companion.cpp
     src/core/game_gates.cpp
     src/core/game_economy.cpp
     src/core/game_settings.cpp

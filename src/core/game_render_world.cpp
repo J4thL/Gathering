@@ -587,6 +587,8 @@ void Game::renderWorld(bool) {
             fillRect((int)f.x, (int)f.y, 1, 1, RGBA(255, 255, 255, 120));
         }
     }
+    drawCompanion();
+    drawFishing();
     drawSkyFx(night2);  // aurora, shimmer, wisps, rain
     sprS(A.vignette, 0, 0);
 

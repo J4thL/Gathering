@@ -25,8 +25,8 @@ constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
 // gathering tools: axes cut trees, pickaxes break rock and ore; a higher tier is faster and gives more (see resources.hpp for what needs which tier)
-enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
-enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_COUNT };
+enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_ROD, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
+enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_ROD, TL_COUNT };
 struct ToolDef {
     const char* name;
     int type, tier;      // tier 1..4: stone, copper, iron, gilded
@@ -46,6 +46,7 @@ static const ToolDef TOOLDEF[TL_COUNT] = {
     {"FARMER'S HOE", TT_HOE, 1, 1.0f, 0.00f, "TILLS SOIL FOR FARM PLOTS - DIGS UP ROOT CROPS"},
     {"WATERING CAN", TT_CAN, 1, 1.0f, 0.00f, "WATERS CROPS - REFILL AT A WELL OR THE WATER'S EDGE"},
     {"SICKLE", TT_SICKLE, 1, 1.0f, 0.00f, "CUTS WHEAT AND CORN"},
+    {"FISHING ROD", TT_ROD, 1, 1.0f, 0.00f, "CAST AT ANY WATER - CLICK AGAIN WHEN THE BOBBER DIPS"},
 };
 enum PlaceId { PL_CAMPFIRE, PL_CHEST, PL_COUNT };
 constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
@@ -106,7 +107,8 @@ inline float matWeight(int m) {
         /*ICEBONE*/ 0.6f, /*FROSTFANG*/ 0.2f, /*ICESHARD*/ 0.3f, /*KNIGHTPLATE*/ 2.0f, /*FROSTRUNE*/ 0.3f, /*ETERNALICE*/ 0.8f, /*CRYPTKEY*/ 0.1f,
         /*BERRY*/ 0.05f, /*WHEAT*/ 0.2f, /*CARROT*/ 0.15f, /*POTATO*/ 0.3f, /*CABBAGE*/ 0.6f, /*CORN*/ 0.25f, /*TOMATO*/ 0.2f, /*PUMPKIN*/ 3.0f, /*STRAWBERRY*/ 0.05f,
         0.01f, 0.01f, 0.02f, 0.01f, 0.01f, 0.01f, 0.02f, 0.01f,
-        /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f};
+        /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f,
+        /*TROUT*/ 0.8f, /*BASS*/ 1.0f, /*CATFISH*/ 1.8f, /*EEL*/ 0.7f, /*CHAR*/ 0.6f, /*PIKE*/ 1.6f};
     return W[m];
 }
 inline float wpnWeight(int w) {

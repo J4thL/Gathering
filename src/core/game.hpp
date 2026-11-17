@@ -120,7 +120,7 @@ struct Player {
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
-    int tool[TT_COUNT] = {-1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
+    int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
     int up[U_COUNT] = {0};
@@ -250,7 +250,17 @@ struct Structure {
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
                ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
-constexpr int TROPHY_COUNT = 9;  // see bestiary.cpp
+// seasons: a week of days each (a day is 300 s), spring first. They change how many animals roam, which pelts and fat a kill gives,
+// how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
+enum Season { SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER, SEASON_COUNT };
+static const char* const SEASON_NAME[SEASON_COUNT] = {"SPRING", "SUMMER", "AUTUMN", "WINTER"};
+constexpr int SEASON_DAYS = 7;
+constexpr int COMPANION_LEVELS = 5;
+constexpr int COMPANION_BOND_AT[COMPANION_LEVELS] = {0, 25, 80, 200, 450};  // kills made with it close by, per level
+constexpr float COMPANION_DAMAGE_PER_LEVEL = 0.02f;                           // weapon damage it adds per level (level 1 = +2% ... level 5 = +10%)
+constexpr int KING_TIER_COINS = 300;  // bonus coins per tier for slaying a stronger king (a repeatable payout, so kept modest)
+constexpr int KING_TIERS = 4;     // the Frostbound King's strongest return (tier 4)
+constexpr int TROPHY_COUNT = 12;  // see bestiary.cpp
 
 struct Game {
     // platform
@@ -290,7 +300,7 @@ struct Game {
     int shopPage = 0;
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
-    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary; selected slot
+    int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary, 4 = journal; selected slot
     // gathering (gathering.cpp)
     std::vector<HState> propSt, nodeSt;  // one per world.props / world.nodes entry
     std::vector<int8_t> propRsId;        // ResId of each prop, -1 = scenery
@@ -383,6 +393,30 @@ struct Game {
         float bossTimer = 0;           // seconds until he returns
         float chestT = 0;              // seconds until the opened chests are refilled
     } delveMem[DV_COUNT];
+    int season() const { return ((int)(dayT / 300.f) / SEASON_DAYS) % SEASON_COUNT; }
+    float seasonHerds() const { return season() == SEASON_SPRING ? 1.25f : season() == SEASON_WINTER ? 0.75f : 1.f; }  // how full the wilds are
+    float seasonStorm() const { return season() == SEASON_SPRING ? 0.7f : season() == SEASON_SUMMER ? 1.5f : 1.f; }    // multiplier on the wait between storms (spring: wet, summer: dry)
+    // fishing (gathering/fishing.cpp): the line in the water. phase 0 none, 1 waiting for a bite, 2 the bobber dips (click now)
+    struct Fishing { int phase = 0; float t = 0, biteAt = 0, window = 0; V2 at; } fishing;
+    int fishCaught = 0;                // fish landed in total (saved as "fish <n>", drives the fishing trophies)
+    bool fishClick();
+    void updateFishing(float dt);
+    void drawFishing();
+    void fishStop(const char* why);
+    int fishPick(int biome);
+    void trialFish(int n);
+    void trialAdvance(int n);          // adds to the trial's count and pays it once when it is full
+    std::string trialLabel() const;    // "HUNT 5 WOLF", "HUNT A LEGENDARY" or "CATCH 6 FISH"
+    // the companion (animals/companion.cpp)
+    struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; } companion;
+    HAnimal* companionAnimal();
+    static int bondLevel(int bond);
+    float companionDamage() const;
+    void companionHome();
+    void companionKill();
+    void updateCompanion(float dt, bool forceWilds = false);
+    void drawCompanion();
+    int kingTier = 0;                  // how many times the Frostbound King has fallen (0..KING_TIERS): each return is stronger and pays more
     std::vector<Monster> mons;
     std::vector<Hazard> hazards;
     std::vector<MProj> mprojs;
@@ -697,6 +731,7 @@ struct Game {
     void economyLoadLine(const std::string& key, std::istringstream& ss);
     void sliderBar(int tx, int ty, int tw, int& val, int maxv, bool& drag);  // game_amount.cpp: shared by the amount popup and the pack slider
     void drawBestiaryTab(int X, int Y, int W, int H);
+    void drawJournalTab(int X, int Y, int W, int H);
     bool nearShop() const;   // true while inside any town building (the shelter heals quickly)
     // ---- town buildings (town.cpp, services.cpp)
     int doorNear() const;               // BuildingKind whose door is within reach (outdoors), or -1

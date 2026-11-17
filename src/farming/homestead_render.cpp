@@ -89,6 +89,23 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
         case HP_SIGN: sprW(A.sign, x0 + 8, y0 + 14, false, alpha); break;
         case HP_LAMP: sprW(A.T.lamp, x0 + 8, y0 + 14, false, alpha); break;
         case HP_TORCH: sprW(A.D.torch[((int)(timeAcc * 8.f + pc.id)) % 3], x0 + 8, y0 + 14, false, alpha); break;
+        case HP_TROPHY: {  // a board with a plaque for each trophy: the three groups in rows, three tiers across; lit when earned
+            const int bx = (int)x0 - camX, by = (int)y0 - camY - 18;
+            const int a = (int)(255 * alpha);
+            fillRect(bx, by, (int)w, 32, RGBA(58, 36, 22, a));
+            fillRect(bx + 2, by + 2, (int)w - 4, 28, RGBA(150, 100, 60, a));
+            fillRect(bx + 2, by + 2, (int)w - 4, 1, RGBA(190, 140, 90, a));
+            static const u32 TIER[3] = {HEX(0xb8763a), HEX(0xcfd2d8), HEX(0xf2c94c)};  // bronze, silver, gold
+            for (int t = 0; t < TROPHY_COUNT; t++) {
+                const int r = t / 3, c = t % 3;
+                const bool got = trophyMask >> t & 1;
+                const u32 col = got ? TIER[c] : HEX(0x4a3322);
+                const int px = bx + 6 + c * 19, py = by + 5 + r * 6;
+                fillRect(px, py, 14, 4, RGBA(col >> 16 & 255, col >> 8 & 255, col & 255, a));
+                if (got) fillRect(px + 1, py, 12, 1, RGBA(255, 255, 255, a / 3));
+            }
+            break;
+        }
         case HP_ROOF: sprW(A.H.roof, x0, y0, false, alpha); break;
         default: break;
     }
@@ -106,7 +123,7 @@ void Game::drawHsCrop(const HPiece& pc) {
 void Game::drawHsAnimal(const HAnimal& a) {
     const DomDef& D = DOMS[a.kind];
     if (a.kind == DA_MOUNT) {  // a raised wild animal: its own species art, a baby drawn smaller
-        if (a.ridden) return;  // the rider draws it
+        if (a.ridden || a.away) return;  // the rider (or the follower code, companion.cpp) draws it
         if (ren) ensureRichBank(ren, A, a.species, 0, a.tier);
         const RichAnimal* rb = A.rich[a.species].get();
         const AnimalClips* ac = animalClips(a.species);

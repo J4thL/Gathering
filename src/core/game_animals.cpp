@@ -120,7 +120,7 @@ void Game::streamSpawns(float dt) {
         int cnt = 0;
         for (auto& a : animals)
             if (!a.dead && !a.gone && a.kind == S.kind && dist(a.pos, p.pos) < SPAWN_AREA) cnt++;
-        int cap = S.cap + (night > 0.5f ? (int)S.capNight : 0);
+        int cap = std::max(1, (int)((S.cap + (night > 0.5f ? (int)S.capNight : 0)) * seasonHerds() + 0.5f));
         if (cnt >= cap) continue;
         if (!frng.chance(S.chance)) {
             spCool[S.kind] = 2.f;  // failed roll: try again soon, not on the next tick
@@ -574,6 +574,7 @@ void Game::killAnimal(Animal& a, bool byHunter) {
     if (byHunter) {
         kills++;
         bestiaryKill(a.kind, a.tier);
+        companionKill();
         questEvent(Q_KILL, a.kind, 1);
     }
     Rng& dropRng = byHunter ? rng : frng;  // a predator's kill must not disturb the original random sequence
@@ -581,6 +582,8 @@ void Game::killAnimal(Animal& a, bool byHunter) {
     int total = 0;
     for (int m = 0; m < M_COUNT; m++) {
         a.remain[m] = D.drop[m][1] > 0 ? dropRng.irange(D.drop[m][0], D.drop[m][1]) : 0;
+        // winter coats are thick, autumn game is fat
+        if (a.remain[m] > 0 && ((season() == SEASON_WINTER && (m == M_FUR || m == M_HIDE)) || (season() == SEASON_AUTUMN && (m == M_MEAT || m == M_FAT)))) a.remain[m]++;
         total += a.remain[m];
     }
     if (D.formDrop[0] >= 0 && a.variant == 1) {  // e.g. a buck's antlers

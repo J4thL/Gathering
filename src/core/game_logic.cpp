@@ -57,6 +57,10 @@ void Game::newGame() {
     villagersInit = false;
     resetDelveRuntime();
     for (auto& d : delveMem) d = DelveMem();
+    kingTier = 0;
+    fishing = Fishing();
+    companion = Companion();
+    fishCaught = 0;
     for (auto& m : mapMem) m = MapMem();
     seen.assign((size_t)MM_W * MM_H, '0');
     travelFade = travelCd = 0;
@@ -386,6 +390,8 @@ void Game::updatePlay(float dt) {
     checkWeaponSafetyNet(dt);
     updateFx(dt);
     updateWeather(dt);
+    updateFishing(dt);
+    updateCompanion(dt);
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;
@@ -395,7 +401,8 @@ void Game::updatePlay(float dt) {
         int alive[A_COUNT] = {0};
         for (auto& a : animals)
             if (!a.dead) alive[a.kind]++;
-        int targets[4] = {HOME_HERDS[0], HOME_HERDS[1], HOME_HERDS[2], HOME_HERDS[3] + (int)(3 * (1.f - daylight()))};
+        const float sh = seasonHerds();
+        int targets[4] = {(int)(HOME_HERDS[0] * sh + 0.5f), (int)(HOME_HERDS[1] * sh + 0.5f), (int)(HOME_HERDS[2] * sh + 0.5f), (int)((HOME_HERDS[3] + (int)(3 * (1.f - daylight()))) * sh + 0.5f)};
         for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
             if (alive[k] < targets[k]) trySpawn(k, 230, true);
     }
