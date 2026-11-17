@@ -274,7 +274,7 @@ void testGameRules(SelfTest& t) {
         // pack full (slots) is reported separately from too heavy
         g.p.inv.clear();
         g.p.inv.maxWeight = 1e6f;
-        for (int i = 0; i < 100; i++) g.p.inv.add(itemWpn(W_BOW), 1);
+        g.p.inv.add(itemWpn(W_BOW), 999 * 100);
         check(g.p.inv.blockReason(itemMat(M_HERB), 1) == 1, "all 100 slots used: the reason is 'pack full', not weight");
         // ---- hotbar
         g.newGame();

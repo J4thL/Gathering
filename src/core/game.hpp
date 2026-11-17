@@ -534,6 +534,14 @@ struct Game {
     HAnimal* riddenMount();
     HAnimal* saddledMount();
     bool toggleMount();
+    // a dismounted mount waits where the hunter got off (idle, not simulated) until the hunter wanders PARK_RANGE away; then it
+    // returns to its pen and the mount key summons it again (mount_ride.cpp)
+    static constexpr float PARK_RANGE = 520.f;
+    struct Parked { bool active = false; V2 pos; int face8 = 0; float animT = 0; int map = -1; } parked;
+    void parkedHome(bool say);
+    void updateParked(float dt);
+    void drawParked();
+    bool inWilds() const { return !inHomestead() && interior < 0 && delve < 0 && world.mapId < B_COUNT; }
     void dismount(bool quiet = false);
     void updateMount(float dt, bool moving);
     void hsReset();                                                   // new game: an empty homestead
@@ -825,6 +833,7 @@ struct Game {
     void updateGatePanel(float dt);
     void drawGatePanel();
     void drawInventory();
+    void drawGearColumn(int x0, int y0);
     void drawTitle();
     void drawPause();
     void drawReticle();

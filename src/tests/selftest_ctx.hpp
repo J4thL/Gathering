@@ -46,8 +46,8 @@ struct SelfTest {
         for (int a = 0; a < AM_COUNT && slotsLeft > 0; a++, slotsLeft--) g.p.inv.add(itemAmmo(a), 10);
         g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 2);
         slotsLeft--;
-        // anything left: extra bows (each its own slot) to take the last slots
-        while (slotsLeft-- > 0) g.p.inv.add(itemWpn(W_BOW), 1);
+        // anything left: bows stack to 999 per slot, so a big pile of them takes the last slots
+        if (slotsLeft > 0) g.p.inv.add(itemWpn(W_BOW), 999 * slotsLeft);
     }
     int findRecipe(int kind, int out, int firstMat) const {
         for (int r = 0; r < RECIPE_N; r++)

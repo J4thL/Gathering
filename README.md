@@ -96,7 +96,7 @@ and the birds as side, front and back elevations (camera pitch `kCamPhi`) with i
 
 Any listed wild animal (boar, the deer family, goat, bighorn, wolf, coyote, panther, lynx, lions, polar bear; table in `src/animals/mounts.hpp`) has a small chance to leave a **baby** when you hunt it: higher for rarer tiers. Pick it up (it weighs 3 kg and keeps its tier), then use it at the Homestead to set it down as a growing animal; feed it and it grows up over a few minutes.
 
-An adult is saddled in the animal panel (SADDLE / UNSADDLE, one at a time). Press **V** (rebindable) near it to ride: faster travel and extra carry weight by species and tier, and you can still throw and shoot from the saddle. Mounts cannot enter buildings, caves or mines. Dismounting away from the Homestead sends it back to its pen. Species, tier and saddle are saved; a ridden mount is back in its pen after loading.
+An adult is saddled in the animal panel (SADDLE / UNSADDLE, one at a time). Press **V** (rebindable) near it to ride: faster travel and extra carry weight by species and tier, and you can still throw and shoot from the saddle. Mounts cannot enter buildings, caves or mines. Dismount outdoors and the mount waits idle where you got off; walk more than 520 px away and it returns to its pen, and the mount key (or a click on the MOUNT slot of the pack's GEAR column) calls it again from anywhere outdoors. A mount is either saddled or the companion, never both. Species, tier and saddle are saved; a ridden mount is back in its pen after loading.
 
 ## Items and ranged weapons
 `src/items/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
@@ -107,8 +107,8 @@ hit can be picked up again. Both weapons and their ammo are sold on the shop's B
 drop from the new species (see `fauna.hpp`).
 
 ## Inventory
-The pack (`src/items/inventory.hpp`) always has exactly 100 slots; every stackable item stacks to 999, launchers / tools / bags / carried gear take a
-slot each, and different items never share a slot. What limits the hunter is **weight**: every item has a weight in kg, defined once in
+The pack (`src/items/inventory.hpp`) always has exactly 100 slots; every item - gear included (launchers, tools, bags, carried gear, babies) - stacks to 999 per
+quality tier, and different items never share a slot. The pack's GEAR column shows the weapon in hand, the worn bag, the six tools and the mount. What limits the hunter is **weight**: every item has a weight in kg, defined once in
 `src/items/items.hpp` (`matWeight`, `wpnWeight`, ...), and the pack has a maximum carrying weight. `Inventory::add` never takes more than fits (slots
 or weight), so gathering, looting, pickups, crafting, shop purchases and chest withdrawals all refuse politely ("PACK FULL" / "TOO HEAVY")
 and nothing is ever deleted. Carrying limit: 50 kg with no bag; bags are crafted items you wear (HIDE SATCHEL 100, TRAPPER PACK 150,

@@ -150,7 +150,7 @@ void testWorldRules(SelfTest& t) {
             check(standAt(RS_HERB, node, idx, 1), "another herb is reachable");
             g.p.inv.clear();
             g.p.inv.maxWeight = 1e6f;
-            for (int i = 0; i < g.p.bagCap(); i++) g.p.inv.add(itemWpn(W_BOW), 1);
+            g.p.inv.add(itemWpn(W_BOW), 999 * g.p.bagCap());
             check(g.p.bagUsed() == g.p.bagCap(), "test setup: the bag is full");
             for (int i = 0; i < 200; i++) {
                 HTarget t;

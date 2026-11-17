@@ -60,6 +60,7 @@ void Game::newGame() {
     kingTier = 0;
     fishing = Fishing();
     companion = Companion();
+    parked = Parked();
     fishCaught = 0;
     for (auto& m : mapMem) m = MapMem();
     seen.assign((size_t)MM_W * MM_H, '0');
@@ -392,6 +393,7 @@ void Game::updatePlay(float dt) {
     updateWeather(dt);
     updateFishing(dt);
     updateCompanion(dt);
+    updateParked(dt);
     setCam(dt);
     // keep the wilds populated
     respawnT -= dt;
