@@ -369,14 +369,14 @@ inline const std::vector<Def>& defs() {
     static const std::vector<Def> D = {
         // 0 doe
         {DOE_ROWS, DOE_W, DOE_H, false, 34, 21, 31, 34.f, 22.f, 10.f, 7, 14, 28, 8.f, 19.5f, DOE_FRONT, DOE_BACK, FB_W, DOE_FB_H, 31, 14, 15.f, 12,
-         HEX(0x823e19), HEX(0x5b131b),
-         {{'a', 1, 0, HEX(0x823e19)}, {'b', 8, .12f, HEX(0x793819)}, {'m', 4, 0, HEX(0x5b131b)}, {'d', 8, .55f, HEX(0x682412)}, {'c', 3, 0, HEX(0xd8a284)},
-          {'t', 9, .45f, HEX(0xba7d5b)}, {'k', 5, 0, HEX(0x3d0d12)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
+         HEX(0xa66f3e), HEX(0x5d3d26),  // a warm fawn-brown coat (the first art read as dark rust)
+         {{'a', 1, 0, HEX(0xa66f3e)}, {'b', 8, .14f, HEX(0x9a6538)}, {'m', 4, 0, HEX(0x5d3d26)}, {'d', 8, .5f, HEX(0x74482a)}, {'c', 3, 0, HEX(0xefdfbe)},
+          {'t', 9, .35f, HEX(0xd6b07c)}, {'k', 5, 0, HEX(0x2b1b13)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
         // 1 stag (the art faces left)
         {STAG_ROWS, STAG_W, STAG_H, true, 38, 21, 28, 35.f, 22.f, 10.f, 8, 22, 33, 9.f, 28.f, STAG_FRONT, STAG_BACK, FB_W, STAG_FB_H, 41, 24, 25.f, 12,
-         HEX(0x823e19), HEX(0x5b131b),
-         {{'a', 1, 0, HEX(0x823e19)}, {'b', 8, .12f, HEX(0x793819)}, {'m', 4, 0, HEX(0x5b131b)}, {'d', 8, .55f, HEX(0x682412)}, {'c', 3, 0, HEX(0xd8a284)},
-          {'t', 9, .45f, HEX(0xba7d5b)}, {'k', 5, 0, HEX(0x3d0d12)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
+         HEX(0xa66f3e), HEX(0x5d3d26),  // a warm fawn-brown coat (the first art read as dark rust)
+         {{'a', 1, 0, HEX(0xa66f3e)}, {'b', 8, .14f, HEX(0x9a6538)}, {'m', 4, 0, HEX(0x5d3d26)}, {'d', 8, .5f, HEX(0x74482a)}, {'c', 3, 0, HEX(0xefdfbe)},
+          {'t', 9, .35f, HEX(0xd6b07c)}, {'k', 5, 0, HEX(0x2b1b13)}, {'p', 0, 0, HEX(0xd4776c)}, {'q', 0, 0, HEX(0xb65656)}}},
         // 2 wolf (also the arctic wolf: the roles take the spec's colours)
         {WOLF_SIDE, WOLF_W, WOLF_H, false, 19, 14, 47, 50.f, 9.f, 6.f, 22, 6, 19, 22.f, 10.f, WOLF_FRONT, WOLF_BACK, WOLF_FW, WOLF_FH, 18, 12, 13.f, 5,
          0, 0,
