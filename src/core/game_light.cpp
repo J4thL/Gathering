@@ -47,7 +47,7 @@ void Game::updateLight(float dt) {
         stormNext -= dt;
         if (stormT <= 0 && stormNext <= 0) {
             stormT = wrng.range(40.f, 90.f);
-            stormNext = wrng.range(160.f, 420.f);
+            stormNext = wrng.range(160.f, 420.f) * seasonStorm();
         }
         if (stormT > 0) stormT -= dt;
     }
@@ -169,6 +169,10 @@ void Game::drawGroundShadows() {
 // ================================================================== darkness, pools of light, colour, glows
 void Game::drawLighting(float night) {
     const bool outdoors = interior < 0;
+    if (outdoors && delve < 0) {  // the season's light: a faint wash over the world
+        static const u32 WASH[SEASON_COUNT] = {0, RGBA(255, 210, 90, 18), RGBA(230, 120, 40, 34), RGBA(180, 210, 255, 44)};
+        if (WASH[season()]) fillRect(0, 0, LW, LH, WASH[season()]);
+    }
     const float flash = flashT > 0 ? clampf(flashT / 0.45f, 0.f, 1.f) : 0.f;
     // nightsight tonic turns night into dusk; storms darken the day
     float dark = p.nightT > 0 ? night * 0.3f : night;

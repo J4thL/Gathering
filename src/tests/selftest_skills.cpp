@@ -269,9 +269,11 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.trial.got = 0;
             for (int i = 0; i < g.trial.need - 1; i++) g.bestiaryKill(sp);
             check(!g.trial.done && g.trial.got == g.trial.need - 1, "the trial counts only its species");
+            g.kingTier = 3;
             g.save();
             g.newGame();
             check(g.load() && g.trial.species == sp && g.trial.got == g.trial.need - 1, "trial progress survives a save / load");
+            check(g.kingTier == 3, "the Frostbound King's tier survives a save / load");
             const int c1 = g.p.coins;
             g.bestiaryKill(sp);
             check(g.trial.done && g.p.coins - c1 >= g.trial.pay, "finishing the trial pays it");
@@ -285,6 +287,147 @@ void testSkillsAndTrophies(SelfTest& t) {
             check(!g.trial.done, "a common kill does not finish a legendary hunt");
             g.bestiaryKill(A_DEER, TR_LEGENDARY);
             check(g.trial.done, "a legendary kill does");
+            // fishing: trophies for the catch, and a fishing goal every fourth day for a hunter with a rod
+            g.fishCaught = 10;
+            g.checkTrophies();
+            check(g.trophyMask >> 9 & 1 && !(g.trophyMask >> 10 & 1), "ten fish caught earn the ANGLER trophy");
+            check(g.trophyProgress(11) == 10, "(setup) the fish trophies count the catch");
+            g.makeTrial(5);
+            check(g.trial.kind == 0, "without a rod there is no fishing goal");
+            g.p.inv.add(itemTool(TL_ROD), 1);
+            g.makeTrial(5);
+            check(g.trial.kind == 2 && g.trial.need >= 3 && g.trialLabel().rfind("CATCH ", 0) == 0, "with a rod every fourth day's goal is to catch fish");
+            const int kc = g.p.coins;
+            g.bestiaryKill(A_RABBIT);
+            check(g.trial.got == 0, "kills do not count toward a fishing goal");
+            g.trialFish(g.trial.need);
+            check(g.trial.done && g.p.coins - kc >= g.trial.pay, "catching enough fish pays the trial");
+            g.p.inv.remove(itemTool(TL_ROD), 1);
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
+        // the journal tab draws in every state (no quest, a finished trial, all trophies paid)
+        {
+            const int tab = g.invTab;
+            g.invTab = 4;
+            g.state = ST_INVENTORY;
+            g.render();
+            g.trial.done = true;
+            g.trophyMask = (1 << TROPHY_COUNT) - 1;
+            g.render();
+            check(g.state == ST_INVENTORY, "the journal tab renders");
+            g.trophyMask = 0;
+            g.trial.done = false;
+            g.state = ST_PLAY;
+            g.invTab = tab;
+        }
+        // seasons: a week each, spring first; they change the herds, storms and what a kill gives
+        {
+            const float day0 = g.dayT;
+            g.dayT = 0.f;
+            check(g.season() == SEASON_SPRING && g.seasonHerds() > 1.f && g.seasonStorm() < 1.f, "the year starts in a wet, lively spring");
+            g.dayT = SEASON_DAYS * 300.f + 1.f;
+            check(g.season() == SEASON_SUMMER && g.seasonStorm() > 1.f, "a week later it is summer: fewer storms");
+            g.dayT = 3 * SEASON_DAYS * 300.f + 1.f;
+            check(g.season() == SEASON_WINTER && g.seasonHerds() < 1.f, "winter thins the herds");
+            g.dayT = 4 * SEASON_DAYS * 300.f + 1.f;
+            check(g.season() == SEASON_SPRING, "and the year turns round to spring");
+            // thick winter coats and fat autumn game
+            auto yield = [&](float dayT, int mat) {
+                g.dayT = dayT;
+                g.animals.clear();
+                Animal* a = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+                if (!a) return -1;
+                g.killAnimal(*a, true);
+                return (int)a->remain[mat];
+            };
+            const int hideSpring = yield(0.f, M_HIDE), hideWinter = yield(3 * SEASON_DAYS * 300.f + 1.f, M_HIDE);
+            const int meatSpring = yield(0.f, M_MEAT), meatAutumn = yield(2 * SEASON_DAYS * 300.f + 1.f, M_MEAT);
+            check(hideSpring >= 0 && hideWinter >= ANIMAL[A_DEER].drop[M_HIDE][0] + 1 && meatAutumn >= ANIMAL[A_DEER].drop[M_MEAT][0] + 1 && meatSpring >= 0, "a winter kill gives an extra hide and an autumn kill extra meat");
+            g.animals.clear();
+            g.dayT = day0;
+        }
+        // fishing: cast at water, wait for the bite, click in time; fish, XP and the count are real
+        {
+            const SkillSet keepSk = g.p.sk;
+            const bool hadDead = g.p.dead;
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            int wx = -1, wy = -1;
+            for (int y = 3; y < MH - 3 && wx < 0; y++)
+                for (int x = 3; x < MW - 3 && wx < 0; x++)
+                    if (g.world.water(x, y) && !g.world.water(x - 1, y) && !g.world.blocked((x - 1.5f) * TS, (y + .5f) * TS, 4)) wx = x, wy = y;
+            check(wx >= 0, "(setup) the world has water to fish in");
+            if (wx >= 0) {
+                g.p.pos = V2((wx - 1.5f) * TS, (wy + .5f) * TS);
+                g.setCam(1.f);
+                g.p.inv.add(itemTool(TL_ROD), 1);
+                g.equipHotQuiet(itemTool(TL_ROD));
+                g.hotSelect(g.p.hotSlotOf(itemTool(TL_ROD)), false);
+                check(g.p.hand == HAND_ITEM, "(setup) the rod is in hand");
+                g.in.mx = (int)((wx + .5f) * TS) - g.camX;
+                g.in.my = (int)((wy + .5f) * TS) - g.camY;
+                const int fish0 = g.fishCaught;
+                const int64_t xp0 = g.p.sk.s[SK_FISHING].xp;
+                g.fishClick();
+                check(g.fishing.phase == 1, "a cast at water starts the wait");
+                g.fishClick();
+                check(g.fishing.phase == 0 && g.fishCaught == fish0, "reeling in before a bite catches nothing");
+                g.fishClick();
+                for (int i = 0; i < 1200 && g.fishing.phase == 1; i++) g.updateFishing(1.f / 60.f);
+                check(g.fishing.phase == 2, "after a few seconds a fish bites");
+                g.fishClick();
+                int fishItems = 0;
+                for (int m = M_TROUT; m <= M_PIKE; m++) fishItems += g.p.inv.count(itemMat(m));
+                check(g.fishing.phase == 0 && g.fishCaught > fish0 && fishItems == g.fishCaught - fish0 && g.p.sk.s[SK_FISHING].xp > xp0, "clicking in time lands a fish, pays XP and counts it");
+                g.fishClick();
+                for (int i = 0; i < 1200 && g.fishing.phase == 1; i++) g.updateFishing(1.f / 60.f);
+                for (int i = 0; i < 120 && g.fishing.phase == 2; i++) g.updateFishing(1.f / 60.f);
+                check(g.fishing.phase == 0, "a late click lets the fish go (the bite window closes)");
+                g.in.mx = g.in.my = 0;
+                g.fishClick();
+                check(g.fishing.phase == 0 || g.world.water((int)((g.in.mx + g.camX) / TS), (int)((g.in.my + g.camY) / TS)), "casting away from water does nothing");
+                g.fishing = Game::Fishing();
+            }
+            g.p.sk = keepSk;
+            g.p.dead = hadDead;
+        }
+        // the companion: a grown mount that follows outside, earns bond from kills and digs up small finds
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.hsAddAnimal(DA_MOUNT, g.p.pos, false, -1, A_WOLF, 1);
+            check(!g.hs.animals.empty() && g.companionAnimal() == nullptr, "a mount is not a companion until chosen");
+            HAnimal& m = g.hs.animals.back();
+            m.age = 1e6f;  // grown
+            m.companion = true;
+            check(g.companionAnimal() == &m, "a grown mount can be the companion");
+            check(g.companionDamage() == 0.f, "at home it adds no damage (it is not with the hunter)");
+            g.updateCompanion(0.1f, true);
+            check(g.companion.active && m.away && g.companionDamage() > 0.f, "outside it joins the hunter and adds damage");
+            const V2 start = g.companion.pos;
+            g.p.pos += V2(60, 0);
+            for (int i = 0; i < 90; i++) g.updateCompanion(1.f / 30.f, true);
+            check(dist(g.companion.pos, g.p.pos) < 40.f && dist(g.companion.pos, start) > 20.f, "it follows the hunter");
+            const int b0 = m.bond;
+            for (int i = 0; i < COMPANION_BOND_AT[1]; i++) g.companionKill();
+            check(m.bond == b0 + COMPANION_BOND_AT[1] && Game::bondLevel(m.bond) == 1 && g.companionDamage() > COMPANION_DAMAGE_PER_LEVEL, "kills with it close by build the bond and raise the damage");
+            const size_t items0 = g.items.size();
+            g.companion.forageT = 0.f;
+            g.updateCompanion(0.1f, true);
+            check(g.items.size() == items0 + 1, "now and then it digs up a small find");
+            g.save();
+            g.newGame();
+            check(g.load() && g.hs.animals.size() == 1 && g.hs.animals[0].companion && g.hs.animals[0].bond == COMPANION_BOND_AT[1] && !g.hs.animals[0].away, "the companion and its bond survive a save / load (and it is home again)");
+            g.updateCompanion(0.1f, true);
+            check(g.companion.active, "(setup) it sets out again");
+            g.companionHome();
+            check(!g.companion.active && !g.hs.animals[0].away, "going home takes it off the hunter's side and back to the pen");
+            g.hs.animals[0].companion = false;
+            g.updateCompanion(0.1f, true);
+            check(!g.companion.active, "with no companion chosen, nothing follows");
             g.p.sk = keepSk;
             g.p.dead = false;
         }

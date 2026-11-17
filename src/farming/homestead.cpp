@@ -334,7 +334,7 @@ bool Game::hsPlant(HPiece& pc, int crop) {
 }
 
 namespace {
-const char* TOOL_VERB[TT_COUNT] = {"AN AXE", "A PICKAXE", "A FARMER'S HOE", "A WATERING CAN", "A SICKLE"};
+const char* TOOL_VERB[TT_COUNT] = {"AN AXE", "A PICKAXE", "A FARMER'S HOE", "A WATERING CAN", "A SICKLE", "A FISHING ROD"};
 }
 
 // gives items to the hunter; whatever does not fit lies at their feet (nothing is ever lost)
@@ -559,7 +559,7 @@ void Game::hsTickAnimals(float dt) {
     const bool breedTick = hs.breedT >= 5.f;
     if (breedTick) hs.breedT = 0;
     for (auto& a : hs.animals) {
-        if (a.ridden) { a.age += dt; continue; }  // under the saddle: it only keeps growing
+        if (a.ridden || a.away) { a.age += dt; continue; }  // under the saddle: it only keeps growing
         const DomDef& D = DOMS[a.kind];
         const bool adult = a.adult(D);
         // needs
@@ -709,7 +709,7 @@ bool Game::hsFindTarget(HTarget2& t) {
         }
     }
     for (auto& a : hs.animals) {
-        if (a.ridden) continue;
+        if (a.ridden || a.away) continue;
         const float d = dist(p.pos, V2(a.px, a.py));
         if (d < 24.f) offer(2, a.id, V2(a.px, a.py - 22), d - 4.f, a.label(DOMS[a.kind]) + (a.stock > 0 ? " - COLLECT" : " - CARE"));
     }
@@ -813,8 +813,8 @@ std::string Game::hsSaveLines() {
             if (!pc.inv.slots[i].empty()) f << "hsi " << pc.id << ' ' << i << ' ' << itemKey(pc.inv.slots[i].item) << ' ' << pc.inv.slots[i].n << "\n";
     }
     for (auto& a : hs.animals)
-        f << "hsa " << a.id << ' ' << a.kind << ' ' << (a.ridden ? (HS_PORTAL_X + 0.5f) * TS : a.px) << ' ' << (a.ridden ? (HS_PORTAL_Y + 3.f) * TS : a.py) << ' ' << a.age << ' ' << a.full << ' ' << a.happy << ' ' << a.health << ' ' << a.prodT
-          << ' ' << a.stock << ' ' << a.breedCd << ' ' << a.home << ' ' << a.species << ' ' << a.tier << ' ' << (a.saddled ? 1 : 0) << "\n";
+        f << "hsa " << a.id << ' ' << a.kind << ' ' << ((a.ridden || a.away) ? (HS_PORTAL_X + 0.5f) * TS : a.px) << ' ' << ((a.ridden || a.away) ? (HS_PORTAL_Y + 3.f) * TS : a.py) << ' ' << a.age << ' ' << a.full << ' ' << a.happy << ' ' << a.health << ' ' << a.prodT
+          << ' ' << a.stock << ' ' << a.breedCd << ' ' << a.home << ' ' << a.species << ' ' << a.tier << ' ' << (a.saddled ? 1 : 0) << ' ' << (a.companion ? 1 : 0) << ' ' << a.bond << "\n";
     return f.str();
 }
 
@@ -854,10 +854,13 @@ void Game::hsLoadLine(const std::string& key, std::istringstream& ss) {
         ss >> a.id >> a.kind >> a.px >> a.py >> a.age >> a.full >> a.happy >> a.health >> a.prodT >> a.stock >> a.breedCd >> a.home;
         if (!ss || a.kind < 0 || a.kind > DA_MOUNT || a.id <= 0) return;
         int sad = 0;
-        if (ss >> a.species >> a.tier >> sad) a.saddled = sad != 0;  // (older saves have no mounts)
-        else { a.species = -1; a.tier = 0; }
+        if (ss >> a.species >> a.tier >> sad) {
+            a.saddled = sad != 0;  // (older saves have no mounts)
+            int cmp = 0, bd = 0;
+            if (ss >> cmp >> bd) a.companion = cmp != 0, a.bond = std::max(0, std::min(100000, bd));  // (nor companions)
+        } else { a.species = -1; a.tier = 0; }
         if (a.kind == DA_MOUNT && !mountable(a.species)) return;
-        if (a.kind != DA_MOUNT) { a.species = -1; a.tier = 0; a.saddled = false; }
+        if (a.kind != DA_MOUNT) { a.species = -1; a.tier = 0; a.saddled = false; a.companion = false; a.bond = 0; }
         a.tier = std::max(0, std::min(TR_COUNT - 1, a.tier));
         a.tx = a.px;
         a.ty = a.py;

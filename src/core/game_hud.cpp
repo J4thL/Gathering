@@ -227,7 +227,7 @@ void Game::drawHud() {
         float t = tod();
         int mins = (int)(fmodf(6.f + t * 24.f, 24.f) * 60);
         char buf[32];
-        snprintf(buf, sizeof(buf), "DAY %d  %02d:%02d", 1 + (int)(dayT / 300.f), mins / 60, mins % 60);
+        snprintf(buf, sizeof(buf), "DAY %d %s %02d:%02d", 1 + (int)(dayT / 300.f), SEASON_NAME[season()], mins / 60, mins % 60);
         int w = textW(buf) + 18;
         int x = LW / 2 - w / 2 - 8;
         panel(x, 4, w, 13, HEX(0x33241a));
@@ -319,7 +319,7 @@ void Game::drawHud() {
         }
         if (p.hand >= 0 && p.hotSel >= 0 && p.hot[p.hotSel] >= 0) {
             const int hid = p.hot[p.hotSel];
-            const char* hint = seedCropOf(hid) >= 0 ? " - CLICK TILLED SOIL" : item(hid).kind == IK_TOOL ? " - CLICK A TILE" : item(hid).kind == IK_CONSUMABLE ? " - CLICK TO USE" : item(hid).kind == IK_PLACEABLE ? " - CLICK TO PLACE" : item(hid).kind == IK_BACKPACK ? " - CLICK TO WEAR" : "";
+            const char* hint = seedCropOf(hid) >= 0 ? " - CLICK TILLED SOIL" : item(hid).kind == IK_TOOL ? (TOOLDEF[item(hid).ref].type == TT_ROD ? " - CLICK WATER TO CAST" : " - CLICK A TILE") : item(hid).kind == IK_CONSUMABLE ? " - CLICK TO USE" : item(hid).kind == IK_PLACEABLE ? " - CLICK TO PLACE" : item(hid).kind == IK_BACKPACK ? " - CLICK TO WEAR" : "";
             textC(x0 + total / 2, y - 12, item(hid).name + hint, C_TEXT);
         }
         else if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);

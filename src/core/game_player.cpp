@@ -66,13 +66,13 @@ void Game::throwWeapon() {
     pr.spin = (spearLike || launcher) ? 0.f : (axeLike ? 17.f : 26.f);
     const float biomeMul = (D.biome >= 0 && curBiome == D.biome) ? D.biomeMul : 1.f;  // biome weapons: +30% at home
     pr.crit = rng.chance(0.10f);
-    pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
+    pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING) + companionDamage()) * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
     if (launcher) {
         // a bow shot is only as good as the draw; the crossbow is always fully loaded when it fires
         float draw = D.draw > 0 ? c : 1.f;
         pr.speed = D.speed * (0.55f + 0.45f * draw);
         pr.range = std::min(D.range * (0.5f + 0.5f * draw), dl + 24);
-        pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
+        pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING) + companionDamage()) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
         pr.ammo = D.ammo;
     }
     pr.q = wq;

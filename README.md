@@ -158,7 +158,7 @@ swiftfoot boots, the bags (satchel to expedition pack) and carried gear (wolf cl
 that works while it is in the pack. New medicines and foods: poultice, herbal medicine, dried meat, hunter's stew, velvet tonic, nightsight tonic.
 
 ## Skills
-The SKILLS tab of the pack lists 15 skills (levels 1-100; data and curve in `src/player/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
+The SKILLS tab of the pack lists 16 skills (levels 1-100; data and curve in `src/player/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
 XP is awarded only after an action really completes: a finished resource (Woodcutting / Mining / Foraging), a kill (Hunting and Ranged,
 reduced when you grind animals far below your level), each carcass piece (Skinning / Butchering), a delivered craft (the recipe's skill), a hit
 survived in armor (Defense), a new landmark or a used consumable (Survival). Each skill has one capped bonus (shown when you hover it): chop /
@@ -168,10 +168,16 @@ saves without skills load at level 1.
 **Perks:** each milestone opens a one-time choice per skill (click the skill row; a "!" marks skills with a pending choice). A is MASTERY (adds
 8 / 10 / 12 / 15% of the skill's cap to its bonus); B is extra XP for that skill (10 / 15 / 20 / 30%), or extra speed for woodcutting and mining.
 A choice is final and saved as `perk <key> <tier> <0|1>`.
-**Hunter rank:** the sum of all skill levels (max 1500) sets your rank: Apprentice, Tracker (60), Warden (250), Master (600), Grandmaster (1000). Every rank adds 10 kg
+**Hunter rank:** the sum of all skill levels (max 1600) sets your rank: Apprentice, Tracker (60), Warden (250), Master (600), Grandmaster (1000). Every rank adds 10 kg
 to the carry limit, and Warden and up are offered one quality step better on the orders board. It is derived from the skills, so nothing extra is saved.
 **Trophies:** the BESTIARY tab's TROPHIES button lists nine milestones read from the bestiary (10 / 20 / all species found, 1 / 5 / 10 legendary animals hunted, 100 / 500 / 2000 total
 kills). Each pays coins once when reached (saved as `trophy <mask>`); older saves earn the ones they already qualify for on the next kill.
+**Journal:** the pack's last tab collects the active quest, today's hunt trial, the three store orders and the next trophy, rank and perk goals on one page (read only).
+**Trophy wall:** a 4 x 1 outdoor piece in the Homestead's build menu (6 planks, 1 rope). It shows a plaque for each of the nine trophies (rows: species, legends, kills; columns: bronze, silver, gold), lit once earned.
+**Frostbound King, again:** he still returns 30 minutes after he falls, but each return is stronger (+40% health and +25% damage per tier, up to tier 4). Killing a stronger king pays 300 coins and 500 hunting XP per tier on top of his chest. The tier is saved as `kingtier <n>` and shown in the journal.
+**Seasons:** every 7 days (a day is 5 minutes) the season changes: spring, summer, autumn, winter, shown beside the day on the clock. Spring has 25% more animals and more storms, summer fewer storms, autumn gives one extra meat and fat from a kill, winter has 25% fewer animals but one extra fur and hide. Each season also tints the light faintly. Nothing is saved for it: the season comes from the game clock.
+**Fishing:** craft a FISHING ROD (2 branches, 3 fibre, 1 bone; Crafting tab), take it in hand from the hotbar, aim at any water within about 8 tiles and click to cast. The bobber dips after a few seconds: click again within a second to land the fish (clicking early reels in empty, too late lets it go). Six fish (trout, bass, catfish, eel, arctic char, pike) bite depending on the water's biome and the season. The FISHING skill (16th row) shortens the wait, gives a chance of a second fish per catch and takes the usual perks; three trophies (10 / 50 / 200 fish) pay coins and show on the trophy wall; with a rod in the pack, every fourth day's hunt trial is a fishing goal. Fish caught are saved as `fish <n>`.
+**Companion:** in the Homestead's animal panel a grown mount (a raised wild animal) has a COMPANION button (the one that replaces COLLECT). Outside the homestead the companion walks behind you; nothing hunts it and nothing you throw can hit it. Every kill you make with it close by adds to its bond (levels at 25 / 80 / 200 / 450 kills); each level adds 2% weapon damage (2% at the first level up to 10% at the fifth), and every couple of minutes (faster with a deeper bond) it digs up a small find (herb, berry, mushroom, fibre, branch, and from level 4 sometimes amber). It goes back to its pen when you do, and cannot be chosen while you ride a mount. Saved with the homestead animal as `companion bond` fields; older saves load without one.
 **Daily hunt trial:** shown on the BESTIARY tab. Each day sets one kill goal: a number (3 + 2 per hunter rank, plus 0-2) of a species you have already found, or, for Warden and up on every third day, one legendary animal.
 Finishing it pays coins and a little reputation once. The day's trial and its progress are saved as `trial <kind> <species> <need> <got> <pay> <done>`.
 

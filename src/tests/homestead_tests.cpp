@@ -512,6 +512,15 @@ int homesteadTest(Game& g) {
     if (shed2) shed2->inv.add(itemMat(M_CORN), 12);
     op = g.hsAt(fx, fy, HL_GROUND);
     if (op) { op->rich = true; op->crop = CR_PUMPKIN; op->stage = 2; op->growT = 17.f; op->water = 0.4f; }
+    // the trophy wall: built like any piece, kept in the save, and drawn with the trophies earned
+    int twx = -1, twy = -1;
+    g.p.inv.add(itemMat(M_PLANK), 10);
+    g.p.inv.add(itemMat(M_ROPE), 2);
+    for (int yy = sy - 12; yy < sy + 14 && twx < 0; yy++)
+        for (int xx = sx - 14; xx < sx + 14 && twx < 0; xx++)
+            if (g.hsPlace(HP_TROPHY, xx, yy, 0)) twx = xx, twy = yy;
+    check(twx >= 0 && g.hsAt(twx + 3, twy, HL_OBJECT) && !g.hsAt(twx + 4, twy, HL_OBJECT), "a trophy wall can be built and covers 4 x 1 tiles");
+    g.trophyMask = 5;
     const size_t nPieces = g.hs.pieces.size(), nAnimals = g.hs.animals.size();
     const float happy0 = g.hs.animals[0].happy;
     const int coinsBefore = g.p.coins;
@@ -523,6 +532,7 @@ int homesteadTest(Game& g) {
     check(g.load(), "the save loads");
     check(g.world.mapId == B_HOMESTEAD, "a hunter saved in the Homestead loads back into it");
     check(g.hs.pieces.size() == nPieces && g.hs.animals.size() == nAnimals, "every building and animal is restored");
+    check(twx >= 0 && g.hsAt(twx, twy, HL_OBJECT) && g.hsAt(twx, twy, HL_OBJECT)->kind == HP_TROPHY && g.trophyMask == 5, "the trophy wall and the trophies earned are restored");
     check(g.p.coins == coinsBefore, "the hunter's own data loads too");
     check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] < 0 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.hotSlotOf(itemTool(TL_SICKLE)) < 0, "the equipped farming tools are saved and restored (the sickle stayed off the hotbar)");
     HPiece* s3 = g.hsAt(sx, sy + 3, HL_OBJECT);

@@ -150,7 +150,7 @@ void Game::economyLoadLine(const std::string& k, std::istringstream& ss) {
         }
     } else if (k == "trial") {
         long long kd = 0, sp = 0, nd = 0, gt = 0, py = 0, dn = 0;
-        if (!(ss >> kd >> sp >> nd >> gt >> py >> dn) || (kd != 0 && kd != 1) || sp < 0 || sp >= A_COUNT || nd < 1 || nd > 999) return;
+        if (!(ss >> kd >> sp >> nd >> gt >> py >> dn) || (kd < 0 || kd > 2) || sp < 0 || sp >= A_COUNT || nd < 1 || nd > 999) return;
         trial.kind = (int)kd;
         trial.species = (int)sp;
         trial.need = (int)nd;

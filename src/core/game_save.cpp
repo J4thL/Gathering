@@ -34,6 +34,8 @@ void Game::save() {
         for (int k = 0; k < A_COUNT; k++)
             if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << ' ' << bestMask[k] << "\n";
         if (trophyMask) f << "trophy " << trophyMask << "\n";
+        if (fishCaught) f << "fish " << fishCaught << "\n";
+        if (kingTier) f << "kingtier " << kingTier << "\n";
         economySave(f);
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
@@ -187,6 +189,12 @@ bool Game::load() {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
             sawMapBlock = true;
+        } else if (k == "fish") {
+            int n = 0;
+            if (ss >> n) fishCaught = std::max(0, std::min(1000000, n));
+        } else if (k == "kingtier") {
+            int n = 0;
+            if (ss >> n) kingTier = std::max(0, std::min(KING_TIERS, n));
         } else if (k == "delve") {  // "delve <id> <opened chests mask> <king dead> <seconds to his return> <seconds to chest refill>"
             int id = -1, bd = 0, bt = 0, ct = 0;
             unsigned long mask = 0;
