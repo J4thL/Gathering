@@ -42,8 +42,8 @@ Eight story quests (kill, gather, craft, earn) lead into endless scaling bountie
 bandages. The active quest shows bottom-left, and the elder is marked on the minimap. Quest progress is saved.
 
 ## World
-The game has five separate maps, each exactly 240x168 tiles: WILDWOOD (the start map: the original 88x60 Wildwood area, unchanged, in the centre of
-home forest, with four gates at the map edge), DESERT, SWAMP, SNOW and MOUNTAIN. Each biome map has its own terrain, props, weather, landmarks
+The game has five separate maps, each exactly 240x168 tiles: WILDWOOD (the start map: the original 88x60 Wildwood area in the centre of
+home forest, with four gates at the map edge; there is no wall round the original area, its forest simply continues into the wider forest), DESERT, SWAMP, SNOW and MOUNTAIN. Each biome map has its own terrain, props, weather, landmarks
 (walk up to one to discover it), gathering plants/ore, wildlife table and a trail from its gate to its hub landmark. Walk out of
 WILDWOOD through a gate (east desert, south swamp, north snow, west mountain) to travel; each biome has one gate leading back home. A
 "TO <MAP>" label shows near a gate and the minimap marks gates in the colour of their destination. Travelling keeps your health, pack,
@@ -54,6 +54,49 @@ Terrain and climate matter: sand, mud and deep snow slow you down, ice makes you
 Maps are defined in `src/world/maps.hpp` (gates, entry and hub per map), generated in `src/world/world.hpp` / `src/world/worldgen.hpp`, and travel
 is `Game::travelTo` in `src/world/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
 `worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
+
+## New worlds and sun shadows
+Every new game builds a new random world (the seed is kept in the save, so Continue returns to the same one; the pause menu shows it). A seed is only used when all five maps come out reachable (`src/world/worldfix.hpp` opens a way to anything cut off). Starting a new game with a save on disk asks first. Trees, rocks and buildings cast the shape of their own sprite as a sun shadow (`game_light.cpp`), ground tiles blend softly into each other (`src/art/tile_edges.hpp`), and meadow flowers grow in small clusters.
+
+The home forest's floor comes from two noise fields: **density** (the old tree-density field) and a new **moisture** field (`homeFloor()` in `src/world/worldgen.hpp`).
+Dense and wet gives moss, dense and dry gives pine needles, dense in between stays dark grass (the very densest dry cores are root-tangled earth), the woodland edge is leaf litter when dry and moss when wet, and the rest is meadow. Lake shores are mossy. Trees follow the floor (pines on needles and roots, oaks on leaf litter), and decor does too. The tiles are painted in `src/art/sprites_forest.hpp` and blend into their neighbours like every other ground. `wildwood --forest DIR` writes a close-up screenshot of each floor and of each kind of glade.
+
+**Streams and groves:** about nine brooks wander from springs in the wet forest to the nearest lake (`T_SHALLOW`: clear shallow water you can wade through at reduced speed; a path that meets one is a ford, and a brook only exists if it reaches a lake). Their banks are damp moss, with lilies floating in them. Trees gather in groves (a clumping noise leaves open ground between stands, and a second one makes a stand mostly pines or mostly oaks); in open country a tree keeps its distance from the next; and the forest has old stumps (decor), fallen logs and dead trees, thickest in the root-tangled and mossy ground.
+
+**Flower fields:** three per world, wide open meadows (9-13 tiles across) in open country, away from the village, lakes, glades and the forest. No trees grow in them; they are carpeted with flowers, thickest in the middle, in drifts of one colour (orange, cream, violet `D_VIOLET`, poppy red `D_POPPY`: the last two are new flowers used only here), with a few herbs to gather. Rabbits and deer favour them, boars and wolves keep off. Chosen in `worldgen.hpp`, listed in `World::fields`, switched off with `GEN_NO_FIELDS`.
+
+**Smoothing and independent layers:** a cleanup pass takes single-tile specks and one-tile spurs of one floor over to the floor around them (water banks, glades and the village are left alone). Every home-forest tile draws from a random stream of its own, seeded from its position, so a layer can be left out (`World::genOff`: `GEN_NO_STREAMS`, `GEN_NO_GLADES`, `GEN_NO_SMOOTH`) without moving any tree it does not touch (a self-test checks it). `wildwood --forest DIR` also writes `density.ppm` and `moisture.ppm`, the two fields behind the floor, for tuning.
+
+**Animal routines and senses (home forest):** each of the four species lives by a daily routine (`chooseAct` / `performAct` in `game_animals.cpp`). It has a bed (a sheltered spot on the ground its species sleeps on, never in a glade or flower field) and, for deer, a watering place, and its day is made of acts: sleep, graze, drink, forage, patrol, roam. Rabbits sleep in burrows all night; deer drink and graze at dawn and dusk and lie up in the thicket at midday; boars root about at all hours and wallow at midday; wolves sleep by their den by day, go back to it at dawn and make their rounds at dusk and night. A surplus animal (the hour calls for fewer) walks to its bed and is gone once it is there and out of sight, not mid-meadow.
+What an animal notices is now decided by `Game::sightFactor` instead of distance alone: its **field of view** (prey see almost all round, with a blind arc behind; predators look further ahead; outside the view it only hears), **cover** (each tree, rock or wall between it and the hunter cuts the range: one to 60%, two to 35%, three or more hide the hunter entirely), **light** (prey see worse at dusk and night), **sleep** (a sleeping animal is slow to notice) and **noise** (a sprint is heard through trees from about half the range; a hunter standing still is noticed later). Predators and prey use the same rules on each other. **F3** shows the AI overlay: every animal's act and state, its route (yellow) and bed (blue), its field of view (cyan) and the line of sight to you (green clear, orange screened, red seen) with the percentage of its range it keeps. `wildwood --forest DIR` writes `ai_debug.bmp`.
+
+**Wolf packs:** wolves live in packs of 3-5 with one leader (`spawnPack`, `packLeader` in `game_animals.cpp`); they spawn and return as packs, with a lone wolf only as a leftover. The followers keep to the leader (they take its act and go to its place, spread by slot, and sleep beside it), catch up if they lag, and if the leader is lost another is promoted. When one wolf sees the hunter the whole pack within ~500 px joins the chase and the one that saw you gives a howl; the followers **flank**, circling to either side of the hunter before closing in, so a pack comes at you from several directions. A pack wolf breaks off at 40% health (a lone wolf at 25%), a hurt wolf goes back to its bed and slowly heals asleep, and if the **leader falls the pack scatters** for a few seconds. As the evening comes (dusk) the packs **howl** (`S_HOWL`, synthesised in `audio.hpp`, quieter the further the pack is), so the first night is announced before it arrives. In the F3 overlay a pack member shows as `wolf#N` (the leader `#NL`) with a line to its leader.
+(Overlay colours: blue = bed, yellow = route, cyan = view, purple = to the leader, line to you green = clear / orange = screened / red = seen.)
+
+**Wildlife by hour and ground:** the home forest's four animals each have a population that follows the clock (`Game::homeTarget`): rabbits are many by day and few at night, deer are busiest at dawn and dusk, boars are about at every hour (a few more at night), and wolves hunt at night (about 2.5x as many as at noon). When the hour calls for fewer, a surplus animal quietly leaves from out of sight (`Game::cullHome`; never rare or legendary ones, never one in a fight). Placement follows the ground (`zoneWeight` in `game_animals.cpp`): rabbits and deer graze meadows, leaf litter and glades (deer also like water), boars favour thickets, moss and roots, wolves keep to needles, roots and dark thickets by day and range over the meadows at night. Boars and wolves shy away from glades.
+
+**Glades:** every world has about 14 open clearings cut out of the dense forest (away from the village, lakes and each other), with the trees thinning at their rim and flowers drifting across the meadow inside. Each has a feature: a flower-carpeted meadow, one great old oak, a rune stone that glows at night, a fairy ring of mushrooms with mushrooms to pick, a herb and flax patch, or a hunter's rest (a ring of stones and two logs). They are chosen in `worldgen.hpp` and listed in `World::glades`.
+
+## Settings, help and shortcuts
+The pause menu (Esc) and the title screen open SETTINGS: sound effects and ambience volume, a mute switch, and every key action can be rebound (click one, press a key;
+a key already in use swaps with it; 1-8, arrows, Tab, Enter, Space, Esc and F11 are fixed). They are kept in `settings.txt` beside the save file. HELP (pause menu) has
+five pages of controls and tips, written with your current keys. In the pack: double click or shift + click a stack to use / equip it (as right click does), and
+hover a stack and press 1-8 to put it on that hotbar slot. The map (M) has a GATES list: click a gate to see what it asks for.
+
+## Sealed gates
+The four gates out of WILDWOOD start sealed and open one after the other: desert (east), then swamp (south), snow (north), mountain (west). Walk into
+a sealed gate and it shows what it asks for: a hunting level and an offering of materials (for example wood, stone and hide for the desert, bars
+and rope for the later ones). Press MAKE THE OFFERING (or Enter) to hand them over; the gate then stays open for good. A gate also needs the one before it
+in the chain. Labels and the map show "(SEALED)" until then. The requirements are one table in `src/world/gates.hpp`. Saves record the open gates
+as a `gates` line; a save from before gates existed keeps every gate open.
+
+## Town economy and hunting depth
+- **Reputation** (`src/core/game_economy.cpp`): STRANGER, KNOWN (25), TRUSTED (75), HONORED (160). Each level pays +4% when you sell and takes 5% off store goods. Points come from the elder's quests (+10), filled orders (+6 to +14) and every 150 coins you sell.
+- **Market demand**: each material has a demand multiplier (0.7 to 1.3). Selling lowers it by 1% per item, and each new day it drifts back toward normal with a small random push. In the SELL tab the price is green when the store wants it and red when it has too much.
+- **Orders**: the ORDERS tab of the general store lists three crafted items (things you can make at your skill level, never carried gear). Higher reputation asks for better minimum quality and pays 1.5 times the item's value. Orders are renewed every day (300 s of game time).
+- **Bestiary card**: hover a hunted species in the BESTIARY tab to see its health, whether it fights back, which rarity tiers you have hunted and its drops (form and legendary extras are tagged).
+- **Wounded quarry**: if an animal you hurt bleeds out beyond 150 px, its carcass blinks with a gold ring on the minimap and the map until you reach it.
+- Saved lines: `rep`, `demand`, `order`, and `bestiary <kind> <kills> <tier mask>`. Older saves load with defaults.
 
 ## Wildlife
 28 species (`src/animals/fauna.hpp` is the table: stats, drops, behaviour flags, rarity looks). Home keeps its original herds; the four biome maps
@@ -121,20 +164,35 @@ swiftfoot boots, the bags (satchel to expedition pack) and carried gear (wolf cl
 that works while it is in the pack. New medicines and foods: poultice, herbal medicine, dried meat, hunter's stew, velvet tonic, nightsight tonic.
 
 ## Skills
-The SKILLS tab of the pack lists 15 skills (levels 1-100; data and curve in `src/player/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
+The SKILLS tab of the pack lists 16 skills (levels 1-100; data and curve in `src/player/skills.hpp`, tuning constants `XP_BASE`, `XP_EXP`, `MILESTONES`).
 XP is awarded only after an action really completes: a finished resource (Woodcutting / Mining / Foraging), a kill (Hunting and Ranged,
 reduced when you grind animals far below your level), each carcass piece (Skinning / Butchering), a delivered craft (the recipe's skill), a hit
 survived in armor (Defense), a new landmark or a used consumable (Survival). Each skill has one capped bonus (shown when you hover it): chop /
 mine speed, extra plants, weapon damage, extra pelts / meat, a chance to save a craft, keeping ammo, damage reduction, stronger healing. A bonus
 grows evenly to 60% of its cap at level 100 and gains 10% of the cap at each milestone (10 / 25 / 50 / 75). Progress is saved as `skill <key> <xp>`;
 saves without skills load at level 1.
+**Perks:** each milestone opens a one-time choice per skill (click the skill row; a "!" marks skills with a pending choice). A is MASTERY (adds
+8 / 10 / 12 / 15% of the skill's cap to its bonus); B is extra XP for that skill (10 / 15 / 20 / 30%), or extra speed for woodcutting and mining.
+A choice is final and saved as `perk <key> <tier> <0|1>`.
+**Hunter rank:** the sum of all skill levels (max 1600) sets your rank: Apprentice, Tracker (60), Warden (250), Master (600), Grandmaster (1000). Every rank adds 10 kg
+to the carry limit, and Warden and up are offered one quality step better on the orders board. It is derived from the skills, so nothing extra is saved.
+**Trophies:** the BESTIARY tab's TROPHIES button lists nine milestones read from the bestiary (10 / 20 / all species found, 1 / 5 / 10 legendary animals hunted, 100 / 500 / 2000 total
+kills). Each pays coins once when reached (saved as `trophy <mask>`); older saves earn the ones they already qualify for on the next kill.
+**Journal:** the pack's last tab collects the active quest, today's hunt trial, the three store orders and the next trophy, rank and perk goals on one page (read only).
+**Trophy wall:** a 4 x 1 outdoor piece in the Homestead's build menu (6 planks, 1 rope). It shows a plaque for each of the nine trophies (rows: species, legends, kills; columns: bronze, silver, gold), lit once earned.
+**Frostbound King, again:** he still returns 30 minutes after he falls, but each return is stronger (+40% health and +25% damage per tier, up to tier 4). Killing a stronger king pays 300 coins and 500 hunting XP per tier on top of his chest. The tier is saved as `kingtier <n>` and shown in the journal.
+**Seasons:** every 7 days (a day is 5 minutes) the season changes: spring, summer, autumn, winter, shown beside the day on the clock. Spring has 25% more animals and more storms, summer fewer storms, autumn gives one extra meat and fat from a kill, winter has 25% fewer animals but one extra fur and hide. Each season also tints the light faintly. Nothing is saved for it: the season comes from the game clock.
+**Fishing:** craft a FISHING ROD (2 branches, 3 fibre, 1 bone; Crafting tab), take it in hand from the hotbar, aim at any water within about 8 tiles and click to cast. The bobber dips after a few seconds: click again within a second to land the fish (clicking early reels in empty, too late lets it go). Six fish (trout, bass, catfish, eel, arctic char, pike) bite depending on the water's biome and the season. The FISHING skill (16th row) shortens the wait, gives a chance of a second fish per catch and takes the usual perks; three trophies (10 / 50 / 200 fish) pay coins and show on the trophy wall; with a rod in the pack, every fourth day's hunt trial is a fishing goal. Fish caught are saved as `fish <n>`.
+**Companion:** in the Homestead's animal panel a grown mount (a raised wild animal) has a COMPANION button (the one that replaces COLLECT). Outside the homestead the companion walks behind you; nothing hunts it and nothing you throw can hit it. Every kill you make with it close by adds to its bond (levels at 25 / 80 / 200 / 450 kills); each level adds 2% weapon damage (2% at the first level up to 10% at the fifth), and every couple of minutes (faster with a deeper bond) it digs up a small find (herb, berry, mushroom, fibre, branch, and from level 4 sometimes amber). It goes back to its pen when you do, and cannot be chosen while you ride a mount. Saved with the homestead animal as `companion bond` fields; older saves load without one.
+**Daily hunt trial:** shown on the BESTIARY tab. Each day sets one kill goal: a number (3 + 2 per hunter rank, plus 0-2) of a species you have already found, or, for Warden and up on every third day, one legendary animal.
+Finishing it pays coins and a little reputation once. The day's trial and its progress are saved as `trial <kind> <species> <need> <got> <pay> <done>`.
 
 ## Gathering
 Trees, rocks, ore and plants are harvested by holding E beside them (data in `src/gathering/resources.hpp`, behaviour in `src/gathering/gathering.cpp`).
 Tools come in four tiers (stone, copper, iron, gilded): higher tiers swing faster, give bonus yield and open harder resources
 (copper and iron ore need a tier 2 pickaxe, gold and crystal tier 3). Each resource takes a number of hits, shows a hit counter and progress
 bar, drops its yields, then becomes a stump / rubble / stub and regrows after a respawn time (trees become solid again). A resource is never
-finished into a full bag, and nothing can be gathered through walls. Trees on the map border and around the home area are never harvestable.
+finished into a full bag, and nothing can be gathered through walls. Trees on the map's edge wall are never harvestable.
 Each biome has its own plants and ore; thorny and poisonous plants hurt unless you wear armor. Progression: stone tools -> campfire,
 rope and copper bars -> copper tools -> iron bars at the shop -> iron and gilded tools, crossbow, scale mail. Campfires and chests are crafted
 and placed from the pack; chests hold 20 slots.
