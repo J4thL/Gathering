@@ -431,6 +431,128 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.p.sk = keepSk;
             g.p.dead = false;
         }
+        // companion orders: fetch thrown weapons, scout for game; saddlebags; breeding mounts
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.hsAddAnimal(DA_MOUNT, g.p.pos, false, -1, A_WOLF, 1);
+            HAnimal& m = g.hs.animals.back();
+            m.age = 1e6f;
+            m.companion = true;
+            g.updateCompanion(0.1f, true);
+            check(g.companion.active && g.companion.mode == Game::CM_FOLLOW, "(setup) the companion is out and follows by default");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FETCH, "the order key switches follow -> fetch");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FOLLOW, "scouting is skipped until the bond reaches level 2 (back to follow)");
+            m.bond = COMPANION_BOND_AT[1];
+            g.companionOrder(); g.companionOrder();
+            check(g.companion.mode == Game::CM_SCOUT, "with the bond it can scout");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FOLLOW, "...and the cycle returns to follow");
+            // fetch
+            g.companion.mode = Game::CM_FETCH;
+            GroundItem gi{};
+            V2 way(110, 0);  // a direction with open ground all the way (the forest has trees and rocks)
+            for (const V2& cand : {V2(110, 0), V2(-110, 0), V2(0, 110), V2(0, -110), V2(78, 78), V2(-78, 78), V2(78, -78), V2(-78, -78)}) {
+                bool clear = true;
+                for (int k = 0; k <= 22; k++) clear = clear && !g.world.blocked(g.p.pos.x + cand.x * k / 22.f, g.p.pos.y + cand.y * k / 22.f, 5.f);
+                if (clear) { way = cand; break; }
+            }
+            gi.pos = g.p.pos + way;
+            gi.wpn = W_JAVELIN; gi.ammo = -1; gi.item = -1;
+            g.items.clear();
+            g.items.push_back(gi);
+            const V2 thrownAt = g.items[0].pos;
+            for (int i = 0; i < 400 && dist(g.items[0].pos, g.p.pos) > 30.f; i++) g.updateCompanion(1.f / 30.f, true);
+            check(dist(thrownAt, g.items[0].pos) > 40.f && dist(g.items[0].pos, g.p.pos) < 30.f, "fetch: the companion brings a thrown weapon back to the hunter");
+            GroundItem dropped{};
+            dropped.pos = g.p.pos + way;
+            dropped.item = itemMat(M_MEAT); dropped.n = 1; dropped.ammo = -1;
+            g.items.clear(); g.items.push_back(dropped);
+            for (int i = 0; i < 200; i++) g.updateCompanion(1.f / 30.f, true);
+            check(dist(g.items[0].pos, dropped.pos) < 1.f, "fetch leaves stacks you dropped on purpose alone");
+            // scout
+            g.companion.mode = Game::CM_SCOUT;
+            g.companion.orderT = 0.f;
+            g.animals.clear();
+            g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, 0);
+            g.spawnAnimal(A_DEER, g.p.pos + V2(900, 0), 0, 0);
+            g.updateCompanion(0.1f, true);
+            check(g.animals.size() == 2 && g.animals[0].scoutT > 0.f && g.animals[1].scoutT == 0.f, "scout: animals close by are marked on the map, far ones are not");
+            // saddlebags
+            m.companion = false;
+            m.saddled = true;
+            g.updateCompanion(0.1f, true);
+            const int base = mountCarry(A_WOLF, 1);
+            check(g.mountKgNow(m) == base, "(setup) a mount's own carry weight without saddlebags");
+            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1);
+            check(g.mountKgNow(m) == (int)lroundf(base * 1.5f), "saddlebags in the pack add half again to the mount's carry weight");
+            g.p.inv.remove(itemCarry(CG_SADDLEBAG), 1);
+            // breeding
+            g.hs.animals.clear();
+            g.hsAddAnimal(DA_MOUNT, V2(500, 500), false, -1, A_WOLF, 1);
+            g.hsAddAnimal(DA_MOUNT, V2(510, 500), false, -1, A_WOLF, 2);
+            g.hsAddAnimal(DA_MOUNT, V2(520, 500), false, -1, A_DEER, 3);
+            for (auto& h : g.hs.animals) { h.age = 1e6f; h.full = h.happy = h.health = 100.f; h.breedCd = 0.f; }
+            g.hs.breedT = 10.f;
+            g.hsTickAnimals(0.1f);
+            check(g.hs.animals.size() == 4, "two grown mounts of one species breed: a baby is born");
+            const HAnimal& baby = g.hs.animals.back();
+            check(baby.kind == DA_MOUNT && baby.species == A_WOLF && !baby.adult(DOMS[DA_MOUNT]) && baby.tier >= 2, "the baby is of their species and takes the better parent's tier");
+            check(g.hs.animals[0].breedCd >= BREED_CD * 1.5f, "mounts breed only now and then (a long wait before the next foal)");
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
+        // tracking: animals leave fading prints; the Tracking skill widens and lengthens them; reading a fresh print pays XP
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.tracks.clear();
+            check(g.inWilds() && SK_TRACKING < SK_COUNT, "(setup) outdoors, and Tracking is a listed skill");
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+            check(d != nullptr, "(setup) a deer stands near the hunter");
+            if (d) {
+                d->printAt = d->pos;
+                for (int i = 0; i < 4; i++) { d->pos.x += TRACK_STEP + 1.f; g.updateTracks(0.05f); }
+                check(g.tracks.size() == 4 && g.tracks[0].kind == A_DEER, "a walking animal leaves a print every few steps");
+                const float life0 = g.tracks[0].life;
+                const float t0 = g.tracks[0].t;
+                g.updateTracks(1.f);
+                check(g.tracks[0].t > t0, "prints age");
+                g.p.sk.s[SK_TRACKING].xp = SkillState::capXp();
+                g.tracks.clear();
+                d->printAt = d->pos;
+                d->pos.x += TRACK_STEP + 1.f;
+                g.updateTracks(0.05f);
+                check(!g.tracks.empty() && g.tracks[0].life > life0 * 1.5f, "a skilled tracker's prints last longer");
+                g.tracks.clear();
+                d->pos = g.p.pos + V2(500, 0);
+                d->printAt = d->pos;
+                d->pos.x += TRACK_STEP + 1.f;
+                g.updateTracks(0.05f);
+                check(g.tracks.empty(), "animals far from the hunter leave no prints");
+                g.p.sk = keepSk;
+                const int64_t xp0 = g.p.sk.s[SK_TRACKING].xp;
+                g.tracks.push_back({g.p.pos, A_DEER, 0.f, TRACK_LIFE, false});
+                g.trackReadCd = 0.f;
+                g.updateTracks(0.05f);
+                check(g.p.sk.s[SK_TRACKING].xp > xp0 && g.tracks.back().read, "standing on a fresh print reads it for Tracking XP");
+                const int64_t xp1 = g.p.sk.s[SK_TRACKING].xp;
+                g.trackReadCd = 0.f;
+                g.updateTracks(0.05f);
+                check(g.p.sk.s[SK_TRACKING].xp == xp1, "a print pays only once");
+            }
+            g.animals.clear();
+            g.tracks.clear();
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
         // the mount: dismounting outdoors parks it there; walking away sends it home; the mount key summons it again
         {
             const SkillSet keepSk = g.p.sk;
@@ -465,6 +587,12 @@ void testSkillsAndTrophies(SelfTest& t) {
             m.saddled = false;
             m.companion = true;
             check(g.companionAnimal() == &m && !g.saddledMount(), "a companion is not a saddled mount (set in the animal panel)");
+            {
+                bool ok = true;
+                for (const MountDef& md : MOUNTS) ok = ok && mountSpeed(md.kind, 0) > 1.1f && mountSpeed(md.kind, 0) < 1.5f && mountSpeed(md.kind, 3) < 1.65f;
+                check(ok, "balance: every mount is clearly faster than walking but below the hunter's own sprint speed (x1.55)");
+                check(MOUNT_SPRINT_MUL < 1.55f && MOUNT_SPRINT_DRAIN < 1.f, "balance: a mount's sprint adds less and tires the rider more slowly");
+            }
             g.p.sk = keepSk;
             g.p.dead = false;
         }

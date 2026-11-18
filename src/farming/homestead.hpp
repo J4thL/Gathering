@@ -130,6 +130,7 @@ static const DomDef DOMS[DA_COUNT + 1] = {
 constexpr int H_MAX_ANIMALS = 26;
 constexpr float FEED_FULL = 100.f, FEED_DECAY = 0.30f;  // fullness lost per second (a full belly lasts ~5 minutes)
 constexpr float BREED_CD = 300.f;
+constexpr float MOUNT_BREED_UPGRADE = 0.12f;  // chance that a raised foal is one rarity tier above its better parent
 
 // ---------------------------------------------------------------- state
 struct HPiece {

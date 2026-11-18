@@ -212,10 +212,11 @@ void Game::updatePlayer(float dt) {
     float drain = 1.f, regen = 1.f;
     climateMods(drain, regen);
     bool sprinting = false;
+    const bool riding = riddenMount() != nullptr;
     if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
         sprinting = true;
-        spd *= 1.55f;
-        P.stamina -= 24 * dt * drain;
+        spd *= riding ? MOUNT_SPRINT_MUL : 1.55f;
+        P.stamina -= 24 * dt * drain * (riding ? MOUNT_SPRINT_DRAIN : 1.f);
         P.staDelay = 0.7f;
         if (P.stamina <= 0) {
             P.stamina = 0;
@@ -387,6 +388,7 @@ void Game::updatePlayer(float dt) {
         }
     }
     if (in.mountPressed) toggleMount();
+    if (in.commandPressed) companionOrder();
     updateMount(dt, moving);
     if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};

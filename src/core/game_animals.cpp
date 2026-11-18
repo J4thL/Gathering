@@ -215,6 +215,7 @@ void Game::updateAnimals(float dt) {
         if (a.huntCd > 0) a.huntCd -= dt;
         if (a.flash > 0) a.flash -= dt;
         if (a.hpShow > 0) a.hpShow -= dt;
+        if (a.scoutT > 0) a.scoutT -= dt;
         if (a.atkCd > 0) a.atkCd -= dt;
         // knockback dies away fast on a living animal; a dying one keeps its momentum and slides to a stop (friction, not a cut-off)
         if (a.kb.len() > (a.dead ? 2.f : 3.f)) {

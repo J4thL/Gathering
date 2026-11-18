@@ -246,6 +246,15 @@ inline Img mkIconCarry(int c) {
             im.rect(1, 1, 3, 3, HEX(0xd6b886));
             break;
         }
+        case CG_SADDLEBAG: {  // two leather bags hanging over a strap, with buckles
+            const u32 a = HEX(0x8a5a2c), d = HEX(0x5e3d22), l = HEX(0xb07a44);
+            im.rect(1, 6, 5, 8, a); im.rect(10, 6, 5, 8, a);
+            im.rect(1, 6, 5, 2, d); im.rect(10, 6, 5, 2, d);
+            im.rect(2, 8, 1, 4, l); im.rect(11, 8, 1, 4, l);
+            im.rect(6, 4, 4, 2, d); im.rect(5, 2, 6, 2, a);
+            im.set(3, 10, HEX(0xf2c94c)); im.set(12, 10, HEX(0xf2c94c));
+            break;
+        }
         case CG_QUIVER: {  // a tall leather tube with fletched arrows poking out
             const u32 a = HEX(0x8a5a2c), d = HEX(0x5e3d22);
             im.rect(5, 5, 6, 10, a); im.rect(5, 12, 6, 3, d); im.rect(5, 5, 6, 1, d);

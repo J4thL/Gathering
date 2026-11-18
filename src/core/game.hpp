@@ -34,7 +34,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false;  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -63,6 +63,8 @@ struct Animal {
     V2 pos, vel, kb;
     int hp = 1, maxhp = 1;
     bool dead = false;
+    V2 printAt;            // where it last left a footprint
+    float scoutT = 0.f;    // seconds left that the companion's scouting marks it on the minimap
     bool tracked = false;  // a wounded quarry that bled out of sight: its carcass is marked on the maps until the hunter finds it
     float deadT = 0;
     int face = 1;
@@ -166,6 +168,7 @@ struct Proj {
 };
 // how long things lie around before they are gone (seconds); the last DESPAWN_WARN seconds they blink
 constexpr float THROWN_LIFE = 300.f;         // a thrown weapon or an arrow
+constexpr int DROP_ICON = 10;                // pixels a dropped stack's icon is drawn at in the world (the item icons are 16 px)
 constexpr float DROP_LIFE = 600.f;           // a stack the hunter dropped (or a baby a kill left)
 constexpr float CORPSE_LIFE = 180.f;         // a carcass; a legendary one lasts CORPSE_LIFE_LEGEND
 constexpr float CORPSE_LIFE_LEGEND = 300.f;
@@ -194,6 +197,18 @@ struct FText {
     u32 col;
     float t, life;
 };
+// an animal's footprint: fresh ones are easy to see; the Tracking skill lets the hunter see them from farther and keeps them longer
+struct Track {
+    V2 p;
+    int kind;
+    float t, life;
+    bool read;  // the hunter has already studied this one (pays Tracking XP once)
+};
+constexpr float TRACK_STEP = 13.f;       // an animal leaves a print every this many pixels
+constexpr float TRACK_LIFE = 40.f;       // seconds a print lasts at Tracking 0
+constexpr float TRACK_SIGHT = 70.f;      // how far from the hunter prints are visible at Tracking 0
+constexpr float TRACK_SPAWN_RANGE = 340.f;  // animals farther away than this leave no prints (they could not be seen anyway)
+constexpr size_t TRACK_MAX = 400;
 struct Decal {
     V2 p;
     int size;
@@ -291,6 +306,10 @@ struct Game {
     std::vector<Part> parts;
     std::vector<FText> ftexts;
     std::vector<Decal> decals;
+    std::vector<Track> tracks;
+    float trackReadCd = 0.f;
+    void updateTracks(float dt);   // animals leave prints; the hunter reads them (game_tracks.cpp)
+    void drawTracks();
     std::deque<Msg> msgs;
     std::vector<Fly> flies;
     std::vector<Flake> flakes;
@@ -408,7 +427,10 @@ struct Game {
     void trialAdvance(int n);          // adds to the trial's count and pays it once when it is full
     std::string trialLabel() const;    // "HUNT 5 WOLF", "HUNT A LEGENDARY" or "CATCH 6 FISH"
     // the companion (animals/companion.cpp)
-    struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; } companion;
+    // orders (K_COMMAND cycles them): follow (default), fetch the weapons and arrows you threw, scout (marks the animals around on the minimap)
+    enum CompanionMode { CM_FOLLOW, CM_FETCH, CM_SCOUT, CM_COUNT };
+    struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; int mode = CM_FOLLOW; bool fetching = false; V2 fetchPos; float orderT = 0; } companion;
+    void companionOrder();
     HAnimal* companionAnimal();
     static int bondLevel(int bond);
     float companionDamage() const;
@@ -540,6 +562,7 @@ struct Game {
     static constexpr float PARK_RANGE = 520.f;
     struct Parked { bool active = false; V2 pos; int face8 = 0; float animT = 0; int map = -1; } parked;
     void parkedHome(bool say);
+    int mountKgNow(const HAnimal& m) const;
     void updateParked(float dt);
     void drawParked();
     bool inWilds() const { return !inHomestead() && interior < 0 && delve < 0 && world.mapId < B_COUNT; }
@@ -839,6 +862,8 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER };
+    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void drawWorldMap();             // the full-map screen (M), game_map.cpp
     void updateWorldMap(float dt);
     void drawBiomeFx();

@@ -121,20 +121,23 @@ void Game::drawMinimap() {
     fillRect(vx + vw, vy, 1, vh + 1, wc);
     // shop and elder (home only), and the gates to the other maps in the colour of where they lead
     if (world.mapId == B_HOME) {
-        fillRect(mx(world.hut.x) - 1, my(world.hut.y) - 1, 3, 3, C_GOLD);
-        fillRect(mx(world.questGiver.x), my(world.questGiver.y), 2, 2, C_BLUE);
+        mapIcon(MI_HOUSE, mx(world.hut.x), my(world.hut.y), 5, C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, mx(bldDoorX(k, COX)), my(bldBaseY(k, COY) - 8.f), 5, BUILDINGS[k].roof);
+        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, mx(world.questGiver.x), my(world.questGiver.y), 5, C_BLUE);
     }
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
         const Portal& pt = MAPS[world.mapId].portals[i];
-        fillRect(ox + (pt.zone.x0 + pt.zone.x1) / 2 - 1, oy + (pt.zone.y0 + pt.zone.y1) / 2 - 1, 3, 3, BIOME[pt.toMap].col);
+        mapIcon(MI_PORTAL, ox + (pt.zone.x0 + pt.zone.x1) / 2, oy + (pt.zone.y0 + pt.zone.y1) / 2, 5, BIOME[pt.toMap].col);
     }
     // discovered landmarks, in their biome's colour
     for (auto& l : world.landmarks)
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
-    // carcasses that still hold materials
+    // animals the scouting companion sniffed out: green for game, red for fighters (blinking as the mark runs out)
+    for (auto& a : animals)
+        if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
+    // a wounded quarry that bled out of sight is marked (a pulsing ring)
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
-            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
                 fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);

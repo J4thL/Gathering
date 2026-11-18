@@ -12,6 +12,45 @@ static const char* compassWord(float dx, float dy) {
     return dx > 0 ? "NORTH-EAST" : "NORTH-WEST";
 }
 
+// Small pixel icons for the maps. Letters: r the accent colour, w cream wall, d dark, y gold, g green, c light, b blue.
+void Game::mapIcon(int kind, int cx, int cy, int sz, u32 col) {
+    static const char* const HOUSE7[7] = {"...r...", "..rrr..", ".rrrrr.", "rrrrrrr", ".wwwww.", ".wwdww.", ".wwdww."};
+    static const char* const HOUSE5[5] = {"..r..", ".rrr.", "rrrrr", ".wdw.", ".wdw."};
+    static const char* const PORT7[7] = {"..rrr..", ".r...r.", "r..c..r", "r.ccc.r", "r..c..r", ".r...r.", "..rrr.."};
+    static const char* const PORT5[5] = {".rrr.", "r...r", "r.c.r", "r...r", ".rrr."};
+    static const char* const BADGE7[7] = {"..yyy..", ".yydyy.", "yyydyyy", "yyydyyy", "yyyyyyy", ".yydyy.", "..yyy.."};  // "!"
+    static const char* const BADGE5[5] = {".yyy.", "yydyy", "yydyy", "yyyyy", ".ydy."};
+    static const char* const ASK7[7] = {"..ggg..", ".ggdgg.", "ggggdgg", "gggdggg", "ggggggg", ".ggdgg.", "..ggg.."};  // "?"
+    static const char* const ASK5[5] = {".ggg.", "gdddg", "gggdg", "ggggg", ".gdg."};
+    static const char* const ELD7[7] = {"..bbb..", ".bbbbb.", ".bcbcb.", ".bbbbb.", "..bbb..", ".bbbbb.", "bbbbbbb"};
+    static const char* const ELD5[5] = {".bbb.", "bcbcb", ".bbb.", "bbbbb", "b.b.b"};
+    const bool big = sz >= 7;
+    const char* const* pat = nullptr;
+    switch (kind) {
+        case MI_HOUSE: pat = big ? HOUSE7 : HOUSE5; break;
+        case MI_PORTAL: pat = big ? PORT7 : PORT5; break;
+        case MI_QUEST_NEW: pat = big ? BADGE7 : BADGE5; break;
+        case MI_QUEST_READY: pat = big ? ASK7 : ASK5; break;
+        default: pat = big ? ELD7 : ELD5; break;
+    }
+    const int n = big ? 7 : 5;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            u32 c;
+            switch (pat[y][x]) {
+                case '.': continue;
+                case 'r': c = col; break;
+                case 'w': c = HEX(0xefe2c0); break;
+                case 'd': c = HEX(0x3a2616); break;
+                case 'y': c = C_GOLD; break;
+                case 'g': c = C_GREEN; break;
+                case 'c': c = HEX(0xf4f0ea); break;
+                default: c = C_BLUE; break;
+            }
+            fillRect(cx - n / 2 + x, cy - n / 2 + y, 1, 1, c);
+        }
+}
+
 void Game::updateWorldMap(float dt) {
     updateFx(dt);
     if (in.escPressed || in.mapToggle) {
@@ -45,18 +84,27 @@ void Game::drawWorldMap() {
             }
     auto sx = [&](float wx) { return ox + (int)(wx / TS / MM_DIV * K); };
     auto sy = [&](float wy) { return oy + (int)(wy / TS / MM_DIV * K); };
-    // the shop and the elder (home only)
+    // the shop, the town's buildings and the elder (home only); a building's name shows while the mouse is over its icon
     if (world.mapId == B_HOME) {
-        fillRect(sx(world.hut.x) - 2, sy(world.hut.y) - 2, 5, 5, C_GOLD);
-        text(sx(world.hut.x) + 5, sy(world.hut.y) - 3, "SHOP", C_GOLD);
-        fillRect(sx(world.questGiver.x) - 1, sy(world.questGiver.y) - 1, 4, 4, C_BLUE);
-        text(sx(world.questGiver.x) + 5, sy(world.questGiver.y) - 3, "ELDER", C_BLUE);
+        mapIcon(MI_HOUSE, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
+        text(sx(world.hut.x) + 6, sy(world.hut.y) - 3, "SHOP", C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) {
+            const int bx = sx(bldDoorX(k, COX)), by = sy(bldBaseY(k, COY) - 8.f);
+            mapIcon(MI_HOUSE, bx, by, 7, BUILDINGS[k].roof);
+            if (inRect(bx - 4, by - 4, 9, 9)) {
+                const int lx = std::max(ox + 1, std::min(ox + mw - textW(BUILDINGS[k].name) - 1, bx - textW(BUILDINGS[k].name) / 2));
+                text(lx, by + 6, BUILDINGS[k].name, C_TEXT);
+            }
+        }
+        const int ex = sx(world.questGiver.x), ey = sy(world.questGiver.y);
+        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, ex, ey, 7, C_BLUE);
+        text(ex + 6, ey - 3, !questActive ? "QUEST" : questReady() ? "TURN IN" : "ELDER", !questActive ? C_GOLD : questReady() ? C_GREEN : C_BLUE);
     }
     // gates, named for where they lead
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
         const Portal& pt = MAPS[world.mapId].portals[i];
         const int gx = ox + (pt.zone.x0 + pt.zone.x1) / 2 * K / MM_DIV, gy = oy + (pt.zone.y0 + pt.zone.y1) / 2 * K / MM_DIV;
-        fillRect(gx - 2, gy - 2, 5, 5, BIOME[pt.toMap].col);
+        mapIcon(MI_PORTAL, gx, gy, 7, BIOME[pt.toMap].col);
         const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, gx - textW(lb) / 2));
         text(lx, std::min(oy + mh - 8, gy + 5), lb, BIOME[pt.toMap].col);
@@ -77,10 +125,11 @@ void Game::drawWorldMap() {
         const bool open = gateOpen[gr.map];
         if (button(4, gy2, 70, 22, std::string(MAPS[gr.map].name) + (open ? " OPEN" : " SEALED"), true, open ? HEX(0x3a5a2e) : HEX(0x5a3a2a))) openGateView(gr.map);
     }
-    // carcasses that still hold materials
+    for (auto& a : animals)  // animals the scouting companion sniffed out
+        if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(sx(a.pos.x), sy(a.pos.y), 3, 3, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
+    // only a wounded quarry that bled out of sight is marked (a pulsing ring); ordinary kills are not
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
-            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
                 fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);

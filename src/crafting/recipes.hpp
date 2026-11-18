@@ -83,6 +83,7 @@ static const Recipe RECIPES[] = {
     {RK_ITEM, itemCarry(CG_DESERTWRAPS), 1, {M_LEATHER, M_FENNECEAR, M_HARETAIL}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 20},
     {RK_ITEM, itemCarry(CG_WADERS), 1, {M_LEATHER, M_GREASE, M_BOGHOOF}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 22},
     {RK_ITEM, itemCarry(CG_PARKA), 1, {M_LEATHER, M_RAMFLEECE, M_DUCKDOWN}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 24},
+    {RK_ITEM, itemCarry(CG_SADDLEBAG), 1, {M_LEATHER, M_ROPE, M_BONE}, {4, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 18},
     {RK_ITEM, itemCarry(CG_HARNESS), 1, {M_LEATHER, M_GOATBEARD, M_ROPE}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 26},
     {RK_ITEM, itemCarry(CG_VENOMWRAPS), 1, {M_LEATHER, M_FROGGLAND, M_RATTLE}, {3, 2, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 28},
 
@@ -130,6 +131,26 @@ static const Recipe RECIPES[] = {
     // ---- the flower shop's cut flowers tied into bouquets (a trade good worth more than the flowers cost)
     {RK_ITEM, itemMat(M_BOUQUET), 1, {M_ROSE, M_TULIP, M_LAVENDER}, {1, 1, 1}, RC_MATERIALS, STN_ANY, SK_CRAFTING, 1},
     {RK_ITEM, itemMat(M_BOUQUET), 1, {M_SUNFLOWER, M_FIBER, -1}, {3, 1, 0}, RC_MATERIALS, STN_ANY, SK_CRAFTING, 1},
+    // ---- second routes: the same goods from other finds, so what the pack happens to hold is never wasted (all new recipes only use existing items)
+    {RK_ITEM, itemCons(C_TONIC), 2, {M_HERB, M_MUSHROOM, -1}, {2, 2, 0}, RC_MEDICINE, STN_ANY, SK_ALCHEMY, 5},
+    {RK_ITEM, itemCons(C_SALVE), 3, {M_SAGE, M_FIBER, -1}, {2, 1, 0}, RC_MEDICINE, STN_ANY, SK_ALCHEMY, 6},
+    {RK_ITEM, itemCons(C_BREW), 2, {M_SAGE, M_HERB, -1}, {2, 2, 0}, RC_SURVIVAL, STN_FIRE, SK_ALCHEMY, 7},
+    {RK_ITEM, itemCons(C_COOKED), 3, {M_MEAT, M_HERB, -1}, {3, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 5},
+    {RK_ITEM, itemCons(C_JERKY), 5, {M_MEAT, M_GREASE, -1}, {4, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 8},
+    {RK_ITEM, itemCons(C_STEW), 3, {M_MEAT, M_HERB, M_MUSHROOM}, {3, 2, 2}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 10},
+    {RK_ITEM, itemCons(C_MEDICINE), 2, {M_EXTRACT, M_ORGAN, M_FIBER}, {2, 2, 1}, RC_MEDICINE, STN_FIRE, SK_ALCHEMY, 17},
+    {RK_ITEM, itemCons(C_VIGOR), 2, {M_DEERSINEW, M_EXTRACT, M_HERB}, {1, 2, 1}, RC_MEDICINE, STN_FIRE, SK_ALCHEMY, 22},
+    {RK_ITEM, itemMat(M_EXTRACT), 2, {M_MUSHROOM, M_HERB, -1}, {3, 1, 0}, RC_MATERIALS, STN_FIRE, SK_ALCHEMY, 4},
+    {RK_ITEM, itemMat(M_COPPERBAR), 2, {M_COPPER, M_COAL, -1}, {3, 1, 0}, RC_MATERIALS, STN_FIRE, SK_SMITHING, 15},
+    {RK_ITEM, itemMat(M_IRONBAR), 2, {M_IRON, M_COAL, -1}, {3, 1, 0}, RC_MATERIALS, STN_FIRE, SK_SMITHING, 12},
+    {RK_ITEM, itemMat(M_GREASE), 3, {M_MARROW, -1, -1}, {2, 0, 0}, RC_MATERIALS, STN_FIRE, SK_COOKING, 6},
+    {RK_AMMO, AM_ARROW, 10, {M_PLANK, M_FEATHER, M_BONEFRAG}, {1, 2, 2}, RC_AMMO, STN_ANY, SK_CRAFTING, 6},
+    {RK_AMMO, AM_ARROW, 12, {M_COPPERBAR, M_FEATHER, M_BRANCH}, {1, 2, 2}, RC_AMMO, STN_FIRE, SK_SMITHING, 9},
+    {RK_AMMO, AM_BOLT, 6, {M_PLANK, M_BONEFRAG, M_FEATHER}, {1, 2, 1}, RC_AMMO, STN_ANY, SK_CRAFTING, 10},
+    {RK_WEAPON, W_JAVELIN, 4, {M_PLANK, M_FEATHER, M_BONEFRAG}, {1, 1, 2}, RC_WEAPONS, STN_ANY, SK_CRAFTING, 5},
+    {RK_WEAPON, W_BOW, 1, {M_PLANK, M_ROPE, M_DEERSINEW}, {2, 1, 1}, RC_WEAPONS, STN_ANY, SK_CRAFTING, 8},
+    {RK_ITEM, itemPlace(PL_CAMPFIRE), 1, {M_PLANK, M_STONE, M_GREASE}, {2, 3, 1}, RC_SURVIVAL, STN_ANY, SK_BUILDING, 6},
+    {RK_ITEM, itemCarry(CG_SADDLEBAG), 1, {M_LEATHER, M_FIBER, M_PLANK}, {3, 3, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 22},
 };
 constexpr int RECIPE_N = sizeof(RECIPES) / sizeof(RECIPES[0]);
 

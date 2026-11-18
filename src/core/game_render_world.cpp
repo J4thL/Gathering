@@ -100,12 +100,13 @@ void Game::renderWorld(bool) {
         float a = std::min(1.f, (d.life - d.t) / 8.f) * 0.9f;
         sprW(A.blood[d.size], d.p.x, d.p.y, false, a);
     }
+    drawTracks();
     // thrown weapons lying on the ground
     for (auto& it : items) {
         const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
         if (left < DESPAWN_WARN && despawnBlink(timeAcc + it.pos.x * 0.01f)) continue;  // about to vanish: blinks
         sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f);
-        if (it.item >= 0) sprW(itemIcon(it.item), it.pos.x, it.pos.y - 5, false, 1.f);  // a stack the hunter dropped
+        if (it.item >= 0) icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON);  // a stack the hunter dropped: a small icon, not a whole tile
         else sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
         float g = fmodf(timeAcc + it.pos.x * 0.01f, 1.8f);
         if (g < 0.25f) {

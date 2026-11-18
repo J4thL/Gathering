@@ -383,6 +383,7 @@ void Game::updatePlay(float dt) {
     p.swiftT = std::max(0.f, p.swiftT - dt);
     p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
+    updateTracks(dt);
     updateGrass(dt);
     updateVillagers(dt);
     updateElder(dt);

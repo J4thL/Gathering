@@ -245,7 +245,7 @@ void Game::drawAnimalMenu() {
         if (const HPiece* hp = hsPiece(sel->home)) homeName = HPDEF[hp->kind].name;
         text(dx + 6, top + 82, "HOME: " + homeName, C_TEXT);
         text(dx + 6, top + 92, sel->kind == DA_MOUNT ? (!adult ? "TOO YOUNG TO RIDE" : sel->saddled ? "SADDLED - PRESS V TO RIDE" : "SADDLE IT TO RIDE (V)") : adult && D.product >= 0 ? std::string(D.prodName) + " WAITING: " + S(sel->stock) : "NOT PRODUCING YET", C_DIM, 1, false);
-        text(dx + 6, top + 102, sel->kind == DA_MOUNT ? (sel->companion ? "COMPANION - BOND LEVEL " + S(bondLevel(sel->bond) + 1) : std::string("")) : sel->breedCd > 0 && adult ? "BREEDS AGAIN IN " + S((int)sel->breedCd) + "S" : (adult ? "READY TO BREED" : ""), C_DIM, 1, false);
+        text(dx + 6, top + 102, sel->kind == DA_MOUNT ? (sel->companion ? "COMPANION - BOND LEVEL " + S(bondLevel(sel->bond) + 1) : sel->breedCd > 0 && adult ? "BREEDS AGAIN IN " + S((int)sel->breedCd) + "S" : (adult ? "READY TO BREED WITH ITS OWN KIND" : std::string(""))) : sel->breedCd > 0 && adult ? "BREEDS AGAIN IN " + S((int)sel->breedCd) + "S" : (adult ? "READY TO BREED" : ""), C_DIM, 1, false);
         const int by = top + 122, bw = (dw - 6) / 2;
         if (button(dx, by, bw, 14, "FEED", true, HEX(0x5d7a2e))) hsFeed(*sel);
         if (sel->kind == DA_MOUNT) {  // a mount has nothing to collect: that button makes it the companion that walks with the hunter

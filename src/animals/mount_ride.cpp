@@ -14,6 +14,11 @@ HAnimal* Game::saddledMount() {
     return nullptr;
 }
 
+// the carrying weight a mount adds right now: its own, plus half again with saddlebags in the pack
+int Game::mountKgNow(const HAnimal& m) const {
+    return (int)lroundf(mountCarry(m.species, m.tier) * (p.has(CG_SADDLEBAG) ? 1.5f : 1.f));
+}
+
 // The parked mount goes back to its pen (the hunter wandered off, left the outdoors, or it was needed elsewhere).
 void Game::parkedHome(bool say) {
     if (!parked.active) return;
@@ -80,7 +85,7 @@ bool Game::toggleMount() {
     parked.active = false;
     m->away = false;
     m->ridden = true;
-    p.mountKg = mountCarry(m->species, m->tier);
+    p.mountKg = mountKgNow(*m);
     p.syncPack();
     msg(std::string(called ? "YOU CALL YOUR " : "YOU MOUNT THE ") + ANIMAL[m->species].name + " +" + S(p.mountKg) + " KG", C_GREEN);
     audio.play(S_CLICK);
@@ -125,6 +130,8 @@ void Game::updateMount(float dt, bool moving) {
     m->px = m->tx = p.pos.x;
     m->py = m->ty = p.pos.y;
     m->face8 = p.face8;
+    const int kg = mountKgNow(*m);  // saddlebags picked up (or dropped) while riding
+    if (kg != p.mountKg) { p.mountKg = kg; p.syncPack(); }
     mountMoving = moving;
     mountAnimT += dt * (moving ? 1.f : 0.f);
 }
