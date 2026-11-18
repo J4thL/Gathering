@@ -210,15 +210,15 @@ void Game::render() {
     switch (state) {
         case ST_TITLE: drawTitle(); break;
         case ST_PLAY: drawHud(); drawHsHud(); drawPortalFx(); break;
-        case ST_BUILD: drawHud(); drawBuildMenu(); break;
-        case ST_FARM: drawHud(); drawFarmMenu(); break;
-        case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
-        case ST_MARKET: drawHud(); drawMarket(); break;
+        case ST_BUILD: drawHud(); { SkinScope sk(packSkin); drawBuildMenu(); } break;
+        case ST_FARM: drawHud(); { SkinScope sk(packSkin); drawFarmMenu(); } break;
+        case ST_ANIMAL: drawHud(); { SkinScope sk(packSkin); drawAnimalMenu(); } break;
+        case ST_MARKET: drawHud(); { SkinScope sk(packSkin); drawMarket(); } break;
         case ST_SHOP: {
             drawHud();
             const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;  // the sell slider takes every click while open
             if (modal) in.uiClick = false;
-            drawShop();
+            { SkinScope sk(packSkin); drawShop(); }
             if (modal) in.uiClick = clk;
             amountDraw();
             break;
@@ -227,7 +227,7 @@ void Game::render() {
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_SETTINGS: drawHud(); drawSettings(); break;
         case ST_HELP: drawHud(); drawHelp(); break;
-        case ST_QUEST: drawHud(); drawQuestPanel(); break;
+        case ST_QUEST: drawHud(); { SkinScope sk(packSkin); drawQuestPanel(); } break;
         case ST_GATE: drawHud(); drawGatePanel(); break;
         case ST_INVENTORY: case ST_CHEST: {
             drawHud();
@@ -235,7 +235,7 @@ void Game::render() {
             const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;
             if (modal) in.uiClick = false;
             if (state == ST_INVENTORY) drawInventory();
-            else drawChest();
+            else { SkinScope sk(packSkin); drawChest(); }
             if (modal) in.uiClick = clk;
             amountDraw();
             break;

@@ -8,7 +8,7 @@ constexpr int PX = 24, PY = 12, PW = 352, PH = 200;
 void frame(Game& g, const std::string& title) {
     g.fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
     g.panel(PX, PY, PW, PH, HEX(0x4a3524));
-    g.fillRect(PX + 3, PY + 3, PW - 6, 14, UI_BG);
+    g.fillRect(PX + 3, PY + 3, PW - 6, 14, g.skinFill(UI_BG));
     g.text(PX + 8, PY + 7, title, C_GOLD);
 }
 struct ToolBuy { int tool; int price; };
