@@ -442,6 +442,7 @@ struct Game {
     bool init(bool headless);
     void shutdown();
     void present();
+    void targetCanvas();  // draw into the canvas in logical coordinates (see LS)
     void saveCanvas(const char* path);
     std::string savePath();
     void save();

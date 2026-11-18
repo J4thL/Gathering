@@ -610,7 +610,7 @@ static void townTour(Game& g, const std::string& dir) {
 // ---- sprite sheet (flag: --sprites DIR): the hunter (every direction and frame) and every animal's first form, for judging the art
 static void spriteSheet(Game& g, const std::string& dir) {
     auto page = [&](const char* name, const std::vector<const Spr*>& list, int cols, int cellW, int cellH) {
-        SDL_SetRenderTarget(g.ren, g.canvas);
+        g.targetCanvas();
         SDL_SetRenderDrawColor(g.ren, 96, 168, 80, 255);
         SDL_RenderClear(g.ren);
         for (size_t i = 0; i < list.size(); i++) {

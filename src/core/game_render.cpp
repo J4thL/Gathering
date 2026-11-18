@@ -48,7 +48,7 @@ void Game::text(int x, int y, const std::string& s, u32 col, int sc, bool shadow
     int so = std::max(1, sc / 2);
     for (char ch : s) {
         int idx = glyphIndex(ch);
-        SDL_Rect src{idx * 4, 0, 3, 5};
+        SDL_Rect src{idx * 4 * LS, 0, 3 * LS, 5 * LS};  // the font atlas is stored at LS x resolution
         if (shadow) {
             SDL_Rect dd{cx + so, y + so, 3 * sc, 5 * sc};
             SDL_SetTextureColorMod(A.font, 20, 12, 6);
@@ -69,7 +69,7 @@ void Game::textOutlined(int x, int y, const std::string& s, u32 col, float alpha
     int cx = x;
     for (char ch : s) {
         int idx = glyphIndex(ch);
-        SDL_Rect src{idx * 4, 0, 3, 5};
+        SDL_Rect src{idx * 4 * LS, 0, 3 * LS, 5 * LS};  // the font atlas is stored at LS x resolution
         SDL_SetTextureColorMod(A.font, 20, 12, 6);
         SDL_SetTextureAlphaMod(A.font, (Uint8)(alpha * 255));
         const int off[4][2] = {{-1, 0}, {1, 0}, {0, -1}, {0, 1}};
@@ -196,8 +196,13 @@ void Game::drawPause() {
     textC(LW / 2, by + 34, "F11: FULLSCREEN", C_DIM, 1, false);
 }
 
-void Game::render() {
+void Game::targetCanvas() {
     SDL_SetRenderTarget(ren, canvas);
+    SDL_RenderSetScale(ren, (float)LS, (float)LS);  // drawing stays in logical coordinates; the canvas holds LS x LS pixels for each
+}
+
+void Game::render() {
+    targetCanvas();
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
@@ -249,8 +254,10 @@ void Game::present() {
     SDL_RenderClear(ren);
     int ww, wh;
     SDL_GetRendererOutputSize(ren, &ww, &wh);
-    float sc = std::min((float)ww / LW, (float)wh / LH);
-    if (sc >= 1.f) sc = floorf(sc);
+    // the canvas has LS x the logical pixels: whole multiples of it stay perfectly sharp, anything between is filtered (linear)
+    float sc = std::min((float)ww / (LW * LS), (float)wh / (LH * LS));
+    if (sc >= 1.f && fabsf(sc - roundf(sc)) < 0.02f) sc = roundf(sc);
+    sc *= LS;  // real pixels per logical pixel
     int dw = (int)(LW * sc), dh = (int)(LH * sc);
     offX = (float)((ww - dw) / 2);
     offY = (float)((wh - dh) / 2);
@@ -262,7 +269,7 @@ void Game::present() {
 
 void Game::saveCanvas(const char* path) {
     SDL_SetRenderTarget(ren, canvas);
-    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, LW, LH, 32, SDL_PIXELFORMAT_ARGB8888);
+    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, LW * LS, LH * LS, 32, SDL_PIXELFORMAT_ARGB8888);
     SDL_RenderReadPixels(ren, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
     SDL_SaveBMP(s, path);
     SDL_FreeSurface(s);

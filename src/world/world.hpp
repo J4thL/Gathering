@@ -10,6 +10,7 @@ constexpr int TS = 16;
 constexpr int CW = 88, CH = 60;                          // the original Wildwood area (the core of the home map)
 constexpr int MW = 240, MH = 168;                        // size of EVERY map
 constexpr int COX = (MW - CW) / 2, COY = (MH - CH) / 2;  // where the original area starts inside the home map (in tiles)
+constexpr int LS = 2;                                   // the canvas has LS x LS real pixels per logical pixel (finer sprites / text, same layout)
 constexpr int LW = 400, LH = 225;                        // logical (pixel-art) resolution
 constexpr int MM_DIV = 3;                                // minimap: one pixel per MM_DIV x MM_DIV tiles
 constexpr int MM_W = MW / MM_DIV, MM_H = MH / MM_DIV;
