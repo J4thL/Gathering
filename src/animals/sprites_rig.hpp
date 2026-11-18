@@ -45,7 +45,17 @@ struct BPose {
     float tuck = 0;           // birds: feet tucked back under the tail (+1) or reaching forward to land (-1)
 };
 
-inline BPose quadPose(int st, int i) {
+// Smooth gaits: the walk and run cycles are drawn with more frames than they have key poses. `cyc` reads a looping table of key values
+// at a fractional position, so a 5- or 6-key cycle plays as 10 or 12 frames with the in-between steps blended.
+inline float cyc(const float* a, int n, float t) {
+    const int i0 = ((int)floorf(t) % n + n) % n, i1 = (i0 + 1) % n;
+    const float f = t - floorf(t);
+    return a[i0] + (a[i1] - a[i0]) * f;
+}
+constexpr int QUAD_WALK_N = 12, QUAD_RUN_N = 10, HOP_N = 12;  // frames per cycle (the older monster art keeps 6 / 5)
+
+// `n`: frames in the cycle for the walk / run (0 = the key count)
+inline BPose quadPose(int st, int i, int n = 0) {
     BPose p;
     switch (st) {
         case AN_IDLE: {  // six poses: a slow breath, the head sweeping up and round, a weight shift, an ear flick and a tail swish
@@ -61,7 +71,7 @@ inline BPose quadPose(int st, int i) {
             break;
         }
         case AN_WALK:
-            p.phase = i * 6.28318f / 6.f;
+            p.phase = i * 6.28318f / (n ? n : 6);
             p.stride = 2.7f;
             p.lift = 1.7f;
             p.bob = 0.7f * fabsf(cosf(p.phase)) - 0.2f;  // rises over each planted leg pair
@@ -73,18 +83,21 @@ inline BPose quadPose(int st, int i) {
             break;
         case AN_RUN: {
             static const float BOB[5] = {0.3f, 0.9f, 1.6f, 0.9f, 0.3f};
-            p.phase = i * 6.28318f / 5.f;
+            const int N = n ? n : 5;
+            const float kt = i * 5.f / N;  // position among the 5 key poses
+            p.phase = i * 6.28318f / N;
             p.stride = 4.6f;
             p.lift = 2.8f;
-            p.bob = BOB[i];
+            p.bob = cyc(BOB, 5, kt);
             p.headDx = 1.2f;
             p.headDz = -0.9f;
             p.bodyDx = 0.6f;
-            p.air = (i == 2) ? 1.2f : 0.f;
+            static const float AIRK[5] = {0.f, 0.f, 1.2f, 0.f, 0.f}, SQK[5] = {0.25f, 0.f, 0.f, 0.f, 0.f};
+            p.air = cyc(AIRK, 5, kt);
             p.tail = 1.f;
             static const float PIT[5] = {-0.2f, 0.1f, 0.3f, 0.1f, -0.2f};  // gather (back arched, nose down), then stretch out
-            p.pitch = PIT[i];
-            p.squash = (i == 0) ? 0.25f : 0.f;
+            p.pitch = cyc(PIT, 5, kt);
+            p.squash = cyc(SQK, 5, kt);
             break;
         }
         case AN_ATTACK: {
@@ -152,7 +165,7 @@ inline BPose quadPose(int st, int i) {
 }
 
 // Poses for the hoppers: a hop is crouch, push off (legs stretched), rise, peak, fall, land. `air` is the height of the hop.
-inline BPose hopPose(int st, int i) {
+inline BPose hopPose(int st, int i, int n = 0) {
     BPose p;
     switch (st) {
         case AN_IDLE: {  // sitting up on the haunches: 0 sit, 1 nose twitch, 2 head down nibbling, 3 head up chewing
@@ -168,20 +181,21 @@ inline BPose hopPose(int st, int i) {
             p.hind = 0.f;
             break;
         }
-        case AN_WALK: {
+        case AN_WALK: {  // (6 key poses, played as n frames)
             static const float AIR[6] = {0.f, 0.6f, 1.6f, 2.2f, 1.2f, 0.2f}, HIND[6] = {0.f, 1.f, 0.9f, 0.6f, 0.3f, 0.1f},
                                FORE[6] = {0.5f, 1.f, 0.9f, 0.6f, 0.3f, -0.2f}, PITCH[6] = {-0.2f, 0.8f, 0.5f, 0.f, -0.5f, -0.4f},
-                               SQ[6] = {0.4f, 0.f, 0.f, 0.f, 0.f, 0.3f};
-            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
-            p.ear = i >= 3 ? 0.f : 0.f;
-            p.tail = (i == 5) ? 1.f : 0.f;
+                               SQ[6] = {0.4f, 0.f, 0.f, 0.f, 0.f, 0.3f}, TAIL[6] = {0.f, 0.f, 0.f, 0.f, 0.f, 1.f};
+            const float t = i * 6.f / (n ? n : 6);
+            p.air = cyc(AIR, 6, t); p.hind = cyc(HIND, 6, t); p.fore = cyc(FORE, 6, t); p.pitch = cyc(PITCH, 6, t); p.squash = cyc(SQ, 6, t);
+            p.tail = cyc(TAIL, 6, t);
             break;
         }
         case AN_RUN: {
             static const float AIR[6] = {0.f, 1.4f, 3.2f, 4.2f, 2.6f, 0.4f}, HIND[6] = {0.f, 1.2f, 1.3f, 1.2f, 0.8f, 0.2f},
                                FORE[6] = {0.3f, 1.2f, 1.2f, 1.f, 0.8f, -0.1f}, PITCH[6] = {-0.3f, 0.6f, 0.2f, -0.1f, -0.5f, -0.4f},
                                SQ[6] = {0.6f, 0.f, 0.f, 0.f, 0.f, 0.4f};
-            p.air = AIR[i]; p.hind = HIND[i]; p.fore = FORE[i]; p.pitch = PITCH[i]; p.squash = SQ[i];
+            const float t = i * 6.f / (n ? n : 6);
+            p.air = cyc(AIR, 6, t); p.hind = cyc(HIND, 6, t); p.fore = cyc(FORE, 6, t); p.pitch = cyc(PITCH, 6, t); p.squash = cyc(SQ, 6, t);
             p.headDx = 0.6f;
             p.tail = 1.f;
             break;
@@ -389,6 +403,13 @@ struct RigShape {
     float strideMul, liftMul, airMul;
     int W, H;                  // canvas at scale 1
 };
+
+// The pose of frame i of state st: walk and run cycles are the smooth (more-frame) versions for the rich quadrupeds and hoppers.
+inline BPose animPose(const RigShape& R, int st, int i) {
+    if (R.bird) return birdPose(st, i);
+    if (R.hopper) return hopPose(st, i, (st == AN_WALK || st == AN_RUN) ? HOP_N : 0);
+    return quadPose(st, i, st == AN_WALK ? QUAD_WALK_N : st == AN_RUN ? QUAD_RUN_N : 0);
+}
 
 inline RigShape boarShape() {
     RigShape r{};
@@ -953,7 +974,7 @@ inline void buildRichCombo(SDL_Renderer* r, RichAnimal& bank, int kind, int form
         Out& o = outs[j];
         Img im;
         int ax, ay;
-        const BPose pose = R.bird ? birdPose(jb.st, jb.i) : (R.hopper ? hopPose(jb.st, jb.i) : quadPose(jb.st, jb.i));
+        const BPose pose = animPose(R, jb.st, jb.i);
         im = paintQuad(sp, R, TIER[tier].scale, jb.v, pose);
         if (!R.flat) richenActor(im, OUT);  // the reference-finish animals (deer, boar) keep their own palette
         styleActor(im, OUT, R.flat ? 2 : 0);  // mode 0: dark contour tinted from the fill (as in the boar style reference); mode 2: no contour
