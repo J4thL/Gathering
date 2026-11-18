@@ -380,7 +380,7 @@ struct RigShape {
     int bird;                  // 0 not a bird; 1 duck, 2 roadrunner, 3 eagle (own body plan, wings and two legs; see the bird block in paintQuad)
     float wingL, wingC, neckL, billL, tailL;  // birds: wing span and chord, neck rise, bill length, tail length
     float scale;               // body scale on top of the rarity tier's (0 = 1): a species can be drawn larger and more detailed
-    int ref;                   // 0 drawn by the rig; 3 boar: drawn from the hand-made 32x32 pixel art (deer_ref.hpp / ref_art_boar32.hpp) in all four directions
+    int ref;                   // 0 drawn by the rig; 1 deer (deer_ref.hpp), 2 wolf; 3 boar: drawn from the hand-made 32x32 pixel art (deer_ref.hpp / ref_art_boar32.hpp) in all four directions
     bool flat;                 // the flat 'reference' finish: no dark contour, pink inner ears, cream throat, tan branching antlers
     bool hopper;               // hops on folded hind legs (rabbit, hares): own leg model, ear 3 (tall upright), tail 3 (cotton ball)
     int horns;                 // 0 none, 1 short goat horns, 2 curled ram horns, 3 flat palmate moose antlers (colour: QuadSpec::horn)
@@ -430,7 +430,7 @@ inline RigShape deerShape(bool stag) {
     r.ear = 4; r.earH = 4.0f; r.neck = 2.0f; r.tail = 2;
     r.antlers = stag; r.spots = false;
     r.strideMul = 1.35f; r.liftMul = 1.5f; r.airMul = 1.7f;
-    r.scale = 1.75f; r.flat = true;
+    r.scale = 1.75f; r.flat = true; r.ref = 1;  // the doe and stag are the hand-made pixel deer (deer_ref.hpp)
     r.W = 54; r.H = 58;
     return r;
 }
