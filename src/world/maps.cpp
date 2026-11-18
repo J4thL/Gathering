@@ -105,6 +105,7 @@ bool Game::travelTo(int map, int atx, int aty, bool autosave) {
     snapshotMap();
     structs.clear();
     chestOpen = -1;
+    tracks.clear();
     animals.clear();  // wildlife belongs to the place it lives in; home herds are repopulated, biome wildlife streams in
     projs.clear();
     parts.clear();

@@ -31,9 +31,12 @@ inline const MountDef* mountDef(int kind) {
 inline bool mountable(int kind) { return mountDef(kind) != nullptr; }
 
 // rarity tier (0 common .. 3 legendary) scales the numbers: faster, stronger, and a much better chance of a baby from a rare animal
+// Walking on a mount gains only part of the listed speed: a rider covers ground clearly faster than on foot (~70 px/s) but is not
+// quicker than the hunter's own sprint for free. Sprinting on a mount adds less than on foot (MOUNT_SPRINT_MUL) and tires the hunter more slowly.
+constexpr float MOUNT_SPEED_SHARE = 0.7f, MOUNT_SPRINT_MUL = 1.35f, MOUNT_SPRINT_DRAIN = 0.6f;
 inline float mountSpeed(int kind, int tier) {
     const MountDef* m = mountDef(kind);
-    return m ? m->speed + 0.05f * std::max(0, std::min(3, tier)) : 1.f;
+    return m ? 1.f + (m->speed + 0.05f * std::max(0, std::min(3, tier)) - 1.f) * MOUNT_SPEED_SHARE : 1.f;
 }
 inline int mountCarry(int kind, int tier) {
     const MountDef* m = mountDef(kind);

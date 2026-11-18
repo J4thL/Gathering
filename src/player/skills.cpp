@@ -61,7 +61,7 @@ void Game::skillLoadLine(std::istringstream& ss) {
 }
 
 void Game::drawSkillsTab(int X, int Y, int W, int H) {
-    const int rowH = 9, x0 = X + 8, cy = Y + 38;
+    const int rowH = 8, x0 = X + 8, cy = Y + 38;
     int hover = -1;
     for (int k = 0; k < SK_COUNT; k++) {
         const int y = cy + k * rowH;

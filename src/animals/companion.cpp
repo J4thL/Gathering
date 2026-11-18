@@ -49,6 +49,24 @@ void Game::companionKill() {
         }
 }
 
+const char* const COMPANION_ORDER_NAME[3] = {"FOLLOWS YOU", "FETCHES YOUR THROWN WEAPONS", "SCOUTS FOR GAME"};
+
+// K_COMMAND: cycle the companion's order (scouting needs bond level 2: 25 kills made together)
+void Game::companionOrder() {
+    HAnimal* a = companionAnimal();
+    if (!a || !companion.active) {
+        msg(a ? "YOUR COMPANION IS AT HOME - ORDERS WORK OUTSIDE" : "NO COMPANION - CHOOSE ONE IN THE HOMESTEAD ANIMAL LIST", C_DIM);
+        return;
+    }
+    int m = companion.mode;
+    do m = (m + 1) % CM_COUNT; while (m == CM_SCOUT && bondLevel(a->bond) < 1);
+    companion.mode = m;
+    companion.fetching = false;
+    companion.orderT = 0;
+    msg(std::string("YOUR ") + ANIMAL[a->species].name + " " + COMPANION_ORDER_NAME[m], C_GOLD);
+    audio.play(S_CLICK);
+}
+
 void Game::updateCompanion(float dt, bool forceWilds) {
     HAnimal* a = companionAnimal();
     const bool wilds = forceWilds || (!inHomestead() && interior < 0 && delve < 0 && world.mapId < B_COUNT);
@@ -69,11 +87,46 @@ void Game::updateCompanion(float dt, bool forceWilds) {
     }
     V2& pos = companion.pos;
     const V2 behind = p.pos - p.aim * 20.f;
-    const float d = dist(pos, behind);
-    if (dist(pos, p.pos) > 300.f) pos = behind;  // fell behind (a portal, a long run): it catches up
+    if (dist(pos, p.pos) > 300.f) { pos = behind; companion.fetching = false; }  // fell behind (a portal, a long run): it catches up
+    // ---- orders
+    V2 goal = behind;
+    companion.orderT -= dt;
+    if (companion.mode == CM_FETCH) {
+        if (!companion.fetching && companion.orderT <= 0) {  // look for a thrown weapon or arrow lying a way off
+            companion.orderT = 0.6f;
+            float best = 1e9f;
+            for (auto& it : items) {
+                if (it.item >= 0) continue;  // (stacks you dropped are left alone)
+                const float dp = dist(it.pos, p.pos);
+                if (dp < 26.f || dp > 230.f || dist(it.pos, pos) > 260.f) continue;
+                if (dp < best) { best = dp; companion.fetchPos = it.pos; companion.fetching = true; }
+            }
+        }
+        if (companion.fetching) {
+            GroundItem* tgt = nullptr;
+            for (auto& it : items)
+                if (it.item < 0 && dist(it.pos, companion.fetchPos) < 6.f) tgt = &it;
+            if (!tgt) companion.fetching = false;  // you picked it up yourself
+            else if (dist(pos, tgt->pos) < 9.f) {  // got it: it drops it at your feet
+                tgt->pos = p.pos + V2(rng.range(-6, 6), 8);
+                tgt->lock = 0.f;
+                companion.fetching = false;
+                companion.orderT = 0.8f;
+                ftext(pos + V2(0, -16), "FETCHED!", C_GREEN, 1.f);
+            } else goal = tgt->pos;
+        }
+    } else if (companion.mode == CM_SCOUT && companion.orderT <= 0) {  // sniff out the animals around (wider with a deeper bond)
+        companion.orderT = 7.f;
+        const float R = 170.f + 45.f * bondLevel(a->bond);
+        int n = 0;
+        for (auto& an : animals)
+            if (!an.dead && !an.gone && dist(an.pos, p.pos) < R) { an.scoutT = 9.f; n++; }
+        ftext(pos + V2(0, -16), n ? "SNIFFS OUT " + S(n) : std::string("NOTHING NEAR"), n ? C_GOLD : C_DIM, 1.2f);
+    }
+    const float d = dist(pos, goal);
     companion.moving = false;
-    if (d > 6.f) {
-        const V2 dir = (behind - pos) * (1.f / d);
+    if (d > (companion.fetching ? 2.f : 6.f)) {
+        const V2 dir = (goal - pos) * (1.f / d);
         const float sp = std::min(d * 4.f, 125.f);
         const V2 np = pos + dir * sp * dt;
         if (!world.blocked(np.x, np.y, 4.f)) pos = np;

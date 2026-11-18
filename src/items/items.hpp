@@ -53,7 +53,7 @@ constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
 constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 // Carried gear works while it is in the pack (like a tool: no equip step, it just has to be on you). Each takes a pack slot.
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
-                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_COUNT };  // the last six: mine and dungeon gear
+                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_COUNT };  // CG_LANTERN..CG_HEART: mine and dungeon gear
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
 // a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
 constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
@@ -160,6 +160,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"SILVER CHARM", "CARRIED: +12% DAMAGE AGAINST THE FROZEN DEAD", 2},
             {"CROWN OF THE FROSTBOUND KING", "CARRIED: +15% DAMAGE DEALT, -10% DAMAGE TAKEN", 3},
             {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
+            {"SADDLEBAGS", "CARRIED: YOUR MOUNT CARRIES 50% MORE WEIGHT WHILE YOU RIDE", 1},
         };
         for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
         for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, STACK_GEAR, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
@@ -172,7 +173,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : TOOLDEF[k].type == TT_PICK ? 2.5f + 0.25f * TOOLDEF[k].tier : 1.5f;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
         t[itemPlace(PL_CHEST)].weight = 8.0f;
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : (k >= CG_LANTERN ? 0.8f : 1.5f);
+        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : k == CG_SADDLEBAG ? 2.0f : (k >= CG_LANTERN ? 0.8f : 1.5f);
         return t;
     }();
     return T;
