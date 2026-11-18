@@ -24,6 +24,7 @@ static const Recipe RECIPES[] = {
 
     // ---- gathering tools: every tier needs the one before it
     {RK_ITEM, itemTool(TL_AXE1), 1, {M_BRANCH, M_STONE, M_FIBER}, {2, 2, 1}, RC_TOOLS, STN_ANY, SK_CRAFTING, 1},
+    {RK_ITEM, itemTool(TL_ROD), 1, {M_BRANCH, M_FIBER, M_BONE}, {2, 3, 1}, RC_TOOLS, STN_ANY, SK_CRAFTING, 1},
     {RK_ITEM, itemTool(TL_PICK1), 1, {M_BRANCH, M_STONE, M_FIBER}, {2, 3, 1}, RC_TOOLS, STN_ANY, SK_CRAFTING, 1},
     {RK_ITEM, itemTool(TL_AXE2), 1, {M_WOOD, M_COPPERBAR, M_ROPE}, {2, 2, 1}, RC_TOOLS, STN_FIRE, SK_SMITHING, 1},
     {RK_ITEM, itemTool(TL_PICK2), 1, {M_WOOD, M_COPPERBAR, M_ROPE}, {2, 3, 1}, RC_TOOLS, STN_FIRE, SK_SMITHING, 1},

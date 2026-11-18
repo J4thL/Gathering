@@ -66,13 +66,13 @@ void Game::throwWeapon() {
     pr.spin = (spearLike || launcher) ? 0.f : (axeLike ? 17.f : 26.f);
     const float biomeMul = (D.biome >= 0 && curBiome == D.biome) ? D.biomeMul : 1.f;  // biome weapons: +30% at home
     pr.crit = rng.chance(0.10f);
-    pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
+    pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING) + companionDamage()) * (1 + 0.4f * c) * rng.range(0.9f, 1.1f) * (pr.crit ? 1.6f : 1.f);
     if (launcher) {
         // a bow shot is only as good as the draw; the crossbow is always fully loaded when it fires
         float draw = D.draw > 0 ? c : 1.f;
         pr.speed = D.speed * (0.55f + 0.45f * draw);
         pr.range = std::min(D.range * (0.5f + 0.5f * draw), dl + 24);
-        pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING)) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
+        pr.dmg = D.dmg * biomeMul * (1.f + skillBonus(SK_HUNTING) + companionDamage()) * (0.45f + 0.55f * draw) * rng.range(0.92f, 1.08f) * (pr.crit ? 1.6f : 1.f);
         pr.ammo = D.ammo;
     }
     pr.q = wq;
@@ -208,12 +208,21 @@ void Game::updatePlayer(float dt) {
     if (moving) mv = mv.norm();
     float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
-    { float ts = tileSpeed(groundT); if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f; spd *= ts; }  // sand, mud, deep snow slow you down
+    {
+        float ts = tileSpeed(groundT);
+        if (groundT == T_MUD || groundT == T_MURK) ts *= 1.f - 0.15f * rainK();  // rain turns the mud to soup
+        if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f;
+        spd *= ts;
+    }  // sand, mud, deep snow slow you down
+    spd *= 1.f - 0.10f * galeNow();  // leaning into a sandstorm / blizzard
     float drain = 1.f, regen = 1.f;
     climateMods(drain, regen);
     bool sprinting = false;
+    P.walking = moving;
+    P.sprinting = false;
     if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
         sprinting = true;
+        P.sprinting = true;
         spd *= 1.55f;
         P.stamina -= 24 * dt * drain;
         P.staDelay = 0.7f;
@@ -229,10 +238,14 @@ void Game::updatePlayer(float dt) {
     if (P.charging) spd *= 0.6f;
     if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
     spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
+    if (HAnimal* mt = riddenMount()) spd *= mountSpeed(mt->species, mt->tier);
     if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
-    if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
-        P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-2.4f * dt));
+    // rain makes bare ground (grass, dirt, stone, cobbles, forest floor) a little slippery, and it stays so for a while while it dries; mud, sand and snow don't slip
+    const float wetSlip = wetGroundTile(groundT) ? std::max(clampf((rainK() - 0.3f) / 0.7f, 0.f, 1.f), 0.5f * wet) : 0.f;
+    if (groundT == T_ICE || wetSlip > 0.f) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
+        const float k = groundT == T_ICE ? 2.4f : 18.f - 12.f * wetSlip;  // full storm: k = 6 (ice is 2.4, dry ground is effectively instant)
+        P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-k * dt));
         want = P.iceV;
     } else
         P.iceV = want;
@@ -385,6 +398,8 @@ void Game::updatePlayer(float dt) {
             audio.play(S_CLICK);
         }
     }
+    if (in.mountPressed) toggleMount();
+    updateMount(dt, moving);
     if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};
         bool used = false;
@@ -434,6 +449,12 @@ void Game::updateHunterAnim(float dt, bool moving, bool sprinting, bool wantGath
 }
 
 void Game::updateProjectiles(float dt) {
+    // Arrows and bolts are used up when they hit; one that misses (lands on the ground or in an obstacle) may still break (a gentler landing
+    // than a hit: half the listed chance), less often with a reinforced quiver and with ranged skill. Thrown weapons keep their old chance to break on a hit.
+    auto missLost = [&](const Proj& pr) {
+        return pr.ammo >= 0 && rng.chance(AMMO[pr.ammo].lost * 0.5f * (p.has(CG_QUIVER) ? 0.5f : 1.f) * (1.f - skillBonus(SK_RANGED)));
+    };
+    auto hitLost = [&](const Proj& pr) { return pr.ammo >= 0 || rng.chance(WPN[pr.wpn].brk); };
     for (size_t i = 0; i < projs.size();) {
         Proj& pr = projs[i];
         bool done = false;
@@ -449,7 +470,7 @@ void Game::updateProjectiles(float dt) {
                 V2 c = a.pos + V2(0, -a.bodyH - a.air);
                 if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
                     hitAnimal(a, pr.dmg, pr.dir, pr.crit);
-                    if (rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
+                    if (hitLost(pr)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
@@ -468,7 +489,7 @@ void Game::updateProjectiles(float dt) {
                 const V2 c = m.pos + V2(0, -MD.bodyH - ((MD.flags & MF_FLY) ? 12.f : 0.f));
                 if (dist(pr.pos, c) < MD.hitR + 3) {
                     const bool landed = hitMonster(m, pr.dmg, pr.dir, pr.crit, pr.wpn);
-                    if (landed && rng.chance((pr.ammo >= 0 ? AMMO[pr.ammo].lost : WPN[pr.wpn].brk) * (pr.ammo >= 0 && p.has(CG_QUIVER) ? 0.5f : 1.f) * (pr.ammo >= 0 ? 1.f - skillBonus(SK_RANGED) : 1.f))) {
+                    if (landed && hitLost(pr)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});
                         audio.play(S_BREAK, 0.6f);
@@ -485,7 +506,8 @@ void Game::updateProjectiles(float dt) {
             bool obstacle = tx < 0 || ty < 0 || tx >= MW || ty >= MH || world.solid[ty][tx] || world.tile[ty][tx] == T_CLIFF || (delve >= 0 && world.solidTile(tx, ty));
             if (obstacle) {
                 V2 lg = pr.last + V2(0, 9);
-                items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;
+                if (missLost(pr)) ftext(lg + V2(0, -8), "SNAP", C_DIM, 0.7f);
+                else { items.push_back({lg, pr.wpn, pr.angle + pr.spin * (pr.travelled / pr.speed), 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q; }
                 for (int q = 0; q < 4; q++)
                     parts.push_back({pr.pos.x, pr.pos.y, 3, rng.range(-40, 40), rng.range(-20, 20), rng.range(20, 60), 0.4f, 0.4f, HEX(0xffe9a8), 1, true});
                 audio.play(S_CLICK, 0.5f);
@@ -495,6 +517,8 @@ void Game::updateProjectiles(float dt) {
                     for (int q = 0; q < 8; q++)
                         parts.push_back({g.x, g.y, 1, rng.range(-30, 30), rng.range(-15, 15), rng.range(30, 70), 0.6f, 0.6f, HEX(0xcfe9f5), 1, true});
                     ftext(g + V2(0, -8), "SPLASH", C_BLUE, 0.8f);
+                } else if (missLost(pr)) {
+                    ftext(g + V2(0, -8), "SNAP", C_DIM, 0.7f);
                 } else {
                     float ang = pr.angle + pr.spin * (pr.travelled / pr.speed);
                     items.push_back({g, pr.wpn, ang, 0, pr.ammo}); items.back().q = pr.ammo >= 0 ? pr.aq : pr.q;

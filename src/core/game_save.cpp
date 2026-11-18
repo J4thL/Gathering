@@ -1,5 +1,6 @@
 // game_save.cpp - saving and loading (save format version 2, with recovery from a damaged file).
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include "core/game.hpp"
@@ -25,9 +26,18 @@ void Game::save() {
     {
         std::ofstream f(tmp);
         if (!f) return;
-        f << "version " << SAVE_VERSION << "\ncoins " << p.coins << "\nup";
+        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nup";
         for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
         f << "\nday " << dayT << "\nkills " << kills << "\n";
+        f << "gates";
+        for (int b = 0; b < B_COUNT; b++) f << ' ' << (gateOpen[b] ? 1 : 0);
+        f << "\n";
+        for (int k = 0; k < A_COUNT; k++)
+            if (bestKills[k] > 0) f << "bestiary " << k << ' ' << bestKills[k] << ' ' << bestMask[k] << "\n";
+        if (trophyMask) f << "trophy " << trophyMask << "\n";
+        if (fishCaught) f << "fish " << fishCaught << "\n";
+        if (kingTier) f << "kingtier " << kingTier << "\n";
+        economySave(f);
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
         // equipment: the worn bag and the hotbar (item keys; "-" = empty). Weights and the carrying limit are never saved - they are
@@ -62,7 +72,7 @@ void Game::save() {
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
             for (auto& g : mm.items)  // stacks the hunter dropped lie where they were left
-                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << (g.q > 0 ? " " + std::to_string(g.q) : std::string()) << "\n";
+                if (g.item >= 0 && g.n > 0) f << "drop " << itemKey(g.item) << ' ' << g.n << ' ' << (int)g.pos.x << ' ' << (int)g.pos.y << (g.q > 0 || g.t >= 1.f ? " " + std::to_string(g.q) : std::string()) << (g.t >= 1.f ? " " + std::to_string((int)g.t) : std::string()) << "\n";
         }
         f.flush();
         if (!f) {
@@ -97,6 +107,21 @@ bool Game::load() {
     recoverSave(savePath());
     std::ifstream f(savePath());
     if (!f) return false;
+    {  // the world this save was made in: a save without a seed line is from the one fixed world (WORLD_SEED)
+        uint32_t sd = WORLD_SEED;
+        std::string ln;
+        while (std::getline(f, ln))
+            if (ln.rfind("seed ", 0) == 0) {
+                sd = (uint32_t)std::strtoul(ln.c_str() + 5, nullptr, 10);
+                break;
+            }
+        f.clear();
+        f.seekg(0);
+        if (sd != worldSeed) {
+            worldSeed = sd;
+            loadMapWorld(B_HOME);  // newGame() below keeps this map; the saved map is loaded from the same seed later
+        }
+    }
     newGame();
     loadReport = LoadReport();
     auto readCount = [](std::istringstream& ss, long lim = 99999) {
@@ -107,7 +132,7 @@ bool Game::load() {
     std::string bagKey = "-", hotKeys[HOT_N];
     bool sawBag = false, sawHotbar = false, sawFarm = false;
     std::vector<std::string> farmKeys;
-    struct DropLine { std::string key; int n, x, y, q; };
+    struct DropLine { std::string key; int n, x, y, q; float age; };
     std::vector<DropLine> dropLines[B_COUNT];
     struct SlotLine {
         std::string key;
@@ -169,13 +194,23 @@ bool Game::load() {
         } else if (k == "drop") {
             std::string key;
             int n = 0, x = 0, y = 0, q = 0;
+            float age = 0.f;
             ss >> key >> n >> x >> y;
-            if (ss && !(ss >> q)) q = 0;  // the quality is optional (older saves have none)
-            if (curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y, clampQuality(q)});
+            if (ss) {  // the quality and the seconds it has lain there are optional (older saves have neither)
+                if (!(ss >> q)) q = 0;
+                else if (!(ss >> age)) age = 0.f;
+            }
+            if (curLoad >= 0 && n > 0) dropLines[curLoad].push_back({key, n, x, y, clampQuality(q), std::max(0.f, std::min(age, DROP_LIFE))});
         } else if (k == "map") {
             ss >> curLoad;
             if (!ss || curLoad < 0 || curLoad >= B_COUNT) curLoad = -2;  // an unknown map: its lines are skipped
             sawMapBlock = true;
+        } else if (k == "fish") {
+            int n = 0;
+            if (ss >> n) fishCaught = std::max(0, std::min(1000000, n));
+        } else if (k == "kingtier") {
+            int n = 0;
+            if (ss >> n) kingTier = std::max(0, std::min(KING_TIERS, n));
         } else if (k == "delve") {  // "delve <id> <opened chests mask> <king dead> <seconds to his return> <seconds to chest refill>"
             int id = -1, bd = 0, bt = 0, ct = 0;
             unsigned long mask = 0;
@@ -231,7 +266,28 @@ bool Game::load() {
             long long n = 0;
             if (ss >> n) kills = (int)std::max(0LL, std::min(1000000000LL, n));
         }
+        else if (k == "gates") {
+            gatesSeen = true;
+            for (int b = 0; b < B_COUNT; b++) {
+                int v = 0;
+                if (ss >> v && (b == B_HOME || b == B_HOMESTEAD || v != 0)) gateOpen[b] = true;
+            }
+        }
+        else if (k == "trophy") {
+            long long m = 0;
+            if (ss >> m) trophyMask = (int)(m & ((1 << TROPHY_COUNT) - 1));
+        }
+        else if (k == "bestiary") {
+            long long kind = -1, n = 0, mask = 1;  // (older saves have no tier mask: assume a common one)
+            if (ss >> kind >> n && kind >= 0 && kind < A_COUNT) {
+                ss >> mask;
+                bestKills[kind] = (int)std::max(0LL, std::min(1000000000LL, n));
+                bestMask[kind] = (int)(mask & ((1 << TR_COUNT) - 1));
+            }
+        }
+        else if (k == "rep" || k == "demand" || k == "order" || k == "trial") economyLoadLine(k, ss);
         else if (k == "skill") skillLoadLine(ss);
+        else if (k == "perk") perkLoadLine(ss);
         else if (k == "disc") {
             std::string bits;
             ss >> bits;
@@ -264,6 +320,7 @@ bool Game::load() {
     } else if (p.up[U_BAG] >= 1)
         p.bag = std::min(p.up[U_BAG], (int)PK_EXPLORER + 1) - 1;
     p.up[U_BAG] = 0;
+    p.mountKg = 0;  // a ridden mount is not saved: it is back in its pen on load
     p.syncPack();
     p.inv.clear();
     auto give = [&](int item, int n, int q = 0) {
@@ -378,6 +435,7 @@ bool Game::load() {
             g.item = id;
             g.n = d.n;
             g.q = d.q;
+            g.t = d.age;
             g.ammo = -1;
             mapMem[m].items.push_back(g);
             mapMem[m].visited = true;
@@ -411,6 +469,8 @@ bool Game::load() {
         if (isFarmType(t) && p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.inv.addIgnoringWeight(itemTool(p.tool[t]), 1);
     for (int t = 0; t < TT_COUNT; t++)
         if (isFarmType(t) && p.tool[t] >= 0) giveFarmTool(p.tool[t]);
+    if (!gatesSeen)  // a save from before the gates existed: the hunter keeps every biome that was open to them
+        for (int b = 0; b < B_COUNT; b++) gateOpen[b] = true;
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
     p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
     p.hp = p.maxhp;

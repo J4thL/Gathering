@@ -8,7 +8,7 @@ void Game::drawQuestPanel() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 140));
     const int X = 60, Y = 36, W = 280, H = 146;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
     text(X + 8, Y + 7, "ELDER HOLT - HUNTING QUESTS", C_GOLD);
     std::string qn = "QUEST " + S(questIdx + 1);
     text(X + W - 8 - textW(qn), Y + 7, qn, C_DIM);
@@ -70,7 +70,7 @@ void Game::drawShop() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 140));
     const int X = 36, Y = 12, W = 328, H = 201;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
     text(X + 8, Y + 7, "GENERAL STORE", C_GOLD);
     {
         std::string c = S(p.coins);
@@ -78,14 +78,22 @@ void Game::drawShop() {
         icon(A.coin, X + W - 10 - cw - 8, Y + 10, 10);
         text(X + W - 8 - cw, Y + 7, c, C_GOLD);
     }
-    const char* tabs[2] = {"SELL", "BUY"};  // the general store only trades: crafting lives in the workshops, gear upgrades at the smith and tanner
-    for (int i = 0; i < 2; i++) {
-        int ty = Y + 22 + i * 22;
+    const char* tabs[3] = {"SELL", "BUY", "ORDERS"};  // the general store only trades: crafting lives in the workshops, gear upgrades at the smith and tanner
+    for (int i = 0; i < 3; i++) {
+        int ty = Y + 22 + i * 21;
         bool sel = shopTab == i;
         if (button(X + 6, ty, 66, 19, tabs[i], true, sel ? HEX(0x92693a) : HEX(0x5a4028))) shopTab = i;
         if (sel) {
             fillRect(X + 72, ty + 3, 3, 13, C_GOLD);
         }
+    }
+    {  // standing with the village: better prices as it grows (game_economy.cpp)
+        text(X + 6, Y + 88, std::string("REP ") + repName(), C_GOLD, 1, false);
+        const int nx = repNext();
+        fillRect(X + 6, Y + 98, 66, 4, HEX(0x2b1d12));
+        if (nx > 0) fillRect(X + 6, Y + 98, std::min(66, rep * 66 / nx), 4, C_GOLD);
+        else fillRect(X + 6, Y + 98, 66, 4, C_GOLD);
+        text(X + 6, Y + 104, "SELL +" + S(4 * repLevel()) + "% BUY -" + S(5 * repLevel()) + "%", C_DIM, 1, false);
     }
     // shopkeeper portrait
     panel(X + 6, Y + 112, 66, 72, HEX(0x2b1d12));
@@ -110,16 +118,16 @@ void Game::drawShop() {
         auto isPart = [](int m) { return isComponent(m); };  // crafting components: kept by SELL EVERYTHING
         for (int m = 0; m < M_COUNT; m++)
             if (p.mat(m) > 0) {
-                owned.push_back({-m - 1, 0, p.mat(m), MAT_PRICE[m]});
+                owned.push_back({-m - 1, 0, p.mat(m), matSellPrice(m)});
                 if (isPart(m)) partsHeld = true;
-                else total += p.mat(m) * MAT_PRICE[m];
+                else total += p.mat(m) * matSellPrice(m);
             }
         for (const Slot& sl : p.inv.slots) {  // crafted things, one row per item and quality (listed once)
             if (sl.empty() || !itemHasQuality(sl.item)) continue;
             bool seen = false;
             for (const Row& r : owned) seen = seen || (r.id == sl.item && r.q == sl.q);
             const int n = sellable(sl.item, sl.q);
-            if (!seen && n > 0) owned.push_back({sl.item, sl.q, n, qualityPrice(itemSellBase(sl.item), sl.q)});
+            if (!seen && n > 0) owned.push_back({sl.item, sl.q, n, bonusPrice(qualityPrice(itemSellBase(sl.item), sl.q))});
         }
         const int ROWS = 8, maxScroll = std::max(0, (int)owned.size() - ROWS);
         sellScroll = std::max(0, std::min(maxScroll, sellScroll));
@@ -142,9 +150,12 @@ void Game::drawShop() {
             text(x0 + 21, y + 5, isMat ? std::string(MAT_NAME[m]) : item(row.id).name.substr(0, 14), isMat || row.q == Q_NORMAL ? C_TEXT : qualityCol(row.q));
             text(x0 + 84, y + 5, S(row.n), C_TEXT);
             icon(A.coin, x0 + 114, y + 8, 8);
-            text(x0 + 120, y + 5, S(row.price), C_GOLD);
-            if (button(x0 + 138, y + 1, 46, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
-            if (button(x0 + 188, y + 1, 50, 14, "SELL ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
+            // the price is tinted by demand: green when the store wants it, red when it has too much
+            const float dm = isMat && demand[m] > 0 ? demand[m] : 1.f;
+            text(x0 + 120, y + 5, S(row.price), dm > 1.04f ? C_GREEN : dm < 0.96f ? HEX(0xff7a6a) : C_GOLD);
+            if (button(x0 + 138, y + 1, 40, 14, "SELL 1", true)) { if (isMat) sellMat(m, 1); else sellItem(row.id, row.q, 1); }
+            if (button(x0 + 180, y + 1, 20, 14, "...", row.n > 1)) amountOpenSell(row.id, row.q, row.n);  // choose how many with the slider
+            if (button(x0 + 202, y + 1, 36, 14, "ALL", true)) { if (isMat) sellMat(m, p.mat(m)); else sellItem(row.id, row.q, row.n); }
         }
         std::string lab = total > 0 ? std::string(partsHeld ? "SELL ALL BUT PARTS  +" : "SELL EVERYTHING  +") + S(total) + " COINS" : "NOTHING TO SELL - GO HUNT!";
         if (button(x0, Y + 30 + ROWS * 17 + 3, cw, 17, lab, total > 0, HEX(0x5d7a2e))) {
@@ -187,13 +198,14 @@ void Game::drawShop() {
             const int gItem = goodItem[g.kind], gQty = goodQty[g.kind];
             int owned = p.inv.count(gItem);
             text(x0 + 36, y + 24, "OWNED " + S(owned), C_TEXT);
-            chip(x0 + 90, y + 21, A.coin, p.coins, g.price);
+            const int price = buyPrice(g.price);  // reputation discount
+            chip(x0 + 90, y + 21, A.coin, p.coins, price);
             const bool launcherOwned = (g.kind == 3 || g.kind == 4) && owned >= 1;
             const bool full = launcherOwned || !p.inv.canAdd(gItem, gQty);
-            bool ok = p.coins >= g.price && !full;
+            bool ok = p.coins >= price && !full;
             const char* lab = launcherOwned ? "OWNED" : full ? (p.inv.blockReason(gItem, gQty) == 2 ? "HEAVY" : "FULL") : "BUY";
             if (button(x0 + 186, y + 11, 48, 16, lab, ok, HEX(0x5d7a2e))) {
-                p.coins -= g.price;
+                p.coins -= price;
                 p.inv.add(gItem, gQty);
                 audio.play(S_COIN);
                 save();
@@ -202,16 +214,111 @@ void Game::drawShop() {
         if (button(x0, Y + 22 + PER * 42 - 2, 70, 12, shopPage + 1 < PAGES ? "MORE GOODS >" : "< BACK TO START", true, HEX(0x4a3a5e))) shopPage = (shopPage + 1) % PAGES;
         text(x0 + 76, Y + 22 + PER * 42 + 1, "PAGE " + S(shopPage + 1) + "/" + S(PAGES), C_DIM, 1, false);
     }
-    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-2: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
+    // ---------------- ORDERS: three crafted things the store wants today
+    if (shopTab == 2) {
+        for (int i = 0; i < 3; i++) {
+            const Order& o = orders[i];
+            const int y = Y + 22 + i * 42;
+            panel(x0, y, cw, 38, HEX(0x3a2a1a));
+            if (o.item < 0) {
+                textC(x0 + cw / 2, y + 17, "NO ORDER", C_DIM);
+                continue;
+            }
+            qualityFrame(x0 + 5, y + 5, 28, 28, o.q);
+            icon(itemIcon(o.item), x0 + 19, y + 19, 22);
+            text(x0 + 38, y + 5, item(o.item).name.substr(0, 16) + " X" + S(o.n), C_GOLD);
+            text(x0 + 38, y + 14, o.q == Q_NORMAL ? std::string("ANY QUALITY") : std::string("AT LEAST ") + qualityDef(o.q).name, o.q == Q_NORMAL ? C_DIM : qualityCol(o.q));
+            int have = 0;
+            for (int q = o.q; q < Q_COUNT; q++) have += p.inv.countQ(o.item, q);
+            text(x0 + 38, y + 24, "HAVE " + S(have), have >= o.n ? C_GREEN : C_TEXT);
+            icon(A.coin, x0 + 92, y + 27, 8);
+            text(x0 + 98, y + 24, S(bonusPrice(o.pay)) + " +" + S(o.rep) + " REP", C_GOLD);
+            const bool can = orderCanFill(o);
+            if (button(x0 + 186, y + 11, 48, 16, o.done ? "DONE" : "GIVE", can, HEX(0x5d7a2e))) fillOrder(i);
+        }
+        text(x0, Y + 22 + 3 * 42 + 1, "NEW ORDERS EVERY DAY - DAY " + S(lastDay), C_DIM, 1, false);
+        text(x0, Y + 22 + 3 * 42 + 11, "FILLED ORDERS AND BIG SALES RAISE YOUR REPUTATION", C_DIM, 1, false);
+    }
+    textC(X + W / 2, Y + H - 10, "ESC OR E: LEAVE     TAB OR 1-3: SWITCH TAB     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
 }
 
 // ================================================================= inventory screen
+// The equipment column of the pack: weapon in hand, worn bag, the six tools and the mount. Counts show how many of a piece are stacked in the
+// pack; clicking the bag takes it off, clicking the mount mounts / dismounts / summons it (the same as its key).
+void Game::drawGearColumn(int x0, int y0) {
+    struct GearSlot { int id; bool on; const char* lab; };
+    GearSlot gs[9];
+    int n = 0;
+    gs[n++] = {itemWpn(p.sel), true, "WEAPON"};
+    gs[n++] = {p.bag >= 0 ? itemPack(p.bag) : -1, p.bag >= 0, "BAG"};
+    static const char* TL[TT_COUNT] = {"AXE", "PICKAXE", "HOE", "CAN", "SICKLE", "ROD"};
+    for (int t = 0; t < TT_COUNT; t++) gs[n++] = {p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, p.tool[t] >= 0, TL[t]};
+    HAnimal* sm = saddledMount();
+    const bool riding = riddenMount() != nullptr;
+    gs[n++] = {sm ? itemBaby(sm->species) : -1, riding || parked.active, "MOUNT"};
+    text(x0, y0 + 1, "GEAR", C_DIM, 1, false);
+    int hover = -1;
+    for (int i = 0; i < n; i++) {
+        const int x = x0 + (i % 2) * 20, y = y0 + 9 + (i / 2) * 18;
+        const bool over = inRect(x, y, 19, 17);
+        if (over) hover = i;
+        panel(x, y, 19, 17, over ? HEX(0x4a3624) : HEX(0x33241a));
+        const int id = gs[i].id;
+        if (id >= 0) {
+            if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(x, y, 19, 17, p.inv.bestQuality(id));
+            icon(itemIcon(id), x + 10, y + 8, 12);
+            const int have = p.inv.count(id);
+            if (have > 1) {
+                const std::string c = S(have);
+                text(x + 18 - textW(c), y + 10, c, C_TEXT, 1, false);
+            }
+            if (gs[i].on) fillRect(x + 1, y + 15, 17, 1, riding && i == 8 ? C_GREEN : HEX(0x4a8ad0));
+        } else {
+            textC(x + 10, y + 6, "-", HEX(0x6a5a44), 1, false);
+        }
+        if (over && in.uiClick) {
+            if (i == 1 && p.bag >= 0) { in.uiClick = false; in.lPressed = false; unequipBag(); }
+            else if (i == 8) { in.uiClick = false; in.lPressed = false; toggleMount(); }
+        }
+    }
+    // name of the hovered slot (or the mount's state), wrapped to the column
+    const int ty = y0 + 9 + 5 * 18 + 3;
+    std::string a, b;
+    if (hover >= 0) {
+        a = gs[hover].id >= 0 ? item(gs[hover].id).name : std::string(gs[hover].lab);
+        if (gs[hover].id < 0) b = "EMPTY";
+        else if (hover == 8) b = riding ? "RIDING - CLICK TO GET OFF" : parked.active ? "WAITING - CLICK TO MOUNT" : "CLICK TO CALL IT";
+        else if (hover == 1) b = "CLICK TO TAKE OFF";
+    } else {
+        a = sm ? (riding ? "RIDING" : parked.active ? "MOUNT WAITS" : "MOUNT AT HOME") : "NO MOUNT";
+    }
+    auto line = [&](const std::string& s, int yy, u32 col) {
+        size_t pos = 0;
+        while (pos < s.size() && yy < y0 + 9 + 5 * 18 + 40) {
+            size_t len = std::min<size_t>(10, s.size() - pos);
+            if (pos + len < s.size()) {
+                size_t sp = s.rfind(' ', pos + len);
+                if (sp != std::string::npos && sp > pos) len = sp - pos;
+            }
+            text(x0, yy, s.substr(pos, len), col, 1, false);
+            yy += 8;
+            pos += len;
+            while (pos < s.size() && s[pos] == ' ') pos++;
+        }
+        return yy;
+    };
+    const int e = line(a, ty, hover >= 0 ? C_GOLD : C_DIM);
+    if (!b.empty()) line(b, e, C_DIM);
+}
+
 void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 16;
-    fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
-    const int X = 24, Y = 12, W = 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
+    SkinScope skin(packSkin);  // the tan and copper look of the reference, for everything drawn in the pack
+    fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
+    const int X = invTab == 0 ? 4 : 24, Y = 12, W = invTab == 0 ? 392 : 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    fillRect(X + 3, Y + 3, W - 6, 14, HEX(0xe0a878));
+    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
     text(X + 8, Y + 7, "PACK", C_GOLD);
     const int cap = p.bagCap(), used = p.bagUsed();
     textC(X + W / 2, Y + 7, "I / ESC CLOSE  TAB NEXT PAGE", C_DIM, 1, false);
@@ -221,11 +328,11 @@ void Game::drawInventory() {
         icon(A.coin, X + W - 16 - textW(cs), Y + 10, 8);
     }
     {
-        static const char* tabs[3] = {"BACKPACK", "CRAFTING", "SKILLS"};
+        static const char* tabs[5] = {"BACKPACK", "CRAFTING", "SKILLS", "BESTIARY", "JOURNAL"};
         int tx = X + 8;
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 5; i++) {
             const int w = textW(tabs[i]) + 10;
-            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invTab = i;
+            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invTab = i;
             tx += w + 2;
         }
     }
@@ -243,23 +350,37 @@ void Game::drawInventory() {
         int fx = X + 8;
         for (int i = 0; i < 5; i++) {
             int w = textW(fl[i]) + 10;
-            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) invFilter = i;
+            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invFilter = i;
             fx += w + 2;
         }
     }
+    if (invTab != 3) trophyOpen = false;
+    if (invTab != 2) skillSel = -1;  // the perk choices close when you leave the SKILLS tab
     const int cy = invTab == 0 ? Y + 50 : Y + 38;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
     auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };
 
     if (invTab == 0) {
         // ---- the 100-slot grid (10 x 10): always exactly 100 slots, bags never change it
-        const int gx = X + 8, gy = cy;
+        constexpr int GEARW = 42;  // the equipment column left of the grid
+        const int gx = X + 8 + GEARW, gy = cy;
+        drawGearColumn(X + 8, cy);
         int hover = -1;
         for (int i = 0; i < cap; i++) {
             int x = gx + (i % COLS) * CELL, y = gy + (i / COLS) * CELL;
             if (inRect(x, y, CELL - 1, CELL - 1)) hover = i;
             if (hover == i && in.uiClick) {
+                // shortcuts: double click, or shift + click, uses / equips the stack (like a right click)
+                const bool quick = !p.inv.slots[i].empty() && (in.sprint || (invClickSlot == i && timeAcc - invClickT < 0.35f));
+                invClickSlot = quick ? -1 : i;
+                invClickT = timeAcc;
                 invSel = i;
+                if (quick) {
+                    in.uiClick = false;
+                    in.lPressed = false;
+                    useSlot(i);
+                    continue;
+                }
                 if (!p.inv.slots[i].empty()) {  // pressing a stack also starts dragging it
                     invDrag = i;
                     invDragMoved = false;
@@ -274,6 +395,15 @@ void Game::drawInventory() {
                 in.rPressed = false;
                 invSel = i;
                 useSlot(i);
+            }
+            if (hover == i && in.selectKey >= 0 && in.selectKey < 8 && !p.inv.slots[i].empty()) {  // hover a stack and press 1-8: put it on that hotbar slot
+                const int hs = in.selectKey;
+                in.selectKey = -1;
+                if (hotAccepts(HOT_KIND[hs], p.inv.slots[i].item)) equipHot(p.inv.slots[i].item, hs);
+                else {
+                    msg("THAT HOTBAR SLOT TAKES SOMETHING ELSE", C_RED);
+                    audio.play(S_ERROR, 0.4f);
+                }
             }
         }
         if (invDrag >= 0 && in.l && std::abs(in.mx - invDragX) + std::abs(in.my - invDragY) > 3) invDragMoved = true;
@@ -290,11 +420,11 @@ void Game::drawInventory() {
             const Slot& sl = p.inv.slots[i];
             bool sel = i == invSel;
             panel(x, y, CELL - 1, CELL - 1, sel ? HEX(0x6a4a2a) : hover == i ? HEX(0x4a3624) : HEX(0x33241a));
-            if (sel) {
-                fillRect(x, y + 1, 1, CELL - 3, C_GOLD);
-                fillRect(x + CELL - 2, y + 1, 1, CELL - 3, C_GOLD);
-                fillRect(x + 1, y, CELL - 3, 1, C_GOLD);
-                fillRect(x + 1, y + CELL - 2, CELL - 3, 1, C_GOLD);
+            if (sel) {  // a bright green frame, like the reference's selected slot
+                fillRect(x, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
+                fillRect(x + CELL - 2, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
+                fillRect(x + 1, y, CELL - 3, 1, HEX(0x3f9a2a));
+                fillRect(x + 1, y + CELL - 2, CELL - 3, 1, HEX(0x3f9a2a));
             }
             if (!sl.empty()) {
                 if (itemHasQuality(sl.item) && !sel) qualityFrame(x, y, CELL - 1, CELL - 1, sl.q);
@@ -314,7 +444,8 @@ void Game::drawInventory() {
         text(dx, cy + 1, "CARRYING WEIGHT", C_DIM);
         const std::string ws = kgNum(tw) + " / " + kgNum(mw) + " KG";
         text(dx + dw - textW(ws), cy + 1, ws, wcol);
-        fillRect(dx, cy + 10, dw, 9, HEX(0x1a120b));
+        fillRect(dx - 1, cy + 9, dw + 2, 11, HEX(0x4a2a22));
+        fillRect(dx, cy + 10, dw, 9, HEX(0xe0a878));
         fillRect(dx + 1, cy + 11, (int)((dw - 2) * frac), 7, wcol);
         textC(dx + dw / 2, cy + 12, S((int)lroundf(mw > 0 ? 100.f * tw / mw : 100.f)) + "%", C_TEXT, 1, false);
         text(dx, cy + 24, p.bag >= 0 ? item(itemPack(p.bag)).name : "NO BAG WORN", p.bag >= 0 ? C_TEXT : C_DIM);
@@ -333,7 +464,9 @@ void Game::drawInventory() {
             icon(iconOf(sl.item), dx + 14, py + 14, 20);
             const bool hq = itemHasQuality(sl.item);
             text(dx + 28, py + 5, D.name, hq && sl.q > Q_NORMAL ? qualityCol(sl.q) : C_GOLD);
-            text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : std::string()), hq ? qualityCol(sl.q) : C_DIM, 1, false);
+            const bool baby = D.kind == IK_BABY;  // a baby shows its animal rarity tier instead of a quality
+            const int bt = std::max(0, std::min(TR_COUNT - 1, sl.q));
+            text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : baby ? std::string(" - ") + TIER[bt].name : std::string()), hq ? qualityCol(sl.q) : baby ? TIER[bt].col : C_DIM, 1, false);
             // equip / use / place / wear button for the selected item, in its info card
             const bool canAct = D.kind == IK_THROWN || D.kind == IK_LAUNCHER || D.kind == IK_AMMO || D.kind == IK_CONSUMABLE || D.kind == IK_PLACEABLE || D.kind == IK_BACKPACK || seedCropOf(sl.item) >= 0 || (D.kind == IK_TOOL && isFarmType(TOOLDEF[D.ref].type));
             if (canAct && show == invSel) {
@@ -391,19 +524,9 @@ void Game::drawInventory() {
         }
         invAmt = std::max(1, std::min(std::max(1, cur.n), invAmt));
         {
-            const int sx = dx + 2, sw = dw - 32, sy = by + 5;
+            const int sx = dx + 2, sw = dw - 32;
             const bool many = cd && cur.n > 1;
-            fillRect(sx, sy, sw, 4, HEX(0x1a120b));
-            const float f = many ? (invAmt - 1) / (float)(cur.n - 1) : 0.f;
-            if (many) fillRect(sx, sy, (int)(sw * f), 4, HEX(0x8ec2f0));
-            fillRect(sx + (int)((sw - 3) * f), sy - 2, 4, 8, many ? (invAmtDrag ? C_GOLD : HEX(0xe8dcc0)) : HEX(0x5a4a3a));
-            if (many && in.uiClick && inRect(sx - 3, sy - 5, sw + 6, 14)) {
-                invAmtDrag = true;
-                in.uiClick = false;
-                in.lPressed = false;
-            }
-            if (!in.l) invAmtDrag = false;
-            if (invAmtDrag) invAmt = std::max(1, std::min(cur.n, 1 + (int)lroundf((in.mx - sx) / (float)(sw - 1) * (cur.n - 1))));
+            sliderBar(sx, by + 5, sw, invAmt, many ? cur.n : 1, invAmtDrag);
             if (many && inRect(sx, by, dw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
             textC(dx + dw - 14, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
         }
@@ -458,7 +581,11 @@ void Game::drawInventory() {
         }
     } else if (invTab == 1) {
         drawCraftTab(X, Y, W, H);
-    } else {
+    } else if (invTab == 2) {
         drawSkillsTab(X, Y, W, H);
+    } else if (invTab == 3) {
+        drawBestiaryTab(X, Y, W, H);
+    } else {
+        drawJournalTab(X, Y, W, H);
     }
 }

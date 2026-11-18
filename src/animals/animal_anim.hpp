@@ -8,7 +8,7 @@
 #include "core/anim.hpp"
 
 enum AnimalState { AN_IDLE, AN_WALK, AN_RUN, AN_ATTACK, AN_HURT, AN_DEATH, AN_FLY, AN_TAKEOFF, AN_LAND, AN_EAT, AN_REST, AN_ALERT, AN_COUNT };  // FLY / TAKEOFF / LAND: birds only
-constexpr int AN_MAXF = 6;  // most poses any state has
+constexpr int AN_MAXF = 12;  // most poses any state has
 
 struct AnimalClips {
     int poses[AN_COUNT];
@@ -23,11 +23,11 @@ struct AnimalClips {
 
 inline const AnimalClips& quadClipSet() {
     static const AnimalClips C = {
-        {4, 6, 5, 5, 4, 6, 0, 0, 0, 4, 4, 3},
+        {6, 12, 10, 5, 4, 6, 0, 0, 0, 4, 4, 3},
         {
-            Clip::run(0, 4, 0.24f, true),                                                       // idle: breathing, an ear flick
-            Clip::run(0, 6, 0.1f, true),                                                        // walk (played at the pace of the animal's speed)
-            Clip::run(0, 5, 0.075f, true),                                                      // run
+            Clip::seq({0, 1, 2, 3, 4, 5}, {0.55f, 0.3f, 0.5f, 0.3f, 0.5f, 0.35f}, true),         // idle: breathing, a head sweep, an ear flick, a tail swish
+            Clip::run(0, 12, 0.05f, true),                                                      // walk: 12 frames (played at the pace of the animal's speed)
+            Clip::run(0, 10, 0.0375f, true),                                                  // run: 10 frames
             Clip::seq({0, 1, 2, 3, 4}, {0.07f, 0.06f, 0.06f, 0.09f, 0.1f}, false),             // attack: rear back, lunge, tusk sweep, recover
             Clip::run(0, 4, 0.085f, false),                                                     // hurt: a red flinch
             Clip::seq({0, 1, 2, 3, 4, 5}, {0.1f, 0.1f, 0.12f, 0.14f, 0.16f, 0.2f}, false),    // death: stagger, fall, lie still
@@ -40,11 +40,11 @@ inline const AnimalClips& quadClipSet() {
 // Hoppers (rabbit, hares): idle is sitting up with a nose twitch and a nibble, walk is a small hop, run a long bounding leap.
 inline const AnimalClips& hopClipSet() {
     static const AnimalClips C = {
-        {4, 6, 6, 1, 4, 6, 0, 0, 0, 4, 4, 3},
+        {4, 12, 12, 1, 4, 6, 0, 0, 0, 4, 4, 3},
         {
             Clip::seq({0, 1, 0, 2, 3, 2, 3, 0}, {0.7f, 0.18f, 0.5f, 0.22f, 0.18f, 0.22f, 0.18f, 0.5f}, true),  // idle: sit, twitch, nibble
-            Clip::run(0, 6, 0.085f, true),                                                                       // walk: crouch, push off, rise, peak, fall, land
-            Clip::run(0, 6, 0.065f, true),                                                                       // run: the same hop, longer and flatter
+            Clip::run(0, 12, 0.0425f, true),                                                                      // walk: crouch, push off, rise, peak, fall, land (12 frames)
+            Clip::run(0, 12, 0.0325f, true),                                                                      // run: the same hop, longer and flatter
             Clip::run(0, 1, 0.1f, false),                                                                        // attack: unused (nothing hopping bites)
             Clip::run(0, 4, 0.085f, false),                                                                      // hurt
             Clip::seq({0, 1, 2, 3, 4, 5}, {0.1f, 0.1f, 0.12f, 0.14f, 0.16f, 0.2f}, false),                     // death
@@ -74,13 +74,15 @@ inline const AnimalClips& birdClipSet() {
     return C;
 }
 
-// every species that has a full animation set
-constexpr int RICH_KINDS[] = {A_BOAR, A_WOLF, A_DEER, A_RABBIT, A_HARE, A_SNOWHARE, A_ROADRUNNER, A_DUCK, A_EAGLE};
+// every species that has a full animation set (all the four-legged ones, the hoppers and the birds; only the crawlers are left)
+constexpr int RICH_KINDS[] = {A_BOAR, A_WOLF, A_DEER, A_RABBIT, A_HARE, A_SNOWHARE, A_ROADRUNNER, A_DUCK, A_EAGLE,
+                              A_FENNEC, A_COYOTE, A_DUNELION, A_MARSHDEER, A_PANTHER, A_ARCTICFOX, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR, A_GOAT, A_BIGHORN, A_MARMOT, A_MTLION};
 
 // Clips for the species that have a full animation set; nullptr for the others (they keep the four-frame walk cycle).
 inline const AnimalClips* animalClips(int kind) {
     switch (kind) {
-        case A_BOAR: case A_WOLF: case A_DEER: return &quadClipSet();
+        case A_BOAR: case A_WOLF: case A_DEER: case A_FENNEC: case A_COYOTE: case A_DUNELION: case A_MARSHDEER: case A_PANTHER: case A_ARCTICFOX:
+        case A_REINDEER: case A_MOOSE: case A_LYNX: case A_POLARBEAR: case A_GOAT: case A_BIGHORN: case A_MARMOT: case A_MTLION: return &quadClipSet();
         case A_RABBIT: case A_HARE: case A_SNOWHARE: return &hopClipSet();
         case A_ROADRUNNER: case A_DUCK: case A_EAGLE: return &birdClipSet();
         default: return nullptr;

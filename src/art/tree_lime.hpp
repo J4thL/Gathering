@@ -5425,9 +5425,9 @@ static const char* const OAK_F_DEAD[OAK_FRAMES * 49] = {
     ".................bbbddcaccaaa..................",
     ".................bb.bbcbccaaa..................",
 };
-static const u32 OAK_P0[8] = {HEX(0x0d4000), HEX(0x198000), HEX(0x32c000), HEX(0x4bff00), HEX(0x95604f), HEX(0x6b4439), HEX(0x402922), HEX(0xc07b66)};  // lime
+static const u32 OAK_P0[8] = {HEX(0x17400f), HEX(0x3a7a1c), HEX(0x5f9f2c), HEX(0x8cc440), HEX(0x95604f), HEX(0x6b4439), HEX(0x402922), HEX(0xc07b66)};  // lime
 static const u32 OAK_P1[8] = {HEX(0x052e1e), HEX(0x0e5834), HEX(0x1b8044), HEX(0x2fa84f), HEX(0x95604f), HEX(0x6b4439), HEX(0x402922), HEX(0xc07b66)};  // deep
-static const u32 OAK_P2[8] = {HEX(0x20541e), HEX(0x4c9c2c), HEX(0x80ce38), HEX(0xbef45a), HEX(0x95604f), HEX(0x6b4439), HEX(0x402922), HEX(0xc07b66)};  // soft
+static const u32 OAK_P2[8] = {HEX(0x1f4d1a), HEX(0x4a8a34), HEX(0x73b048), HEX(0xa2d06c), HEX(0x95604f), HEX(0x6b4439), HEX(0x402922), HEX(0xc07b66)};  // soft
 static const u32 OAK_P3[8] = {HEX(0x0e3426), HEX(0x349242), HEX(0x68c453), HEX(0x1e6038), HEX(0x95604f), HEX(0x6b4439), HEX(0xc07b66), HEX(0x402922)};  // old roots
 static const u32 OAK_P4[8] = {HEX(0x18541e), HEX(0x60c836), HEX(0x96eb46), HEX(0x34962c), HEX(0xc07b66), HEX(0x6b4439), HEX(0x95604f), HEX(0x402922)};  // sapling
 static const u32 OAK_P5[6] = {HEX(0x4c3a31), HEX(0x2e221e), HEX(0x705a4c), HEX(0x96806e), HEX(0xa06a34), HEX(0x825428)};  // dead

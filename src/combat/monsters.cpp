@@ -32,8 +32,8 @@ Monster* Game::spawnMonster(int kind, V2 pos, float depth, bool elite, int id) {
     m.depth = depth;
     m.elite = elite;
     const bool boss = (D.flags & MF_BOSS) != 0;
-    const float hpK = boss ? 1.f : (1.f + 1.2f * depth) * (elite ? 1.8f : 1.f);
-    const float dmK = boss ? 1.f : (1.f + 0.8f * depth) * (elite ? 1.25f : 1.f);
+    const float hpK = boss ? 1.f + 0.4f * kingTier : (1.f + 1.2f * depth) * (elite ? 1.8f : 1.f);
+    const float dmK = boss ? 1.f + 0.25f * kingTier : (1.f + 0.8f * depth) * (elite ? 1.25f : 1.f);
     m.maxhp = m.hp = std::max(1, (int)(D.hp * hpK));
     m.dmg = D.dmg * dmK;
     m.spd = D.spd * (elite ? 1.1f : 1.f);
@@ -223,6 +223,13 @@ void Game::killMonster(Monster& m) {
     grantXp(SK_RANGED, std::max(1, xp / 2));
     if (boss) {
         grantXp(SK_DEFENSE, 400);
+        if (kingTier > 0) {  // a stronger return is worth more
+            const int bonus = KING_TIER_COINS * kingTier;
+            p.coins += bonus;
+            grantXp(SK_HUNTING, 500 * kingTier);
+            msg("TIER " + S(kingTier) + " KING SLAIN: +" + S(bonus) + " COINS", C_GOLD);
+        }
+        kingTier = std::min(kingTier + 1, KING_TIERS);
         DelveMem& dm = delveMem[delve];
         dm.bossDead = true;
         dm.bossTimer = 1800.f;
@@ -440,7 +447,7 @@ void Game::updateMonsters(float dt) {
             const float sight = D.aggro * (p.nightT > 0 ? 1.f : 1.f);
             if (!p.dead && d < sight && (d < sight * 0.45f || lineClear(m.pos, p.pos, -1, -1))) {
                 m.awake = true;
-                if (boss) { bossBanT = 4.f; audio.play(S_FELL, 0.8f); msg("THE FROSTBOUND KING RISES!", C_BLUE); }
+                if (boss) { bossBanT = 4.f; audio.play(S_FELL, 0.8f); msg(kingTier > 0 ? "THE FROSTBOUND KING RISES STRONGER! TIER " + S(kingTier) : std::string("THE FROSTBOUND KING RISES!"), C_BLUE); }
                 if (m.state == MN_IDLE) m.state = MN_CHASE;
                 // a pack wakes together
                 if (D.flags & MF_PACK)

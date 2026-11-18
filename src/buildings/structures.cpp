@@ -78,9 +78,10 @@ bool Game::nearFire() const {
 
 float Game::warmthAt(V2 pos) const {
     float w = 0.f;
-    auto add = [&](V2 fire) { w = std::max(w, clampf(1.f - dist(pos, fire) / 90.f, 0.f, 1.f)); };
+    auto add = [&](V2 fire, float k = 1.f) { w = std::max(w, clampf(1.f - dist(pos, fire) / 90.f, 0.f, 1.f) * k); };
+    const float wet = 1.f - 0.6f * rainK();  // a storm beats down a campfire: you have to stand right next to it to stay warm
     for (auto& s : structs)
-        if (s.kind == PL_CAMPFIRE) add(s.pos());
+        if (s.kind == PL_CAMPFIRE) add(s.pos(), wet);
     if (world.biomeAtPos(pos.x, pos.y) == B_SNOW) add(world.fire);  // only matters in the snow; the village fire is far from it
     return w;
 }
@@ -252,7 +253,7 @@ void Game::drawChest() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
     const int X = 24, Y = 12, W = 352, H = 200;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
+    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
     text(X + 8, Y + 7, hsBld ? (hsPiece(hsChestPiece) ? HPDEF[hsPiece(hsChestPiece)->kind].name : "STORAGE") : "STORAGE CHEST", C_GOLD);
     const int cap = p.bagCap();
     textC(X + W / 2 + 40, Y + 7, "CLICK: MOVE THE STACK    RIGHT CLICK: CHOOSE HOW MANY", C_DIM, 1, false);

@@ -1,6 +1,7 @@
 // game_map.cpp - the full-map screen (M): the explored part of the current map, landmarks, gates and where to look next.
 #include <cstdio>
 #include "core/game.hpp"
+#include "world/gates.hpp"
 
 // compass word for a direction (only used in the hint text)
 static const char* compassWord(float dx, float dy) {
@@ -56,7 +57,7 @@ void Game::drawWorldMap() {
         const Portal& pt = MAPS[world.mapId].portals[i];
         const int gx = ox + (pt.zone.x0 + pt.zone.x1) / 2 * K / MM_DIV, gy = oy + (pt.zone.y0 + pt.zone.y1) / 2 * K / MM_DIV;
         fillRect(gx - 2, gy - 2, 5, 5, BIOME[pt.toMap].col);
-        const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName;
+        const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, gx - textW(lb) / 2));
         text(lx, std::min(oy + mh - 8, gy + 5), lb, BIOME[pt.toMap].col);
     }
@@ -68,9 +69,24 @@ void Game::drawWorldMap() {
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(l.x) - textW(nm) / 2));
         text(lx, sy(l.y) + 3, nm, C_TEXT);
     }
+    // the gate shortcut: every gate and whether it is open; click one to see what it asks for
+    text(4, oy + 2, "GATES", C_GOLD);
+    for (int gi = 0; gi < GATE_N; gi++) {
+        const GateReq& gr = GATES[gi];
+        const int gy2 = oy + 12 + gi * 26;
+        const bool open = gateOpen[gr.map];
+        if (button(4, gy2, 70, 22, std::string(MAPS[gr.map].name) + (open ? " OPEN" : " SEALED"), true, open ? HEX(0x3a5a2e) : HEX(0x5a3a2a))) openGateView(gr.map);
+    }
     // carcasses that still hold materials
     for (auto& a : animals)
-        if (a.dead && a.totalRemain > 0) fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
+        if (a.dead && a.totalRemain > 0) {
+            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
+            if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
+                const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
+                fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);
+                fillRect(rx, ry, 1, 8, C_GOLD); fillRect(rx + 7, ry, 1, 8, C_GOLD);
+            }
+        }
     // the hunter
     if (((int)(timeAcc * 3)) & 1) fillRect(sx(p.pos.x) - 2, sy(p.pos.y) - 2, 5, 5, HEX(0xffffff));
     fillRect(sx(p.pos.x) - 1, sy(p.pos.y) - 1, 3, 3, HEX(0x2d5e35));

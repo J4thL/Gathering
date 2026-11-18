@@ -39,11 +39,13 @@ void Game::drawBiomeFx() {
         SDL_SetTextureAlphaMod(A.B.fog.t, 255);
     }
 
-    // weather particles
-    for (auto& f : flakes) {
+    // weather particles (more of them in a sandstorm / blizzard)
+    const int nActive = std::min((int)flakes.size(), activeFlakes());
+    for (int fi = 0; fi < nActive; fi++) {
+        const Flake& f = flakes[fi];
         int x = (int)f.x, y = (int)f.y;
-        if (bw[B_SNOW] > 0.02f) fillRect(x, y, f.sz > 0.7f ? 2 : 1, f.sz > 0.7f ? 2 : 1, RGBA(255, 255, 255, (int)(235 * bw[B_SNOW])));
-        if (bw[B_DESERT] > 0.02f && f.sz > 0.35f) fillRect(x, y, 2, 1, RGBA(226, 196, 130, (int)(120 * bw[B_DESERT])));
+        if (bw[B_SNOW] > 0.02f) fillRect(x, y, (f.sz > 0.7f ? 2 : 1) + (int)(3 * galeK), f.sz > 0.7f ? 2 : 1, RGBA(255, 255, 255, (int)(235 * bw[B_SNOW])));
+        if (bw[B_DESERT] > 0.02f && f.sz > 0.35f * (1.f - galeK)) fillRect(x, y, 2 + (int)(5 * galeK), 1, RGBA(226, 196, 130, (int)(std::min(1.f, 120.f / 255.f * (1.f + 1.5f * galeK)) * 255.f * bw[B_DESERT])));
         if (bw[B_SWAMP] > 0.02f && f.sz > 0.6f) fillRect(x, y, 1, 1, RGBA(46, 50, 30, (int)(190 * bw[B_SWAMP] * (0.4f + 0.6f * day))));
         if (bw[B_MOUNTAIN] > 0.02f && f.sz > 0.5f) fillRect(x, y, 2, 1, RGBA(225, 228, 238, (int)(100 * bw[B_MOUNTAIN])));
     }
@@ -86,7 +88,7 @@ void Game::drawPortalLabels() {
         // sit the label inside the map, a few tiles in from the gap
         const V2 in = pt.side == 0 ? V2(-44, 0) : pt.side == 3 ? V2(44, 0) : pt.side == 1 ? V2(0, -34) : V2(0, 34);
         const int sx = (int)(c.x + in.x) - camX, sy = (int)(c.y + in.y) - camY;
-        const std::string s = std::string("TO ") + MAPS[pt.toMap].shortName;
+        const std::string s = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int w = textW(s) + 8;
         panel(sx - w / 2, sy - 6, w, 12, HEX(0x2b1d12));
         textC(sx, sy - 2, s, BIOME[pt.toMap].col, 1, false);
@@ -133,7 +135,14 @@ void Game::drawMinimap() {
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
     // carcasses that still hold materials
     for (auto& a : animals)
-        if (a.dead && a.totalRemain > 0) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
+        if (a.dead && a.totalRemain > 0) {
+            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
+            if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
+                const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
+                fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);
+                fillRect(rx, ry, 1, 6, C_GOLD); fillRect(rx + 5, ry, 1, 6, C_GOLD);
+            }
+        }
     // player
     if (((int)(timeAcc * 3)) & 1 || state != ST_PLAY) fillRect(mx(p.pos.x) - 1, my(p.pos.y) - 1, 3, 3, HEX(0xffffff));
     fillRect(mx(p.pos.x), my(p.pos.y), 1, 1, HEX(0x2d5e35));
@@ -220,7 +229,7 @@ void Game::drawHud() {
         float t = tod();
         int mins = (int)(fmodf(6.f + t * 24.f, 24.f) * 60);
         char buf[32];
-        snprintf(buf, sizeof(buf), "DAY %d  %02d:%02d", 1 + (int)(dayT / 300.f), mins / 60, mins % 60);
+        snprintf(buf, sizeof(buf), "DAY %d %s %02d:%02d", 1 + (int)(dayT / DAY_LEN), SEASON_NAME[season()], mins / 60, mins % 60);
         int w = textW(buf) + 18;
         int x = LW / 2 - w / 2 - 8;
         panel(x, 4, w, 13, HEX(0x33241a));
@@ -249,7 +258,9 @@ void Game::drawHud() {
         int ty = 46;
         if (p.warmT > 0) text(6, ty, "WARM BREW " + S((int)p.warmT) + "S", C_ORANGE), ty += 8;
         if (p.coolT > 0) text(6, ty, "REFRESHED " + S((int)p.coolT) + "S", C_BLUE), ty += 8;
+        if (galeNow() > 0.3f) text(6, ty, curBiome == B_DESERT ? "SANDSTORM" : "BLIZZARD", curBiome == B_DESERT ? C_ORANGE : C_BLUE), ty += 8;
         if (warmthAt(p.pos) > 0.35f) text(6, ty, "BY THE FIRE", C_ORANGE), ty += 8;
+        else if (rainK() > 0.3f && warmthAt(p.pos) < 0.3f) text(6, ty, "SOAKED", C_BLUE), ty += 8;
     }
     // ---- weight meter (the material counters are gone from the screen: materials live in the pack, press I)
     const int stripY = LH - 4;
@@ -312,23 +323,25 @@ void Game::drawHud() {
         }
         if (p.hand >= 0 && p.hotSel >= 0 && p.hot[p.hotSel] >= 0) {
             const int hid = p.hot[p.hotSel];
-            const char* hint = seedCropOf(hid) >= 0 ? " - CLICK TILLED SOIL" : item(hid).kind == IK_TOOL ? " - CLICK A TILE" : item(hid).kind == IK_CONSUMABLE ? " - CLICK TO USE" : item(hid).kind == IK_PLACEABLE ? " - CLICK TO PLACE" : item(hid).kind == IK_BACKPACK ? " - CLICK TO WEAR" : "";
+            const char* hint = seedCropOf(hid) >= 0 ? " - CLICK TILLED SOIL" : item(hid).kind == IK_TOOL ? (TOOLDEF[item(hid).ref].type == TT_ROD ? " - CLICK WATER TO CAST" : " - CLICK A TILE") : item(hid).kind == IK_CONSUMABLE ? " - CLICK TO USE" : item(hid).kind == IK_PLACEABLE ? " - CLICK TO PLACE" : item(hid).kind == IK_BACKPACK ? " - CLICK TO WEAR" : "";
             textC(x0 + total / 2, y - 12, item(hid).name + hint, C_TEXT);
         }
         else if (p.equippedWpn(p.sel)) textC(x0 + total / 2, y - 12, WPN[p.sel].name, C_TEXT);
     }
     // ---- help card
     if (helpT > 0 && state == ST_PLAY) {
-        const char* lines[] = {"WASD MOVE   SHIFT SPRINT   1-8 HOTBAR   Q HEAL", "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
-                               "HOLD E AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
-                               "I PACK  M MAP  TAB MINIMAP  H HELP  WHEEL: HOTBAR  ESC PAUSE"};
+        const std::string lines[] = {"MOVE " + keyName(K_UP) + keyName(K_LEFT) + keyName(K_DOWN) + keyName(K_RIGHT) + "   " + keyName(K_SPRINT) + " SPRINT   1-8 HOTBAR   " + keyName(K_HEAL) + " HEAL",
+                                     "HOLD LEFT CLICK TO CHARGE, RELEASE TO THROW",
+                                     "HOLD " + keyName(K_USE) + " AT A CARCASS, TREE, ROCK OR PLANT", "AXE FOR TREES, PICKAXE FOR ORE (CRAFT IN PACK)",
+                                     keyName(K_PACK) + " PACK  " + keyName(K_MAP) + " MAP  TAB MINIMAP  " + keyName(K_HELP) + " HELP  WHEEL: HOTBAR  ESC PAUSE",
+                                     "PACK: DRAG TO MOVE OR EQUIP, RIGHT CLICK TO USE, SLIDER + SPLIT / DROP"};
         int tw = 0;  // the panel is as wide as its longest line plus a margin, so no line can overflow it
-        for (const char* l : lines) tw = std::max(tw, textW(l));
-        const int w = tw + 20, h = 52;
+        for (const std::string& l : lines) tw = std::max(tw, textW(l));
+        const int w = tw + 20, h = 59;
         const int x = LW / 2 - w / 2, y = 52;
         panel(x, y, w, h, HEX(0x33241a));
         textC(LW / 2, y + 5, "HOW TO HUNT", C_GOLD);
-        for (int i = 0; i < 5; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);
+        for (int i = 0; i < 6; i++) textC(LW / 2, y + 14 + i * 7, lines[i], C_TEXT, 1, false);
     }
     // ---- knocked out
     if (p.dead) {

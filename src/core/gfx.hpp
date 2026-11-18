@@ -2,6 +2,8 @@
 #pragma once
 #include <SDL.h>
 #include <algorithm>
+#include <memory>
+#include <vector>
 #include <cmath>
 #include <cstdint>
 #include <cstring>
@@ -185,7 +187,32 @@ struct Img {
 };
 
 // ---------------------------------------------------------------- textures / sprites
-inline SDL_Texture* toTex(SDL_Renderer* r, const Img& im) {
+// Hi-res option (settings): the canvas holds LS x LS real pixels for every logical pixel (1 = off, 2 = on). Set once at start-up from settings.txt;
+// changing it in the settings screen takes effect the next time the game starts.
+inline int LS = 1;
+// EPX / Scale2x: every pixel becomes 2x2, and corners next to a diagonal edge take the neighbour's colour, so a drawn diagonal keeps a
+// finer, smoother step. Sprites and the font are uploaded at this doubled resolution (LS) and drawn into their normal logical size.
+inline Img epx2(const Img& s) {
+    Img o(s.w * 2, s.h * 2);
+    auto at = [&](int x, int y) { x = std::max(0, std::min(s.w - 1, x)); y = std::max(0, std::min(s.h - 1, y)); return s.p[(size_t)y * s.w + x]; };
+    for (int y = 0; y < s.h; y++)
+        for (int x = 0; x < s.w; x++) {
+            const u32 P = at(x, y), A = at(x, y - 1), B = at(x + 1, y), C = at(x - 1, y), D = at(x, y + 1);
+            u32 e1 = P, e2 = P, e3 = P, e4 = P;
+            if (C == A && C != D && A != B) e1 = A;
+            if (A == B && A != C && B != D) e2 = B;
+            if (D == C && D != B && C != A) e3 = C;
+            if (B == D && B != A && D != C) e4 = D;
+            o.p[(size_t)(2 * y) * o.w + 2 * x] = e1;
+            o.p[(size_t)(2 * y) * o.w + 2 * x + 1] = e2;
+            o.p[(size_t)(2 * y + 1) * o.w + 2 * x] = e3;
+            o.p[(size_t)(2 * y + 1) * o.w + 2 * x + 1] = e4;
+        }
+    return o;
+}
+inline SDL_Texture* toTex(SDL_Renderer* r, const Img& im0) {
+    const bool hi = LS > 1 && (long)im0.w * im0.h <= 128 * 128;  // big images (vignette, minimap) stay as they are
+    const Img im = hi ? epx2(im0) : im0;
     SDL_Texture* t = SDL_CreateTexture(r, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, im.w, im.h);
     SDL_UpdateTexture(t, nullptr, im.p.data(), im.w * 4);
     SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
@@ -196,11 +223,26 @@ struct Spr {
     SDL_Texture* t = nullptr;
     SDL_Texture* flash = nullptr;  // solid-white silhouette used for hit flashes
     int w = 0, h = 0, ax = 0, ay = 0;
+    std::shared_ptr<const std::vector<short>> bot;  // per column: the edge under its lowest solid pixel (only where asked: shadow casters)
     float sc = 1.f;  // drawn at this scale (detailed 64x64 animal sprites are shown smaller than their texture)
     bool ok() const { return t != nullptr; }
 };
 
-inline Spr makeSpr(SDL_Renderer* r, const Img& im, int ax = -1, int ay = -1, bool withFlash = false) {
+// For every pixel column of a picture: the edge below its lowest solid pixel (row + 1), or 0 when the column is empty. A wide object that
+// rests on the ground (a rock, a building) casts its shadow column by column from these bottoms (Game::drawGroundShadows), so each
+// part of the base is joined to the shadow by its own lowest pixel, whatever the shape of the base is.
+inline std::shared_ptr<const std::vector<short>> columnBottoms(const Img& im) {
+    auto v = std::make_shared<std::vector<short>>(im.w, (short)0);
+    for (int x = 0; x < im.w; x++)
+        for (int y = im.h - 1; y >= 0; y--)
+            if (cA(im.get(x, y)) >= 96) {  // faint edge pixels do not count
+                (*v)[x] = (short)(y + 1);
+                break;
+            }
+    return v;
+}
+
+inline Spr makeSpr(SDL_Renderer* r, const Img& im, int ax = -1, int ay = -1, bool withFlash = false, bool withBottoms = false) {
     Spr s;
     s.t = toTex(r, im);
     s.w = im.w;
@@ -208,5 +250,6 @@ inline Spr makeSpr(SDL_Renderer* r, const Img& im, int ax = -1, int ay = -1, boo
     s.ax = ax < 0 ? im.w / 2 : ax;
     s.ay = ay < 0 ? im.h - 1 : ay;
     if (withFlash) s.flash = toTex(r, im.silhouette(HEX(0xFFFFFF)));
+    if (withBottoms) s.bot = columnBottoms(im);
     return s;
 }

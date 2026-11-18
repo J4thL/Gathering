@@ -28,6 +28,7 @@ enum Mat {
     M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,                      // produce
     M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,  // seeds (same order)
     M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,                                                              // animal products and feed
+    M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,                                                               // fish: caught with a rod (fishing.cpp)
     M_COUNT
 };
 constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N = 8;  // crop i: produce M_CROP0 + i, seed M_SEED0 + i
@@ -55,7 +56,8 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "FROZEN BONE", "FROST FANG", "ICE SHARD", "KNIGHT'S PLATE", "FROST RUNE", "ETERNAL ICE", "CRYPT KEY",
     "WILD BERRIES", "WHEAT", "CARROT", "POTATO", "CABBAGE", "CORN", "TOMATO", "PUMPKIN", "STRAWBERRY",
     "WHEAT SEEDS", "CARROT SEEDS", "POTATO EYES", "CABBAGE SEEDS", "CORN SEEDS", "TOMATO SEEDS", "PUMPKIN SEEDS", "STRAWBERRY RUNNERS",
-    "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY"};
+    "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY",
+    "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -74,7 +76,8 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        14, 26, 18, 38, 50, 140, 0,
                                        3, 4, 4, 4, 6, 5, 6, 12, 8,
                                        1, 1, 1, 1, 1, 1, 2, 2,
-                                       4, 5, 6, 10, 30, 2};
+                                       4, 5, 6, 10, 30, 2,
+                                       12, 14, 18, 16, 20, 26};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -103,7 +106,9 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "LEAFY HEAD - FOOD AND ANIMAL FEED", "SWEET KERNELS - FOOD AND FEED", "JUICY RED FRUIT", "A HEAVY AUTUMN GIANT - WORTH A GOOD PRICE", "RIPE RED BERRIES - A FINE TRADE GOOD",
     "PLANT IN TILLED SOIL - GROWS INTO WHEAT", "PLANT IN TILLED SOIL - GROWS INTO CARROTS", "PLANT IN TILLED SOIL - GROWS INTO POTATOES", "PLANT IN TILLED SOIL - GROWS INTO CABBAGE",
     "PLANT IN TILLED SOIL - GROWS INTO CORN", "PLANT IN TILLED SOIL - GROWS INTO TOMATOES", "PLANT IN TILLED SOIL - GROWS INTO A PUMPKIN", "PLANT IN TILLED SOIL - GROWS INTO STRAWBERRIES",
-    "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS"};
+    "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS",
+    "A QUICK RIVER FISH - FOOD AND TRADE", "A GREEN LAKE FISH - FOOD AND TRADE", "A WHISKERED BOTTOM-FEEDER - FOOD AND TRADE", "SLIPPERY AND RICH - FOOD AND TRADE",
+    "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -117,7 +122,8 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY,
                                           M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,
                                           M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,
-                                          M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY};
+                                          M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
+                                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
@@ -161,7 +167,7 @@ struct AmmoDef {
     const char* name;
     int price;       // coins per piece at the shop
     int pack;        // pieces per shop pack
-    float lost;      // chance that a shot that hit is broken instead of dropping to the ground
+    float lost;      // chance that a shot that missed breaks on landing (a shot that hits is always used up)
 };
 static const AmmoDef AMMO[AM_COUNT] = {{"ARROW", 2, 10, 0.35f}, {"BOLT", 3, 6, 0.30f}};
 constexpr int BOW_PRICE = 90, CROSSBOW_PRICE = 220;

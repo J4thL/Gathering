@@ -120,6 +120,16 @@ bool Game::useSlot(int slot) {
             msg("YOU HAVE NOTHING THAT FIRES " + D.name + "S", C_RED);
             audio.play(S_ERROR);
             return false;
+        case IK_BABY: {  // raise it at the homestead: it becomes a growing mount in the yard
+            if (!inHomestead()) { msg("RAISE IT AT YOUR HOMESTEAD", C_DIM); return false; }
+            if ((int)hs.animals.size() >= H_MAX_ANIMALS) { msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED); audio.play(S_ERROR); return false; }
+            const int tier = p.inv.slots[slot].q;
+            p.inv.removeQ(id, tier, 1);
+            hsAddAnimal(DA_MOUNT, p.pos + V2(frng.range(-14, 14), 18), true, -1, D.ref, tier);
+            msg(std::string("YOU SET THE BABY ") + ANIMAL[D.ref].name + " DOWN - FEED IT AND IT WILL GROW", C_GREEN);
+            audio.play(S_CLICK);
+            return true;
+        }
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
             if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
@@ -155,7 +165,7 @@ void Game::updateInventory(float dt) {
         audio.play(S_CLICK);
         return;
     }
-    if (in.tabPressed) { invTab = (invTab + 1) % 3; invDrag = -1; }
+    if (in.tabPressed) { invTab = (invTab + 1) % 5; invDrag = -1; }
     // cursor: arrow keys / WASD, one step per key press
     const bool now[4] = {in.up, in.down, in.left, in.right};
     const int cap = p.bagCap();
@@ -208,11 +218,13 @@ bool Game::buyUpgrade(int u) {
 void Game::sellMat(int m, int n) {
     n = std::min(n, p.mat(m));
     if (n <= 0) return;
+    const int gain = n * matSellPrice(m);  // today's price: demand and reputation (game_economy.cpp)
     p.inv.remove(itemMat(m), n);
-    p.coins += n * MAT_PRICE[m];
-    sold += n * MAT_PRICE[m];
+    p.coins += gain;
+    sold += gain;
     audio.play(S_COIN);
-    questEvent(Q_EARN, 0, n * MAT_PRICE[m]);
+    noteSold(gain, m, n);
+    questEvent(Q_EARN, 0, gain);
 }
 
 // Crafted things sell for what they cost to make, times their quality. Materials are sold by sellMat; things with no recipe
@@ -226,12 +238,13 @@ int Game::sellable(int id, int q) const {
 void Game::sellItem(int id, int q, int n) {
     n = std::min(n, sellable(id, q));
     if (n <= 0) return;
-    const int gain = n * qualityPrice(itemSellBase(id), q);
+    const int gain = n * bonusPrice(qualityPrice(itemSellBase(id), q));
     p.inv.removeQ(id, q, n);
     p.coins += gain;
     sold += gain;
     audio.play(S_COIN);
     ftext(p.pos + V2(0, -24), "+" + S(gain) + " COINS", C_GOLD, 1.0f);
+    noteSold(gain);
     questEvent(Q_EARN, 0, gain);
 }
 
@@ -284,6 +297,7 @@ void Game::turnInQuest() {
     msg("QUEST COMPLETE! " + reward, C_GOLD);
     ftext(p.pos + V2(0, -30), "+" + S(quest.coins) + " COINS", C_GOLD, 1.6f);
     audio.play(S_CRAFT);
+    addRep(10);
     questIdx++;
     questActive = false;
     questProg = 0;
