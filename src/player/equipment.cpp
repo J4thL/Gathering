@@ -213,7 +213,8 @@ static std::string handHint(const Game& g, int id, bool inHome) {
     if (D.kind == IK_THROWN || D.kind == IK_LAUNCHER) return "";
     if (seedCropOf(id) >= 0) return inHome ? " - LEFT CLICK TILLED SOIL" : " - FOR YOUR HOMESTEAD";
     switch (D.kind) {
-        case IK_TOOL: return Game::isFarmType(TOOLDEF[D.ref].type) ? (inHome ? " - LEFT CLICK A TILE" : " - FOR YOUR HOMESTEAD") : "";
+        case IK_TOOL: if (TOOLDEF[D.ref].type == TT_ROD) return " - CLICK WATER TO CAST";
+            return Game::isFarmType(TOOLDEF[D.ref].type) ? (inHome ? " - LEFT CLICK A TILE" : " - FOR YOUR HOMESTEAD") : "";
         case IK_CONSUMABLE: return " - LEFT CLICK TO USE";
         case IK_PLACEABLE: return " - LEFT CLICK TO PLACE";
         case IK_BACKPACK: return " - LEFT CLICK TO WEAR";
@@ -278,6 +279,7 @@ bool Game::hotClick() {
     }
     if (D.kind == IK_CONSUMABLE) return useConsumable(D.ref);
     if (D.kind == IK_PLACEABLE) return placeStructure(D.ref);
+    if (D.kind == IK_TOOL && TOOLDEF[D.ref].type == TT_ROD) return fishClick();
     for (int s = 0; s < p.bagCap(); s++)  // anything else: what the pack's action button would do (wear a bag, explain a material...)
         if (p.inv.slots[s].item == id && !p.inv.slots[s].empty()) return useSlot(s);
     return false;

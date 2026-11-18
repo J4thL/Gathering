@@ -7,14 +7,14 @@
 #pragma once
 #include "world/world.hpp"
 
-constexpr unsigned TM(int t) { return 1u << t; }
+constexpr uint64_t TM(int t) { return 1ull << t; }
 
 struct SpawnDef {
     int kind;
     int cap;             // max live animals of this species within SPAWN_AREA of the player
     float cooldown;      // seconds before this species may spawn again after a spawn
     float chance;        // chance that a due spawn actually happens (rare predators use small values)
-    unsigned terrain;    // allowed ground tiles (bit per Tile); 0 = any walkable ground
+    uint64_t terrain;    // allowed ground tiles (bit per Tile); 0 = any walkable ground
     float form1;         // chance that the animal uses its second form
     bool nearWater;      // must be within 3 tiles of deep water / bog
     float capNight;      // extra cap at night (0 = same as day)

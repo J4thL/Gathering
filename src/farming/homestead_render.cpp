@@ -54,7 +54,6 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
     switch (pc.kind) {
         case HP_WALL_WOOD: case HP_WALL_STONE: {
             const int m = pc.kind == HP_WALL_STONE ? 1 : 0;
-            sprW(A.shadow[0], x0 + 9, y0 + 15, false, 0.5f * alpha);
             sprW(A.H.wall[m][isWall(pc.tx, pc.ty - 1) ? 1 : 0], x0 + 8, y0 + 16, false, alpha);
             break;
         }
@@ -75,20 +74,36 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
             break;
         }
         case HP_SHED: case HP_HOUSE: case HP_BARN: case HP_COOP: case HP_WORKSHOP: case HP_WAREHOUSE:
-            sprW(A.shadow[2], x0 + w / 2 + 6, y0 + h - 1, false, 0.55f * alpha);
             sprW(A.H.building[pc.kind][pc.rot & 1], x0 + w / 2, y0 + h, false, alpha);
             if (pc.kind == HP_WORKSHOP && alpha >= 1.f) sprW(A.fire[(int)(timeAcc * 9) % 3], x0 + w - 10, y0 + h - 4);
             break;
         case HP_GREENHOUSE: sprW(A.H.greenhouse[pc.rot & 1], x0 + 1, y0 + h, false, alpha); break;
-        case HP_WELL: sprW(A.shadow[2], x0 + 18, y0 + h - 1, false, 0.5f * alpha); sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;
-        case HP_CAMPFIRE: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.R.campfire[(int)(timeAcc * 9 + pc.id) % 3], x0 + 8, y0 + 14, false, alpha); break;
-        case HP_BENCH: sprW(A.shadow[0], x0 + w / 2, y0 + 14, false, 0.6f * alpha); sprW(A.T.bench, x0 + w / 2, y0 + 14, false, alpha); break;
-        case HP_PLANTER: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.T.planter, x0 + 8, y0 + 14, false, alpha); break;
-        case HP_BARREL: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.7f * alpha); sprW(A.barrel, x0 + 8, y0 + 14, false, alpha); break;
-        case HP_SCARECROW: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.H.scarecrow, x0 + 8, y0 + 15, false, alpha); break;
+        case HP_WELL: sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;
+        case HP_CAMPFIRE: sprW(A.R.campfire[(int)(timeAcc * 9 + pc.id) % 3], x0 + 8, y0 + 14, false, alpha); break;
+        case HP_BENCH: sprW(A.T.bench, x0 + w / 2, y0 + 14, false, alpha); break;
+        case HP_PLANTER: sprW(A.T.planter, x0 + 8, y0 + 14, false, alpha); break;
+        case HP_BARREL: sprW(A.barrel, x0 + 8, y0 + 14, false, alpha); break;
+        case HP_SCARECROW: sprW(A.H.scarecrow, x0 + 8, y0 + 15, false, alpha); break;
         case HP_SIGN: sprW(A.sign, x0 + 8, y0 + 14, false, alpha); break;
         case HP_LAMP: sprW(A.T.lamp, x0 + 8, y0 + 14, false, alpha); break;
         case HP_TORCH: sprW(A.D.torch[((int)(timeAcc * 8.f + pc.id)) % 3], x0 + 8, y0 + 14, false, alpha); break;
+        case HP_TROPHY: {  // a board with a plaque for each trophy: the three groups in rows, three tiers across; lit when earned
+            const int bx = (int)x0 - camX, by = (int)y0 - camY - 18;
+            const int a = (int)(255 * alpha);
+            fillRect(bx, by, (int)w, 32, RGBA(58, 36, 22, a));
+            fillRect(bx + 2, by + 2, (int)w - 4, 28, RGBA(150, 100, 60, a));
+            fillRect(bx + 2, by + 2, (int)w - 4, 1, RGBA(190, 140, 90, a));
+            static const u32 TIER[3] = {HEX(0xb8763a), HEX(0xcfd2d8), HEX(0xf2c94c)};  // bronze, silver, gold
+            for (int t = 0; t < TROPHY_COUNT; t++) {
+                const int r = t / 3, c = t % 3;
+                const bool got = trophyMask >> t & 1;
+                const u32 col = got ? TIER[c] : HEX(0x4a3322);
+                const int px = bx + 6 + c * 19, py = by + 5 + r * 6;
+                fillRect(px, py, 14, 4, RGBA(col >> 16 & 255, col >> 8 & 255, col & 255, a));
+                if (got) fillRect(px + 1, py, 12, 1, RGBA(255, 255, 255, a / 3));
+            }
+            break;
+        }
         case HP_ROOF: sprW(A.H.roof, x0, y0, false, alpha); break;
         default: break;
     }
@@ -106,14 +121,32 @@ void Game::drawHsCrop(const HPiece& pc) {
 void Game::drawHsAnimal(const HAnimal& a) {
     ensureDomArt();
     const DomDef& D = DOMS[a.kind];
+    if (a.kind == DA_MOUNT) {  // a raised wild animal: its own species art, a baby drawn smaller
+        if (a.ridden || a.away) return;  // the rider (or the follower code, companion.cpp) draws it
+        if (ren) ensureRichBank(ren, A, a.species, 0, a.tier);
+        const RichAnimal* rb = A.rich[a.species].get();
+        const AnimalClips* ac = animalClips(a.species);
+        if (!rb || !ac) return;
+        const int st = a.state == 1 ? AN_WALK : (a.state == 2 ? AN_EAT : AN_IDLE);
+        const int fr = std::min((int)(a.animT * (st == AN_WALK ? 6.f : 2.f)) % std::max(1, ac->poses[st]), ac->poses[st] - 1);
+        Spr s = rb->s[2 * a.tier][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][st][fr];
+        if (!s.ok()) return;
+        if (!a.adult(D)) s.sc *= 0.5f + 0.5f * std::min(1.f, a.age / a.growSec(D));
+        sprW(s, a.px, a.py, false, 1.f);
+        return;
+    }
+    ensureDomArt();
     const bool adult = a.adult(D);
     const int st = a.state == 1 ? DS_WALK : a.state == 2 ? DS_EAT : DS_IDLE;
     const int fr = (int)(a.animT * (st == DS_WALK ? 6.f : 2.f)) % DS_FRAMES[st];
     Spr s = A.Dom.get(a.kind, a.face8, st, fr);
     if (!s.ok()) return;
-    if (!adult) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / D.growSec);
-    sprW(A.shadow[a.kind == DA_COW ? 2 : (D.small ? 0 : 1)], a.px, a.py + 1, false, 0.6f);
-    sprW(s, a.px, a.py, false, 1.f);
+    if (!adult) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / a.growSec(D));
+    {
+        const bool shaded = shadeBegin(s, a.px, a.py, 0.75f);
+        sprW(s, a.px, a.py, false, 1.f);
+        if (shaded) shadeEnd(s);
+    }
     if (a.stock > 0) icon(A.matIcon[D.product], (int)a.px - camX, (int)a.py - camY - (int)(26 * s.sc) - 2 + (int)(sinf(timeAcc * 4.f) * 1.5f), 10);
 }
 

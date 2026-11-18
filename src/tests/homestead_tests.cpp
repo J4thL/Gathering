@@ -512,6 +512,15 @@ int homesteadTest(Game& g) {
     if (shed2) shed2->inv.add(itemMat(M_CORN), 12);
     op = g.hsAt(fx, fy, HL_GROUND);
     if (op) { op->rich = true; op->crop = CR_PUMPKIN; op->stage = 2; op->growT = 17.f; op->water = 0.4f; }
+    // the trophy wall: built like any piece, kept in the save, and drawn with the trophies earned
+    int twx = -1, twy = -1;
+    g.p.inv.add(itemMat(M_PLANK), 10);
+    g.p.inv.add(itemMat(M_ROPE), 2);
+    for (int yy = sy - 12; yy < sy + 14 && twx < 0; yy++)
+        for (int xx = sx - 14; xx < sx + 14 && twx < 0; xx++)
+            if (g.hsPlace(HP_TROPHY, xx, yy, 0)) twx = xx, twy = yy;
+    check(twx >= 0 && g.hsAt(twx + 3, twy, HL_OBJECT) && !g.hsAt(twx + 4, twy, HL_OBJECT), "a trophy wall can be built and covers 4 x 1 tiles");
+    g.trophyMask = 5;
     const size_t nPieces = g.hs.pieces.size(), nAnimals = g.hs.animals.size();
     const float happy0 = g.hs.animals[0].happy;
     const int coinsBefore = g.p.coins;
@@ -523,6 +532,7 @@ int homesteadTest(Game& g) {
     check(g.load(), "the save loads");
     check(g.world.mapId == B_HOMESTEAD, "a hunter saved in the Homestead loads back into it");
     check(g.hs.pieces.size() == nPieces && g.hs.animals.size() == nAnimals, "every building and animal is restored");
+    check(twx >= 0 && g.hsAt(twx, twy, HL_OBJECT) && g.hsAt(twx, twy, HL_OBJECT)->kind == HP_TROPHY && g.trophyMask == 5, "the trophy wall and the trophies earned are restored");
     check(g.p.coins == coinsBefore, "the hunter's own data loads too");
     check(g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] < 0 && g.p.inv.count(itemTool(TL_SICKLE)) == 1 && g.p.inv.count(itemTool(TL_HOE)) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.hotSlotOf(itemTool(TL_SICKLE)) < 0, "the equipped farming tools are saved and restored (the sickle stayed off the hotbar)");
     HPiece* s3 = g.hsAt(sx, sy + 3, HL_OBJECT);
@@ -555,7 +565,7 @@ int homesteadTest(Game& g) {
             g.saveCanvas((std::string(dir) + "/" + name).c_str());
         };
         g.state = ST_PLAY;
-        g.dayT = 60.f; g.helpT = 0;
+        g.dayT = DAY_LEN * 0.2f; g.helpT = 0;
         g.travelCd = 0;
         g.hs.animals.resize(std::min<size_t>(g.hs.animals.size(), 2));
         g.travelTo(B_HOME, COX + 33, COY + 33, false);
@@ -581,7 +591,7 @@ int homesteadTest(Game& g) {
         g.state = ST_FARM; g.farmPieceId = g.hsAt(fx, fy, HL_GROUND) ? g.hsAt(fx, fy, HL_GROUND)->id : -1; shot("i_seeds.bmp");
         g.state = ST_PLAY;
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
-        g.dayT = 210.f;
+        g.dayT = DAY_LEN * 0.7f;
         steps(g, 3); shot("j_night.bmp");
     }
     printf("--- the E key at a ripe crop beside a harvestable tree, rock or plant\n");
@@ -667,6 +677,114 @@ int homesteadTest(Game& g) {
         const bool ldOk = g.load();
         for (int fr = 0; fr < 5; fr++) g.update(1.f / 60.f);
         check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.bestTool(TT_HOE) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.inv.count(itemTool(TL_HOE)) == 1, "a save from the previous tool system (tools outside the pack) still has working tools after loading and playing a few frames");
+    }
+    printf("--- mounts: baby drops, raising, riding\n");
+    {
+        if (!g.inHomestead()) {
+            stand(g, g.world.hportal + V2(0, 16));
+            g.homesteadInteract();
+        }
+        g.state = ST_PLAY;
+        check(mountable(A_WOLF) && mountable(A_BOAR) && !mountable(A_RABBIT), "predators and big game can be mounts, a rabbit cannot");
+        check(babyChance(A_WOLF, 3) > babyChance(A_WOLF, 0) && babyChance(A_RABBIT, 0) == 0.f, "a rarer animal is likelier to leave a baby; a rabbit never does");
+        g.items.clear();
+        for (int i = 0; i < 120; i++) {
+            Animal* w = g.spawnAnimal(A_WOLF, g.p.pos + V2(60, 0), 0, 3);
+            if (w) g.killAnimal(*w, true);
+        }
+        int babies = 0, tierOk = 0;
+        for (const auto& it : g.items)
+            if (it.item == itemBaby(A_WOLF)) { babies += it.n; tierOk += it.q == 3; }
+        check(babies > 0 && tierOk == babies, "killing legendary wolves leaves baby wolves on the ground, tagged with the legendary tier");
+        g.items.clear();
+        const int n0 = (int)g.hs.animals.size();
+        g.p.inv.addIgnoringWeight(itemBaby(A_DEER), 1, 2);
+        const int slot = [&] { for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == itemBaby(A_DEER)) return i; return -1; }();
+        check(slot >= 0 && g.useSlot(slot) && (int)g.hs.animals.size() == n0 + 1 && g.p.inv.count(itemBaby(A_DEER)) == 0, "using a baby at the homestead sets it down as a growing animal");
+        HAnimal& m = g.hs.animals.back();
+        check(m.kind == DA_MOUNT && m.species == A_DEER && m.tier == 2 && !m.adult(DOMS[m.kind]), "...of the same species and tier, still a baby");
+        const int id = m.id;
+        g.toggleMount();
+        check(!g.riddenMount(), "a baby cannot be ridden");
+        m.saddled = true;
+        g.toggleMount();
+        check(!g.riddenMount(), "...even if saddled");
+        for (int i = 0, n = (int)m.growSec(DOMS[m.kind]) + 5; i < n; i++) {  // a well-fed baby grows at full speed
+            for (auto& a : g.hs.animals) if (a.id == id) { a.full = 100; a.happy = 100; a.health = 100; }
+            g.hsTickAnimals(1.f);
+        }
+        HAnimal* mm = nullptr;
+        for (auto& a : g.hs.animals) if (a.id == id) mm = &a;
+        check(mm && mm->adult(DOMS[mm->kind]), "after its growing time it is an adult");
+        const int lim0 = g.p.carryLimit();
+        stand(g, V2(mm->px, mm->py));
+        // speed on foot vs mounted over the same stretch
+        auto run = [&]() {
+            const V2 a0 = g.p.pos;
+            g.in.right = true;
+            for (int i = 0; i < 30; i++) g.updatePlayer(1.f / 60.f);
+            g.in.right = false;
+            return g.p.pos.x - a0.x;
+        };
+        stand(g, V2(mm->px, mm->py));
+        const float foot = run();
+        stand(g, V2(mm->px, mm->py));
+        mm->saddled = true;
+        check(g.toggleMount() && g.riddenMount() == mm, "an adult saddled mount can be ridden (V)");
+        check(g.p.carryLimit() == lim0 + mountCarry(A_DEER, 2) && g.p.inv.maxWeight == (float)g.p.carryLimit(), "riding adds the mount's carrying weight");
+        const float ride = run();
+        check(ride > foot * 1.2f, "...and is clearly faster than walking");
+        g.save();
+        g.dismount(true);
+        check(!g.riddenMount() && g.p.carryLimit() == lim0, "dismounting gives the carry limit back");
+        g.newGame();
+        const bool ld = g.load();
+        HAnimal* back = nullptr;
+        for (auto& a : g.hs.animals) if (a.kind == DA_MOUNT) back = &a;
+        check(ld && back && back->species == A_DEER && back->tier == 2 && back->saddled && !back->ridden && g.p.carryLimit() == lim0, "the mount (species, tier, saddle) survives save and load; a ridden one is back in its pen");
+        g.state = ST_PLAY;
+    }
+    printf("--- despawn timers: ground items and corpses\n");
+    {
+        g.state = ST_PLAY;
+        g.items.clear();
+        const V2 far = g.p.pos + V2(400, 0);  // out of pickup reach
+        GroundItem stack{far, 0, 0.f, 0.f};
+        stack.item = itemMat(M_WOOD); stack.n = 1; stack.t = DROP_LIFE - 30.f;
+        GroundItem thrown{far + V2(20, 0), W_FLINT, 0.f, THROWN_LIFE - 30.f};
+        GroundItem fresh = stack; fresh.pos = far + V2(40, 0); fresh.t = 0.f;
+        g.items.push_back(stack); g.items.push_back(thrown); g.items.push_back(fresh);
+        for (int i = 0; i < 40; i++) g.update(0.5f);  // 20 s: all still there
+        check(g.items.size() == 3, "items still lie there with time left on the clock");
+        for (int i = 0; i < 40; i++) g.update(0.5f);  // 40 s total: the two old ones are gone
+        int stacks = 0, thr = 0;
+        for (auto& it : g.items) { if (it.item >= 0) stacks++; else thr++; }
+        check(stacks == 1 && thr == 0, "a dropped stack and a thrown weapon vanish when their time is up; a fresh stack stays");
+        check(THROWN_LIFE < DROP_LIFE && CORPSE_LIFE < CORPSE_LIFE_LEGEND && DESPAWN_WARN < CORPSE_LIFE, "a legendary carcass and a dropped stack outlast ordinary ones");
+        g.items.clear();
+        GroundItem old = stack; old.t = 123.f;
+        g.items.push_back(old);
+        g.save();
+        g.newGame();
+        g.load();
+        g.state = ST_PLAY;
+        bool kept = false;
+        for (int m = 0; m < B_COUNT && !kept; m++) for (auto& it : (g.world.mapId == m ? g.items : g.mapMem[m].items)) kept = kept || (it.item == itemMat(M_WOOD) && it.t > 100.f && it.t < 130.f);
+        check(kept, "the time a dropped stack has lain there survives save and load");
+        g.animals.clear();
+        Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+        Animal* l = g.spawnAnimal(A_DEER, g.p.pos + V2(80, 0), 0, TR_LEGENDARY);
+        if (d && l) {
+            g.killAnimal(*d, true);
+            g.killAnimal(*l, true);
+            d->deadT = CORPSE_LIFE + 1.f;
+            l->deadT = CORPSE_LIFE + 1.f;
+            for (int i = 0; i < 40; i++) g.updateAnimals(0.5f);
+            int common = 0, legend = 0;
+            for (auto& a : g.animals) if (a.dead) { if (a.tier == TR_LEGENDARY) legend++; else common++; }
+            check(common == 0 && legend == 1, "an ordinary carcass is gone after its time; a legendary one is still there");
+        } else
+            check(false, "spawned the test deer");
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

@@ -176,7 +176,7 @@ int soakTest(Game& g) {
             check(false, std::string("could not travel to ") + MAPS[map].name);
             continue;
         }
-        g.dayT = (float)rnd(1500);  // some maps are played by day, some at night
+        g.dayT = (float)rnd((int)(DAY_LEN * 5));  // some maps are played by day, some at night
         g.p.inv.addIgnoringWeight(itemWpn(W_FLINT), 300);
         g.p.hot[0] = itemWpn(W_FLINT);
         std::string firstBad;

@@ -12,6 +12,7 @@ int selfTest(Game& g) {
     testWorldRules(t);
     testSkillsAndTrophies(t);
     testTownAndFeedback(t);
+    testWeather(t);
     if (t.hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out << t.savedBytes;

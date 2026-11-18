@@ -1,5 +1,6 @@
 // selftest_screens.cpp - `--selftest`: inventory screen, crafting, saving and migration.
 #include "tests/selftest_ctx.hpp"
+#include "world/gates.hpp"
 
 void testScreensAndSaves(SelfTest& t) {
     [[maybe_unused]] Game& g = t.g;
@@ -330,6 +331,185 @@ void testScreensAndSaves(SelfTest& t) {
         sane = sane && g.p.mat(M_MEAT) == 4 && g.p.mat(M_BONE) == 0 && g.p.mat(M_ORGAN) == 0;  // "abc" stops that line; the rest stay zero
         check(sane, "a damaged v1 save loads without crashing, no negative counts, and never overfills the bag");
         check(g.loadReport.dropped > 0, "items that cannot fit (absurd counts) are reported as dropped instead of lost silently");
+        removeAll();
+    }
+    {   // a new game from the title screen: the "shaping the world" screen must hand over to play (and the world has to be sound)
+        removeAll();
+        g.hasSave = false;
+        g.state = ST_TITLE;
+        g.requestNewGame();
+        check(g.shapeWait > 0 && g.state == ST_TITLE, "starting a new game shows the shaping screen first");
+        int frames = 0;
+        while (g.state == ST_TITLE && frames < 600) {
+            g.in.enterPressed = false;
+            g.update(1.f / 60.f);
+            frames++;
+        }
+        check(g.state == ST_PLAY && g.shapeWait == 0 && frames < 600, "the shaping screen builds the world and starts the game");
+        g.state = ST_TITLE;
+        g.hasSave = true;
+        g.requestNewGame();
+        check(g.newGameAsk && g.shapeWait == 0, "with a saved game, a new game asks before replacing it");
+        g.newGameAsk = false;
+        removeAll();
+    }
+    {   // sealed gates
+        removeAll();
+        // ---- sealed gates: a gate asks for an offering (hunting level + materials, in a chain) before it opens
+        g.newGame();
+        g.state = ST_PLAY;
+        g.travelCd = 0;
+        for (int b = 0; b < B_COUNT; b++) g.gateOpen[b] = b == B_HOME || b == B_HOMESTEAD;
+        {
+            const Portal& east = MAPS[B_HOME].portals[0];
+            g.p.pos = V2((east.zone.x0 + 0.5f) * TS, 84.5f * TS);
+            const float x0 = g.p.pos.x;
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_HOME && g.state == ST_GATE && g.gateTarget == B_DESERT && g.p.pos.x < x0, "a sealed gate does not travel: it opens the offering panel and steps the hunter back");
+            check(!g.offerAtGate(B_DESERT), "the offering is refused without the materials and level");
+            g.p.inv.clear();
+            g.p.sk.s[SK_HUNTING].xp = 100000;
+            const GateReq* dg = gateFor(B_DESERT);
+            for (int i = 0; i < dg->nMat; i++) g.p.inv.addIgnoringWeight(itemMat(dg->mats[i].mat), dg->mats[i].n + 1);
+            check(!g.offerAtGate(B_SWAMP) && !g.gateOpen[B_SWAMP], "a gate cannot be opened before the one it follows in the chain");
+            check(g.offerAtGate(B_DESERT) && g.gateOpen[B_DESERT], "the right offering opens the desert gate");
+            check(g.p.mat(dg->mats[0].mat) == 1, "the offering takes exactly what the gate asks for");
+            g.state = ST_PLAY;
+            g.travelCd = 0;
+            g.p.pos = V2((east.zone.x0 + 0.5f) * TS, 84.5f * TS);
+            g.checkPortals(0.f);
+            check(g.world.mapId == B_DESERT, "an opened gate travels");
+            g.travelTo(B_HOME, 40, 30, false);
+            g.travelCd = 0;
+            // gates stay open over a save, and a save from before the gates existed keeps everything open
+            g.save();
+            g.newGame();
+            check(!g.gateOpen[B_DESERT], "a new game starts with the gates sealed");
+            check(g.load() && g.gateOpen[B_DESERT] && !g.gateOpen[B_SWAMP], "open gates are saved and loaded");
+            removeAll();
+            writeFile("version 2\ncoins 5\nup 0 0 0 0\n");
+            check(g.load() && g.gateOpen[B_SWAMP] && g.gateOpen[B_MOUNTAIN], "a save from before the gates existed keeps every gate open");
+            removeAll();
+        }
+        removeAll();
+    }
+    {   // settings: rebinding swaps, reserved keys are refused, and settings are saved and loaded
+        g.newGame();
+        g.cfg = Settings();
+        g.rebind = K_MAP;
+        g.rebindKey(SDL_SCANCODE_J);
+        check(g.cfg.key[K_MAP] == SDL_SCANCODE_J && g.rebind < 0, "a control takes the key pressed");
+        g.rebind = K_HEAL;
+        g.rebindKey(SDL_SCANCODE_J);
+        check(g.cfg.key[K_HEAL] == SDL_SCANCODE_J && g.cfg.key[K_MAP] == SDL_SCANCODE_Q, "binding a key already in use swaps the two controls");
+        g.rebind = K_USE;
+        g.rebindKey(SDL_SCANCODE_TAB);
+        g.rebind = K_USE;
+        g.rebindKey(SDL_SCANCODE_ESCAPE);
+        check(g.cfg.key[K_USE] == SDL_SCANCODE_E, "reserved keys and Esc leave the binding alone");
+        g.cfg.sfx = 3;
+        g.cfg.amb = 0;
+        g.saveSettings();
+        g.cfg = Settings();
+        g.loadSettings();
+        check(g.cfg.sfx == 3 && g.cfg.amb == 0 && g.cfg.key[K_HEAL] == SDL_SCANCODE_J && g.cfg.key[K_MAP] == SDL_SCANCODE_Q, "settings are saved and loaded");
+        g.cfg = Settings();
+        g.saveSettings();
+        g.loadSettings();
+        // the gate list on the map opens a read-only view that returns to the map
+        g.state = ST_MAP;
+        g.openGateView(B_SNOW);
+        check(g.state == ST_GATE && g.gateView, "the map's gate list opens the gate view");
+        g.updateGatePanel(0.f);
+        g.in.escPressed = true;
+        g.updateGatePanel(0.f);
+        g.in.escPressed = false;
+        check(g.state == ST_MAP, "closing the gate view returns to the map");
+        g.gateView = false;
+        g.state = ST_PLAY;
+    }
+    {   // the shop's sell slider opens only for a row of 2 or more
+        g.newGame();
+        g.state = ST_SHOP;
+        g.amountOpenSell(-M_HIDE - 1, 0, 1);
+        check(g.amtCtx == Game::AMT_NONE, "no slider for a single item");
+        g.amountOpenSell(-M_HIDE - 1, 0, 9);
+        check(g.amtCtx == Game::AMT_SELL && g.amtMax == 9 && g.amtVal == 4, "the sell slider opens at half the row");
+        g.amountClose();
+        g.state = ST_PLAY;
+    }
+    {   // the bestiary counts hunter kills per species, pays coins at 5 / 20 / 50, and is saved
+        removeAll();
+        g.newGame();
+        g.p.coins = 0;
+        for (int i = 0; i < 4; i++) g.bestiaryKill(A_DEER);
+        check(g.bestKills[A_DEER] == 4 && g.p.coins == 0, "the bestiary counts kills (no reward before 5)");
+        g.bestiaryKill(A_DEER);
+        check(g.p.coins == 8 + ANIMAL[A_DEER].hp / 3, "the 5th kill of a species pays the first reward");
+        g.bestKills[A_WOLF] = 7;
+        g.save();
+        g.newGame();
+        check(g.bestKills[A_DEER] == 0, "a new game starts with an empty bestiary");
+        check(g.load() && g.bestKills[A_DEER] == 5 && g.bestKills[A_WOLF] == 7, "the bestiary is saved and loaded");
+        removeAll();
+    }
+    {   // bestiary tiers killed are remembered per species and saved
+        removeAll();
+        g.newGame();
+        g.bestiaryKill(A_WOLF, TR_COMMON);
+        g.bestiaryKill(A_WOLF, TR_LEGENDARY);
+        check(g.bestMask[A_WOLF] == ((1 << TR_COMMON) | (1 << TR_LEGENDARY)), "the bestiary notes which tiers were hunted");
+        g.save();
+        g.newGame();
+        check(g.bestMask[A_WOLF] == 0 && g.load() && g.bestMask[A_WOLF] == 9, "the tier mask is saved and loaded");
+        removeAll();
+    }
+    {   // town economy: reputation levels, prices, demand, daily orders, saving
+        removeAll();
+        g.newGame();
+        g.p.coins = 0;
+        check(g.repLevel() == 0 && g.matSellPrice(M_HIDE) == MAT_PRICE[M_HIDE], "a stranger gets the base price");
+        g.addRep(25);
+        check(g.repLevel() == 1 && std::string(g.repName()) == "KNOWN", "25 reputation makes the hunter KNOWN");
+        check(g.matSellPrice(M_HIDE) == (int)(MAT_PRICE[M_HIDE] * 1.04f + 0.5f) && g.buyPrice(100) == 95, "reputation raises sell prices and lowers buy prices");
+        g.addRep(500);
+        check(g.repLevel() == 3 && g.repNext() == -1, "reputation tops out at HONORED");
+        g.rep = 0;
+        g.repAcc = 0;
+        g.p.inv.add(itemMat(M_STONE), 40);
+        const int before = g.matSellPrice(M_STONE);
+        g.sellMat(M_STONE, 30);
+        check(g.demand[M_STONE] < 1.f && g.matSellPrice(M_STONE) <= before, "selling a lot lowers the demand for it");
+        g.demand[M_STONE] = 0.1f;
+        g.newDay(2);
+        check(g.demand[M_STONE] >= 0.7f && g.demand[M_STONE] <= 1.3f && g.lastDay == 2, "a new day moves demand back within its limits");
+        g.rep = 0;
+        g.repAcc = 0;
+        g.p.coins = 0;
+        g.noteSold(300);
+        check(g.rep == 2, "every 150 coins sold earns a point of reputation");
+        // orders
+        g.makeOrders(3);
+        int made = 0;
+        for (auto& o : g.orders) made += o.item >= 0 && o.n >= 1 && o.pay > 0;
+        check(made >= 1, "the board lists crafted items");
+        Game::Order& o = g.orders[0];
+        if (o.item >= 0) {
+            const int need = o.n;
+            check(!g.orderCanFill(o), "an order cannot be filled without the items");
+            g.p.inv.addIgnoringWeight(o.item, need, o.q);
+            g.p.coins = 0;
+            const int repB = g.rep;
+            check(g.orderCanFill(o), "an order can be filled once the items are carried");
+            g.fillOrder(0);
+            check(o.done && g.p.coins == g.bonusPrice(o.pay) && g.rep == repB + o.rep && g.p.inv.count(o.item) == 0, "filling an order pays coins and reputation and takes the items");
+            g.fillOrder(0);
+            check(g.p.coins == g.bonusPrice(o.pay), "an order is filled only once");
+            const int dayO = g.lastDay, repO = g.rep;
+            g.save();
+            g.newGame();
+            check(g.load() && g.lastDay == dayO && g.orders[0].item == o.item && g.orders[0].done && g.rep == repO, "reputation, market and orders are saved and loaded");
+        }
         removeAll();
     }
     {   // saving twice keeps the previous save; a save lost between the two renames is recovered; odd day / kills / quest numbers are clamped

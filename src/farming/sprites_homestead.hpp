@@ -548,6 +548,17 @@ inline Img iconMat(int m) {
             for (int i = 0; i < 9; i++) { const int x = 3 + i; im.line(x, 14, x + (i % 3) - 1, 4 + (i % 4), i % 2 ? HEX(0xe0c060) : HEX(0xc8a43a)); }
             im.rect(3, 9, 10, 2, HEX(0x8a5a30));
             break;
+        case M_TROUT: case M_BASS: case M_CATFISH: case M_EEL: case M_CHAR: case M_PIKE: {  // a side-on fish: body, tail, eye
+            static const u32 BODY[6] = {HEX(0x8aa27c), HEX(0x5f8a4a), HEX(0x7a6a58), HEX(0x4a5a42), HEX(0xc88a5a), HEX(0x6a8a6a)};
+            const u32 b = BODY[m - M_TROUT], dk = drk(b), lt = lit(b);
+            const bool eel = m == M_EEL;
+            im.ellipseShaded(eel ? 7.f : 7.5f, 8.f, eel ? 6.5f : 5.2f, eel ? 1.7f : (m == M_PIKE ? 2.2f : 3.0f), lt, b, dk);
+            im.rect(eel ? 12 : 12, 7, 2, 3, dk);
+            im.set(eel ? 3 : 4, 7, HEX(0x1a1a1a));
+            if (m == M_CHAR) im.set(7, 9, HEX(0xf0c070));
+            if (m == M_CATFISH) { im.set(2, 9, dk); im.set(2, 6, dk); }
+            break;
+        }
         default: break;
     }
     im.outline(OUT);
@@ -564,6 +575,10 @@ inline Img iconTool(int k) {
         im.line(11, 8, 15, 4, HEX(0x7a8ca8)); im.line(11, 9, 15, 5, HEX(0x4a5a78)); im.rect(14, 3, 2, 2, HEX(0xb0c4de));
         im.rect(4, 3, 6, 1, HEX(0x4a5a78)); im.set(4, 4, HEX(0x4a5a78)); im.set(9, 4, HEX(0x4a5a78)); im.set(4, 5, HEX(0x4a5a78)); im.set(9, 5, HEX(0x4a5a78));
         im.set(15, 6, HEX(0x7ab8e0)); im.set(15, 8, HEX(0x7ab8e0));
+    } else if (k == TL_ROD) {  // a long thin rod, a line and a red bobber
+        im.line(2, 14, 12, 3, W1); im.line(3, 14, 13, 3, W2);
+        im.line(13, 3, 14, 10, HEX(0xe8e8e8));
+        im.rect(13, 10, 3, 3, HEX(0xf05050)); im.rect(13, 10, 3, 1, HEX(0xffffff));
     } else {  // sickle
         im.line(3, 14, 6, 9, W1); im.line(4, 14, 7, 9, W2);
         for (int a = 0; a < 12; a++) { const float t = a / 11.f * 3.1f - 0.3f; im.set(7 + (int)lroundf(cosf(t) * 5.f), 8 - (int)lroundf(sinf(t) * 5.f), M1); im.set(7 + (int)lroundf(cosf(t) * 5.f), 9 - (int)lroundf(sinf(t) * 5.f), M2); }
@@ -595,6 +610,9 @@ inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build m
         case HP_SIGN: im.rect(11, 8, 3, 13, P.D); im.rect(4, 4, 16, 8, P.M); im.rect(4, 4, 16, 1, P.L); im.rect(6, 7, 12, 1, P.DD); im.rect(6, 9, 8, 1, P.DD); im.outline(OUT); break;
         case HP_LAMP: im.rect(11, 9, 2, 12, HEX(0x4a4a54)); im.rect(8, 4, 8, 6, HEX(0xffe48a)); im.rect(8, 3, 8, 1, HEX(0x4a4a54)); im.rect(8, 10, 8, 1, HEX(0x4a4a54)); im.set(10, 6, HEX(0xffffff)); im.outline(OUT); break;
         case HP_TORCH: im.rect(11, 10, 2, 10, P.D); im.ellipse(12, 7, 3.2f, 4.f, HEX(0xf0953a)); im.ellipse(12, 8, 1.8f, 2.6f, HEX(0xffe060)); im.outline(OUT); break;
+        case HP_TROPHY: im.rect(2, 6, 20, 12, P.M); im.rect(2, 6, 20, 1, P.L); im.rect(2, 17, 20, 1, P.DD);
+            for (int r = 0; r < 3; r++) for (int c = 0; c < 3; c++) im.rect(4 + c * 6, 8 + r * 3, 4, 2, r == 0 ? HEX(0xb8763a) : r == 1 ? HEX(0xcfd2d8) : HEX(0xf2c94c));
+            im.outline(OUT); break;
         default: {  // buildings: a miniature
             const int w = HPDEF[kind].w, h = HPDEF[kind].h;
             if (kind == HP_PEN) { for (int i = 0; i < 4; i++) { im.rect(3 + i * 5, 6, 2, 12, P.M); } im.rect(3, 8, 18, 2, P.L); im.rect(3, 13, 18, 2, P.L); im.outline(OUT); break; }

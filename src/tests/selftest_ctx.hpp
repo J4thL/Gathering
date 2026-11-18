@@ -73,3 +73,4 @@ void testScreensAndSaves(SelfTest& t);  // inventory screen, crafting, saving an
 void testWorldRules(SelfTest& t);  // gathering, structures, consumables, gear, maps and travel
 void testSkillsAndTrophies(SelfTest& t);  // skill bonuses, skill XP, trophies and skills
 void testTownAndFeedback(SelfTest& t);  // town NPCs, HUD feedback, wildlife and audio
+void testWeather(SelfTest& t);  // the weather schedule, the weather state machine and its effects

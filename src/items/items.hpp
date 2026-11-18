@@ -12,8 +12,9 @@
 #include <string>
 #include "core/data.hpp"
 
-enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED };
-[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR"};
+enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED, IK_BABY };
+[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR", "BABY ANIMAL"};
+static_assert(sizeof(ITEM_KIND_NAME) / sizeof(ITEM_KIND_NAME[0]) == IK_BABY + 1, "every item kind needs a display name");
 
 // ---- id space: contiguous ranges, in the order of the legacy enums
 constexpr int ITEM_MAT0 = 0;
@@ -24,8 +25,8 @@ constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
 // gathering tools: axes cut trees, pickaxes break rock and ore; a higher tier is faster and gives more (see resources.hpp for what needs which tier)
-enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
-enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_COUNT };
+enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_ROD, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
+enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_ROD, TL_COUNT };
 struct ToolDef {
     const char* name;
     int type, tier;      // tier 1..4: stone, copper, iron, gilded
@@ -45,6 +46,7 @@ static const ToolDef TOOLDEF[TL_COUNT] = {
     {"FARMER'S HOE", TT_HOE, 1, 1.0f, 0.00f, "TILLS SOIL FOR FARM PLOTS - DIGS UP ROOT CROPS"},
     {"WATERING CAN", TT_CAN, 1, 1.0f, 0.00f, "WATERS CROPS - REFILL AT A WELL OR THE WATER'S EDGE"},
     {"SICKLE", TT_SICKLE, 1, 1.0f, 0.00f, "CUTS WHEAT AND CORN"},
+    {"FISHING ROD", TT_ROD, 1, 1.0f, 0.00f, "CAST AT ANY WATER - CLICK AGAIN WHEN THE BOBBER DIPS"},
 };
 enum PlaceId { PL_CAMPFIRE, PL_CHEST, PL_COUNT };
 constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
@@ -53,7 +55,10 @@ constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
                  CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_COUNT };  // the last six: mine and dungeon gear
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
-constexpr int ITEM_COUNT = ITEM_CARRY0 + CG_COUNT;
+// a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
+constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
+constexpr int ITEM_COUNT = ITEM_BABY0 + A_COUNT;
+constexpr int itemBaby(int kind) { return ITEM_BABY0 + kind; }
 constexpr int itemCarry(int c) { return ITEM_CARRY0 + c; }
 constexpr int itemTool(int t) { return ITEM_TOOL0 + t; }
 constexpr int itemPlace(int k) { return ITEM_PLACE0 + k; }
@@ -80,6 +85,7 @@ struct ItemDef {
 constexpr int INV_SLOTS = 100;
 constexpr int MAX_STACK = 999;
 constexpr int STACK_MAT = MAX_STACK, STACK_AMMO = MAX_STACK, STACK_CONS = MAX_STACK, STACK_WPN = MAX_STACK;
+constexpr int STACK_GEAR = MAX_STACK;  // launchers, tools, bags, carried gear and babies stack too (one tier per stack; wearing or using takes one out)
 constexpr int BASE_CARRY_KG = 50;                              // with no bag
 constexpr int PACK_CARRY_KG[PK_COUNT] = {100, 150, 200, 300};  // satchel, trapper, explorer, expedition
 constexpr int itemPack(int k) { return ITEM_PACK0 + k; }
@@ -102,7 +108,8 @@ inline float matWeight(int m) {
         /*ICEBONE*/ 0.6f, /*FROSTFANG*/ 0.2f, /*ICESHARD*/ 0.3f, /*KNIGHTPLATE*/ 2.0f, /*FROSTRUNE*/ 0.3f, /*ETERNALICE*/ 0.8f, /*CRYPTKEY*/ 0.1f,
         /*BERRY*/ 0.05f, /*WHEAT*/ 0.2f, /*CARROT*/ 0.15f, /*POTATO*/ 0.3f, /*CABBAGE*/ 0.6f, /*CORN*/ 0.25f, /*TOMATO*/ 0.2f, /*PUMPKIN*/ 3.0f, /*STRAWBERRY*/ 0.05f,
         0.01f, 0.01f, 0.02f, 0.01f, 0.01f, 0.01f, 0.02f, 0.01f,
-        /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f};
+        /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f,
+        /*TROUT*/ 0.8f, /*BASS*/ 1.0f, /*CATFISH*/ 1.8f, /*EEL*/ 0.7f, /*CHAR*/ 0.6f, /*PIKE*/ 1.6f};
     return W[m];
 }
 inline float wpnWeight(int w) {
@@ -115,8 +122,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         std::array<ItemDef, ITEM_COUNT> t{};
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)] = {MAT_NAME[m], IK_MATERIAL, STACK_MAT, MAT_PRICE[m], MAT_PRICE[m] >= 20 ? 2 : (MAT_PRICE[m] >= 12 ? 1 : 0), MAT_BLURB[m], m, 0};
         for (int w = 0; w < W_COUNT; w++)
-            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? 1 : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
-        for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "SPENT WHEN FIRED, SOME CAN BE RECOVERED", a, 0};
+            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? STACK_GEAR : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
+        for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "USED UP WHEN IT HITS, A MISS CAN BE PICKED UP", a, 0};
         t[ITEM_CONS0 + C_BANDAGE] = {"BANDAGE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 45 HP", C_BANDAGE, 0};
         t[ITEM_CONS0 + C_SALVE] = {"HERBAL SALVE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 30 HP - MADE FROM WILD HERBS", C_SALVE, 0};
         t[ITEM_CONS0 + C_TONIC] = {"BOG TONIC", IK_CONSUMABLE, STACK_CONS, 0, 1, "STRONG MEDICINE - HEALS 90 HP", C_TONIC, 0};
@@ -132,10 +139,10 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK", "EXPEDITION PACK"};
         static const float pw[PK_COUNT] = {1.0f, 1.5f, 2.0f, 2.5f};
         for (int k = 0; k < PK_COUNT; k++) {
-            t[itemPack(k)] = {pn[k], IK_BACKPACK, 1, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
+            t[itemPack(k)] = {pn[k], IK_BACKPACK, STACK_GEAR, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
             t[itemPack(k)].blurb = "WEARABLE BAG - CARRY UP TO " + std::to_string(PACK_CARRY_KG[k]) + " KG";
         }
-        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, 1, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
+        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, STACK_GEAR, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
         t[itemPlace(PL_CAMPFIRE)] = {"CAMPFIRE", IK_PLACEABLE, STACK_CONS, 0, 0, "SMELT, COOK AND KEEP WARM - USE TO PLACE", PL_CAMPFIRE, 0};
         t[itemPlace(PL_CHEST)] = {"STORAGE CHEST", IK_PLACEABLE, STACK_CONS, 0, 0, "20 SLOTS OF STORAGE - USE TO PLACE", PL_CHEST, 0};
         struct CarriedText { const char* name; const char* blurb; int rarity; };
@@ -146,7 +153,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"POISON-RESISTANT WRAPS", "CARRIED: IMMUNE TO POISON PLANTS, -35% SNAKE BITES", 2},
             {"BOG WADERS", "CARRIED: MUD AND MURK NO LONGER SLOW YOU", 1},
             {"CLIMBER'S HARNESS", "CARRIED: 60% LESS THIN-AIR DRAIN IN THE MOUNTAINS", 1},
-            {"REINFORCED QUIVER", "CARRIED: HALF AS MANY ARROWS AND BOLTS ARE LOST", 1},
+            {"REINFORCED QUIVER", "CARRIED: HALF AS MANY MISSED ARROWS AND BOLTS BREAK", 1},
             {"MINER'S LANTERN", "CARRIED: LIGHTS THE DARK FAR WIDER IN MINES AND DUNGEONS", 1},
             {"GEMSET RING", "CARRIED: 15% FASTER MINING AND A CHANCE OF EXTRA ORE", 2},
             {"FROSTWARD CLOAK", "CARRIED: NO COLD DRAIN, -30% DAMAGE FROM ICE ATTACKS", 2},
@@ -154,7 +161,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"CROWN OF THE FROSTBOUND KING", "CARRIED: +15% DAMAGE DEALT, -10% DAMAGE TAKEN", 3},
             {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
         };
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, 1, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, STACK_GEAR, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
         // weights: one table per category (materials / weapons above); the rest by kind
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)].weight = matWeight(m);
         for (int w = 0; w < W_COUNT; w++) t[itemWpn(w)].weight = wpnWeight(w);
@@ -171,7 +179,9 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
 }
 inline const ItemDef& item(int id) { return itemTable()[id]; }
 // only crafted things have a quality: raw and processed materials never do (their icons get no border)
-inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL; }
+// gear: the things that are one-off results of a craft (a launcher, a tool, a bag, carried gear): never doubled by a skill bonus
+inline bool itemIsGear(int id) { return id >= 0 && (item(id).kind == IK_LAUNCHER || item(id).kind == IK_TOOL || item(id).kind == IK_BACKPACK || item(id).kind == IK_CARRIED || item(id).kind == IK_BABY); }
+inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL && item(id).kind != IK_BABY; }  // (a baby's q is its rarity tier)
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
 
 // ---- recipes in terms of items

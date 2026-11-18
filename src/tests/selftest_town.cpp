@@ -1,4 +1,5 @@
 // selftest_town.cpp - `--selftest`: town NPCs, HUD feedback, wildlife and audio.
+#include <map>
 #include "tests/selftest_ctx.hpp"
 
 void testTownAndFeedback(SelfTest& t) {
@@ -14,6 +15,17 @@ void testTownAndFeedback(SelfTest& t) {
     {
         g.newGame();
         g.state = ST_PLAY;
+        // the original area has no tree wall around it any more: its outer two tiles are not walled off
+        {
+            int walled = 0, tiles = 0;
+            for (int ty = COY; ty < COY + CH; ty++)
+                for (int tx = COX; tx < COX + CW; tx++)
+                    if (tx < COX + 2 || ty < COY + 2 || tx >= COX + CW - 2 || ty >= COY + CH - 2) {
+                        tiles++;
+                        if (g.world.solid[ty][tx] && g.world.tile[ty][tx] != T_WATER) walled++;
+                    }
+            check(walled < tiles / 4, "no tree wall around the original area");
+        }
         // every resource (nodes and the choppable props) is out of the town, its 2-tile margin and the four roads leading out
         auto bad = [&](float px, float py) {
             const int tx = (int)(px / TS) - COX, ty = (int)((py - 1.f) / TS) - COY;
@@ -49,6 +61,280 @@ void testTownAndFeedback(SelfTest& t) {
         }
         check(!g.animals.empty() && inTown == 0, "no wild animal ever spawns in or by the town");
         check(far > (int)g.animals.size() / 4 && wild == (int)g.animals.size(), "animals spread across the whole forest, not in a ring around the village");
+        // the hours of the day change who is about: rabbits keep to daylight, deer are busiest at dawn and dusk, boars are about all the
+        // time, wolves hunt at night (and the surplus slips away when the hour turns)
+        {
+            const float keep = g.dayT;
+            auto at = [&](float d, int k) { g.dayT = d; return g.homeTarget(k); };
+            const float NOON = DAY_LEN * 0.2f, DUSK = DAY_LEN * 0.44f, MIDNIGHT = DAY_LEN * 0.7f;
+            check(at(MIDNIGHT, A_WOLF) >= at(NOON, A_WOLF) * 2 && at(MIDNIGHT, A_WOLF) > HOME_HERDS[A_WOLF], "wolves: at least twice as many out at night as at noon");
+            check(at(NOON, A_RABBIT) > at(MIDNIGHT, A_RABBIT) * 1.5f, "rabbits: many more by day than at night");
+            check(at(DUSK, A_DEER) > at(NOON, A_DEER) && at(NOON, A_DEER) > at(MIDNIGHT, A_DEER), "deer: busiest at dusk, fewer at noon, fewest at night");
+            check(at(MIDNIGHT, A_BOAR) >= at(NOON, A_BOAR) && at(NOON, A_BOAR) * 10 >= HOME_HERDS[A_BOAR] * 8, "boars: out at all hours (a few more at night)");
+            // where they are: each species on the ground it likes (against that ground's share of the forest)
+            g.cam = V2(0, 0);
+            long tiles = 0, tn[T_LAKE_MID + 1] = {};
+            for (int y = 4; y < MH - 4; y++)
+                for (int x = 4; x < MW - 4; x++) { tiles++; tn[g.world.tile[y][x]]++; }
+            auto share = [&](float dt, int k, std::initializer_list<int> likes, double& grass, double& inGlade) {
+                g.dayT = dt;
+                g.animals.clear();
+                for (int i = 0; i < 500; i++) g.trySpawn(k, 0, false);
+                long on = 0, gr = 0, gl = 0;
+                for (auto& a : g.animals) {
+                    const int tx = (int)(a.pos.x / TS), ty = (int)(a.pos.y / TS);
+                    for (int t : likes) on += g.world.tile[ty][tx] == t;
+                    gr += g.world.tile[ty][tx] == T_GRASS;
+                    for (const Glade& gl2 : g.world.glades) if (hypotf((tx - gl2.cx) / gl2.rx, (ty - gl2.cy) / gl2.ry) < 0.9f) { gl++; break; }
+                }
+                double terr = 0;
+                for (int t : likes) terr += tn[t];
+                const double n = std::max<size_t>(1, g.animals.size());
+                grass = gr / n;
+                inGlade = gl / n;
+                return (on / n) / std::max(1e-9, terr / tiles);  // how many times more than chance they stand on the ground they like
+            };
+            double grDay, grNight, glA, glB, scratch;
+            const double wolfLift = share(NOON, A_WOLF, {T_NEEDLES, T_ROOTS, T_DARK}, grDay, glA);
+            share(MIDNIGHT, A_WOLF, {T_NEEDLES, T_ROOTS, T_DARK}, grNight, glB);
+            const double boarLift = share(NOON, A_BOAR, {T_DARK, T_MOSS, T_ROOTS}, scratch, glA);
+            const double rabbitLift = share(NOON, A_RABBIT, {T_GRASS, T_LEAF}, scratch, glA);
+            printf("  wildlife: wolves %.1fx (needles/roots/dark), boars %.1fx (dark/moss/roots), rabbits %.1fx (grass/leaf); wolves on meadow grass: day %.0f%% night %.0f%%\n",
+                   wolfLift, boarLift, rabbitLift, 100 * grDay, 100 * grNight);
+            check(wolfLift > 1.5 && boarLift > 1.5 && rabbitLift > 1.05, "each species keeps to the ground it likes");
+            double gd = 0, gn = 0, x1, x2;
+            share(NOON, A_WOLF, {T_NEEDLES}, gd, x1);
+            share(MIDNIGHT, A_WOLF, {T_NEEDLES}, gn, x2);
+            check(gn > gd, "wolves range further out over the meadows at night");
+            // the surplus leaves one at a time, out of sight (and never one that is near the player)
+            g.animals.clear();
+            g.dayT = NOON;
+            for (int i = 0; i < 20; i++) {
+                Animal a;
+                a.kind = A_WOLF; a.biome = B_HOME; a.maxhp = a.hp = 10;
+                a.pos = V2((COX + 4.f + 4 * i) * TS, (COY + 30.f) * TS);
+                g.animals.push_back(a);
+            }
+            g.p.pos = g.animals[0].pos + V2(40, 0);
+            g.cam = V2(g.p.pos.x - LW / 2, g.p.pos.y - LH / 2);
+            for (auto& a : g.animals) a.target = a.pos;
+            auto leavingCount = [&]() { int n = 0; for (auto& a : g.animals) n += a.leaving; return n; };
+            g.cullHome(A_WOLF);
+            int who = -1;
+            for (size_t i = 0; i < g.animals.size(); i++) if (g.animals[i].leaving) who = (int)i;
+            check(leavingCount() == 1 && who > 0 && !g.animals[0].leaving, "when the hour calls for fewer, one surplus wolf is sent home (never the one next to the player)");
+            // it walks to its bed and is gone once it is there and out of sight
+            g.p.hp = g.p.maxhp = 100000;
+            for (int i = 0; i < 2400 && who > 0 && !g.animals[who].gone; i++) g.updateAnimals(0.1f);
+            check(who > 0 && g.animals[who].gone && g.animals[who].hasBed, "...it walks to its bed and is gone once it is there and out of sight");
+            g.animals.clear();
+            g.dayT = keep;
+        }
+        // ---- wolf packs: 3-5 wolves with a leader that keep together, flank the hunter, break off sooner and scatter when the leader falls
+        {
+            const float keep = g.dayT;
+            g.dayT = DAY_LEN * 0.7f;  // night
+            g.animals.clear();
+            g.nextPack = 1;
+            g.p.pos = V2(6 * TS, 6 * TS);
+            g.cam = V2(0, 0);
+            g.populate();
+            std::map<int, std::vector<int>> packs;
+            int wolves = 0, lone = 0;
+            for (size_t i = 0; i < g.animals.size(); i++) {
+                const Animal& a = g.animals[i];
+                if (a.kind != A_WOLF) continue;
+                wolves++;
+                if (a.pack >= 0) packs[a.pack].push_back((int)i);
+                else lone++;
+            }
+            bool sizes = !packs.empty(), oneLeader = true, close = true;
+            for (auto& kv : packs) {
+                int leaders = 0, li = -1;
+                for (int i : kv.second) if (g.animals[i].leader) { leaders++; li = i; }
+                oneLeader = oneLeader && leaders == 1;
+                sizes = sizes && kv.second.size() >= 2 && kv.second.size() <= 5;
+                if (li >= 0) for (int i : kv.second) close = close && dist(g.animals[i].pos, g.animals[li].pos) < 140.f;
+            }
+            printf("  wolf packs at night: %zu packs, %d wolves in all (%d lone)\n", packs.size(), wolves, lone);
+            check(sizes && packs.size() >= 2 && lone <= 2, "wolves come in packs of 3-5 (a lone wolf or two at most)");
+            check(oneLeader && close, "each pack has exactly one leader, and the pack starts together");
+            // the pack keeps together on its rounds
+            g.animals.erase(std::remove_if(g.animals.begin(), g.animals.end(), [](const Animal& a) { return a.kind != A_WOLF; }), g.animals.end());
+            for (auto& a : g.animals) { a.target = a.pos; a.actArrived = true; }
+            for (int i = 0; i < 900; i++) g.updateAnimals(0.1f);
+            double together = 0;
+            int counted = 0;
+            for (auto& kv : packs) {
+                const Animal* L = nullptr;
+                for (auto& a : g.animals) if (a.pack == kv.first && a.leader && !a.gone) L = &a;
+                if (!L) continue;
+                for (auto& a : g.animals) if (a.pack == kv.first && &a != L && !a.gone) { together += dist(a.pos, L->pos); counted++; }
+            }
+            printf("  after 90 s the followers are on average %.0f px from their leader\n", counted ? together / counted : -1.0);
+            check(counted > 0 && together / counted < 220.0, "a pack keeps together: its followers stay near the leader");
+            g.animals.clear();
+            // a three-wolf pack in an open meadow meets the hunter: the whole pack joins the chase, and the followers come in from the sides
+            if (!g.world.fields.empty()) {
+                const FlowerField& f = g.world.fields[0];
+                const V2 hunter(f.cx * TS, f.cy * TS);
+                g.p.pos = hunter;
+                g.p.walking = true; g.p.sprinting = false;
+                g.p.hp = g.p.maxhp = 100000;
+                g.cam = V2(0, 0);
+                auto mkw = [&](V2 at, int slot, bool lead) {
+                    Animal a;
+                    a.kind = A_WOLF; a.biome = B_HOME; a.maxhp = a.hp = 58; a.pos = at; a.target = at;
+                    a.pack = 77; a.leader = lead; a.packSlot = slot; a.flankSide = slot % 2 ? 1.f : -1.f;
+                    a.face8 = F_W;
+                    return a;
+                };
+                g.animals.push_back(mkw(hunter + V2(110, 0), 0, true));  // (inside a wolf's notice range of 125 px)
+                g.animals.push_back(mkw(hunter + V2(250, 22), 1, false));
+                g.animals.push_back(mkw(hunter + V2(250, -22), 2, false));
+                g.animals[1].face8 = F_E;  // (the followers are not even looking at the hunter)
+                g.animals[2].face8 = F_E;
+                float maxSide = 0.f;
+                bool allChase = false;
+                for (int i = 0; i < 90; i++) {
+                    g.updateAnimals(0.05f);
+                    allChase = allChase || (g.animals[0].st == AS_CHASE && g.animals[1].st == AS_CHASE && g.animals[2].st == AS_CHASE);
+                    // how far off the straight line from the leader's side a follower swings while closing in
+                    for (int k = 1; k <= 2; k++) {
+                        const V2 r = g.animals[k].pos - hunter;
+                        if (r.len() > 95.f && r.len() < 260.f) maxSide = std::max(maxSide, fabsf(r.y));
+                    }
+                }
+                check(allChase, "when one wolf sees the hunter the whole pack joins the chase (even those facing away)");
+                check(maxSide > 40.f, "the followers swing out to the sides as they close in (flanking)");
+                // pack wolves break off sooner than a lone wolf
+                Animal lonely = mkw(hunter + V2(30, 0), 0, false);
+                lonely.pack = -1; lonely.st = AS_CHASE; lonely.stT = 10.f; lonely.hp = 58 * 35 / 100;
+                Animal member = mkw(hunter + V2(-30, 0), 1, false);
+                member.st = AS_CHASE; member.stT = 10.f; member.hp = 58 * 35 / 100;
+                g.animals.clear();
+                g.animals.push_back(lonely);
+                g.animals.push_back(mkw(hunter + V2(0, 300), 0, true));  // (the member's leader, far off)
+                g.animals.push_back(member);
+                g.updateAnimals(0.05f);
+                check(g.animals[0].st == AS_CHASE && g.animals[2].st == AS_FLEE, "a pack wolf at 35% health breaks off; a lone wolf at 35% presses on");
+                // the leader falls: the pack scatters, and a new leader is picked
+                g.animals.clear();
+                g.animals.push_back(mkw(hunter + V2(200, 0), 0, true));
+                g.animals.push_back(mkw(hunter + V2(220, 20), 1, false));
+                g.animals.push_back(mkw(hunter + V2(220, -20), 2, false));
+                for (int i = 1; i <= 2; i++) { g.animals[i].st = AS_CHASE; g.animals[i].stT = 10.f; }
+                g.killAnimal(g.animals[0], true);
+                int leaders = 0;
+                for (int i = 1; i <= 2; i++) leaders += g.animals[i].leader;
+                check(g.animals[1].st == AS_FLEE && g.animals[2].st == AS_FLEE && leaders == 1, "when the leader falls the pack scatters, and one of the others takes over");
+            }
+            // the dusk howl: as the evening comes the packs call out
+            g.animals.clear();
+            Animal hl;
+            hl.kind = A_WOLF; hl.biome = B_HOME; hl.maxhp = hl.hp = 58; hl.pos = hl.target = V2(40 * TS, 40 * TS);
+            hl.pack = 5; hl.leader = true;
+            g.animals.push_back(hl);
+            g.dayT = DAY_LEN / 3.f;  // the late afternoon
+            g.updateAnimals(0.05f);
+            const int h0 = g.howls;
+            g.dayT = DAY_LEN * 0.4267f;  // dusk begins
+            g.updateAnimals(0.05f);
+            check(g.howls > h0, "the packs howl as the evening comes");
+            g.animals.clear();
+            g.dayT = keep;
+        }
+        // ---- daily routines: where each animal is and what it is doing follows the hour; and what it can see follows its view
+        {
+            const float keep = g.dayT;
+            const float DAWN = DAY_LEN * 0.96f, NOON = DAY_LEN * 0.2f, DUSK = DAY_LEN * 0.44f, MIDNIGHT = DAY_LEN * 0.7f;
+            auto hourAt = [&](float d) { g.dayT = d; return g.hourOfDay(); };
+            check(hourAt(NOON) == H_DAY && hourAt(MIDNIGHT) == H_NIGHT && hourAt(DUSK) == H_DUSK && hourAt(DAWN) == H_DAWN, "the hour of the day: dawn, day, dusk and night");
+            // an open meadow spot and a lakeside spot, found on this world
+            V2 meadow, shore;
+            bool haveMeadow = false, haveShore = false;
+            if (!g.world.fields.empty()) { meadow = V2(g.world.fields[0].cx * TS, g.world.fields[0].cy * TS); haveMeadow = true; }
+            for (int y = 8; y < MH - 8 && !haveShore; y += 2)
+                for (int x = 8; x < MW - 8 && !haveShore; x += 2)
+                    if (g.world.tile[y][x] == T_WATER && !g.world.solidTile(x + 3, y) && g.world.tile[y][x + 3] != T_WATER && !g.world.inTown(x * TS, y * TS, 120.f)) { shore = V2((x + 3) * TS + 8.f, y * TS + 8.f); haveShore = true; }
+            check(haveMeadow && haveShore, "(this world has a flower field and a lakeside to test on)");
+            auto mk = [&](int kind, V2 at) {
+                Animal a;
+                a.kind = kind; a.biome = B_HOME; a.maxhp = a.hp = 10; a.pos = at; a.target = at;
+                return a;
+            };
+            auto share = [&](int kind, V2 at, float day, int act, int n = 300) {
+                g.dayT = day;
+                Animal a = mk(kind, at);
+                int hit = 0;
+                for (int i = 0; i < n; i++) { g.chooseAct(a); hit += a.act == act; }
+                return 100.0 * hit / n;
+            };
+            check(share(A_RABBIT, meadow, MIDNIGHT, ACT_SLEEP) == 100.0, "rabbits: asleep in their burrows all night");
+            check(share(A_WOLF, meadow, NOON, ACT_SLEEP) >= 70.0, "wolves: sleep by their den by day");
+            const double wolfNight = share(A_WOLF, meadow, MIDNIGHT, ACT_PATROL);
+            check(wolfNight >= 65.0, "wolves: make their rounds at night");
+            const double deerDawn = share(A_DEER, shore, DAWN, ACT_DRINK), deerMid = share(A_DEER, shore, NOON, ACT_SLEEP);
+            check(deerDawn >= 15.0 && deerDawn <= 45.0 && deerMid >= 35.0, "deer: drink at dawn, lie up in the thicket at midday");
+            check(share(A_BOAR, meadow, MIDNIGHT, ACT_FORAGE) >= 70.0, "boars: root about at night");
+            // a wolf left to itself at noon goes to its den and sleeps there
+            g.animals.clear();
+            g.p.pos = V2(6 * TS, 6 * TS);
+            g.dayT = NOON;
+            g.animals.push_back(mk(A_WOLF, V2((COX - 30.f) * TS, (COY + 20.f) * TS)));
+            bool slept = false;
+            for (int i = 0; i < 3000 && !slept; i++) {
+                g.updateAnimals(0.1f);
+                const Animal& w = g.animals[0];
+                slept = w.hasBed && w.act == ACT_SLEEP && w.st == AS_REST && dist(w.pos, w.bed) < 30.f;
+            }
+            check(slept, "a wolf left to itself at noon walks to its den and sleeps there");
+            // what an animal sees: its view, the cover between, the noise the hunter makes
+            if (haveMeadow) {
+                Animal d = mk(A_DEER, meadow);
+                d.face8 = F_E;
+                g.dayT = NOON;
+                g.p.walking = true; g.p.sprinting = false;
+                g.p.pos = meadow + V2(70, 0);
+                const float front = g.sightFactor(d, g.p.pos, true);
+                g.p.pos = meadow - V2(70, 0);
+                const float behind = g.sightFactor(d, g.p.pos, true);
+                check(front >= 0.95f && behind <= 0.4f, "deer: sees a hunter in front of it at full range, one behind it only at a third");
+                g.p.pos = meadow + V2(110, 0);  // (beyond the three screening tiles)
+                const int tx0 = (int)(meadow.x / TS) + 2, ty0 = (int)(meadow.y / TS);
+                bool saved[3];
+                for (int i = 0; i < 3; i++) { saved[i] = g.world.solid[ty0][tx0 + i]; g.world.solid[ty0][tx0 + i] = true; }
+                const float hidden = g.sightFactor(d, g.p.pos, true);
+                g.p.sprinting = true;
+                const float loud = g.sightFactor(d, g.p.pos, true);
+                g.p.sprinting = false; g.p.walking = false;
+                const float still = g.sightFactor(d, g.p.pos, true);
+                for (int i = 0; i < 3; i++) g.world.solid[ty0][tx0 + i] = saved[i];
+                check(hidden <= 0.25f && loud >= 0.45f && loud > hidden && still <= hidden + 0.001f, "three trees between hide the hunter from all but hearing; a sprint is heard through them");
+                g.p.walking = false; g.p.sprinting = false;
+                const float stillOpen = g.sightFactor(d, g.p.pos, true);
+                check(stillOpen < front && stillOpen > 0.6f, "a hunter standing still in the open is noticed a little later");
+                // end to end: the same deer, 70% of its notice range away, in front of it: it bolts in the open, and does not when screened by trees
+                const float reach = ANIMAL[A_DEER].notice * TIER[0].notice;
+                auto bolts = [&](bool screen) {
+                    g.animals.clear();
+                    Animal e = mk(A_DEER, meadow);
+                    e.face8 = F_E; e.st = AS_WANDER; e.idleT = 5.f;
+                    g.animals.push_back(e);
+                    g.p.pos = meadow + V2(reach * 0.7f, 0);
+                    g.p.walking = true; g.p.sprinting = false;
+                    const int tx = (int)(meadow.x / TS) + 2, ty = (int)(meadow.y / TS);
+                    bool sv[3];
+                    if (screen) for (int i = 0; i < 3; i++) { sv[i] = g.world.solid[ty][tx + i]; g.world.solid[ty][tx + i] = true; }
+                    for (int i = 0; i < 6; i++) g.updateAnimals(0.05f);
+                    if (screen) for (int i = 0; i < 3; i++) g.world.solid[ty][tx + i] = sv[i];
+                    return g.animals[0].st == AS_FLEE;
+                };
+                check(bolts(false) && !bolts(true), "end to end: a deer bolts from a hunter it can see, and stays calm behind a screen of trees");
+            }
+            g.animals.clear();
+            g.dayT = keep;
+        }
         g.animals.clear();
         g.trySpawn(A_RABBIT, 0, false);
         if (!g.animals.empty()) {
@@ -182,6 +468,7 @@ void testTownAndFeedback(SelfTest& t) {
     {
         g.newGame();
         g.state = ST_PLAY;
+        g.dayT = DAY_LEN * 0.7f;  // night: wolves hunt then (by day they sleep by their den)
         auto at = [&](V2 v) { return g.freeSpot((int)(v.x / TS), (int)(v.y / TS)); };
         const V2 far = g.p.pos + V2(420, 0);  // well outside everyone's notice range of the hunter
         // 1. a wolf stalks a rabbit, the rabbit flees, the wolf bites and kills it
@@ -190,7 +477,9 @@ void testTownAndFeedback(SelfTest& t) {
         int wi = (int)(g.spawnAnimal(A_WOLF, at(far), 0, 0) - &g.animals[0]);
         int ri = (int)(g.spawnAnimal(A_RABBIT, at(far + V2(50, 0)), 0, 0) - &g.animals[0]);
         g.animals[wi].biome = g.animals[ri].biome = B_HOME;
+        g.animals[ri].face8 = F_W;  // (looking back towards the wolf)
         g.animals[wi].hp = g.animals[wi].maxhp = 100;
+        g.animals[wi].idleT = g.animals[ri].idleT = 20.f;  // (standing about, as a routine animal does between acts: the wolf stays where the rabbit can be seen)
         bool hunted = false, fled = false, killed = false;
         const int kills0 = g.kills;
         const int64_t xp0 = g.p.sk.s[SK_HUNTING].xp, rx0 = g.p.sk.s[SK_RANGED].xp;
@@ -230,8 +519,38 @@ void testTownAndFeedback(SelfTest& t) {
         wi = (int)(g.spawnAnimal(A_WOLF, g.p.pos + V2(60, 0), 0, 0) - &g.animals[0]);
         g.animals[wi].st = AS_HUNT;
         g.animals[wi].stT = 8.f;
+        g.animals[wi].face8 = F_W;  // (looking at the hunter, who is walking up to it)
+        g.p.walking = true;
         g.updateAnimals(1.f / 30.f);
         check(g.animals[wi].st == AS_CHASE, "a hunting wolf that notices the hunter attacks the hunter instead");
+        // 4b. a chase has limits: the animal gives up when its timer runs out and ignores the hunter for a while; being hit makes it bleed
+        g.animals[wi].stT = 0.f;
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st == AS_WANDER && g.animals[wi].calmT > 0, "a wolf gives up the chase when its timer runs out");
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st != AS_CHASE, "a wolf that gave up does not re-chase straight away");
+        g.animals[wi].st = AS_CHASE;
+        g.animals[wi].chasing = true;
+        g.animals[wi].chaseFrom = g.animals[wi].pos - V2(CHASE_RANGE + 40.f, 0);
+        g.animals[wi].stT = 9.f;
+        g.updateAnimals(1.f / 30.f);
+        check(g.animals[wi].st == AS_WANDER, "a wolf gives up a chase that has run past CHASE_RANGE");
+        g.animals[wi].hp = g.animals[wi].maxhp = 1000;
+        g.hitAnimal(g.animals[wi], 5.f, V2(1, 0), false);
+        check(g.animals[wi].bleedT > 0, "a wounded animal bleeds");
+        {  // ... and the bleeding costs health, and can finish it
+            Animal& bl = g.animals[wi];
+            bl.hp = bl.maxhp = 100;
+            bl.bleedT = 3.f;
+            bl.bleedTick = 0.01f;
+            g.updateAnimals(1.f / 30.f);
+            check(bl.hp < 100, "a bleeding animal loses health");
+            bl.hp = 1;
+            bl.bleedT = 3.f;
+            bl.bleedTick = 0.01f;
+            g.updateAnimals(1.f / 30.f);
+            check(g.animals[wi].dead, "an animal can bleed to death");
+        }
         // 5. herd alarm: one deer startled by the hunter sets its neighbours running
         g.animals.clear();
         g.animals.reserve(8);
@@ -241,6 +560,7 @@ void testTownAndFeedback(SelfTest& t) {
         g.spawnAnimal(A_DEER, d1 + V2(66, 0), 0, 0);
         g.spawnAnimal(A_DEER, d1 + V2(64, 16), 0, 0);
         for (auto& an : g.animals) an.biome = B_HOME, an.st = AS_WANDER;
+        g.animals[0].face8 = F_W;  // looking at the hunter (a deer only notices what is in its view)
         const bool setupOk = dist(g.animals[0].pos, g.p.pos) < deerNotice && dist(g.animals[1].pos, g.p.pos) > deerNotice * 1.1f &&
                              dist(g.animals[2].pos, g.p.pos) > deerNotice * 1.1f && dist(g.animals[0].pos, g.animals[1].pos) < 70.f && dist(g.animals[0].pos, g.animals[2].pos) < 70.f;
         check(setupOk, "(setup) one deer sees the hunter; its two herd mates are beyond sight but within the alarm radius");

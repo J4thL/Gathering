@@ -140,8 +140,8 @@ void Game::harvestStep(const HTarget& t, float dt) {
     int toolIdx = -1;
     int tier = R.tool >= 0 ? bestTool(R.tool, &toolIdx) : 0;
     float speed = R.tool < 0 ? 1.f : (tier > 0 ? TOOLDEF[toolIdx].speed * qualityDef(p.inv.bestQuality(itemTool(toolIdx))).stat : HAND_SPEED);  // a finer tool swings faster
-    if (R.cls == RCL_TREE) speed *= 1.f + skillBonus(SK_WOODCUTTING);
-    else if (R.cls == RCL_ROCK || R.cls == RCL_ORE) speed *= (1.f + skillBonus(SK_MINING)) * (p.has(CG_GEMRING) ? 1.15f : 1.f);  // the gemset ring: +15% mining speed
+    if (R.cls == RCL_TREE) speed *= (1.f + skillBonus(SK_WOODCUTTING)) * (1.f + p.sk.perkSpeed(SK_WOODCUTTING));  // + the BRISK perks
+    else if (R.cls == RCL_ROCK || R.cls == RCL_ORE) speed *= (1.f + skillBonus(SK_MINING)) * (1.f + p.sk.perkSpeed(SK_MINING)) * (p.has(CG_GEMRING) ? 1.15f : 1.f);  // the gemset ring: +15% mining speed
     if (t.key() != hvKey) {  // a different resource: the swing starts over
         hvKey = t.key();
         p.gatherT = 0;

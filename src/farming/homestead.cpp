@@ -103,7 +103,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
                 if (gp) return no("ALREADY BUILT HERE");
                 continue;
             }
-            if (t != T_GRASS && t != T_DARK && t != T_DIRT) return no(tileDeep(t) ? "CANNOT BUILD ON WATER" : "CANNOT BUILD HERE");
+            if (!tileGrassy(t) && t != T_DIRT) return no(tileDeep(t) ? "CANNOT BUILD ON WATER" : "CANNOT BUILD HERE");
             if (D.layer == HL_ROOF) {
                 if (hsAt(x, y, HL_ROOF)) return no("ALREADY ROOFED");
                 continue;
@@ -111,7 +111,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
             if (D.layer == HL_GROUND) {
                 if (gp) return no("ALREADY BUILT HERE");
                 if (op && op->kind != HP_GREENHOUSE) return no("SOMETHING IS IN THE WAY");
-                if (needsHoe && !(t == T_GRASS || t == T_DARK || t == T_DIRT)) return no("SOIL TOO HARD");
+                if (needsHoe && !(tileGrassy(t) || t == T_DIRT)) return no("SOIL TOO HARD");
                 if (world.solid[y][x] && !op) return no("SOMETHING IS IN THE WAY");
                 continue;
             }
@@ -268,10 +268,12 @@ bool inGreenhouse(const Homestead& hs, const HPiece& plot) {
 }  // namespace
 
 void Game::hsTickCrops(float dt) {
+    const float rain = rainK();
     for (auto& pc : hs.pieces) {
         if (pc.kind != HP_PLOT || pc.crop < 0 || pc.crop >= CR_COUNT || pc.stage >= CROP_STAGES - 1) continue;
         const CropDef& C = CROPS[pc.crop];
         const bool gh = inGreenhouse(hs, pc);
+        if (rain > 0.3f && !gh) pc.water = std::min(1.f, pc.water + dt * 0.03f * rain);  // a storm waters the open-air plots for free
         if (pc.water <= 0.f) continue;  // dry soil: the crop waits
         float grow = 1.f;
         if (gh) grow *= GREENHOUSE_GROWTH;
@@ -334,7 +336,7 @@ bool Game::hsPlant(HPiece& pc, int crop) {
 }
 
 namespace {
-const char* TOOL_VERB[TT_COUNT] = {"AN AXE", "A PICKAXE", "A FARMER'S HOE", "A WATERING CAN", "A SICKLE"};
+const char* TOOL_VERB[TT_COUNT] = {"AN AXE", "A PICKAXE", "A FARMER'S HOE", "A WATERING CAN", "A SICKLE", "A FISHING ROD"};
 }
 
 // gives items to the hunter; whatever does not fit lies at their feet (nothing is ever lost)
@@ -442,14 +444,17 @@ int Game::hsHousingCount(int pieceId) const {
     return n;
 }
 
-void Game::hsAddAnimal(int kind, V2 at, bool baby, int home) {
-    if (kind < 0 || kind >= DA_COUNT) return;
+void Game::hsAddAnimal(int kind, V2 at, bool baby, int home, int species, int tier) {
+    if (kind < 0 || kind > DA_MOUNT) return;
+    if (kind == DA_MOUNT && !mountable(species)) return;
     HAnimal a;
     a.id = hs.nextId++;
     a.kind = kind;
     a.px = a.tx = at.x;
     a.py = a.ty = at.y;
-    a.age = baby ? 0.f : DOMS[kind].growSec + 1.f;
+    a.species = kind == DA_MOUNT ? species : -1;
+    a.tier = kind == DA_MOUNT ? std::max(0, std::min(TR_COUNT - 1, tier)) : 0;
+    a.age = baby ? 0.f : a.growSec(DOMS[kind]) + 1.f;
     a.home = home;
     a.breedCd = BREED_CD * 0.5f;
     a.face8 = frng.irange(0, F_COUNT - 1);
@@ -519,7 +524,7 @@ static void feedWith(HAnimal& a, int mat) {
 
 bool Game::hsFeed(HAnimal& a) {
     if (a.full > 92.f) {
-        msg(std::string(DOMS[a.kind].name) + " IS FULL", C_DIM);
+        msg(a.label(DOMS[a.kind]) + " IS FULL", C_DIM);
         return false;
     }
     const int m = hsFeedItem(a);
@@ -556,6 +561,7 @@ void Game::hsTickAnimals(float dt) {
     const bool breedTick = hs.breedT >= 5.f;
     if (breedTick) hs.breedT = 0;
     for (auto& a : hs.animals) {
+        if (a.ridden || a.away) { a.age += dt; continue; }  // under the saddle: it only keeps growing
         const DomDef& D = DOMS[a.kind];
         const bool adult = a.adult(D);
         // needs
@@ -634,7 +640,7 @@ void Game::hsTickAnimals(float dt) {
             a.state = 1; a.stT = 20.f;
         }
         // breeding
-        if (breedTick && adult && a.breedCd <= 0 && a.full >= 60.f && a.happy >= 60.f && a.health >= 60.f &&
+        if (breedTick && adult && a.kind != DA_MOUNT && a.breedCd <= 0 && a.full >= 60.f && a.happy >= 60.f && a.health >= 60.f &&
             (int)hs.animals.size() + (int)births.size() < H_MAX_ANIMALS) {
             for (auto& b : hs.animals) {
                 if (&b == &a || b.kind != a.kind || !b.adult(DOMS[b.kind]) || b.breedCd > 0 || b.home != a.home) continue;
@@ -705,8 +711,9 @@ bool Game::hsFindTarget(HTarget2& t) {
         }
     }
     for (auto& a : hs.animals) {
+        if (a.ridden || a.away) continue;
         const float d = dist(p.pos, V2(a.px, a.py));
-        if (d < 24.f) offer(2, a.id, V2(a.px, a.py - 22), d - 4.f, std::string(a.adult(DOMS[a.kind]) ? DOMS[a.kind].name : DOMS[a.kind].babyName) + (a.stock > 0 ? " - COLLECT" : " - CARE"));
+        if (d < 24.f) offer(2, a.id, V2(a.px, a.py - 22), d - 4.f, a.label(DOMS[a.kind]) + (a.stock > 0 ? " - COLLECT" : " - CARE"));
     }
     if (t.type == 0 && bestTool(TT_CAN, nullptr) > 0 && hs.can < CAN_CAPACITY) {  // the water's edge also fills the can
         const int cx = (int)floorf(p.pos.x / TS), cy = (int)floorf(p.pos.y / TS);
@@ -808,8 +815,8 @@ std::string Game::hsSaveLines() {
             if (!pc.inv.slots[i].empty()) f << "hsi " << pc.id << ' ' << i << ' ' << itemKey(pc.inv.slots[i].item) << ' ' << pc.inv.slots[i].n << "\n";
     }
     for (auto& a : hs.animals)
-        f << "hsa " << a.id << ' ' << a.kind << ' ' << a.px << ' ' << a.py << ' ' << a.age << ' ' << a.full << ' ' << a.happy << ' ' << a.health << ' ' << a.prodT
-          << ' ' << a.stock << ' ' << a.breedCd << ' ' << a.home << "\n";
+        f << "hsa " << a.id << ' ' << a.kind << ' ' << ((a.ridden || a.away) ? (HS_PORTAL_X + 0.5f) * TS : a.px) << ' ' << ((a.ridden || a.away) ? (HS_PORTAL_Y + 3.f) * TS : a.py) << ' ' << a.age << ' ' << a.full << ' ' << a.happy << ' ' << a.health << ' ' << a.prodT
+          << ' ' << a.stock << ' ' << a.breedCd << ' ' << a.home << ' ' << a.species << ' ' << a.tier << ' ' << (a.saddled ? 1 : 0) << ' ' << (a.companion ? 1 : 0) << ' ' << a.bond << "\n";
     return f.str();
 }
 
@@ -847,7 +854,16 @@ void Game::hsLoadLine(const std::string& key, std::istringstream& ss) {
     } else if (key == "hsa") {
         HAnimal a;
         ss >> a.id >> a.kind >> a.px >> a.py >> a.age >> a.full >> a.happy >> a.health >> a.prodT >> a.stock >> a.breedCd >> a.home;
-        if (!ss || a.kind < 0 || a.kind >= DA_COUNT || a.id <= 0) return;
+        if (!ss || a.kind < 0 || a.kind > DA_MOUNT || a.id <= 0) return;
+        int sad = 0;
+        if (ss >> a.species >> a.tier >> sad) {
+            a.saddled = sad != 0;  // (older saves have no mounts)
+            int cmp = 0, bd = 0;
+            if (ss >> cmp >> bd) a.companion = cmp != 0, a.bond = std::max(0, std::min(100000, bd));  // (nor companions)
+        } else { a.species = -1; a.tier = 0; }
+        if (a.kind == DA_MOUNT && !mountable(a.species)) return;
+        if (a.kind != DA_MOUNT) { a.species = -1; a.tier = 0; a.saddled = false; a.companion = false; a.bond = 0; }
+        a.tier = std::max(0, std::min(TR_COUNT - 1, a.tier));
         a.tx = a.px;
         a.ty = a.py;
         a.full = std::max(0.f, std::min(100.f, a.full));

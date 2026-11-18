@@ -471,6 +471,28 @@ int delveTest(Game& g) {
         // respawn timer
         g.tickDelveTimers(1801.f);
         check(!g.delveMem[DV_FROST3].bossDead, "after a while the king returns");
+        // his return is stronger, and slaying that one pays a bonus
+        check(g.kingTier == 1, "the first kill raises the king's tier");
+        g.delveGo(DV_FROST3, true);
+        Monster* k2 = nullptr;
+        for (auto& m : g.mons) if (m.kind == MK_KING) k2 = &m;
+        check(k2 && k2->maxhp > MONDEF(MK_KING).hp * 1.3f && k2->dmg > MONDEF(MK_KING).dmg * 1.2f, "he returns with more health and a harder hit");
+        const int coins1 = g.p.coins;
+        g.p.hp = g.p.maxhp = 1e6f;
+        for (int tries = 0; tries < 600 && k2 && k2->state != MN_DEAD; tries++) {
+            g.hitMonster(*k2, 1e8f, V2(0, -1), false, W_JAVELIN);
+            if (k2->state == MN_DEAD) break;
+            g.update(1.f / 60.f);
+            k2 = nullptr;
+            for (auto& m : g.mons) if (m.kind == MK_KING) k2 = &m;
+        }
+        check(g.kingTier == 2 && g.p.coins - coins1 >= KING_TIER_COINS, "the stronger king pays a coin bonus and tiers up again");
+        {  // the tier goes into the save as a line of its own (read back without reloading the game, which would reset the delve state under test)
+            g.save();
+            std::ifstream in(g.savePath());
+            const std::string all((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+            check(all.find("\nkingtier 2\n") != std::string::npos, "the king's tier is saved");
+        }
     }
 
     printf("--- being knocked out underground\n");
@@ -504,7 +526,7 @@ int delveTest(Game& g) {
         check(!g.craft(rSteel), "steel needs Smithing level 20");
         g.p.sk.s[SK_SMITHING].xp = 100000;
         const int64_t sx = g.p.sk.s[SK_SMITHING].xp;
-        check(g.craft(rSteel) && g.p.mat(M_STEELBAR) == 1 && g.p.sk.s[SK_SMITHING].xp > sx, "with the skill, coal and iron make a steel bar (and pay Smithing XP)");
+        check(g.craft(rSteel) && g.p.mat(M_STEELBAR) >= 1 && g.p.sk.s[SK_SMITHING].xp > sx, "with the skill, coal and iron make a steel bar (and pay Smithing XP)");
         stock(rSilver);
         check(g.craft(rSilver) && g.p.mat(M_SILVERBAR) >= 1, "silver ore and coal make a silver bar (a practised smith may get one extra)");
         const int wants[][2] = {{RK_WEAPON, W_STEELSPEAR}, {RK_WEAPON, W_SILVERDAGGER}, {RK_ITEM, itemCarry(CG_LANTERN)}, {RK_ITEM, itemCarry(CG_GEMRING)},

@@ -1,6 +1,6 @@
 // world.hpp - one procedural map at a time: terrain, lakes, forests, the village or a biome, plus collision queries.
 // The game has five maps (maps.hpp), every one exactly MW x MH = 240x168 tiles: the home map (the original 88x60 Wildwood
-// from generateCore, unchanged, in its centre, with home forest around it) and one map each for the desert, swamp, snow and
+// from generateCore in its centre, with the same kind of forest growing on all sides, no wall between them) and one map each for the desert, swamp, snow and
 // mountain biomes (worldgen.hpp). `World` holds the map
 // that is currently active; Game::travelTo (maps.cpp) swaps it by regenerating the destination from the world seed.
 #pragma once
@@ -41,10 +41,20 @@ enum Tile : uint8_t {
     T_VOID, T_WALL, T_WALLT,                                    // building interiors: outside the room, wall face, wall cap (all solid)
     T_FLOORW, T_FLOORS, T_FLOORT, T_RUG, T_MAT,                 // interior floors: wood, flagstone, tile; rug; doormat (walkable)
     T_CFLOOR, T_CWALL, T_RAIL,                                  // the Abandoned Mine: cave floor, rock wall (solid), mine track (walkable)
-    T_IFLOOR, T_IWALL, T_BRICK, T_CARPET                        // the Frozen Dungeon: ice-flag floor, ice wall (solid), frozen brick, royal carpet
+    T_IFLOOR, T_IWALL, T_BRICK, T_CARPET,                       // the Frozen Dungeon: ice-flag floor, ice wall (solid), frozen brick, royal carpet
+    T_LEAF, T_MOSS, T_NEEDLES, T_ROOTS,                         // forest floors of the home forest (all walkable): leaf litter, moss, pine needles, root-tangled earth
+    T_SHALLOW,                                                  // a stream: clear shallow water you can wade through (slower), the home forest's brooks
+    T_BANK,                                                     // the trodden earth round a lake of the home forest (walkable, a little slower, muddy underfoot)
+    T_LAKE_SHALLOW,                                             // the home forest's lakes, by depth: shallows round the shore (wade, a little slower),
+    T_LAKE_MID                                                  // mid water further out (wade, slow), and deep water (T_WATER) in the middle, which is solid
 };
+// the four forest floors made by the home forest's moisture / density fields (worldgen.hpp)
+inline bool tileForestFloor(uint8_t t) { return t == T_LEAF || t == T_MOSS || t == T_NEEDLES || t == T_ROOTS; }
+// ground a plant can grow in or a hunter can dig: the grasses and every forest floor
+inline bool tileGrassy(uint8_t t) { return t == T_GRASS || t == T_DARK || tileForestFloor(t); }
 // terrain properties, one place for all of them
 inline bool tileSolid(uint8_t t) { return t == T_WATER || t == T_BOG || t == T_CLIFF || t == T_VOID || t == T_WALL || t == T_WALLT || t == T_CWALL || t == T_IWALL; }
+inline bool tileLake(uint8_t t) { return t == T_WATER || t == T_LAKE_SHALLOW || t == T_LAKE_MID; }  // any depth of lake (a brook, T_SHALLOW, is not a lake)
 inline bool tileDeep(uint8_t t) { return t == T_WATER || t == T_BOG; }  // projectiles splash, foam is drawn
 inline float tileSpeed(uint8_t t) {
     switch (t) {
@@ -54,6 +64,10 @@ inline float tileSpeed(uint8_t t) {
         case T_MURK: return 0.58f;
         case T_SNOW: return 0.86f;
         case T_SNOWP: return 0.93f;
+        case T_SHALLOW: return 0.72f;
+        case T_BANK: return 0.88f;
+        case T_LAKE_SHALLOW: return 0.68f;
+        case T_LAKE_MID: return 0.44f;
         default: return 1.f;
     }
 }
@@ -72,7 +86,8 @@ enum PropKind {
     P_MINEGATE, P_FROSTGATE,                                                                // the two entrances on the overworld maps
     P_BEAM, P_MINECART, P_TORCH, P_CAVECRYSTAL, P_ICECRYSTAL, P_STATUE, P_PILLAR, P_CHEST, P_STAIRS, P_EXIT,
     P_BOSSDOOR, P_EQUIP, P_DEBRIS, P_SARCO, P_THRONE, P_BRAZIER, P_BONES, P_BANNER, P_ICICLE,
-    P_HPORTAL, P_HMARKET                                                                    // the Homestead Portal (town and homestead) and the homestead's market stall
+    P_HPORTAL, P_HMARKET,                                                                   // the Homestead Portal (town and homestead) and the homestead's market stall
+    P_SANDBOULDER                                                                           // the desert's large rock (appended last so older saves keep their numbers)
 };
 struct Prop {
     int kind;
@@ -80,8 +95,26 @@ struct Prop {
     float ph;    // swaying trees: sway phase. Rocks: which of the 5 looks (0-4); 100 and up = the same look, but blocking only its own tile
 };
 // ---- rocks: the collision follows the size of the sprite (rock_sprites.hpp): tiny rocks, small rocks and boulders each have 5 looks
-inline bool isRockKind(int k) { return k == P_ROCK0 || k == P_ROCK1 || k == P_BOULDER; }
-inline const RockArt* rockSet(int kind) { return kind == P_ROCK0 ? ROCK_TINY : kind == P_ROCK1 ? ROCK_SMALL : ROCK_LARGE; }
+// every kind of standing tree (oak, pine, palm, spruce, dead and bare trees)
+inline bool isTreeKind(int k) {
+    return k == P_OAK0 || k == P_OAK1 || k == P_PINE || k == P_PALM || k == P_SNOWPINE || k == P_DEADTREE0 || k == P_DEADTREE1 || k == P_BARETREE;
+}
+// The scenery rocks of every biome share the forest rock pictures in three sizes: 0 = tiny, 1 = small, 2 = boulder (-1 = not a rock).
+// Only the colours differ from biome to biome (ROCK_PALS in rock_sprites.hpp).
+inline int rockClass(int k) {
+    switch (k) {
+        case P_ROCK0: case P_SANDROCK0: case P_SNOWROCK: return 0;
+        case P_ROCK1: case P_SANDROCK1: return 1;
+        case P_BOULDER: case P_SANDBOULDER: return 2;
+        default: return -1;
+    }
+}
+inline bool isRockKind(int k) { return rockClass(k) >= 0; }
+inline const RockArt* rockSet(int kind) {
+    const int c = rockClass(kind);
+    const bool desert = kind == P_SANDROCK0 || kind == P_SANDROCK1 || kind == P_SANDBOULDER;  // the desert has its own rock pictures
+    return c == 0 ? (desert ? DROCK_TINY : ROCK_TINY) : c == 1 ? (desert ? DROCK_SMALL : ROCK_SMALL) : (desert ? DROCK_LARGE : ROCK_LARGE);
+}
 inline int rockLookOf(const Prop& p) { return std::abs((int)p.ph) % 100 % ROCK_LOOKS; }
 inline bool rockOwnTileOnly(const Prop& p) { return p.ph >= 100.f; }
 // the tiles a rock blocks: as wide as its sprite (a little less, for the outline) and one row deep at its foot
@@ -96,7 +129,9 @@ inline void rockFoot(const Prop& p, int look, bool ownTileOnly, int& x0, int& y0
 inline void rockFoot(const Prop& p, int& x0, int& y0, int& x1, int& y1) { rockFoot(p, rockLookOf(p), rockOwnTileOnly(p), x0, y0, x1, y1); }
 enum DecorKind {
     D_FLOWER0, D_FLOWER1, D_FLOWER2, D_TUFT, D_MUSHROOM, D_PEBBLES, D_BUSH0, D_BUSH1,  // original (0-7)
-    D_DRYBUSH, D_SKULL, D_SANDTUFT, D_REEDS0, D_REEDS1, D_LILY, D_BUBBLES, D_DRIFT, D_FROSTTUFT, D_ALPINE, D_GRAVEL, D_COUNT
+    D_DRYBUSH, D_SKULL, D_SANDTUFT, D_REEDS0, D_REEDS1, D_LILY, D_BUBBLES, D_DRIFT, D_FROSTTUFT, D_ALPINE, D_GRAVEL, D_STUMP, D_VIOLET, D_POPPY,
+    D_DROCK0, D_DROCK1, D_DROCK2, D_DROCK3,  // desert decor rocks (single rock, slab, stack, spire): scenery only, not minable
+    D_COUNT
 };
 struct Decor {
     int kind;
@@ -144,12 +179,27 @@ inline float fbm(float x, float y, uint32_t seed) {
     return (vnoise(x, y, seed) * 0.5f + vnoise(x * 2, y * 2, seed + 11) * 0.25f + vnoise(x * 4, y * 4, seed + 23) * 0.125f) / 0.875f;
 }
 
+// An open clearing in the home forest (worldgen.hpp): the trees stop, the ground is meadow, and each one has a feature of its own.
+enum GladeKind { GL_FLOWERS, GL_OAK, GL_STONE, GL_FUNGI, GL_HERBS, GL_CAMP, GL_COUNT };
+struct Glade {
+    float cx, cy, rx, ry;  // centre and radii, in tiles (the real edge is ragged: a fine noise bends it)
+    int kind;
+};
+// switches that leave a layer out of the home forest (tests and tuning: every layer must leave the others where they are)
+enum GenOff : uint32_t { GEN_NO_STREAMS = 1, GEN_NO_GLADES = 2, GEN_NO_SMOOTH = 4, GEN_NO_FIELDS = 8 };
+// A wide open meadow carpeted with flowers in drifting colours (worldgen.hpp): bigger than a glade, and in open country, not in the forest.
+struct FlowerField {
+    float cx, cy, rx, ry;  // centre and radii in tiles (the real edge is ragged)
+};
 struct World {
     uint8_t tile[MH][MW];
     uint8_t biome[MH][MW];
     bool solid[MH][MW];
     bool occ[MH][MW];  // tall things that stop light: buildings, huts, caves, boulders, cliffs (buildOccluders, worldgen.hpp)
     std::vector<Prop> props;  // sorted by y once generation is done
+    std::vector<Glade> glades;  // the home forest's clearings (empty on every other map)
+    std::vector<FlowerField> fields;  // the home forest's flower fields (empty on every other map)
+    uint32_t genOff = 0;        // GenOff bits for the next generate()
     std::vector<Decor> decor;  // sorted by y
     std::vector<ResNode> nodes;  // sorted by y
     std::vector<Landmark> landmarks;
@@ -215,6 +265,27 @@ struct World {
                 if (solidTile(tx, ty)) return true;
         return false;
     }
+    // Does a tile stop sight? Trees, rocks, buildings and walls do (a felled tree stops blocking at once, with the collision grid); open
+    // water and open ground do not.
+    bool sightBlock(int tx, int ty) const {
+        if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return true;
+        if (tileDeep(tile[ty][tx])) return false;
+        return solid[ty][tx] || tileSolid(tile[ty][tx]);
+    }
+    // How many sight-blocking tiles lie between two points (the tiles the two points stand on are not counted).
+    int coverBetween(V2 a, V2 b) const {
+        const int ax = (int)(a.x / TS), ay = (int)(a.y / TS), bx = (int)(b.x / TS), by = (int)(b.y / TS);
+        const float len = hypotf(b.x - a.x, b.y - a.y);
+        const int steps = std::max(1, (int)(len / 6.f));
+        int n = 0, lx = ax, ly = ay;
+        for (int i = 1; i < steps; i++) {
+            const int tx = (int)((a.x + (b.x - a.x) * i / steps) / TS), ty = (int)((a.y + (b.y - a.y) * i / steps) / TS);
+            if ((tx == lx && ty == ly) || (tx == ax && ty == ay) || (tx == bx && ty == by)) { lx = tx; ly = ty; continue; }
+            lx = tx; ly = ty;
+            if (sightBlock(tx, ty)) n++;
+        }
+        return n;
+    }
     void markSolidAt(float x, float y) {
         int tx = (int)(x / TS), ty = (int)(y / TS);
         if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) solid[ty][tx] = true;
@@ -224,6 +295,8 @@ struct World {
         seed = sd;
         mapId = map;
         props.clear();
+        glades.clear();
+        fields.clear();
         decor.clear();
         nodes.clear();
         landmarks.clear();
@@ -241,15 +314,48 @@ struct World {
             for (int x = 0; x < MW; x++) tile[y][x] = T_GRASS;
         if (map == B_HOME) generateCore();
         generateMap(map);  // worldgen.hpp: the home map's gates and forest, or a whole biome map
-        if (map == B_HOME) addTownBelt();  // worldgen.hpp: more rows of trees outside the box around the town
         thinTrees();       // worldgen.hpp: no oaks or pines standing on top of each other
         // a branch whose tree was thinned out would lie alone: drop it
         nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) { return n.kind == RN_BRANCH && !nearTree(n.x, n.y, 48.f); }), nodes.end());
         fitRocks();        // worldgen.hpp: every rock blocks as wide as its sprite is, where there is room
+        repairReach();     // worldfix.hpp: the hub, landmarks and gates can all be walked to (a random seed may cut one off)
         buildOccluders();  // worldgen.hpp: what stops light (game_light.cpp)
         std::sort(props.begin(), props.end(), [](const Prop& a, const Prop& b) { return a.y < b.y; });
+        spreadFlowers();   // the flowers the generators dropped become small clusters
         std::sort(decor.begin(), decor.end(), [](const Decor& a, const Decor& b) { return a.y < b.y; });
         std::sort(nodes.begin(), nodes.end(), [](const ResNode& a, const ResNode& b) { return a.y < b.y; });
+    }
+
+    // Meadow flowers grow in small clusters, each inside ONE tile. Every flower the generators dropped (decor kind 0-2) is kept or dropped
+    // with a coin flip and, if kept, becomes a cluster of 3-5 blossoms (kind 0 = orange, 1 = cream, mostly one colour per cluster) that
+    // all stay inside the tile the first one stands on, a few pixels apart. This runs after generation and uses its own generator seeded
+    // from the flower's position, so the world's random stream (trees, rocks, animals) is untouched.
+    void spreadFlowers() {
+        std::vector<Decor> out;
+        out.reserve(decor.size());
+        for (const Decor& d : decor) {
+            if (d.kind > D_FLOWER2) { out.push_back(d); continue; }
+            Rng q(((uint32_t)(d.x * 31.f) * 2654435761u) ^ ((uint32_t)(d.y * 17.f) * 40503u) ^ (seed * 977u + 5u));
+            if (q.chance(0.5f)) continue;  // thin them out: clusters, not carpets
+            const int tx = std::min(MW - 1, std::max(0, (int)(d.x / TS))), ty = std::min(MH - 1, std::max(0, (int)(d.y / TS)));
+            if (solid[ty][tx]) { out.push_back(d); continue; }
+            const float x0 = tx * (float)TS + 2.5f, x1 = tx * (float)TS + 13.5f, y0 = ty * (float)TS + 6.f, y1 = ty * (float)TS + 15.f;  // where a blossom may stand
+            const int n = q.irange(3, 5), main = q.irange(0, 1);
+            const float cx = std::min(x1, std::max(x0, d.x)), cy = std::min(y1, std::max(y0, d.y));
+            const size_t first = out.size();
+            out.push_back({main, cx, cy, d.ph});
+            for (int i = 1; i < n; i++)
+                for (int tries = 0; tries < 8; tries++) {  // a free spot at least 3.5 px from the others, so the blossoms do not sit on each other
+                    const float fx = std::min(x1, std::max(x0, cx + q.range(-5.f, 5.f))), fy = std::min(y1, std::max(y0, cy + q.range(-4.f, 4.f)));
+                    bool free = true;
+                    for (size_t k = first; k < out.size(); k++)
+                        if (fabsf(out[k].x - fx) < 3.5f && fabsf(out[k].y - fy) < 3.5f) free = false;
+                    if (!free) continue;
+                    out.push_back({q.chance(0.75f) ? main : 1 - main, fx, fy, q.f() * 6.28f});
+                    break;
+                }
+        }
+        decor.swap(out);
     }
 
     // The original map. This is the pre-expansion generator, unchanged except that every position is
@@ -322,12 +428,6 @@ struct World {
             for (int tx = 0; tx < CW; tx++) {
                 uint8_t t = T(tx, ty);
                 const float bx = OX + tx * TS, by = OY + ty * TS;
-                bool border = tx < 2 || ty < 2 || tx >= CW - 2 || ty >= CH - 2;
-                if (border) {
-                    Sd(tx, ty) = true;
-                    props.push_back({r.chance(0.6f) ? P_PINE : P_OAK0, bx + 8.f + r.range(-2, 2), by + 15.f, r.f() * 6.28f});
-                    continue;
-                }
                 if (t == T_WATER || Sd(tx, ty)) continue;
                 float dv = hypotf(tx - vx, ty - vy);
                 if (t == T_DIRT || dv < 9) {
@@ -364,8 +464,9 @@ struct World {
 
     void generateMap(int map);  // worldgen.hpp
     void thinTrees();           // worldgen.hpp
-    void addTownBelt();         // worldgen.hpp
     void fitRocks();            // worldgen.hpp
+    int repairReach();          // worldfix.hpp: opens a way to anything the hunter cannot reach; returns what is still cut off
+    int repairLeft = 0;         // ...and the same number, kept for the caller (Game::findSoundSeed)
     void buildOccluders();      // worldgen.hpp
     // true when a standing tree (oak, pine, spruce, dead or bare tree) is within maxDist px of the point: where fallen branches may lie
     bool nearTree(float x, float y, float maxDist) const {
@@ -401,8 +502,16 @@ struct World {
     static u32 miniTileColor(uint8_t t) {
         switch (t) {
             case T_DARK: return HEX(0x3e8a30);
+            case T_SHALLOW: return HEX(0x00a8ec);
+            case T_BANK: return HEX(0x6a4a2a);
+            case T_LAKE_SHALLOW: return HEX(0x38a8f4);
+            case T_LAKE_MID: return HEX(0x3077f3);
+            case T_LEAF: return HEX(0x84602e);
+            case T_MOSS: return HEX(0x2f6b46);
+            case T_NEEDLES: return HEX(0x65503d);
+            case T_ROOTS: return HEX(0x3a2c22);
             case T_DIRT: return HEX(0xb08556);
-            case T_WATER: return HEX(0x3c7fc7);
+            case T_WATER: return HEX(0x1a6cc8);
             case T_SAND: return HEX(0xdcc07a);
             case T_DUNE: return HEX(0xc9a45c);
             case T_MUD: return HEX(0x6b5438);
@@ -460,5 +569,6 @@ struct World {
 
 #include "world/maps.hpp"
 #include "world/worldgen.hpp"
+#include "world/worldfix.hpp"
 #include "world/interiors.hpp"
 #include "delve/delve.hpp"

@@ -8,6 +8,7 @@
 // The state lives in Game::hs and is saved in the normal save file (hs* lines); it is never regenerated, so the Homestead is never reset.
 #pragma once
 #include <vector>
+#include "animals/mounts.hpp"
 #include "items/inventory.hpp"
 
 // ---------------------------------------------------------------- pieces
@@ -15,6 +16,7 @@ enum HPKind {
     HP_WALL_WOOD, HP_WALL_STONE, HP_FLOOR_WOOD, HP_FLOOR_STONE, HP_FENCE, HP_GATE, HP_DOOR, HP_ROOF, HP_FOUNDATION,   // basic structures
     HP_SHED, HP_HOUSE, HP_BARN, HP_PEN, HP_COOP, HP_WORKSHOP, HP_WAREHOUSE, HP_GREENHOUSE,                           // functional buildings
     HP_BRIDGE, HP_WELL, HP_CAMPFIRE, HP_PLOT, HP_BENCH, HP_PLANTER, HP_BARREL, HP_SCARECROW, HP_SIGN, HP_LAMP, HP_TORCH,  // outdoor structures and decoration
+    HP_TROPHY,  // trophy wall: shows the trophies the hunter has earned (appended last so older saves keep their piece numbers)
     HP_COUNT
 };
 enum HPLayer { HL_GROUND, HL_OBJECT, HL_ROOF };
@@ -61,6 +63,7 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"SIGNPOST", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_BRANCH, -1}, {1, 1, 0}, 0, 0, 0, "POINTS THE WAY"},
     {"LAMP POST", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_IRONBAR, M_PLANK, M_GREASE}, {1, 1, 1}, 0, 0, 80.f, "LIGHTS THE NIGHT"},
     {"TORCH", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_BRANCH, M_GREASE, -1}, {2, 1, 0}, 0, 0, 56.f, "A SMALL FLAME"},
+    {"TROPHY WALL", 4, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_ROPE, -1}, {6, 1, 0}, 0, 0, 0, "SHOWS EVERY TROPHY YOU HAVE EARNED"},
 };
 constexpr int H_MAX_PIECES = 900;
 
@@ -97,6 +100,9 @@ constexpr float CAN_CAPACITY = 12.f;         // plots one full watering can fill
 
 // ---------------------------------------------------------------- domestic animals
 enum DomKind { DA_CHICKEN, DA_COW, DA_SHEEP, DA_PIG, DA_GOAT, DA_DUCK, DA_RABBIT, DA_COUNT };
+// A raised wild animal (a mount, mounts.hpp) is one more kind of homestead animal: it lives, eats and grows like the others but looks like its
+// species (HAnimal::species / tier). It is not sold at the market and does not breed. DA_COUNT stays the number of farm animals.
+constexpr int DA_MOUNT = DA_COUNT;
 struct DomDef {
     const char* name;
     const char* babyName;
@@ -111,7 +117,7 @@ struct DomDef {
     int feedA, feedB;    // favourite feed items (Mat) - any of the feed list works, these are loved
     int prodMax;         // how many pieces wait to be collected
 };
-static const DomDef DOMS[DA_COUNT] = {
+static const DomDef DOMS[DA_COUNT + 1] = {
     {"CHICKEN", "CHICK", 150, M_EGG, 90, "EGG", 40, true, 20.f, 0.75f, M_WHEAT, M_CORN, 6},
     {"COW", "CALF", 420, M_MILK, 150, "MILK", 220, false, 17.f, 1.35f, M_HAY, M_CARROT, 4},
     {"SHEEP", "LAMB", 330, M_WOOL, 190, "WOOL", 120, false, 17.f, 1.0f, M_HAY, M_CABBAGE, 4},
@@ -119,6 +125,7 @@ static const DomDef DOMS[DA_COUNT] = {
     {"GOAT", "KID", 300, M_MILK, 170, "MILK", 110, false, 21.f, 0.95f, M_HAY, M_CARROT, 4},
     {"DUCK", "DUCKLING", 170, M_DUCKEGG, 110, "DUCK EGG", 50, true, 19.f, 0.7f, M_WHEAT, M_CABBAGE, 5},
     {"RABBIT", "KIT", 200, M_FUR, 240, "FUR", 45, true, 26.f, 0.55f, M_CARROT, M_CABBAGE, 3},
+    {"MOUNT", "BABY", 420, -1, 0, nullptr, 0, false, 19.f, 1.0f, M_HAY, M_CARROT, 0},  // growSec / name come from the species
 };
 constexpr int H_MAX_ANIMALS = 26;
 constexpr float FEED_FULL = 100.f, FEED_DECAY = 0.30f;  // fullness lost per second (a full belly lasts ~5 minutes)
@@ -151,7 +158,21 @@ struct HAnimal {
     int stock = 0;                   // product waiting to be collected
     float breedCd = 60;
     int home = -1;                   // id of the pen / coop / barn it lives in (-1 = free)
-    bool adult(const DomDef& d) const { return age >= d.growSec; }
+    int species = -1, tier = 0;      // DA_MOUNT only: the wild species (A_*) and its rarity tier
+    bool saddled = false;            // DA_MOUNT only: the one the hunter rides (Game::toggleMount)
+    bool companion = false;          // DA_MOUNT only: the one that walks along with the hunter (companion.cpp)
+    bool away = false;               // with the hunter outside the homestead (not simulated or drawn as a pen animal)
+    int bond = 0;                    // kills the hunter made with it close by: sets its level
+    bool ridden = false;             // currently carrying the hunter (not simulated or drawn as a pen animal)
+    float growSec(const DomDef& d) const {
+        const MountDef* m = kind == DA_MOUNT ? mountDef(species) : nullptr;
+        return m ? m->growSec : d.growSec;
+    }
+    bool adult(const DomDef& d) const { return age >= growSec(d); }
+    std::string label(const DomDef& d) const {  // "WOLF" / "BABY WOLF", "COW" / "CALF"
+        if (kind == DA_MOUNT && species >= 0 && species < A_COUNT) return std::string(adult(d) ? "" : "BABY ") + ANIMAL[species].name;
+        return adult(d) ? d.name : d.babyName;
+    }
 };
 
 struct Homestead {
