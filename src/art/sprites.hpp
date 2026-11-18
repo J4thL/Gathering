@@ -373,9 +373,9 @@ inline QuadSpec specRabbit() {
 inline QuadSpec specDeer(bool stag) {
     QuadSpec s{};
     s.W = 36; s.H = 36; s.cx = 14; s.bw = 18; s.bh = 8.5f; s.legLen = 11; s.legW = 2;
-    // the pixel-art reference: two close warm browns, maroon far legs and shade, a cream belly, near-black hooves and nose
-    s.body = HEX(0x823e19); s.light = HEX(0x8f4620); s.belly = HEX(0xd8a284); s.dark = HEX(0x5b131b);
-    s.hoof = HEX(0x3d0d12); s.snout = HEX(0x793819); s.eye = HEX(0x2a0a0e);
+    // the pixel-art reference: a warm orange coat, darker orange far legs, a cream belly, brown hooves and nose
+    s.body = HEX(0xd87d24); s.light = HEX(0xe48d34); s.belly = HEX(0xfbe3be); s.dark = HEX(0xb8641c);
+    s.hoof = HEX(0x5a3a18); s.snout = HEX(0x8c5a19); s.eye = HEX(0x232330);
     s.hr = 3.2f; s.hdx = 3.5f; s.hdy = -6.5f; s.snoutLen = 3.5f; s.ear = 2; s.tail = 2;
     s.antlers = stag; s.spots = false;
     return s;
