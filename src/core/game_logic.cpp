@@ -24,7 +24,9 @@ bool Game::init(bool headless) {
         fprintf(stderr, "renderer failed: %s\n", SDL_GetError());
         return false;
     }
-    canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // the canvas is filtered when the window is not a whole multiple of it; sprites stay crisp ("0" again below)
+    canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW * LS, LH * LS);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     buildAssets(ren, A);
     world.generate(WORLD_SEED);
     initHarvest();
