@@ -17,6 +17,7 @@ enum SkillId {
     SK_SURVIVAL, SK_BUILDING,                        // other
     SK_FARMING,                                      // the homestead: crops and farm animals
     SK_FISHING,                                      // rod and line at any water
+    SK_TRACKING,                                     // reading animal tracks
     SK_COUNT
 };
 
@@ -46,6 +47,7 @@ static const SkillDef SKILL[SK_COUNT] = {
     {"survival", "SURVIVAL", "SURVIVAL", "STRONGER HEALING", 0.30f}, {"building", "BUILDING", "CRAFTING", "CHANCE OF SAVING A CRAFT", 0.25f},
     {"farming", "FARMING", "GATHERING", "CHANCE OF EXTRA CROPS AND PRODUCE", 0.30f},
     {"fishing", "FISHING", "GATHERING", "CHANCE OF A BIGGER CATCH", 0.30f},
+    {"tracking", "TRACKING", "SURVIVAL", "TRACKS SEEN FARTHER, LAST LONGER", 0.30f},
 };
 
 

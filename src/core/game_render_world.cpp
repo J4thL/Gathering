@@ -182,6 +182,8 @@ void Game::renderWorld(bool) {
             if (wet > 0.02f && wetGroundTile(world.tile[ty][tx])) fillRect(sx, sy, TS, TS, RGBA(24, 34, 56, (int)(55 * wet)));  // rain-soaked ground is darker
         }
     drawFootprints();  // what walking left behind (game_prints.cpp)
+    drawTracks();      // animal tracks the hunter can read (game_tracks.cpp)
+    drawBossTelegraph();
     // blood stains
     if (inHomestead()) drawHomesteadGround();
     for (auto& d : decals) {
@@ -192,7 +194,7 @@ void Game::renderWorld(bool) {
     for (auto& it : items) {
         const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
         if (left < DESPAWN_WARN && despawnBlink(timeAcc + it.pos.x * 0.01f)) continue;  // about to vanish: blinks
-        if (it.item >= 0) sprW(itemIcon(it.item), it.pos.x, it.pos.y - 5, false, 1.f);  // a stack the hunter dropped
+        if (it.item >= 0) { sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f); icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON); }  // a stack the hunter dropped: a small icon, not a whole tile
         else sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
         float g = fmodf(timeAcc + it.pos.x * 0.01f, 1.8f);
         if (g < 0.25f) {
@@ -637,6 +639,12 @@ void Game::renderWorld(bool) {
             }
             if (a.st == AS_REST && !a.dead && ((int)(timeAcc * 1.5f) & 1))
                 text((int)a.pos.x - camX + 4, (int)a.pos.y - camY - (int)(a.bodyH * 2 + 6), "Z", C_DIM, 1, true);
+            if (!a.dead && (a.stunT > 0 || a.fearT > 0 || a.poisonT > 0)) {  // status pips above the animal: yellow stun, white fear, green poison
+                int px = (int)a.pos.x - camX - 4, py = (int)a.pos.y - camY - (int)(a.bodyH * 2 + 14 + a.air);
+                if (a.stunT > 0) { fillRect(px, py, 2, 2, C_GOLD); px += 3; }
+                if (a.fearT > 0) { fillRect(px, py, 2, 2, C_TEXT); px += 3; }
+                if (a.poisonT > 0) fillRect(px, py, 2, 2, HEX(0x6fcf4f));
+            }
             if (a.hpShow > 0 && !a.dead) {
                 int bx = (int)a.pos.x - camX - 9, by = (int)a.pos.y - camY - (int)(a.bodyH * 2 + D.hpBarY + a.air);
                 bar(bx, by, 18, 2, (float)a.hp / a.maxhp, HEX(0xd8443f), HEX(0x3a1a18));

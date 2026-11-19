@@ -18,6 +18,8 @@
 #include "world/spawns.hpp"
 #include "combat/monsters.hpp"
 #include "farming/homestead.hpp"
+#include "combat/effects.hpp"
+#include "animals/bosses.hpp"
 
 // ----------------------------------------------------------------- palette
 const u32 C_TEXT = HEX(0xf3e9d2), C_DIM = HEX(0xa8977a), C_GOLD = HEX(0xf2c94c), C_RED = HEX(0xe8605a),
@@ -34,7 +36,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false;  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -74,6 +76,8 @@ struct Animal {
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
     V2 pos, vel, kb;
     V2 fpPrev;  float fpAcc = 0;  bool fpL = false, fpInit = false;  // footprints (game_prints.cpp)
+    V2 printAt;            // where it last left a track (game_tracks.cpp)
+    float scoutT = 0.f;    // seconds left that the companion's scouting marks it on the minimap
     int hp = 1, maxhp = 1;
     bool dead = false;
     bool tracked = false;  // a wounded quarry that bled out of sight: its carcass is marked on the maps until the hunter finds it
@@ -105,6 +109,12 @@ struct Animal {
     V2 threat;
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
+    int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
+    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
+    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
+    bool bossHit = false;
+    V2 bossDir;
+    float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
     // ---- daily routine (the home forest's four species, see game_animals.cpp): where it sleeps, drinks, and what it is up to
     V2 bed, drink;            // its sleeping place (a sheltered spot) and its watering place; chosen when first needed
     bool hasBed = false, hasDrink = false;
@@ -134,6 +144,8 @@ struct Player {
     float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit
     float hp = 100, maxhp = 100, stamina = 100;
     bool exhausted = false;
+    float rollT = 0, rollCd = 0;  // dodge-roll: seconds left rolling / until the next roll is allowed
+    V2 rollDir;
     bool sprinting = false, walking = false;  // this frame: animals hear a sprint from further off and notice a walker sooner than a still hunter
     float staDelay = 0;
     float charge = 0;
@@ -239,6 +251,18 @@ struct Fly {
 struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wind dust)
     float x, y, vx, vy, ph, sz;
 };
+constexpr int DROP_ICON = 10;  // pixels a dropped stack's icon is drawn at in the world (the item icons are 16 px)
+// dodge-roll: a short burst in the movement direction (or back from the aim when standing still) with i-frames; it costs stamina
+constexpr float DODGE_TIME = 0.30f, DODGE_SPEED = 190.f, DODGE_COOLDOWN = 0.9f, DODGE_COST = 22.f, DODGE_GRACE = 0.08f;
+// an animal's track: fresh ones are easy to see; the Tracking skill lets the hunter see them from farther and keeps them longer
+struct Track {
+    V2 p;
+    int kind;
+    float t, life;
+    bool read;  // the hunter has already studied this one (pays Tracking XP once)
+};
+constexpr float TRACK_STEP = 13.f, TRACK_LIFE = 40.f, TRACK_SIGHT = 70.f, TRACK_SPAWN_RANGE = 340.f;
+constexpr size_t TRACK_MAX = 400;
 constexpr int FLAKES_CALM = 110;  // particles in the air on a calm day
 constexpr int FLAKES_MAX = 260;   // ... and in a sandstorm / blizzard (the pool; Game::activeFlakes says how many are in use)
 
@@ -338,6 +362,10 @@ struct Game {
     State state = ST_TITLE;
     Player p;
     std::vector<Animal> animals;
+    std::vector<Track> tracks;
+    float trackReadCd = 0.f;
+    void updateTracks(float dt);   // animals leave tracks; the hunter reads them (game_tracks.cpp)
+    void drawTracks();
     std::vector<GroundItem> items;
     std::vector<Proj> projs;
     std::vector<Part> parts;
@@ -469,8 +497,22 @@ struct Game {
     void trialAdvance(int n);          // adds to the trial's count and pays it once when it is full
     std::string trialLabel() const;    // "HUNT 5 WOLF", "HUNT A LEGENDARY" or "CATCH 6 FISH"
     // the companion (animals/companion.cpp)
-    struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; } companion;
+    // orders (K_COMMAND cycles them): follow (default), fetch the weapons and arrows you threw, scout (marks the animals around on the minimap)
+    enum CompanionMode { CM_FOLLOW, CM_FETCH, CM_SCOUT, CM_COUNT };
+    struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; int mode = CM_FOLLOW; bool fetching = false; V2 fetchPos; float orderT = 0; } companion;
+    void companionOrder();
+    int bossKills[B_COUNT] = {};       // per biome map: times its boss has fallen
+    float bossCool[B_COUNT] = {};      // seconds until the boss is back (0 = it waits at its lair)
+    bool bossSeen[B_COUNT] = {};       // the lair has been found (it shows on the maps)
+    V2 bossLair; int bossLairMap = -1;
+    V2 bossLairPos();
+    Animal* liveBoss();
+    void updateBosses(float dt);
+    void bossKilled(Animal& a);
+    void drawBossTelegraph();
+    void drawWildBossBar();
     HAnimal* companionAnimal();
+    int mountKgNow(const HAnimal& m) const;
     static int bondLevel(int bond);
     float companionDamage() const;
     void companionHome();
@@ -569,7 +611,8 @@ struct Game {
     void notifyBlocked(int itemId, int n, const Inventory* ref = nullptr);  // "PACK FULL" / "TOO HEAVY" feedback after a failed pickup
     bool useConsumable(int c);
     void updateInventory(float dt);
-    void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
+    void hitAnimal(Animal& a, float dmg, V2 dir, bool crit, int wpn = -1);
+    void applyHitEffects(Animal& a, int wpn, bool crit);
     void killAnimal(Animal& a, bool byHunter = true);  // byHunter=false: a predator made the kill (no XP, quest, bounty or kill count)
     float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)) + p.sk.perkMastery(skill); }  // see skills.hpp (+ the MASTERY perks)
     void hurtPlayer(float dmg, V2 from, int srcKind = -1);
@@ -995,6 +1038,8 @@ struct Game {
     }
     void icon(const Spr& s, int cx, int cy, int size = 16, float alpha = 1.f);
     void text(int x, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true, float alpha = 1.f);
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR };
+    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void textC(int cx, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true);
     void textOutlined(int x, int y, const std::string& s, u32 col, float alpha = 1.f);
     int textW(const std::string& s, int sc = 1) const { return (int)s.size() * 4 * sc - sc; }

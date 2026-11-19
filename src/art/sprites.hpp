@@ -1213,7 +1213,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         im.outline(OUT);
         a.babyIcon[k] = makeSpr(r, im, 8, 8);
     }
-    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, c >= 7 ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
+    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
         Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));

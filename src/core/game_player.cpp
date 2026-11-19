@@ -159,6 +159,7 @@ void Game::updatePlayer(float dt) {
         return;
     }
     P.cd = std::max(0.f, P.cd - dt);
+    P.rollCd = std::max(0.f, P.rollCd - dt);
     P.invuln = std::max(0.f, P.invuln - dt);
     P.sinceHurt += dt;
     P.throwAnim = std::max(0.f, P.throwAnim - dt);
@@ -220,7 +221,8 @@ void Game::updatePlayer(float dt) {
     bool sprinting = false;
     P.walking = moving;
     P.sprinting = false;
-    if (in.sprint && moving && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
+    const bool riding = riddenMount() != nullptr;
+    if (in.sprint && moving && P.rollT <= 0 && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
         sprinting = true;
         P.sprinting = true;
         spd *= 1.55f;
@@ -240,6 +242,18 @@ void Game::updatePlayer(float dt) {
     spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
     if (HAnimal* mt = riddenMount()) spd *= mountSpeed(mt->species, mt->tier);
     if (wantGather || wantHarvest) spd = 0;
+    // dodge-roll: not while riding, exhausted, or already rolling; it cancels a throw/draw and costs stamina
+    if (in.dodgePressed && P.rollT <= 0 && P.rollCd <= 0 && !riding && !P.exhausted && P.stamina >= DODGE_COST) {
+        P.rollDir = moving ? mv : (P.aim * -1.f);
+        P.rollT = DODGE_TIME;
+        P.rollCd = DODGE_COOLDOWN;
+        P.stamina -= DODGE_COST;
+        P.staDelay = 0.9f;
+        P.charging = false;
+        P.charge = 0;
+        P.invuln = std::max(P.invuln, DODGE_TIME + DODGE_GRACE);
+        audio.play(S_THROW, 0.35f);
+    }
     V2 want = mv * spd;
     // rain makes bare ground (grass, dirt, stone, cobbles, forest floor) a little slippery, and it stays so for a while while it dries; mud, sand and snow don't slip
     const float wetSlip = wetGroundTile(groundT) ? std::max(clampf((rainK() - 0.3f) / 0.7f, 0.f, 1.f), 0.5f * wet) : 0.f;
@@ -249,6 +263,12 @@ void Game::updatePlayer(float dt) {
         want = P.iceV;
     } else
         P.iceV = want;
+    if (P.rollT > 0) {  // rolling: the roll's velocity replaces walking (ice and the load do not matter)
+        P.rollT = std::max(0.f, P.rollT - dt);
+        want = P.rollDir * (DODGE_SPEED * (0.6f + 0.4f * (P.rollT / DODGE_TIME)));  // fast at first, easing out
+        P.iceV = want;
+        if (rng.chance(0.5f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
+    }
     V2 vel = want + P.kb;
     P.kb = P.kb * expf(-9 * dt);
     moveEnt(world, P.pos, vel * dt, 4.f);
@@ -399,6 +419,7 @@ void Game::updatePlayer(float dt) {
         }
     }
     if (in.mountPressed) toggleMount();
+    if (in.commandPressed) companionOrder();
     updateMount(dt, moving);
     if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};
@@ -469,7 +490,7 @@ void Game::updateProjectiles(float dt) {
                 if (a.dead) continue;
                 V2 c = a.pos + V2(0, -a.bodyH - a.air);
                 if (dist(pr.pos, c) < ANIMAL[a.kind].hitR * a.scale + 3) {
-                    hitAnimal(a, pr.dmg, pr.dir, pr.crit);
+                    hitAnimal(a, pr.dmg, pr.dir, pr.crit, pr.ammo >= 0 ? -1 : pr.wpn);
                     if (hitLost(pr)) {
                         for (int q = 0; q < 6; q++)
                             parts.push_back({pr.pos.x, pr.pos.y, 4, rng.range(-50, 50), rng.range(-30, 30), rng.range(30, 80), 0.5f, 0.5f, HEX(0xd8dce4), 1, true});

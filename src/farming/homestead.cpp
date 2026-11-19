@@ -555,7 +555,7 @@ int Game::hsCollect(HAnimal& a) {
 
 void Game::hsTickAnimals(float dt) {
     const float T = (float)TS;
-    struct Birth { int kind, home; V2 at; };
+    struct Birth { int kind, home; V2 at; int species, tier; };
     std::vector<Birth> births;
     hs.breedT += dt;
     const bool breedTick = hs.breedT >= 5.f;
@@ -640,10 +640,11 @@ void Game::hsTickAnimals(float dt) {
             a.state = 1; a.stT = 20.f;
         }
         // breeding
-        if (breedTick && adult && a.kind != DA_MOUNT && a.breedCd <= 0 && a.full >= 60.f && a.happy >= 60.f && a.health >= 60.f &&
+        if (breedTick && adult && a.breedCd <= 0 && a.full >= 60.f && a.happy >= 60.f && a.health >= 60.f &&
             (int)hs.animals.size() + (int)births.size() < H_MAX_ANIMALS) {
             for (auto& b : hs.animals) {
-                if (&b == &a || b.kind != a.kind || !b.adult(DOMS[b.kind]) || b.breedCd > 0 || b.home != a.home) continue;
+                if (&b == &a || b.kind != a.kind || !b.adult(DOMS[b.kind]) || b.breedCd > 0 || b.home != a.home || b.ridden || b.away) continue;
+                if (a.kind == DA_MOUNT && b.species != a.species) continue;  // mounts pair within their own species
                 if (b.full < 60.f || b.happy < 60.f || b.health < 60.f) continue;
                 if (hypotf(b.px - a.px, b.py - a.py) > 60.f) continue;
                 if (a.home > 0) {
@@ -651,15 +652,21 @@ void Game::hsTickAnimals(float dt) {
                     for (auto& q : hs.pieces) if (q.id == a.home) hp = &q;
                     if (!hp || hsHousingCount(a.home) + (int)std::count_if(births.begin(), births.end(), [&](const Birth& x) { return x.home == a.home; }) >= HPDEF[hp->kind].housing) break;
                 }
-                a.breedCd = b.breedCd = BREED_CD;
-                births.push_back({a.kind, a.home, V2((a.px + b.px) / 2, (a.py + b.py) / 2)});
+                const bool mt = a.kind == DA_MOUNT;
+                a.breedCd = b.breedCd = mt ? BREED_CD * 2.f : BREED_CD;  // raised wild animals breed more slowly
+                int tier = 0;
+                if (mt) {  // the foal takes the better parent's rarity tier, and now and then comes out one tier better
+                    tier = std::max(a.tier, b.tier);
+                    if (tier < TR_LEGENDARY && rng.chance(MOUNT_BREED_UPGRADE)) tier++;
+                }
+                births.push_back({a.kind, a.home, V2((a.px + b.px) / 2, (a.py + b.py) / 2), mt ? a.species : -1, tier});
                 break;
             }
         }
     }
     for (auto& b : births) {
-        hsAddAnimal(b.kind, b.at, true, b.home);
-        msg(std::string("A ") + DOMS[b.kind].babyName + " WAS BORN!", C_GOLD);
+        hsAddAnimal(b.kind, b.at, true, b.home, b.species, b.tier);
+        msg(b.kind == DA_MOUNT ? std::string("A BABY ") + ANIMAL[b.species].name + " WAS BORN!" : std::string("A ") + DOMS[b.kind].babyName + " WAS BORN!", C_GOLD);
     }
 }
 

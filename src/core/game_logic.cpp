@@ -137,6 +137,9 @@ void Game::newGame() {
     resetDelveRuntime();
     for (auto& d : delveMem) d = DelveMem();
     kingTier = 0;
+    for (int i = 0; i < B_COUNT; i++) bossKills[i] = 0, bossCool[i] = 0.f, bossSeen[i] = false;
+    bossLairMap = -1;
+    tracks.clear();
     fishing = Fishing();
     companion = Companion();
     parked = Parked();
@@ -496,6 +499,8 @@ void Game::updatePlay(float dt) {
     p.swiftT = std::max(0.f, p.swiftT - dt);
     p.nightT = std::max(0.f, p.nightT - dt);
     updateAnimals(dt);
+    updateTracks(dt);
+    updateBosses(dt);
     updateGrass(dt);
     updateVillagers(dt);
     updateElder(dt);

@@ -1,6 +1,7 @@
 // game_map.cpp - the full-map screen (M): the explored part of the current map, landmarks, gates and where to look next.
 #include <cstdio>
 #include "core/game.hpp"
+#include "npcs/town.hpp"
 #include "world/gates.hpp"
 
 // compass word for a direction (only used in the hint text)
@@ -10,6 +11,48 @@ static const char* compassWord(float dx, float dy) {
     if (ax < ay * 0.4f) return dy > 0 ? "SOUTH" : "NORTH";
     if (dy > 0) return dx > 0 ? "SOUTH-EAST" : "SOUTH-WEST";
     return dx > 0 ? "NORTH-EAST" : "NORTH-WEST";
+}
+
+// Small pixel icons for the maps. Letters: r the accent colour, w cream wall, d dark, y gold, g green, c light, b blue.
+void Game::mapIcon(int kind, int cx, int cy, int sz, u32 col) {
+    static const char* const HOUSE7[7] = {"...r...", "..rrr..", ".rrrrr.", "rrrrrrr", ".wwwww.", ".wwdww.", ".wwdww."};
+    static const char* const HOUSE5[5] = {"..r..", ".rrr.", "rrrrr", ".wdw.", ".wdw."};
+    static const char* const PORT7[7] = {"..rrr..", ".r...r.", "r..c..r", "r.ccc.r", "r..c..r", ".r...r.", "..rrr.."};
+    static const char* const PORT5[5] = {".rrr.", "r...r", "r.c.r", "r...r", ".rrr."};
+    static const char* const BADGE7[7] = {"..yyy..", ".yydyy.", "yyydyyy", "yyydyyy", "yyyyyyy", ".yydyy.", "..yyy.."};  // "!"
+    static const char* const BADGE5[5] = {".yyy.", "yydyy", "yydyy", "yyyyy", ".ydy."};
+    static const char* const ASK7[7] = {"..ggg..", ".ggdgg.", "ggggdgg", "gggdggg", "ggggggg", ".ggdgg.", "..ggg.."};  // "?"
+    static const char* const ASK5[5] = {".ggg.", "gdddg", "gggdg", "ggggg", ".gdg."};
+    static const char* const ELD7[7] = {"..bbb..", ".bbbbb.", ".bcbcb.", ".bbbbb.", "..bbb..", ".bbbbb.", "bbbbbbb"};
+    static const char* const ELD5[5] = {".bbb.", "bcbcb", ".bbb.", "bbbbb", "b.b.b"};
+    static const char* const LAIR7[7] = {"r.....r", "rr.r.rr", "rrrrrrr", "rwrrrwr", ".rrrrr.", ".rwrwr.", "..r.r.."};  // a horned skull
+    static const char* const LAIR5[5] = {"r...r", "rrrrr", "rwrwr", ".rrr.", ".r.r."};
+    const bool big = sz >= 7;
+    const char* const* pat = nullptr;
+    switch (kind) {
+        case MI_HOUSE: pat = big ? HOUSE7 : HOUSE5; break;
+        case MI_PORTAL: pat = big ? PORT7 : PORT5; break;
+        case MI_LAIR: pat = big ? LAIR7 : LAIR5; break;
+        case MI_QUEST_NEW: pat = big ? BADGE7 : BADGE5; break;
+        case MI_QUEST_READY: pat = big ? ASK7 : ASK5; break;
+        default: pat = big ? ELD7 : ELD5; break;
+    }
+    const int n = big ? 7 : 5;
+    for (int y = 0; y < n; y++)
+        for (int x = 0; x < n; x++) {
+            u32 c;
+            switch (pat[y][x]) {
+                case '.': continue;
+                case 'r': c = col; break;
+                case 'w': c = HEX(0xefe2c0); break;
+                case 'd': c = HEX(0x3a2616); break;
+                case 'y': c = C_GOLD; break;
+                case 'g': c = C_GREEN; break;
+                case 'c': c = HEX(0xf4f0ea); break;
+                default: c = C_BLUE; break;
+            }
+            fillRect(cx - n / 2 + x, cy - n / 2 + y, 1, 1, c);
+        }
 }
 
 void Game::updateWorldMap(float dt) {
@@ -47,19 +90,28 @@ void Game::drawWorldMap() {
     auto sy = [&](float wy) { return oy + (int)(wy / TS / MM_DIV * K); };
     // the shop and the elder (home only)
     if (world.mapId == B_HOME) {
-        fillRect(sx(world.hut.x) - 2, sy(world.hut.y) - 2, 5, 5, C_GOLD);
+        mapIcon(MI_HOUSE, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
         text(sx(world.hut.x) + 5, sy(world.hut.y) - 3, "SHOP", C_GOLD);
-        fillRect(sx(world.questGiver.x) - 1, sy(world.questGiver.y) - 1, 4, 4, C_BLUE);
+        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, sx(bldDoorX(k, COX)), sy(bldBaseY(k, COY) - 8.f), 7, BUILDINGS[k].roof);
+        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, sx(world.questGiver.x), sy(world.questGiver.y), 7, C_BLUE);
         text(sx(world.questGiver.x) + 5, sy(world.questGiver.y) - 3, "ELDER", C_BLUE);
     }
     // gates, named for where they lead
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
         const Portal& pt = MAPS[world.mapId].portals[i];
         const int gx = ox + (pt.zone.x0 + pt.zone.x1) / 2 * K / MM_DIV, gy = oy + (pt.zone.y0 + pt.zone.y1) / 2 * K / MM_DIV;
-        fillRect(gx - 2, gy - 2, 5, 5, BIOME[pt.toMap].col);
+        mapIcon(MI_PORTAL, gx, gy, 7, BIOME[pt.toMap].col);
         const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, gx - textW(lb) / 2));
         text(lx, std::min(oy + mh - 8, gy + 5), lb, BIOME[pt.toMap].col);
+    }
+    // a boss lair that has been found and whose boss is back
+    if (inWilds() && bossForBiome(world.mapId) && bossSeen[world.mapId] && bossCool[world.mapId] <= 0) {
+        const V2 lp = bossLairPos();
+        const int lx0 = sx(lp.x), ly0 = sy(lp.y);
+        mapIcon(MI_LAIR, lx0, ly0, 7, C_RED);
+        const std::string lb = std::string("LAIR: ") + bossForBiome(world.mapId)->name;
+        text(std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, lx0 - textW(lb) / 2)), ly0 + 5, lb, C_RED);
     }
     // discovered landmarks with their names
     for (auto& l : world.landmarks) {
@@ -77,6 +129,8 @@ void Game::drawWorldMap() {
         const bool open = gateOpen[gr.map];
         if (button(4, gy2, 70, 22, std::string(MAPS[gr.map].name) + (open ? " OPEN" : " SEALED"), true, open ? HEX(0x3a5a2e) : HEX(0x5a3a2a))) openGateView(gr.map);
     }
+    for (auto& a : animals)  // animals the scouting companion sniffed out
+        if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(sx(a.pos.x), sy(a.pos.y), 3, 3, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
     // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
