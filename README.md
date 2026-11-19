@@ -77,6 +77,17 @@ What an animal notices is now decided by `Game::sightFactor` instead of distance
 
 **Glades:** every world has about 14 open clearings cut out of the dense forest (away from the village, lakes and each other), with the trees thinning at their rim and flowers drifting across the meadow inside. Each has a feature: a flower-carpeted meadow, one great old oak, a rune stone that glows at night, a fairy ring of mushrooms with mushrooms to pick, a herb and flax patch, or a hunter's rest (a ring of stones and two logs). They are chosen in `worldgen.hpp` and listed in `World::glades`.
 
+## Bosses, status effects, tracking and the dodge-roll
+**Bosses** (`src/animals/bosses.hpp`, `src/core/game_boss.cpp`): each wild biome map has one named boss (SANDMANE in the desert, OLD SNAPJAW in the swamp, WHITE DEATH on the snow, CRAGSHADE in the mountains) that sleeps at a lair near the map's middle. It wakes when you come within `BOSS_WAKE_RANGE`, fights with telegraphed attacks (a charge shown as a red line, a ground slam shown as a red ring) and calls its pack at two thirds and one third of its health. A slain boss pays coins and Hunting XP at once and returns after `BOSS_RESPAWN` seconds. A lair you have found is marked on the map and minimap; kills, timers and found lairs are saved (`boss` lines).
+
+**Status effects** (`src/combat/effects.hpp`): axes may stun (frozen in place), the Sunstrike javelin scares (the animal bolts), the Bogbane spear poisons (health lost over time). Legendary animals get half the duration. Small pips over an animal show its effects.
+
+**Tracking** (`src/core/game_tracks.cpp`): walking animals near you leave tracks that fade; the **Tracking** skill makes them visible from further and last longer, and walking over a fresh one reads it for a little XP. (These are separate from the purely visual footprints of `game_prints.cpp`.)
+
+**Dodge-roll:** **C** (rebindable) rolls a short burst in the direction you walk (or back from your aim) with a moment of invulnerability. It costs stamina, has a cooldown and cannot be done while riding.
+
+**Companion orders:** **F** (rebindable) cycles the companion between follow, fetch (brings back weapons and arrows you threw) and scout (marks nearby animals on the minimap; needs bond level 2). **Saddlebags** (leather gear, crafted) add half again to a mount's carry weight, and raised mounts now breed with their own species: a foal takes the better parent's tier and sometimes comes out one tier better.
+
 ## Settings, help and shortcuts
 The pause menu (Esc) and the title screen open SETTINGS: sound effects and ambience volume, a mute switch, and every key action can be rebound (click one, press a key;
 a key already in use swaps with it; 1-8, arrows, Tab, Enter, Space, Esc and F11 are fixed). They are kept in `settings.txt` beside the save file. HELP (pause menu) has

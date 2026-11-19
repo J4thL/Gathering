@@ -11,6 +11,8 @@ set(WILDWOOD_MAIN src/main.cpp)
 set(WILDWOOD_CORE
     src/core/game_logic.cpp
     src/core/game_prints.cpp
+    src/core/game_tracks.cpp
+    src/core/game_boss.cpp
     src/core/game_save.cpp
     src/core/game_animals.cpp
     src/core/game_player.cpp
