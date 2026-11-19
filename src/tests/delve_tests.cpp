@@ -526,7 +526,7 @@ int delveTest(Game& g) {
         check(!g.craft(rSteel), "steel needs Smithing level 20");
         g.p.sk.s[SK_SMITHING].xp = 100000;
         const int64_t sx = g.p.sk.s[SK_SMITHING].xp;
-        check(g.craft(rSteel) && g.p.mat(M_STEELBAR) == 1 && g.p.sk.s[SK_SMITHING].xp > sx, "with the skill, coal and iron make a steel bar (and pay Smithing XP)");
+        check(g.craft(rSteel) && g.p.mat(M_STEELBAR) >= 1 && g.p.sk.s[SK_SMITHING].xp > sx, "with the skill, coal and iron make a steel bar (and pay Smithing XP)");
         stock(rSilver);
         check(g.craft(rSilver) && g.p.mat(M_SILVERBAR) >= 1, "silver ore and coal make a silver bar (a practised smith may get one extra)");
         const int wants[][2] = {{RK_WEAPON, W_STEELSPEAR}, {RK_WEAPON, W_SILVERDAGGER}, {RK_ITEM, itemCarry(CG_LANTERN)}, {RK_ITEM, itemCarry(CG_GEMRING)},

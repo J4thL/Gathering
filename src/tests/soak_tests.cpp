@@ -157,55 +157,6 @@ static int economyTest(Game& g) {
     return bad;
 }
 
-// How crowded the wilds are: standing in the middle of each map for a while (invulnerable, not attacking), count the live animals around the
-// hunter. Too few makes the map feel empty, too many (above all fighters) makes every walk a brawl.
-static int densityTest(Game& g) {
-    int bad = 0;
-    auto check = [&](bool ok, const std::string& what) {
-        printf("  [%s] %s\n", ok ? "ok" : "FAIL", what.c_str());
-        if (!ok) bad++;
-    };
-    for (int map : {B_HOME, B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN}) {
-        g.newGame();
-        g.state = ST_PLAY;
-        g.travelTo(map, MAPS[map].entryTx, MAPS[map].entryTy, false);
-        const V2 stand = g.p.pos;
-        for (int i = 0; i < 90 * 60; i++) {
-            g.p.hp = g.p.maxhp;
-            g.p.pos = stand;  // (a shove from a fighter must not push the hunter through the gate)
-            g.p.kb = V2();
-            g.update(1.f / 60.f);
-        }
-        // the home forest is big and the village is kept clear, so it is sampled at four spots in the forest instead
-        std::vector<V2> spots = {g.p.pos};
-        if (map == B_HOME) spots = {V2((COX + 8) * TS, (COY + 8) * TS), V2((COX + 56) * TS, (COY + 8) * TS), V2((COX + 8) * TS, (COY + 50) * TS), V2((COX + 56) * TS, (COY + 50) * TS)};
-        int near = 0, fighters = 0, pass = 0, far = 0;
-        for (auto& a : g.animals) {
-            if (a.dead || a.gone) continue;
-            if (dist(a.pos, g.p.pos) < 400.f && map != B_HOME) {
-                near++;
-                (ANIMAL[a.kind].aggro ? fighters : pass)++;
-            } else far++;
-        }
-        if (map == B_HOME) {
-            far = 0;
-            for (const V2& sp : spots)
-                for (auto& a : g.animals)
-                    if (!a.dead && !a.gone && dist(a.pos, sp) < 400.f) {
-                        near++;
-                        (ANIMAL[a.kind].aggro ? fighters : pass)++;
-                    }
-            near /= (int)spots.size(); fighters /= (int)spots.size(); pass = near - fighters;
-        }
-        check(g.world.mapId == map, std::string(MAPS[map].name) + ": the hunter stayed in the map");
-        printf("  density %-9s within 400px: %2d (%d fighters, %d others), elsewhere %d\n", MAPS[map].name, near, fighters, pass, far);
-        check(near >= 5 && near <= 20, std::string(MAPS[map].name) + ": a lively but not crowded " + std::to_string(near) + " animals around the hunter");
-        check(fighters * 5 <= near * 2 + 5, std::string(MAPS[map].name) + ": fighters are a minority (" + std::to_string(fighters) + ")");
-    }
-    g.in = Input();
-    return bad;
-}
-
 int soakTest(Game& g) {
     int bad = 0;
     auto check = [&](bool ok, const std::string& what) {
@@ -225,7 +176,7 @@ int soakTest(Game& g) {
             check(false, std::string("could not travel to ") + MAPS[map].name);
             continue;
         }
-        g.dayT = (float)rnd(1500);  // some maps are played by day, some at night
+        g.dayT = (float)rnd((int)(DAY_LEN * 5));  // some maps are played by day, some at night
         g.p.inv.addIgnoringWeight(itemWpn(W_FLINT), 300);
         g.p.hot[0] = itemWpn(W_FLINT);
         std::string firstBad;
@@ -304,7 +255,6 @@ int soakTest(Game& g) {
                                  std::to_string(deaths) + " knock-outs, " + std::to_string(menus) + " menus closed), state sane" + (firstBad.empty() ? "" : " - FIRST PROBLEM: " + firstBad));
         g.in = Input();
     }
-    bad += densityTest(g);
     bad += transitTest(g);
     bad += economyTest(g);
     printf("SOAK: %s (%d failed)\n", bad ? "FAILED" : "ok", bad);

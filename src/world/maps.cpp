@@ -18,7 +18,7 @@ std::vector<std::string> splitLines(const std::string& s) {
 }  // namespace
 
 void Game::loadMapWorld(int map) {
-    world.generate(WORLD_SEED, map);
+    world.generate(worldSeed, map);
     if (map == B_HOMESTEAD) hsApplyWorld();
     initHarvest();
     if (ren) {  // the minimap shows the active map
@@ -105,7 +105,6 @@ bool Game::travelTo(int map, int atx, int aty, bool autosave) {
     snapshotMap();
     structs.clear();
     chestOpen = -1;
-    tracks.clear();
     animals.clear();  // wildlife belongs to the place it lives in; home herds are repopulated, biome wildlife streams in
     projs.clear();
     parts.clear();

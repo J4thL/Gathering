@@ -326,11 +326,11 @@ void testSkillsAndTrophies(SelfTest& t) {
             const float day0 = g.dayT;
             g.dayT = 0.f;
             check(g.season() == SEASON_SPRING && g.seasonHerds() > 1.f && g.seasonStorm() < 1.f, "the year starts in a wet, lively spring");
-            g.dayT = SEASON_DAYS * 300.f + 1.f;
+            g.dayT = SEASON_DAYS * DAY_LEN + 1.f;
             check(g.season() == SEASON_SUMMER && g.seasonStorm() > 1.f, "a week later it is summer: fewer storms");
-            g.dayT = 3 * SEASON_DAYS * 300.f + 1.f;
+            g.dayT = 3 * SEASON_DAYS * DAY_LEN + 1.f;
             check(g.season() == SEASON_WINTER && g.seasonHerds() < 1.f, "winter thins the herds");
-            g.dayT = 4 * SEASON_DAYS * 300.f + 1.f;
+            g.dayT = 4 * SEASON_DAYS * DAY_LEN + 1.f;
             check(g.season() == SEASON_SPRING, "and the year turns round to spring");
             // thick winter coats and fat autumn game
             auto yield = [&](float dayT, int mat) {
@@ -341,8 +341,8 @@ void testSkillsAndTrophies(SelfTest& t) {
                 g.killAnimal(*a, true);
                 return (int)a->remain[mat];
             };
-            const int hideSpring = yield(0.f, M_HIDE), hideWinter = yield(3 * SEASON_DAYS * 300.f + 1.f, M_HIDE);
-            const int meatSpring = yield(0.f, M_MEAT), meatAutumn = yield(2 * SEASON_DAYS * 300.f + 1.f, M_MEAT);
+            const int hideSpring = yield(0.f, M_HIDE), hideWinter = yield(3 * SEASON_DAYS * DAY_LEN + 1.f, M_HIDE);
+            const int meatSpring = yield(0.f, M_MEAT), meatAutumn = yield(2 * SEASON_DAYS * DAY_LEN + 1.f, M_MEAT);
             check(hideSpring >= 0 && hideWinter >= ANIMAL[A_DEER].drop[M_HIDE][0] + 1 && meatAutumn >= ANIMAL[A_DEER].drop[M_MEAT][0] + 1 && meatSpring >= 0, "a winter kill gives an extra hide and an autumn kill extra meat");
             g.animals.clear();
             g.dayT = day0;
@@ -946,6 +946,7 @@ void testSkillsAndTrophies(SelfTest& t) {
                 for (int v = 0; v < SOIL_PATCHES; v++) tiles = tiles && g.A.soilPatch[v].ok();
                 for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
                 for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
+                { const float dp[3][3] = {{0, 1, 2}, {1, 2, 3.4f}, {2, 3.4f, 3.4f}}; tiles = tiles && !g.A.water.wob.empty() && g.A.water.bake(1, 2, 3, dp, 0).w == 16 && g.A.water.bakeBank(1, 2, 255).w == 16; }  // the water art bakes
                 for (int st = 0; st < LIP_COUNT; st++) for (int i = 0; i < 4; i++) tiles = tiles && g.A.lip[st][i].ok();
                 for (int t = 0; t < 3; t++) { for (int v = 0; v < 4; v++) tiles = tiles && g.A.dirtTone[t][v].ok(); for (int v = 0; v < 2; v++) tiles = tiles && g.A.dirtRock[t][v].ok(); }
                 check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");
@@ -1075,11 +1076,15 @@ void testSkillsAndTrophies(SelfTest& t) {
             check(poses, "every species with a full set can eat, rest and be alert");
             // try a few spots around the hunter (the first may be walled in): the first one it can run from is checked
             bool startled = false, froze = true, bolted = false, dust = false;
+            g.p.walking = true;  // a walking hunter in daylight: noticed at the animal's full range
+            g.dayT = DAY_LEN * 0.2f;
+            if (!g.world.fields.empty()) g.p.pos = V2(g.world.fields[0].cx * TS, g.world.fields[0].cy * TS);  // in an open meadow (a deer cannot see through the forest)
             for (const V2 off : {V2(40, 0), V2(-40, 0), V2(0, 40), V2(0, -40), V2(60, 60), V2(-60, -60)}) {
                 if (bolted) break;
                 E_().st = AS_WANDER;
                 E_().alertT = 0;
                 E_().vel = V2();
+                E_().face8 = facingFromDir(-off.x, -off.y);  // looking at the hunter
                 E_().pos = E_().target = g.p.pos + off;
                 E_().anim = Animator();
                 const V2 p0 = E_().pos;
@@ -1171,6 +1176,25 @@ void testSkillsAndTrophies(SelfTest& t) {
                     check(dist(pStop, b.pos) == 0.f && !b.gone && b.totalRemain > 0 && b.anim.state == AN_DEATH && b.anim.done, "the stopped corpse stays put, gatherable, on its last death pose");
                 }
             }
+        }
+    }
+    printf("footprints\n");
+    {
+        int gx = -1, gy = -1;
+        for (int y = 5; y < MH - 5 && gx < 0; y++)
+            for (int x = 5; x < MW - 5; x++)
+                if (g.world.tile[y][x] == T_GRASS) { gx = x; gy = y; break; }
+        if (gx >= 0 && !g.inHomestead() && !g.world.isInterior() && g.delve < 0) {
+            g.updateFootprints(FOOT_LIFE + 1.f);  // clear the pool
+            const float fx = gx * TS + 8.f, fy = gy * TS + 8.f;
+            for (int i = 0; i < 30; i++) g.addFootprint(fx, fy, 0, 1.f, 0.f, i & 1);
+            check(g.footprintsActive(0) == FOOT_PER_WALKER, "a walker's trail is its last ten prints");
+            for (int o = 1; o <= 20; o++)
+                for (int i = 0; i < 12; i++) g.addFootprint(fx, fy, o, 0.f, 1.f, i & 1);
+            check(g.footprintsActive() <= FOOT_POOL, "the footprint pool never overflows");
+            check(g.footprintsActive(5) <= FOOT_PER_WALKER && g.footprintsActive(5) > 0, "every walker keeps at most ten of its own prints");
+            g.updateFootprints(FOOT_LIFE + 0.1f);
+            check(g.footprintsActive() == 0, "prints fade away");
         }
     }
 }

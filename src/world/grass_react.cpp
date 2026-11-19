@@ -47,7 +47,7 @@ void Game::updateGrass(float dt) {
             const float dx = it->x - mv.pos.x;
             if (std::fabs(dx) > mv.reach) continue;
             switch (it->kind) {  // plants only: stones, bones and bubbles do not bend
-                case D_PEBBLES: case D_SKULL: case D_BUBBLES: case D_DRIFT: case D_LILY: case D_MUSHROOM: case D_BUSH0: case D_BUSH1: continue;
+                case D_PEBBLES: case D_DROCK0: case D_DROCK1: case D_DROCK2: case D_DROCK3: case D_SKULL: case D_BUBBLES: case D_DRIFT: case D_LILY: case D_MUSHROOM: continue;
                 default: break;
             }
             kicked = reactTo((size_t)(it - world.decor.begin()), dx, amp) || kicked;

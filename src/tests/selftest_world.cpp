@@ -1,4 +1,6 @@
 // selftest_world.cpp - `--selftest`: gathering, structures, consumables, gear, maps and travel.
+#include <set>
+#include <tuple>
 #include "tests/selftest_ctx.hpp"
 #include "world/gates.hpp"
 
@@ -124,7 +126,7 @@ void testWorldRules(SelfTest& t) {
                     if (protectedTile(tx, ty, g.world.mapId)) bad++;
                 }
             }
-            check(harvestable > 0 && bad == 0, "trees on the map border and around the home core are never harvestable");
+            check(harvestable > 0 && bad == 0, "trees on the map border are never harvestable");
         }
         // ---- no gathering through obstacles
         {
@@ -150,7 +152,7 @@ void testWorldRules(SelfTest& t) {
             check(standAt(RS_HERB, node, idx, 1), "another herb is reachable");
             g.p.inv.clear();
             g.p.inv.maxWeight = 1e6f;
-            g.p.inv.add(itemWpn(W_BOW), 999 * g.p.bagCap());
+            for (int i = 0; i < g.p.bagCap(); i++) g.p.inv.add(itemWpn(W_BOW), 1);
             check(g.p.bagUsed() == g.p.bagCap(), "test setup: the bag is full");
             for (int i = 0; i < 200; i++) {
                 HTarget t;
@@ -491,6 +493,232 @@ void testWorldRules(SelfTest& t) {
             homeSame = a.props.size() == b.props.size() && a.nodes.size() == b.nodes.size() && memcmp(a.tile, b.tile, sizeof a.tile) == 0;
         }
         check(homeSame, "a map is rebuilt identically every time it is entered");
+        // ---- the home forest's floors come from a density and a moisture field: every floor appears, in believable shares, on every seed
+        {
+            bool allSeeds = true;
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u, 424242u}) {
+                World w;
+                w.generate(sd, B_HOME);
+                long n[T_LAKE_MID + 1] = {};
+                long forest = 0;
+                for (int y = 0; y < MH; y++)
+                    for (int x = 0; x < MW; x++)
+                        if (!(x >= COX && y >= COY && x < COX + CW && y < COY + CH) && !tileLake(w.tile[y][x]) && w.tile[y][x] != T_DIRT) {
+                            n[w.tile[y][x]]++;
+                            forest++;
+                        }
+                auto pct = [&](int t) { return 100.0 * n[t] / std::max(1L, forest); };
+                printf("  seed %u: grass %.1f%% dark %.1f%% leaf %.1f%% needles %.1f%% moss %.1f%%\n", sd, pct(T_GRASS), pct(T_DARK), pct(T_LEAF),
+                       pct(T_NEEDLES), pct(T_MOSS));
+                // the meadow stays the biggest single floor; every forest floor is there, and none swallows the forest
+                bool ok = pct(T_GRASS) > 25.0 && pct(T_GRASS) < 75.0;
+                for (int t : {(int)T_DARK, (int)T_LEAF, (int)T_NEEDLES, (int)T_MOSS}) ok = ok && pct(t) > 1.0 && pct(t) < 30.0;
+                allSeeds = allSeeds && ok;
+                // trees follow the floor: needles carry mostly pines, leaf litter mostly oaks
+                int pineOnNeedles = 0, treesOnNeedles = 0, oakOnLeaf = 0, treesOnLeaf = 0;
+                for (const Prop& pr : w.props) {
+                    const uint8_t t = w.tileAt(pr.x, pr.y - 1.f);
+                    if (!isTreeKind(pr.kind) || pr.x < 8 * TS || pr.y < 8 * TS || pr.x > (MW - 8) * TS || pr.y > (MH - 8) * TS) continue;  // (the edge wall is its own thing)
+                    if (t == T_NEEDLES) { treesOnNeedles++; pineOnNeedles += pr.kind == P_PINE; }
+                    if (t == T_LEAF) { treesOnLeaf++; oakOnLeaf += pr.kind == P_OAK0 || pr.kind == P_OAK1; }
+                }
+                if (treesOnNeedles > 20) allSeeds = allSeeds && pineOnNeedles * 10 > treesOnNeedles * 7;
+                if (treesOnLeaf > 20) allSeeds = allSeeds && oakOnLeaf * 10 > treesOnLeaf * 8;
+            }
+            // ---- glades: open clearings in the forest, each with its own feature
+            bool gladesOk = true;
+            int kindsSeen[GL_COUNT] = {};
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u, 424242u}) {
+                World w;
+                w.generate(sd, B_HOME);
+                if (w.glades.size() < 8) gladesOk = false;
+                for (const Glade& gl : w.glades) {
+                    kindsSeen[gl.kind]++;
+                    const int cx = (int)gl.cx, cy = (int)gl.cy;
+                    if (tileLake(w.tile[cy][cx]) || (cx >= COX && cx < COX + CW && cy >= COY && cy < COY + CH)) gladesOk = false;
+                    int trees = 0;  // no tree inside the open part of the clearing, except a deliberate centrepiece (one oak)
+                    for (const Prop& pr : w.props)
+                        if (isTreeKind(pr.kind) && hypotf((pr.x / TS - gl.cx) / gl.rx, ((pr.y - 1.f) / TS - gl.cy) / gl.ry) < 0.6f) trees++;
+                    if (trees > (gl.kind == GL_OAK ? 1 : 0)) { gladesOk = false; printf("    glade kind %d at (%.0f,%.0f): %d trees inside\n", gl.kind, gl.cx, gl.cy, trees); }
+                    // and the feature exists
+                    int feat = 0;
+                    for (const Prop& pr : w.props)
+                        if ((pr.kind == P_STANDING || pr.kind == P_LOG || pr.kind == P_OAK1) && hypotf(pr.x / TS - gl.cx, pr.y / TS - gl.cy) < gl.rx + 1.f) feat++;
+                    for (const ResNode& n : w.nodes)
+                        if (hypotf(n.x / TS - gl.cx, n.y / TS - gl.cy) < gl.rx + 1.f) feat++;
+                    for (const Decor& d : w.decor)
+                        if (d.kind == D_MUSHROOM && hypotf(d.x / TS - gl.cx, d.y / TS - gl.cy) < gl.rx + 1.f) feat++;
+                    if (gl.kind != GL_FLOWERS && feat == 0) { gladesOk = false; printf("    glade kind %d at (%.0f,%.0f): no feature\n", gl.kind, gl.cx, gl.cy); }
+                }
+            }
+            int variety = 0;
+            for (int k = 0; k < GL_COUNT; k++) variety += kindsSeen[k] > 0;
+            check(gladesOk && variety >= 5, "the home forest has 8+ glades per seed: open ground, no trees inside, a feature in each, several kinds");
+            // ---- flower fields: wide open meadows carpeted with flowers, with herbs to gather
+            bool fieldsOk = true;
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u, 424242u}) {
+                World w;
+                w.generate(sd, B_HOME);
+                if (w.fields.size() < 2) { fieldsOk = false; printf("    seed %u: only %zu flower fields\n", sd, w.fields.size()); }
+                for (const FlowerField& f : w.fields) {
+                    int trees = 0, flowers = 0, herbs = 0, tiles = 0, offGrass = 0;
+                    for (const Prop& pr : w.props)
+                        if (isTreeKind(pr.kind) && hypotf((pr.x / TS - f.cx) / f.rx, ((pr.y - 1.f) / TS - f.cy) / f.ry) < 0.7f) trees++;
+                    for (const Decor& d : w.decor)
+                        if ((d.kind <= D_FLOWER2 || d.kind == D_VIOLET || d.kind == D_POPPY) && hypotf((d.x / TS - f.cx) / f.rx, (d.y / TS - f.cy) / f.ry) < 0.7f) flowers++;
+                    for (const ResNode& n : w.nodes)
+                        if (n.kind == RN_HERB && hypotf((n.x / TS - f.cx) / f.rx, (n.y / TS - f.cy) / f.ry) < 0.9f) herbs++;
+                    for (int y = (int)(f.cy - f.ry); y <= (int)(f.cy + f.ry); y++)
+                        for (int x = (int)(f.cx - f.rx); x <= (int)(f.cx + f.rx); x++)
+                            if (hypotf((x - f.cx) / f.rx, (y - f.cy) / f.ry) < 0.6f) {
+                                tiles++;
+                                const uint8_t t = w.tile[y][x];
+                                offGrass += t != T_GRASS && t != T_DIRT && t != T_SHALLOW && !tileLake(t) && t != T_MOSS;
+                            }
+                    printf("    seed %u field at (%.0f,%.0f): %d flowers, %d herbs, %d trees\n", sd, f.cx, f.cy, flowers, herbs, trees);
+                    if (trees > 0 || herbs < 3 || offGrass > 0 || flowers < tiles / 2) fieldsOk = false;  // (at least half a flower per tile; the brooks may cross)
+                }
+            }
+            check(fieldsOk, "the home forest has 2+ flower fields per seed: meadow, no trees, carpeted with flowers, herbs to gather");
+            // ---- streams, groves, spacing, stumps, logs and dead trees
+            bool brooks = true, spacing = true, litter = true;
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u, 424242u}) {
+                World w;
+                w.generate(sd, B_HOME);
+                // brooks: 8-connected runs of shallow water, counted when they touch a lake
+                static int comp[MH][MW];
+                memset(comp, 0, sizeof comp);
+                int streams = 0, longest = 0;
+                long shallow = 0;
+                for (int y = 0; y < MH; y++)
+                    for (int x = 0; x < MW; x++)
+                        if (w.tile[y][x] == T_SHALLOW && !comp[y][x]) {
+                            std::vector<std::pair<int, int>> st{{x, y}};
+                            comp[y][x] = 1;
+                            int size = 0;
+                            bool lake = false;
+                            while (!st.empty()) {
+                                auto [cx, cy] = st.back();
+                                st.pop_back();
+                                size++;
+                                for (int dy = -1; dy <= 1; dy++)
+                                    for (int dx = -1; dx <= 1; dx++) {
+                                        const int nx = cx + dx, ny = cy + dy;
+                                        if (nx < 0 || ny < 0 || nx >= MW || ny >= MH) continue;
+                                        if (tileLake(w.tile[ny][nx])) lake = true;
+                                        if (w.tile[ny][nx] == T_SHALLOW && !comp[ny][nx]) { comp[ny][nx] = 1; st.push_back({nx, ny}); }
+                                    }
+                            }
+                            shallow += size;
+                            if (lake && size >= 20) { streams++; longest = std::max(longest, size); }
+                        }
+                printf("  seed %u: %d brooks reach a lake (longest %d tiles, %ld shallow tiles in all)\n", sd, streams, longest, shallow);
+                if (streams < 4) brooks = false;
+                // nothing solid grows in a brook
+                for (const Prop& pr : w.props)
+                    if (w.tileAt(pr.x, pr.y - 1.f) == T_SHALLOW && (isTreeKind(pr.kind) || isRockKind(pr.kind))) brooks = false;
+                // open country: trees keep their distance (no two touching), away from the edge wall, the glade oaks and the village
+                int touching = 0, stumps = 0, logs = 0, dead = 0;
+                for (const Prop& a : w.props) {
+                    if (a.kind == P_LOG) logs++;
+                    if (a.kind == P_DEADTREE0 || a.kind == P_DEADTREE1) dead++;
+                    if (!isTreeKind(a.kind) || a.x < 10 * TS || a.y < 10 * TS || a.x > (MW - 10) * TS || a.y > (MH - 10) * TS) continue;
+                    const int tx = (int)(a.x / TS), ty = (int)((a.y - 1.f) / TS);
+                    if (tx >= COX - 2 && tx < COX + CW + 2 && ty >= COY - 2 && ty < COY + CH + 2) continue;
+                    if (fbm((tx - COX) * 0.08f, (ty - COY) * 0.08f, sd + 1) >= 0.5f || w.tile[ty][tx] != T_GRASS) continue;
+                    bool glade = false;
+                    for (const Glade& gl : w.glades)
+                        if (hypotf((tx - gl.cx) / gl.rx, (ty - gl.cy) / gl.ry) < 1.8f) glade = true;
+                    if (glade) continue;
+                    for (const Prop& b : w.props)
+                        if (&a != &b && isTreeKind(b.kind) && hypotf(a.x - b.x, a.y - b.y) < 20.f) { touching++; break; }
+                }
+                for (const Decor& d : w.decor) stumps += d.kind == D_STUMP;
+                printf("    meadow trees touching: %d, stumps %d, logs %d, dead trees %d\n", touching, stumps, logs, dead);
+                if (touching > 0) spacing = false;
+                if (stumps < 40 || logs < 15 || dead < 15) litter = false;
+            }
+            check(brooks, "streams: several brooks per seed run to a lake, and nothing solid grows in them");
+            check(spacing, "trees in open country keep their distance from each other");
+            check(litter, "the forest has old stumps, fallen logs and dead trees");
+            // ---- smoothing (#6): far fewer specks of one floor lost inside another
+            // ---- independent layers (#8): leaving a stream or a glade out changes nothing it does not touch
+            bool smooth = true, independent = true;
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u}) {
+                World full, rough, noStreams, noGlades, noFields;
+                full.generate(sd, B_HOME);
+                rough.genOff = GEN_NO_SMOOTH;
+                rough.generate(sd, B_HOME);
+                noStreams.genOff = GEN_NO_STREAMS;
+                noStreams.generate(sd, B_HOME);
+                noGlades.genOff = GEN_NO_GLADES;
+                noGlades.generate(sd, B_HOME);
+                noFields.genOff = GEN_NO_FIELDS;
+                noFields.generate(sd, B_HOME);
+                auto isFloor = [](uint8_t t) { return t == T_GRASS || t == T_DARK || t == T_LEAF || t == T_MOSS || t == T_NEEDLES || t == T_ROOTS; };
+                auto specks = [&](const World& w) {  // floor tiles with at most 1 of their 8 neighbours the same floor (isolated specks and the tips of one-tile spurs), away from water, glades and the village
+                    int n = 0;
+                    for (int y = 6; y < MH - 6; y++)
+                        for (int x = 6; x < MW - 6; x++) {
+                            const uint8_t t = w.tile[y][x];
+                            if (!isFloor(t) || (x >= COX - 2 && x < COX + CW + 2 && y >= COY - 2 && y < COY + CH + 2)) continue;
+                            int same = 0;
+                            bool wet = false;
+                            for (int dy = -2; dy <= 2; dy++)
+                                for (int dx = -2; dx <= 2; dx++) {
+                                    const uint8_t o = w.tile[y + dy][x + dx];
+                                    if (tileLake(o) || o == T_SHALLOW) wet = true;
+                                    if (abs(dx) <= 1 && abs(dy) <= 1 && (dx || dy)) same += o == t;
+                                }
+                            bool glade = false;
+                            for (const Glade& gl : w.glades) if (hypotf((x - gl.cx) / gl.rx, (y - gl.cy) / gl.ry) < 1.6f) glade = true;
+                            n += !wet && !glade && same <= 1;
+                        }
+                    return n;
+                };
+                const int sRough = specks(rough), sFull = specks(full);
+                printf("  seed %u: floor specks %d before smoothing, %d after\n", sd, sRough, sFull);
+                if (!(sFull * 2 <= sRough)) smooth = false;
+                // trees that are not near the layer that was left out must be the very same trees
+                auto treeSet = [&](const World& w) {
+                    std::set<std::tuple<int, int, int>> t;
+                    for (const Prop& pr : w.props) if (isTreeKind(pr.kind)) t.insert({pr.kind, (int)lroundf(pr.x), (int)lroundf(pr.y)});
+                    return t;
+                };
+                auto compare = [&](const World& a, const World& b, auto near, const char* what) {
+                    const auto tb = treeSet(b);
+                    int checked = 0, missing = 0;
+                    for (const Prop& pr : a.props) {
+                        if (!isTreeKind(pr.kind)) continue;
+                        const int tx = (int)(pr.x / TS), ty = (int)((pr.y - 1.f) / TS);
+                        if (near(tx, ty)) continue;
+                        checked++;
+                        missing += !tb.count({pr.kind, (int)lroundf(pr.x), (int)lroundf(pr.y)});
+                    }
+                    printf("    %s: %d trees away from it, %d differ\n", what, checked, missing);
+                    return checked > 200 && missing * 50 <= checked;  // at most 2% (a chain of spacing choices can ripple a little)
+                };
+                independent = independent && compare(full, noStreams, [&](int x, int y) {
+                    for (int dy = -4; dy <= 4; dy++)
+                        for (int dx = -4; dx <= 4; dx++) {
+                            const int nx = x + dx, ny = y + dy;
+                            if (nx >= 0 && ny >= 0 && nx < MW && ny < MH && full.tile[ny][nx] == T_SHALLOW) return true;
+                        }
+                    return false; }, "without streams");
+                independent = independent && compare(full, noGlades, [&](int x, int y) {
+                    for (const Glade& gl : full.glades) if (hypotf((x - gl.cx) / gl.rx, (y - gl.cy) / gl.ry) < 2.2f) return true;
+                    return false; }, "without glades");
+                independent = independent && compare(full, noFields, [&](int x, int y) {
+                    for (const FlowerField& f : full.fields) if (hypotf((x - f.cx) / f.rx, (y - f.cy) / f.ry) < 1.8f) return true;
+                    return false; }, "without flower fields");
+                independent = independent && noFields.fields.empty() && !full.fields.empty();
+                // and the layers really are there when switched on
+                independent = independent && noStreams.tile[1][1] != T_SHALLOW && noGlades.glades.empty() && !full.glades.empty();
+            }
+            check(smooth, "smoothing removes at least half of the floor specks");
+            check(independent, "leaving out streams, glades or flower fields leaves every tree away from them exactly where it was");
+            check(allSeeds, "the home forest has meadow, dark grass, leaf litter, needles and moss in sensible shares, and trees match their floor");
+        }
         // ---- travel keeps the hunter, and each map keeps its own state
         g.newGame();
         g.state = ST_PLAY;

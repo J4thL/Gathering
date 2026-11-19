@@ -46,8 +46,8 @@ struct SelfTest {
         for (int a = 0; a < AM_COUNT && slotsLeft > 0; a++, slotsLeft--) g.p.inv.add(itemAmmo(a), 10);
         g.p.inv.add(ITEM_CONS0 + C_BANDAGE, 2);
         slotsLeft--;
-        // anything left: bows stack to 999 per slot, so a big pile of them takes the last slots
-        if (slotsLeft > 0) g.p.inv.add(itemWpn(W_BOW), 999 * slotsLeft);
+        // anything left: extra bows (each its own slot) to take the last slots
+        while (slotsLeft-- > 0) g.p.inv.add(itemWpn(W_BOW), 1);
     }
     int findRecipe(int kind, int out, int firstMat) const {
         for (int r = 0; r < RECIPE_N; r++)
@@ -73,3 +73,4 @@ void testScreensAndSaves(SelfTest& t);  // inventory screen, crafting, saving an
 void testWorldRules(SelfTest& t);  // gathering, structures, consumables, gear, maps and travel
 void testSkillsAndTrophies(SelfTest& t);  // skill bonuses, skill XP, trophies and skills
 void testTownAndFeedback(SelfTest& t);  // town NPCs, HUD feedback, wildlife and audio
+void testWeather(SelfTest& t);  // the weather schedule, the weather state machine and its effects

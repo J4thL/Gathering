@@ -22,9 +22,9 @@ void testInventoryClass(SelfTest& t) {
         check(tiny.add(MEAT, 3000) == 1998 && tiny.room(MEAT) == 0 && !tiny.canAdd(HIDE, 1), "a full pack takes a partial stack and then refuses (nothing lost: the caller keeps the rest)");
         check(tiny.add(MEAT, 1) == 0 && tiny.blockReason(MEAT, 1) == 1, "adding to a full pack adds nothing and the reason is 'no slot'");
         Inventory bag(5, NOLIM);
-        check(bag.add(itemWpn(W_BOW), 3) == 3 && bag.usedSlots() == 1, "gear stacks: 3 bows use 1 slot");
-        check(bag.add(itemWpn(W_FLINT), 1001) == 1001 && bag.usedSlots() == 3, "thrown weapons stack to 999: 1001 knives use 2 slots");
-        check(bag.add(MEAT, 1) == 1 && bag.add(HIDE, 1) == 1 && bag.add(itemMat(M_CLAW), 1) == 0, "slots fill up with new item types");
+        check(bag.add(itemWpn(W_BOW), 3) == 3 && bag.usedSlots() == 3, "launchers never stack: 3 bows use 3 slots");
+        check(bag.add(itemWpn(W_FLINT), 1001) == 1001 && bag.usedSlots() == 5, "thrown weapons stack to 999: 1001 knives use 2 slots");
+        check(bag.add(MEAT, 1) == 0, "no slot left for anything new");
         Inventory c(3, NOLIM);
         c.add(MEAT, 400);
         c.add(HIDE, 5);
@@ -100,7 +100,7 @@ void testInventoryClass(SelfTest& t) {
         }
         check(keys && (int)ks.size() == ITEM_COUNT && itemFromKey("no_such_item") == -1, "every item has a unique stable save key that maps back to it");
         check(item(MEAT).stack == 999 && item(itemMat(M_CLAW)).stack == 999 && item(itemWpn(W_FLINT)).stack == 999 && item(itemAmmo(AM_ARROW)).stack == 999, "stackable items stack to 999");
-        check(item(itemWpn(W_BOW)).stack == 999 && item(itemTool(TL_AXE1)).stack == 999 && item(itemPack(PK_SATCHEL)).stack == 999 && item(itemCarry(CG_QUIVER)).stack == 999, "launchers, tools, bags and carried gear stack to 999 too");
+        check(item(itemWpn(W_BOW)).stack == 1 && item(itemTool(TL_AXE1)).stack == 1 && item(itemPack(PK_SATCHEL)).stack == 1 && item(itemCarry(CG_QUIVER)).stack == 1, "launchers, tools, bags and carried gear take a slot each");
         check(BASE_CARRY_KG == 50 && PACK_CARRY_KG[0] == 100 && PACK_CARRY_KG[1] == 150 && PACK_CARRY_KG[2] == 200 && PACK_CARRY_KG[3] == 300, "carrying limits: no bag 50, satchel 100, trapper 150, explorer 200, expedition 300 kg");
     }
     // ---- item quality: normal / good / outstanding / excellent / masterpiece

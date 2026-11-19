@@ -52,7 +52,7 @@ int weaponTest(Game& g) {
             if (d.stack <= 0) stacks = false;
             if (d.kind == IK_MATERIAL && d.price != MAT_PRICE[d.ref]) prices = false;
             if (d.kind == IK_MATERIAL && (itemMat(d.ref) != i || d.stack != MAX_STACK)) refs = false;
-            if (d.kind == IK_LAUNCHER && d.stack != MAX_STACK) refs = false;
+            if (d.kind == IK_LAUNCHER && d.stack != 1) refs = false;
             if (d.kind == IK_THROWN && itemWpn(d.ref) != i) refs = false;
             if (d.kind == IK_AMMO && itemAmmo(d.ref) != i) refs = false;
         }
@@ -60,7 +60,7 @@ int weaponTest(Game& g) {
         check(ids && (int)names.size() == ITEM_COUNT, "every item has a unique, non-empty name");
         check(stacks, "every stack size is positive");
         check(prices, "material prices in the registry match the price table");
-        check(refs, "ids map back to their legacy tables; materials stack to 999; gear stacks too");
+        check(refs, "ids map back to their legacy tables; materials stack to 999; launchers do not stack");
         check(item(itemPack(0)).carry == 100 && item(itemPack(3)).carry == 300 && item(itemPack(1)).kind == IK_BACKPACK, "bags are items that raise the carrying limit");
         check(!isLauncher(W_FLINT) && !isLauncher(W_JAVELIN) && isLauncher(W_BOW) && isLauncher(W_CROSSBOW), "only the bow and crossbow are launchers");
     }

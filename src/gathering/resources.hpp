@@ -22,6 +22,8 @@ enum ResId {
     // plants (by hand)
     RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_NIGHTSHADE,
     RS_BERRY, RS_WILDFLOWER,  // the homestead
+    // tiny rocks (bare hands work)
+    RS_TINYROCK,
     RS_COUNT
 };
 enum ResClass { RCL_PLANT, RCL_TREE, RCL_ROCK, RCL_ORE };  // decides the sound, the particles and how the depleted state looks
@@ -58,7 +60,7 @@ static const ResDef RES[RS_COUNT] = {
     {"FALLEN LOG",    RCL_TREE,  TT_AXE,  1, 3, 0.80f, {{M_WOOD, 2, 3, 1.f, 0}, {M_MUSHROOM, 1, 1, 0.3f, 0}, {-1, 0, 0, 0, 0}},       480, 0, 0, 0x6a4a2a},
     {"CACTUS",        RCL_TREE,  TT_AXE,  1, 2, 0.80f, {{M_PULP, 2, 3, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                   300, 2, 1, 0x72bb62},
 
-    {"ROCK",          RCL_ROCK,  TT_PICK, 0, 3, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  300, 0, 0, 0xa9acb8},
+    {"ROCK",          RCL_ROCK,  TT_PICK, 1, 3, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  300, 0, 0, 0xa9acb8},
     {"SANDSTONE",     RCL_ROCK,  TT_PICK, 1, 4, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {M_COPPER, 1, 1, 0.35f, 1}, {-1, 0, 0, 0, 0}},        360, 0, 0, 0xd8b878},
     {"ICY ROCK",      RCL_ROCK,  TT_PICK, 1, 4, 0.95f, {{M_STONE, 1, 2, 1.f, 0}, {M_IRON, 1, 1, 0.20f, 2}, {-1, 0, 0, 0, 0}},          360, 0, 0, 0xcfe3f0},
     {"BOULDER",       RCL_ROCK,  TT_PICK, 1, 5, 1.00f, {{M_STONE, 2, 3, 1.f, 0}, {M_COPPER, 1, 2, 0.40f, 1}, {M_IRON, 1, 1, 0.25f, 2}}, 420, 0, 0, 0x9a9ca8},
@@ -88,6 +90,7 @@ static const ResDef RES[RS_COUNT] = {
     {"NIGHTSHADE",    RCL_PLANT, -1,      0, 1, 1.00f, {{M_NIGHTSHADE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},               200, 5, 2, 0x6a2a8a},
     {"BERRY BUSH",    RCL_PLANT, -1,      0, 2, 0.60f, {{M_BERRY, 2, 4, 1.f, 0}, {M_BERRY, 1, 2, 0.35f, 0}, {-1, 0, 0, 0, 0}},             220, 0, 0, 0x7a3ad8},
     {"WILD FLOWERS",  RCL_PLANT, -1,      0, 1, 0.60f, {{M_TULIP, 1, 2, 0.7f, 0}, {M_ROSE, 1, 1, 0.35f, 0}, {M_LAVENDER, 1, 1, 0.3f, 0}},    200, 0, 0, 0xff7a8a},
+    {"TINY ROCK",     RCL_ROCK,  TT_PICK, 0, 2, 0.80f, {{M_STONE, 1, 1, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  240, 0, 0, 0xa9acb8},
 };
 
 // resource of a world node kind (always one)
@@ -108,24 +111,22 @@ inline int propRes(int propKind) {
         case P_BARETREE: return RS_BARETREE;
         case P_LOG: return RS_LOG;
         case P_CACTUS0: case P_CACTUS1: return RS_CACTUS;
-        case P_ROCK0: case P_ROCK1: return RS_ROCK;
-        case P_SANDROCK0: case P_SANDROCK1: return RS_SANDROCK;
-        case P_SNOWROCK: return RS_SNOWROCK;
-        case P_BOULDER: return RS_BOULDER;
+        case P_ROCK0: return RS_TINYROCK;      // tiny rocks: bare hands
+        case P_ROCK1: return RS_ROCK;          // small rocks: pickaxe
+        case P_SANDROCK0: return RS_TINYROCK;
+        case P_SANDROCK1: return RS_SANDROCK;
+        case P_SNOWROCK: return RS_TINYROCK;
+        case P_BOULDER: case P_SANDBOULDER: return RS_BOULDER;
         case P_CRYSTAL: return RS_CRYSTAL;
         default: return -1;
     }
 }
 
-// Does a prop tile count as a protected boundary? The map's edge wall and the home forest's outer tree wall stay standing
-// so that felling trees can never open the world's border or the biome gates.
+// Does a prop tile count as a protected boundary? The map's edge wall stays standing so that felling trees can never open the
+// world's border or the biome gates. (There is no wall round the home area any more: its forest is ordinary forest.)
 inline bool protectedTile(int tx, int ty, int map = B_HOME) {
-    if (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3) return true;  // every map has the same edge wall
-    if (map == B_HOME && tx >= COX && tx < COX + CW && ty >= COY && ty < COY + CH) {  // the original area's own tree wall
-        int cx = tx - COX, cy = ty - COY;
-        if (cx < 3 || cy < 3 || cx >= CW - 3 || cy >= CH - 3) return true;
-    }
-    return false;
+    (void)map;
+    return tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3;  // every map has the same edge wall
 }
 
 // tool speed with bare hands when the resource has a tool type but allows no tool (tier-0 rocks)
