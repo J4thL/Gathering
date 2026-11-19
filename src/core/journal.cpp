@@ -61,6 +61,12 @@ void Game::drawJournalTab(int X, int Y, int W, int H) {
             text(x0 + 4, y, std::string("FROSTBOUND KING RETURNS - TIER ") + S(kingTier) + "/" + S(KING_TIERS), C_TEXT, 1, false);
             y += 11;
         }
+        {
+            int slain = 0, total = 0;
+            for (int i = 0; i < BOSS_N; i++) { total++; if (bossKills[BOSSES[i].biome] > 0) slain++; }
+            text(x0 + 4, y, std::string("BOSSES SLAIN ") + S(slain) + "/" + S(total), slain == total ? C_GREEN : C_TEXT, 1, false);
+            y += 11;
+        }
         int pend = 0;
         for (int k = 0; k < SK_COUNT; k++) pend += p.sk.pending(k);
         if (pend > 0) text(x0 + 4, y, S(pend) + " PERK CHOICES WAITING - SKILLS TAB", C_GOLD, 1, false);

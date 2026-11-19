@@ -36,6 +36,8 @@ void Game::save() {
         if (trophyMask) f << "trophy " << trophyMask << "\n";
         if (fishCaught) f << "fish " << fishCaught << "\n";
         if (kingTier) f << "kingtier " << kingTier << "\n";
+        for (int i = 0; i < B_COUNT; i++)
+            if (bossKills[i] || bossCool[i] > 0 || bossSeen[i]) f << "boss " << i << ' ' << bossKills[i] << ' ' << (int)bossCool[i] << ' ' << (bossSeen[i] ? 1 : 0) << "\n";
         economySave(f);
         f << "quest " << questIdx << ' ' << (questActive ? 1 : 0) << ' ' << questProg << "\n";
         skillSave(f);
@@ -192,6 +194,13 @@ bool Game::load() {
         } else if (k == "fish") {
             int n = 0;
             if (ss >> n) fishCaught = std::max(0, std::min(1000000, n));
+        } else if (k == "boss") {  // "boss <biome> <kills> <seconds to its return> <lair found>"
+            int bi = -1, kills = 0, cool = 0, seen = 0;
+            if ((ss >> bi >> kills >> cool >> seen) && bi >= 0 && bi < B_COUNT) {
+                bossKills[bi] = std::max(0, std::min(100000, kills));
+                bossCool[bi] = (float)std::max(0, std::min((int)BOSS_RESPAWN, cool));
+                bossSeen[bi] = seen != 0;
+            }
         } else if (k == "kingtier") {
             int n = 0;
             if (ss >> n) kingTier = std::max(0, std::min(KING_TIERS, n));

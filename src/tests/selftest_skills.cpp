@@ -506,6 +506,163 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.p.sk = keepSk;
             g.p.dead = false;
         }
+        // dodge-roll: a burst with i-frames that costs stamina, has a cooldown, and is refused when exhausted or riding
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.in = Input();
+            g.in.right = true;
+            g.p.stamina = 100.f;
+            g.p.invuln = 0.f;
+            const V2 start = g.p.pos;
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT > 0 && g.p.invuln >= DODGE_TIME && g.p.stamina <= 100.f - DODGE_COST + 1.f, "the dodge key starts a roll: i-frames and a stamina cost");
+            const int hp0 = g.p.hp;
+            g.hurtPlayer(10.f, start + V2(-10, 0), A_WOLF);
+            check(g.p.hp == hp0, "a rolling hunter cannot be hurt");
+            for (int i = 0; i < 20; i++) g.updatePlayer(0.016f);
+            check(g.p.pos.x > start.x + 20.f, "the roll carries the hunter along its direction");
+            check(g.p.rollT <= 0 && g.p.rollCd > 0, "the roll ends and a cooldown starts");
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT <= 0, "no second roll during the cooldown");
+            for (int i = 0; i < 80; i++) g.updatePlayer(0.016f);
+            g.p.stamina = 5.f;
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT <= 0, "a winded hunter cannot roll");
+            g.in = Input();
+            g.p.sk = keepSk;
+            g.p.invuln = 0.f;
+        }
+        // status effects: weapons stun, scare or poison animals; stun freezes, fear makes them bolt, poison kills over time; legendaries resist
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            check(weaponEffect(W_HVYAXE).stunChance > 0 && weaponEffect(W_BOGSPEAR).poisonT > 0 && weaponEffect(W_SUNJAV).fearChance > 0 && weaponEffect(W_FLINT).stunChance == 0, "the effect table: axes stun, the bog spear poisons, the sun javelin scares, a knife does nothing");
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, 0);
+            check(d != nullptr, "(setup) a deer for the effects test");
+            if (d) {
+                d->stunT = 1.f;
+                const V2 at = d->pos;
+                for (int i = 0; i < 20; i++) g.updateAnimals(0.02f);
+                check(dist(d->pos, at) < 1.f && d->stunT > 0.5f, "a stunned animal stays where it is");
+                for (int i = 0; i < 60; i++) g.updateAnimals(0.02f);
+                check(d->stunT <= 0, "the stun wears off");
+                d->fearT = 2.f;
+                d->st = AS_REST;
+                g.updateAnimals(0.02f);
+                check(d->st == AS_FLEE && !d->fleeAnimal, "a scared animal bolts from the hunter");
+                d->hp = d->maxhp = 20;
+                d->poisonT = 30.f;
+                d->poisonTick = 0.5f;
+                for (int i = 0; i < 1600 && !d->dead; i++) g.updateAnimals(0.02f);
+                check(d->dead, "poison kills in the end");
+            }
+            g.animals.clear();
+            Animal* l = g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, TR_LEGENDARY);
+            Animal* c = g.spawnAnimal(A_DEER, g.p.pos + V2(-90, 0), 0, 0);
+            if (l && c) {
+                g.applyHitEffects(*l, W_BOGSPEAR, false);
+                g.applyHitEffects(*c, W_BOGSPEAR, false);
+                check(c->poisonT > 0 && l->poisonT > 0 && l->poisonT < c->poisonT, "a legendary animal gets half the poison time");
+                int stuns = 0;
+                for (int i = 0; i < 400; i++) { c->stunT = 0; g.applyHitEffects(*c, W_HVYAXE, false); if (c->stunT > 0) stuns++; }
+                check(stuns > 40 && stuns < 130, "a heavy axe stuns about one hit in five");
+            }
+            g.animals.clear();
+            g.p.sk = keepSk;
+        }
+        // bosses: a lair in every wild biome; the boss wakes when the hunter comes close, attacks with telegraphed patterns, pays out and returns later
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            bool allOk = true;
+            for (int i = 0; i < BOSS_N; i++) {
+                g.loadMapWorld(BOSSES[i].biome);
+                g.animals.clear();
+                const V2 lair = g.bossLairPos();
+                allOk = allOk && !g.world.solidTile((int)(lair.x / TS), (int)(lair.y / TS)) && !g.world.water((int)(lair.x / TS), (int)(lair.y / TS));
+            }
+            check(allOk, "every boss lair stands on open dry ground");
+            g.loadMapWorld(B_DESERT);
+            g.bossLairMap = -1;
+            g.animals.clear();
+            g.p.pos = g.bossLairPos() + V2(BOSS_SEEN_RANGE + 80.f, 0);
+            g.updateBosses(0.05f);
+            check(g.liveBoss() == nullptr, "far from its lair the boss sleeps");
+            check(!g.bossSeen[B_DESERT], "the lair is not marked on the map before the hunter has been near");
+            g.p.pos = g.bossLairPos() + V2(BOSS_SEEN_RANGE - 20.f, 0);
+            g.updateBosses(0.05f);
+            check(g.bossSeen[B_DESERT] && !g.liveBoss(), "coming near finds the lair without waking the boss");
+            g.p.pos = g.bossLairPos() + V2(BOSS_WAKE_RANGE - 40.f, 0);
+            g.updateBosses(0.05f);
+            Animal* b = g.liveBoss();
+            check(b != nullptr && b->kind == A_DUNELION && b->tier == TR_LEGENDARY && b->hp > ANIMAL[A_DUNELION].hp * TIER[TR_LEGENDARY].hp * 2.f, "the desert boss wakes with extra health");
+            if (b) {
+                g.updateBosses(0.05f);
+                check(g.animals.size() == 1, "only one boss at a time");
+                // an attack: charge wind-up, rush, hurts an unprotected hunter; a roll's i-frames protect
+                g.p.pos = b->pos + V2(120.f, 0);
+                g.p.invuln = 0.f;
+                b->bossCd = 0.f;
+                b->busyT = 0.f;
+                b->stunT = 0.f;
+                g.updateBosses(0.05f);
+                check(b->bossAct == 1 || b->bossAct == 3, "in reach it starts a telegraphed attack");
+                const int act0 = b->bossAct;
+                g.p.pos = b->pos + V2(act0 == 3 ? 20.f : 60.f, 0);  // the hunter stands in its way
+                for (int i = 0; i < 120 && b->bossAct != 0 && g.p.hp == g.p.maxhp; i++) { g.updateBosses(0.016f); g.p.invuln = 0.f; }
+                check(g.p.hp < g.p.maxhp, "an attack that lands hurts the hunter");
+                g.p.hp = g.p.maxhp;
+                // the pack is called at two thirds of its health
+                b->bossAct = 0;
+                b->hp = b->maxhp * 3 / 5;
+                const size_t n0 = g.animals.size();
+                g.updateBosses(0.05f);
+                check(g.animals.size() == n0 + 2 && b->bossCalls == 1, "wounded, it calls its pack");
+                // it never runs away
+                b->st = AS_FLEE;
+                b->fleeAnimal = false;
+                g.updateBosses(0.05f);
+                check(b->st == AS_CHASE, "a boss does not flee");
+                // the kill pays out and starts the respawn clock
+                const int coins0 = g.p.coins;
+                g.killAnimal(*b, true);
+                check(g.p.coins > coins0 && g.bossKills[B_DESERT] == 1 && g.bossCool[B_DESERT] > 0, "killing the boss pays coins and starts its respawn timer");
+                g.p.pos = g.bossLairPos();
+                g.animals.clear();
+                g.updateBosses(0.05f);
+                check(g.liveBoss() == nullptr, "a slain boss does not return at once");
+                g.bossCool[B_DESERT] = 0.01f;
+                g.updateBosses(0.05f);
+                g.updateBosses(0.05f);
+                check(g.liveBoss() != nullptr, "when the timer runs out the boss is back");
+            }
+            g.bossKills[B_SWAMP] = 3;
+            g.bossCool[B_SWAMP] = 123.f;
+            g.bossSeen[B_SWAMP] = true;
+            g.save();
+            g.newGame();
+            check(g.bossKills[B_SWAMP] == 0, "(setup) a new game forgets the bosses");
+            check(g.load() && g.bossKills[B_SWAMP] == 3 && g.bossCool[B_SWAMP] > 100.f && g.bossSeen[B_SWAMP], "boss kills, respawn timers and found lairs survive a save / load");
+            g.loadMapWorld(B_HOME);
+            g.bossLairMap = -1;
+            g.animals.clear();
+            g.p.sk = keepSk;
+        }
         // tracking: animals leave fading prints; the Tracking skill widens and lengthens them; reading a fresh print pays XP
         {
             const SkillSet keepSk = g.p.sk;

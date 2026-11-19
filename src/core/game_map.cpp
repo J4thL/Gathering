@@ -24,11 +24,14 @@ void Game::mapIcon(int kind, int cx, int cy, int sz, u32 col) {
     static const char* const ASK5[5] = {".ggg.", "gdddg", "gggdg", "ggggg", ".gdg."};
     static const char* const ELD7[7] = {"..bbb..", ".bbbbb.", ".bcbcb.", ".bbbbb.", "..bbb..", ".bbbbb.", "bbbbbbb"};
     static const char* const ELD5[5] = {".bbb.", "bcbcb", ".bbb.", "bbbbb", "b.b.b"};
+    static const char* const LAIR7[7] = {"r.....r", "rr.r.rr", "rrrrrrr", "rwrrrwr", ".rrrrr.", ".rwrwr.", "..r.r.."};  // a horned skull
+    static const char* const LAIR5[5] = {"r...r", "rrrrr", "rwrwr", ".rrr.", ".r.r."};
     const bool big = sz >= 7;
     const char* const* pat = nullptr;
     switch (kind) {
         case MI_HOUSE: pat = big ? HOUSE7 : HOUSE5; break;
         case MI_PORTAL: pat = big ? PORT7 : PORT5; break;
+        case MI_LAIR: pat = big ? LAIR7 : LAIR5; break;
         case MI_QUEST_NEW: pat = big ? BADGE7 : BADGE5; break;
         case MI_QUEST_READY: pat = big ? ASK7 : ASK5; break;
         default: pat = big ? ELD7 : ELD5; break;
@@ -108,6 +111,14 @@ void Game::drawWorldMap() {
         const std::string lb = std::string("TO ") + MAPS[pt.toMap].shortName + (gateOpen[pt.toMap] ? "" : " (SEALED)");
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, gx - textW(lb) / 2));
         text(lx, std::min(oy + mh - 8, gy + 5), lb, BIOME[pt.toMap].col);
+    }
+    // a boss lair that has been found and whose boss is back
+    if (inWilds() && bossForBiome(world.mapId) && bossSeen[world.mapId] && bossCool[world.mapId] <= 0) {
+        const V2 lp = bossLairPos();
+        const int lx0 = sx(lp.x), ly0 = sy(lp.y);
+        mapIcon(MI_LAIR, lx0, ly0, 7, C_RED);
+        const std::string lb = std::string("LAIR: ") + bossForBiome(world.mapId)->name;
+        text(std::max(ox + 1, std::min(ox + mw - textW(lb) - 1, lx0 - textW(lb) / 2)), ly0 + 5, lb, C_RED);
     }
     // discovered landmarks with their names
     for (auto& l : world.landmarks) {

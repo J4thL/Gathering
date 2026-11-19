@@ -17,6 +17,8 @@
 #include "player/skills.hpp"
 #include "world/spawns.hpp"
 #include "combat/monsters.hpp"
+#include "combat/effects.hpp"
+#include "animals/bosses.hpp"
 #include "farming/homestead.hpp"
 
 // ----------------------------------------------------------------- palette
@@ -34,7 +36,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false;  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -86,6 +88,12 @@ struct Animal {
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     float calmT = 0;      // after giving up a chase it ignores the hunter for a while (it cannot be re-triggered at once)
     float bleedT = 0;     // > 0 while a wounded animal bleeds: it leaves a blood trail and loses health
+    int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
+    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
+    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
+    bool bossHit = false;
+    V2 bossDir;
+    float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
     float bleedTick = 0;  // seconds until the next bit of bleeding damage
     bool bleedByHunter = true;  // who made the wound (the kill counts for the hunter only when the hunter did)
     V2 chaseFrom;         // where the current chase began (the chase has a range limit)
@@ -118,6 +126,8 @@ struct Player {
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
+    float rollT = 0, rollCd = 0;  // dodge-roll: seconds left rolling / until the next roll is allowed
+    V2 rollDir;
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
@@ -198,6 +208,8 @@ struct FText {
     float t, life;
 };
 // an animal's footprint: fresh ones are easy to see; the Tracking skill lets the hunter see them from farther and keeps them longer
+// dodge-roll: a short burst in the movement direction (or back from the aim when standing still) with i-frames; it costs stamina
+constexpr float DODGE_TIME = 0.30f, DODGE_SPEED = 190.f, DODGE_COOLDOWN = 0.9f, DODGE_COST = 22.f, DODGE_GRACE = 0.08f;
 struct Track {
     V2 p;
     int kind;
@@ -438,6 +450,16 @@ struct Game {
     void companionKill();
     void updateCompanion(float dt, bool forceWilds = false);
     void drawCompanion();
+    int bossKills[B_COUNT] = {};       // per biome map: times its boss has fallen
+    float bossCool[B_COUNT] = {};      // seconds until the boss is back (0 = it waits at its lair)
+    bool bossSeen[B_COUNT] = {};       // the lair has been found (it shows on the maps)
+    V2 bossLair; int bossLairMap = -1;
+    V2 bossLairPos();
+    Animal* liveBoss();
+    void updateBosses(float dt);
+    void bossKilled(Animal& a);
+    void drawBossTelegraph();
+    void drawWildBossBar();
     int kingTier = 0;                  // how many times the Frostbound King has fallen (0..KING_TIERS): each return is stronger and pays more
     std::vector<Monster> mons;
     std::vector<Hazard> hazards;
@@ -508,7 +530,8 @@ struct Game {
     void notifyBlocked(int itemId, int n, const Inventory* ref = nullptr);  // "PACK FULL" / "TOO HEAVY" feedback after a failed pickup
     bool useConsumable(int c);
     void updateInventory(float dt);
-    void hitAnimal(Animal& a, float dmg, V2 dir, bool crit);
+    void hitAnimal(Animal& a, float dmg, V2 dir, bool crit, int wpn = -1);
+    void applyHitEffects(Animal& a, int wpn, bool crit);
     void killAnimal(Animal& a, bool byHunter = true);  // byHunter=false: a predator made the kill (no XP, quest, bounty or kill count)
     float skillBonus(int skill) const { return skillBonusAt(skill, p.sk.level(skill)) + p.sk.perkMastery(skill); }  // see skills.hpp (+ the MASTERY perks)
     void hurtPlayer(float dmg, V2 from, int srcKind = -1);
@@ -862,7 +885,7 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
-    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER };
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR };
     void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void drawWorldMap();             // the full-map screen (M), game_map.cpp
     void updateWorldMap(float dt);

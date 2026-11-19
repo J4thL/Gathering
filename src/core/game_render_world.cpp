@@ -101,6 +101,7 @@ void Game::renderWorld(bool) {
         sprW(A.blood[d.size], d.p.x, d.p.y, false, a);
     }
     drawTracks();
+    drawBossTelegraph();
     // thrown weapons lying on the ground
     for (auto& it : items) {
         const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
@@ -540,6 +541,12 @@ void Game::renderWorld(bool) {
             }
             if (a.st == AS_REST && !a.dead && ((int)(timeAcc * 1.5f) & 1))
                 text((int)a.pos.x - camX + 4, (int)a.pos.y - camY - (int)(a.bodyH * 2 + 6), "Z", C_DIM, 1, true);
+            if (!a.dead && (a.stunT > 0 || a.fearT > 0 || a.poisonT > 0)) {  // status pips above the animal: yellow stun, white fear, green poison
+                int px = (int)a.pos.x - camX - 4, py = (int)a.pos.y - camY - (int)(a.bodyH * 2 + 14 + a.air);
+                if (a.stunT > 0) { fillRect(px, py, 2, 2, C_GOLD); px += 3; }
+                if (a.fearT > 0) { fillRect(px, py, 2, 2, C_TEXT); px += 3; }
+                if (a.poisonT > 0) fillRect(px, py, 2, 2, HEX(0x6fcf4f));
+            }
             if (a.hpShow > 0 && !a.dead) {
                 int bx = (int)a.pos.x - camX - 9, by = (int)a.pos.y - camY - (int)(a.bodyH * 2 + D.hpBarY + a.air);
                 bar(bx, by, 18, 2, (float)a.hp / a.maxhp, HEX(0xd8443f), HEX(0x3a1a18));
