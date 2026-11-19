@@ -431,6 +431,328 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.p.sk = keepSk;
             g.p.dead = false;
         }
+        // companion orders: fetch thrown weapons, scout for game; saddlebags; breeding mounts
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.hsAddAnimal(DA_MOUNT, g.p.pos, false, -1, A_WOLF, 1);
+            HAnimal& m = g.hs.animals.back();
+            m.age = 1e6f;
+            m.companion = true;
+            g.updateCompanion(0.1f, true);
+            check(g.companion.active && g.companion.mode == Game::CM_FOLLOW, "(setup) the companion is out and follows by default");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FETCH, "the order key switches follow -> fetch");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FOLLOW, "scouting is skipped until the bond reaches level 2 (back to follow)");
+            m.bond = COMPANION_BOND_AT[1];
+            g.companionOrder(); g.companionOrder();
+            check(g.companion.mode == Game::CM_SCOUT, "with the bond it can scout");
+            g.companionOrder();
+            check(g.companion.mode == Game::CM_FOLLOW, "...and the cycle returns to follow");
+            // fetch
+            g.companion.mode = Game::CM_FETCH;
+            GroundItem gi{};
+            V2 way(110, 0);  // a direction with open ground all the way (the forest has trees and rocks)
+            for (const V2& cand : {V2(110, 0), V2(-110, 0), V2(0, 110), V2(0, -110), V2(78, 78), V2(-78, 78), V2(78, -78), V2(-78, -78)}) {
+                bool clear = true;
+                for (int k = 0; k <= 22; k++) clear = clear && !g.world.blocked(g.p.pos.x + cand.x * k / 22.f, g.p.pos.y + cand.y * k / 22.f, 5.f);
+                if (clear) { way = cand; break; }
+            }
+            gi.pos = g.p.pos + way;
+            gi.wpn = W_JAVELIN; gi.ammo = -1; gi.item = -1;
+            g.items.clear();
+            g.items.push_back(gi);
+            const V2 thrownAt = g.items[0].pos;
+            for (int i = 0; i < 400 && dist(g.items[0].pos, g.p.pos) > 30.f; i++) g.updateCompanion(1.f / 30.f, true);
+            check(dist(thrownAt, g.items[0].pos) > 40.f && dist(g.items[0].pos, g.p.pos) < 30.f, "fetch: the companion brings a thrown weapon back to the hunter");
+            GroundItem dropped{};
+            dropped.pos = g.p.pos + way;
+            dropped.item = itemMat(M_MEAT); dropped.n = 1; dropped.ammo = -1;
+            g.items.clear(); g.items.push_back(dropped);
+            for (int i = 0; i < 200; i++) g.updateCompanion(1.f / 30.f, true);
+            check(dist(g.items[0].pos, dropped.pos) < 1.f, "fetch leaves stacks you dropped on purpose alone");
+            // scout
+            g.companion.mode = Game::CM_SCOUT;
+            g.companion.orderT = 0.f;
+            g.animals.clear();
+            g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, 0);
+            g.spawnAnimal(A_DEER, g.p.pos + V2(900, 0), 0, 0);
+            g.updateCompanion(0.1f, true);
+            check(g.animals.size() == 2 && g.animals[0].scoutT > 0.f && g.animals[1].scoutT == 0.f, "scout: animals close by are marked on the map, far ones are not");
+            // saddlebags
+            m.companion = false;
+            m.saddled = true;
+            g.updateCompanion(0.1f, true);
+            const int base = mountCarry(A_WOLF, 1);
+            check(g.mountKgNow(m) == base, "(setup) a mount's own carry weight without saddlebags");
+            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1);
+            check(g.mountKgNow(m) == (int)lroundf(base * 1.5f), "saddlebags in the pack add half again to the mount's carry weight");
+            g.p.inv.remove(itemCarry(CG_SADDLEBAG), 1);
+            // breeding
+            g.hs.animals.clear();
+            g.hsAddAnimal(DA_MOUNT, V2(500, 500), false, -1, A_WOLF, 1);
+            g.hsAddAnimal(DA_MOUNT, V2(510, 500), false, -1, A_WOLF, 2);
+            g.hsAddAnimal(DA_MOUNT, V2(520, 500), false, -1, A_DEER, 3);
+            for (auto& h : g.hs.animals) { h.age = 1e6f; h.full = h.happy = h.health = 100.f; h.breedCd = 0.f; }
+            g.hs.breedT = 10.f;
+            g.hsTickAnimals(0.1f);
+            check(g.hs.animals.size() == 4, "two grown mounts of one species breed: a baby is born");
+            const HAnimal& baby = g.hs.animals.back();
+            check(baby.kind == DA_MOUNT && baby.species == A_WOLF && !baby.adult(DOMS[DA_MOUNT]) && baby.tier >= 2, "the baby is of their species and takes the better parent's tier");
+            check(g.hs.animals[0].breedCd >= BREED_CD * 1.5f, "mounts breed only now and then (a long wait before the next foal)");
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
+        // dodge-roll: a burst with i-frames that costs stamina, has a cooldown, and is refused when exhausted or riding
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.in = Input();
+            g.in.right = true;
+            g.p.stamina = 100.f;
+            g.p.invuln = 0.f;
+            const V2 start = g.p.pos;
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT > 0 && g.p.invuln >= DODGE_TIME && g.p.stamina <= 100.f - DODGE_COST + 1.f, "the dodge key starts a roll: i-frames and a stamina cost");
+            const int hp0 = g.p.hp;
+            g.hurtPlayer(10.f, start + V2(-10, 0), A_WOLF);
+            check(g.p.hp == hp0, "a rolling hunter cannot be hurt");
+            for (int i = 0; i < 20; i++) g.updatePlayer(0.016f);
+            check(g.p.pos.x > start.x + 20.f, "the roll carries the hunter along its direction");
+            check(g.p.rollT <= 0 && g.p.rollCd > 0, "the roll ends and a cooldown starts");
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT <= 0, "no second roll during the cooldown");
+            for (int i = 0; i < 80; i++) g.updatePlayer(0.016f);
+            g.p.stamina = 5.f;
+            g.in.dodgePressed = true;
+            g.updatePlayer(0.016f);
+            g.in.dodgePressed = false;
+            check(g.p.rollT <= 0, "a winded hunter cannot roll");
+            g.in = Input();
+            g.p.sk = keepSk;
+            g.p.invuln = 0.f;
+        }
+        // status effects: weapons stun, scare or poison animals; stun freezes, fear makes them bolt, poison kills over time; legendaries resist
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            check(weaponEffect(W_HVYAXE).stunChance > 0 && weaponEffect(W_BOGSPEAR).poisonT > 0 && weaponEffect(W_SUNJAV).fearChance > 0 && weaponEffect(W_FLINT).stunChance == 0, "the effect table: axes stun, the bog spear poisons, the sun javelin scares, a knife does nothing");
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, 0);
+            check(d != nullptr, "(setup) a deer for the effects test");
+            if (d) {
+                d->stunT = 1.f;
+                const V2 at = d->pos;
+                for (int i = 0; i < 20; i++) g.updateAnimals(0.02f);
+                check(dist(d->pos, at) < 1.f && d->stunT > 0.5f, "a stunned animal stays where it is");
+                for (int i = 0; i < 60; i++) g.updateAnimals(0.02f);
+                check(d->stunT <= 0, "the stun wears off");
+                d->fearT = 2.f;
+                d->st = AS_REST;
+                g.updateAnimals(0.02f);
+                check(d->st == AS_FLEE && !d->fleeAnimal, "a scared animal bolts from the hunter");
+                d->hp = d->maxhp = 20;
+                d->poisonT = 30.f;
+                d->poisonTick = 0.5f;
+                for (int i = 0; i < 1600 && !d->dead; i++) g.updateAnimals(0.02f);
+                check(d->dead, "poison kills in the end");
+            }
+            g.animals.clear();
+            Animal* l = g.spawnAnimal(A_DEER, g.p.pos + V2(90, 0), 0, TR_LEGENDARY);
+            Animal* c = g.spawnAnimal(A_DEER, g.p.pos + V2(-90, 0), 0, 0);
+            if (l && c) {
+                g.applyHitEffects(*l, W_BOGSPEAR, false);
+                g.applyHitEffects(*c, W_BOGSPEAR, false);
+                check(c->poisonT > 0 && l->poisonT > 0 && l->poisonT < c->poisonT, "a legendary animal gets half the poison time");
+                int stuns = 0;
+                for (int i = 0; i < 400; i++) { c->stunT = 0; g.applyHitEffects(*c, W_HVYAXE, false); if (c->stunT > 0) stuns++; }
+                check(stuns > 40 && stuns < 130, "a heavy axe stuns about one hit in five");
+            }
+            g.animals.clear();
+            g.p.sk = keepSk;
+        }
+        // bosses: a lair in every wild biome; the boss wakes when the hunter comes close, attacks with telegraphed patterns, pays out and returns later
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            bool allOk = true;
+            for (int i = 0; i < BOSS_N; i++) {
+                g.loadMapWorld(BOSSES[i].biome);
+                g.animals.clear();
+                const V2 lair = g.bossLairPos();
+                allOk = allOk && !g.world.solidTile((int)(lair.x / TS), (int)(lair.y / TS)) && !g.world.water((int)(lair.x / TS), (int)(lair.y / TS));
+            }
+            check(allOk, "every boss lair stands on open dry ground");
+            g.loadMapWorld(B_DESERT);
+            g.bossLairMap = -1;
+            g.animals.clear();
+            g.p.pos = g.bossLairPos() + V2(BOSS_SEEN_RANGE + 80.f, 0);
+            g.updateBosses(0.05f);
+            check(g.liveBoss() == nullptr, "far from its lair the boss sleeps");
+            check(!g.bossSeen[B_DESERT], "the lair is not marked on the map before the hunter has been near");
+            g.p.pos = g.bossLairPos() + V2(BOSS_SEEN_RANGE - 20.f, 0);
+            g.updateBosses(0.05f);
+            check(g.bossSeen[B_DESERT] && !g.liveBoss(), "coming near finds the lair without waking the boss");
+            g.p.pos = g.bossLairPos() + V2(BOSS_WAKE_RANGE - 40.f, 0);
+            g.updateBosses(0.05f);
+            Animal* b = g.liveBoss();
+            check(b != nullptr && b->kind == A_DUNELION && b->tier == TR_LEGENDARY && b->hp > ANIMAL[A_DUNELION].hp * TIER[TR_LEGENDARY].hp * 2.f, "the desert boss wakes with extra health");
+            if (b) {
+                g.updateBosses(0.05f);
+                check(g.animals.size() == 1, "only one boss at a time");
+                // an attack: charge wind-up, rush, hurts an unprotected hunter; a roll's i-frames protect
+                g.p.pos = b->pos + V2(120.f, 0);
+                g.p.invuln = 0.f;
+                b->bossCd = 0.f;
+                b->busyT = 0.f;
+                b->stunT = 0.f;
+                g.updateBosses(0.05f);
+                check(b->bossAct == 1 || b->bossAct == 3, "in reach it starts a telegraphed attack");
+                const int act0 = b->bossAct;
+                g.p.pos = b->pos + V2(act0 == 3 ? 20.f : 60.f, 0);  // the hunter stands in its way
+                for (int i = 0; i < 120 && b->bossAct != 0 && g.p.hp == g.p.maxhp; i++) { g.updateBosses(0.016f); g.p.invuln = 0.f; }
+                check(g.p.hp < g.p.maxhp, "an attack that lands hurts the hunter");
+                g.p.hp = g.p.maxhp;
+                // the pack is called at two thirds of its health
+                b->bossAct = 0;
+                b->hp = b->maxhp * 3 / 5;
+                const size_t n0 = g.animals.size();
+                g.updateBosses(0.05f);
+                check(g.animals.size() == n0 + 2 && b->bossCalls == 1, "wounded, it calls its pack");
+                // it never runs away
+                b->st = AS_FLEE;
+                b->fleeAnimal = false;
+                g.updateBosses(0.05f);
+                check(b->st == AS_CHASE, "a boss does not flee");
+                // the kill pays out and starts the respawn clock
+                const int coins0 = g.p.coins;
+                g.killAnimal(*b, true);
+                check(g.p.coins > coins0 && g.bossKills[B_DESERT] == 1 && g.bossCool[B_DESERT] > 0, "killing the boss pays coins and starts its respawn timer");
+                g.p.pos = g.bossLairPos();
+                g.animals.clear();
+                g.updateBosses(0.05f);
+                check(g.liveBoss() == nullptr, "a slain boss does not return at once");
+                g.bossCool[B_DESERT] = 0.01f;
+                g.updateBosses(0.05f);
+                g.updateBosses(0.05f);
+                check(g.liveBoss() != nullptr, "when the timer runs out the boss is back");
+            }
+            g.bossKills[B_SWAMP] = 3;
+            g.bossCool[B_SWAMP] = 123.f;
+            g.bossSeen[B_SWAMP] = true;
+            g.save();
+            g.newGame();
+            check(g.bossKills[B_SWAMP] == 0, "(setup) a new game forgets the bosses");
+            check(g.load() && g.bossKills[B_SWAMP] == 3 && g.bossCool[B_SWAMP] > 100.f && g.bossSeen[B_SWAMP], "boss kills, respawn timers and found lairs survive a save / load");
+            g.loadMapWorld(B_HOME);
+            g.bossLairMap = -1;
+            g.animals.clear();
+            g.p.sk = keepSk;
+        }
+        // tracking: animals leave fading prints; the Tracking skill widens and lengthens them; reading a fresh print pays XP
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.tracks.clear();
+            check(g.inWilds() && SK_TRACKING < SK_COUNT, "(setup) outdoors, and Tracking is a listed skill");
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(60, 0), 0, 0);
+            check(d != nullptr, "(setup) a deer stands near the hunter");
+            if (d) {
+                d->printAt = d->pos;
+                for (int i = 0; i < 4; i++) { d->pos.x += TRACK_STEP + 1.f; g.updateTracks(0.05f); }
+                check(g.tracks.size() == 4 && g.tracks[0].kind == A_DEER, "a walking animal leaves a print every few steps");
+                const float life0 = g.tracks[0].life;
+                const float t0 = g.tracks[0].t;
+                g.updateTracks(1.f);
+                check(g.tracks[0].t > t0, "prints age");
+                g.p.sk.s[SK_TRACKING].xp = SkillState::capXp();
+                g.tracks.clear();
+                d->printAt = d->pos;
+                d->pos.x += TRACK_STEP + 1.f;
+                g.updateTracks(0.05f);
+                check(!g.tracks.empty() && g.tracks[0].life > life0 * 1.5f, "a skilled tracker's prints last longer");
+                g.tracks.clear();
+                d->pos = g.p.pos + V2(500, 0);
+                d->printAt = d->pos;
+                d->pos.x += TRACK_STEP + 1.f;
+                g.updateTracks(0.05f);
+                check(g.tracks.empty(), "animals far from the hunter leave no prints");
+                g.p.sk = keepSk;
+                const int64_t xp0 = g.p.sk.s[SK_TRACKING].xp;
+                g.tracks.push_back({g.p.pos, A_DEER, 0.f, TRACK_LIFE, false});
+                g.trackReadCd = 0.f;
+                g.updateTracks(0.05f);
+                check(g.p.sk.s[SK_TRACKING].xp > xp0 && g.tracks.back().read, "standing on a fresh print reads it for Tracking XP");
+                const int64_t xp1 = g.p.sk.s[SK_TRACKING].xp;
+                g.trackReadCd = 0.f;
+                g.updateTracks(0.05f);
+                check(g.p.sk.s[SK_TRACKING].xp == xp1, "a print pays only once");
+            }
+            g.animals.clear();
+            g.tracks.clear();
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
+        // the mount: dismounting outdoors parks it there; walking away sends it home; the mount key summons it again
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.hsAddAnimal(DA_MOUNT, g.p.pos, false, -1, A_WOLF, 1);
+            HAnimal& m = g.hs.animals.back();
+            m.age = 1e6f;
+            m.saddled = true;
+            check(g.inWilds(), "(setup) the hunter is outdoors");
+            check(g.toggleMount() && g.riddenMount() == &m && !m.away, "outdoors the mount key calls the saddled mount and mounts it");
+            g.p.pos += V2(100, 0);
+            const V2 spot = g.p.pos;
+            g.dismount();
+            check(!g.riddenMount() && g.parked.active && m.away && dist(g.parked.pos, spot) < 8.f, "dismounting outdoors leaves the mount waiting where you got off");
+            g.updateParked(0.5f);
+            check(g.parked.active, "it stays while the hunter is within range");
+            g.p.pos += V2(Game::PARK_RANGE - 20.f, 0);
+            g.updateParked(0.5f);
+            check(g.parked.active, "...still in range at the edge");
+            g.p.pos += V2(60, 0);
+            g.updateParked(0.5f);
+            check(!g.parked.active && !m.away, "out of range it goes back to its pen");
+            check(g.toggleMount() && g.riddenMount() == &m && dist(V2(m.px, m.py), g.p.pos) < 2.f, "the mount key summons it beside the hunter and mounts it");
+            g.dismount();
+            check(g.parked.active, "(setup) parked again");
+            g.toggleMount();
+            check(g.riddenMount() == &m && !g.parked.active && !m.away, "pressing the key next to the parked mount climbs on");
+            g.dismount(true);
+            check(!g.parked.active, "a quiet dismount (a building or cave) sends it home rather than parking it");
+            m.saddled = false;
+            m.companion = true;
+            check(g.companionAnimal() == &m && !g.saddledMount(), "a companion is not a saddled mount (set in the animal panel)");
+            {
+                bool ok = true;
+                for (const MountDef& md : MOUNTS) ok = ok && mountSpeed(md.kind, 0) > 1.1f && mountSpeed(md.kind, 0) < 1.5f && mountSpeed(md.kind, 3) < 1.65f;
+                check(ok, "balance: every mount is clearly faster than walking but below the hunter's own sprint speed (x1.55)");
+                check(MOUNT_SPRINT_MUL < 1.55f && MOUNT_SPRINT_DRAIN < 1.f, "balance: a mount's sprint adds less and tires the rider more slowly");
+            }
+            g.p.sk = keepSk;
+            g.p.dead = false;
+        }
         // persistence
         g.p.sk.s[SK_COOKING].xp = 12345;
         g.p.sk.s[SK_DEFENSE].xp = 7;
