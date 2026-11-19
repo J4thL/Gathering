@@ -69,6 +69,7 @@ static void pollInput(Game& g) {
                     else if (sc == K[K_DEMOLISH]) in.delPressed = true;
                     else if (sc == K[K_MOUNT]) in.mountPressed = true;
                     else if (sc == K[K_COMMAND]) in.commandPressed = true;
+                    else if (sc == K[K_DODGE]) in.dodgePressed = true;
                     break;
                 }
                 switch (e.key.keysym.sym) {
@@ -115,7 +116,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.enterPressed = g.in.tabPressed = false;
             g.in.selectKey = -1;
             g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
-            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = g.in.commandPressed = false;
+            g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = g.in.commandPressed = g.in.dodgePressed = false;
         }
         g.render();
     };
@@ -1069,7 +1070,7 @@ int main(int argc, char** argv) {
             if (first) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
                 g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
-                g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = g.in.commandPressed = false;
+                g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = g.in.commandPressed = g.in.dodgePressed = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
                 first = false;

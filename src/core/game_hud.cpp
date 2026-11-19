@@ -129,6 +129,10 @@ void Game::drawMinimap() {
         const Portal& pt = MAPS[world.mapId].portals[i];
         mapIcon(MI_PORTAL, ox + (pt.zone.x0 + pt.zone.x1) / 2, oy + (pt.zone.y0 + pt.zone.y1) / 2, 5, BIOME[pt.toMap].col);
     }
+    if (inWilds() && bossForBiome(world.mapId) && bossSeen[world.mapId] && bossCool[world.mapId] <= 0) {
+        const V2 lp = bossLairPos();
+        mapIcon(MI_LAIR, mx(lp.x), my(lp.y), 5, C_RED);
+    }
     // discovered landmarks, in their biome's colour
     for (auto& l : world.landmarks)
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
@@ -156,6 +160,7 @@ void Game::drawMinimap() {
 
 void Game::drawHud() {
     if (state == ST_TITLE) return;
+    drawWildBossBar();
     // ---- floating marker over the elder: "!" = quest available, "?" = ready to turn in
     if (!questActive || questReady()) {
         int qx = (int)world.questGiver.x - camX, qy = (int)world.questGiver.y - camY - 38 + (int)(sinf(timeAcc * 4.f) * 1.5f);

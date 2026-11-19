@@ -467,6 +467,34 @@ void Game::updateAnimals(float dt) {
                 bloodBurst(a.pos + V2(0, -a.bodyH * 0.5f), V2(0, 1), 1);
             }
         }
+        if (a.poisonT > 0) {  // venom: a steady loss of health (the hunter gets the kill)
+            a.poisonT -= dt;
+            a.poisonTick -= dt;
+            if (a.poisonTick <= 0 && a.hp > 0) {
+                a.poisonTick = 1.f;
+                const int loss = std::max(1, (int)lroundf(a.maxhp * POISON_TICK_FRAC));
+                a.hp -= loss;
+                a.hpShow = 2.f;
+                ftext(a.pos + V2(0, -a.bodyH - 10), "-" + S(loss), HEX(0x6fcf4f), 0.7f);
+                if (a.hp <= 0) { killAnimal(a, true); continue; }
+            }
+            if (rng.chance(dt * 4.f)) parts.push_back({a.pos.x, a.pos.y - a.bodyH, 3, rng.range(-8, 8), rng.range(-20, -6), rng.range(20, 40), 0.6f, 0.6f, HEX(0x6fcf4f), 1, true});
+        }
+        if (a.fearT > 0) {  // terror: it bolts from the hunter whatever it was doing
+            a.fearT -= dt;
+            if (a.st != AS_FLEE || a.fleeAnimal) { a.st = AS_FLEE; a.fleeAnimal = false; a.alertT = 0; }
+            a.stT = std::max(a.stT, 0.5f);
+        }
+        if (a.busyT > 0) a.busyT -= dt;
+        if (a.stunT > 0 || a.busyT > 0) {  // stunned (or busy with a boss attack): frozen in place (the knock-back still slides it)
+            if (a.stunT > 0) a.stunT -= dt;
+            a.vel = V2(0, 0);
+            a.atkT = 0;
+            a.atkCd = std::max(a.atkCd, 0.3f);
+            a.pos += a.kb * dt;
+            a.kb = a.kb * expf(-9 * dt);
+            continue;
+        }
         if (fabsf(a.vel.x) > 2.f && a.st != AS_CHASE) a.face = a.vel.x > 0 ? 1 : -1;
         else if (fabsf(a.vel.x) > 2.f) a.face = a.vel.x > 0 ? 1 : -1;
         float spd = a.vel.len();
@@ -525,7 +553,7 @@ void Game::updateAnimalAnim(Animal& a, float dt) {
     a.anim.update(dt * rate);
 }
 
-void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
+void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit, int wpn) {
     int d = std::max(1, (int)roundf(dmg));
     a.hp -= d;
     a.alertT = 0;  // a hit ends any startle: it bolts at once
@@ -558,10 +586,32 @@ void Game::hitAnimal(Animal& a, float dmg, V2 dir, bool crit) {
         a.stT = 7;
         a.fleeAnimal = false;  // it flees from the hunter now
     }
+    if (a.hp > 0 && wpn >= 0) applyHitEffects(a, wpn, crit);
     if (a.hp <= 0) killAnimal(a);
 }
 
+// the weapon's status effects (stun, fear, poison); legendary animals resist: half the duration
+void Game::applyHitEffects(Animal& a, int wpn, bool crit) {
+    const HitEffect e = weaponEffect(wpn);
+    const float resist = a.tier >= TR_LEGENDARY ? 0.5f : 1.f;
+    const float mul = crit ? EFFECT_CRIT_MUL : 1.f;
+    if (e.stunT > 0 && rng.chance(e.stunChance * mul)) {
+        a.stunT = std::max(a.stunT, e.stunT * resist);
+        ftext(a.pos + V2(0, -a.bodyH - 18), "STUNNED", C_GOLD, 0.9f);
+    }
+    if (e.fearT > 0 && rng.chance(e.fearChance * mul)) {
+        a.fearT = std::max(a.fearT, e.fearT * resist);
+        ftext(a.pos + V2(0, -a.bodyH - 18), "SCARED", C_TEXT, 0.9f);
+    }
+    if (e.poisonT > 0) {
+        if (a.poisonT <= 0) ftext(a.pos + V2(0, -a.bodyH - 18), "POISONED", HEX(0x6fcf4f), 0.9f);
+        a.poisonT = std::max(a.poisonT, e.poisonT * resist);
+        if (a.poisonTick <= 0) a.poisonTick = 1.f;
+    }
+}
+
 void Game::killAnimal(Animal& a, bool byHunter) {
+    if (a.boss && !a.dead && byHunter) bossKilled(a);
     a.dead = true;
     a.deadT = 0;
     a.hp = 0;
