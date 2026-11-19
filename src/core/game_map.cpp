@@ -1,6 +1,7 @@
 // game_map.cpp - the full-map screen (M): the explored part of the current map, landmarks, gates and where to look next.
 #include <cstdio>
 #include "core/game.hpp"
+#include "npcs/town.hpp"
 #include "world/gates.hpp"
 
 // compass word for a direction (only used in the hint text)
@@ -87,21 +88,13 @@ void Game::drawWorldMap() {
             }
     auto sx = [&](float wx) { return ox + (int)(wx / TS / MM_DIV * K); };
     auto sy = [&](float wy) { return oy + (int)(wy / TS / MM_DIV * K); };
-    // the shop, the town's buildings and the elder (home only); a building's name shows while the mouse is over its icon
+    // the shop and the elder (home only)
     if (world.mapId == B_HOME) {
         mapIcon(MI_HOUSE, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
-        text(sx(world.hut.x) + 6, sy(world.hut.y) - 3, "SHOP", C_GOLD);
-        for (int k = 0; k < BLD_COUNT; k++) {
-            const int bx = sx(bldDoorX(k, COX)), by = sy(bldBaseY(k, COY) - 8.f);
-            mapIcon(MI_HOUSE, bx, by, 7, BUILDINGS[k].roof);
-            if (inRect(bx - 4, by - 4, 9, 9)) {
-                const int lx = std::max(ox + 1, std::min(ox + mw - textW(BUILDINGS[k].name) - 1, bx - textW(BUILDINGS[k].name) / 2));
-                text(lx, by + 6, BUILDINGS[k].name, C_TEXT);
-            }
-        }
-        const int ex = sx(world.questGiver.x), ey = sy(world.questGiver.y);
-        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, ex, ey, 7, C_BLUE);
-        text(ex + 6, ey - 3, !questActive ? "QUEST" : questReady() ? "TURN IN" : "ELDER", !questActive ? C_GOLD : questReady() ? C_GREEN : C_BLUE);
+        text(sx(world.hut.x) + 5, sy(world.hut.y) - 3, "SHOP", C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, sx(bldDoorX(k, COX)), sy(bldBaseY(k, COY) - 8.f), 7, BUILDINGS[k].roof);
+        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, sx(world.questGiver.x), sy(world.questGiver.y), 7, C_BLUE);
+        text(sx(world.questGiver.x) + 5, sy(world.questGiver.y) - 3, "ELDER", C_BLUE);
     }
     // gates, named for where they lead
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
@@ -138,9 +131,10 @@ void Game::drawWorldMap() {
     }
     for (auto& a : animals)  // animals the scouting companion sniffed out
         if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(sx(a.pos.x), sy(a.pos.y), 3, 3, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
-    // only a wounded quarry that bled out of sight is marked (a pulsing ring); ordinary kills are not
+    // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
+            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
                 fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);

@@ -1,5 +1,6 @@
 // game_save.cpp - saving and loading (save format version 2, with recovery from a damaged file).
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 #include "core/game.hpp"
@@ -25,7 +26,7 @@ void Game::save() {
     {
         std::ofstream f(tmp);
         if (!f) return;
-        f << "version " << SAVE_VERSION << "\ncoins " << p.coins << "\nup";
+        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nup";
         for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
         f << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "gates";
@@ -108,6 +109,21 @@ bool Game::load() {
     recoverSave(savePath());
     std::ifstream f(savePath());
     if (!f) return false;
+    {  // the world this save was made in: a save without a seed line is from the one fixed world (WORLD_SEED)
+        uint32_t sd = WORLD_SEED;
+        std::string ln;
+        while (std::getline(f, ln))
+            if (ln.rfind("seed ", 0) == 0) {
+                sd = (uint32_t)std::strtoul(ln.c_str() + 5, nullptr, 10);
+                break;
+            }
+        f.clear();
+        f.seekg(0);
+        if (sd != worldSeed) {
+            worldSeed = sd;
+            loadMapWorld(B_HOME);  // newGame() below keeps this map; the saved map is loaded from the same seed later
+        }
+    }
     newGame();
     loadReport = LoadReport();
     auto readCount = [](std::istringstream& ss, long lim = 99999) {

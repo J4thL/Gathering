@@ -12,9 +12,9 @@ inline u32 mixRGB(u32 a, u32 b, float t) {  // t = 0 -> a, 1 -> b
 }
 
 // The meadow's greens, in the bright lime of the new reference: four tones per shade, darkest to lightest
-static const u32 MEADOW_TONE[GRASS_SHADES][4] = {{0x6fb014, 0x8fd01c, 0xb4e62c, 0xd8f56a},   // light meadow
-                                                 {0x4f9a14, 0x6fb014, 0x8fd01c, 0xb4e62c},   // medium
-                                                 {0x2f6e0e, 0x4f9a14, 0x6fb014, 0x8fd01c}};  // dark grass
+static const u32 MEADOW_TONE[GRASS_SHADES][4] = {{0x5fa83e, 0x7cc450, 0x95d460, 0xb6e486},   // light meadow (the tree / tuft grass ramp, 0x7cc450 / 0x4a963c / 0x286830, a step either side)
+                                                 {0x3f8b30, 0x5fa83e, 0x7cc450, 0x95d460},   // medium
+                                                 {0x286830, 0x3a7c34, 0x4a963c, 0x66ad48}};  // dark grass  // dark grass
 
 // 16 x 16 grass covered end to end in blades, tufted like the reference: soft light and dark patches across the tile, small fans of three blades
 // (one upright, two leaning out) with pale tips, and dark gaps between them. Strokes wrap at the edges, so tiles join up seamlessly.
@@ -51,7 +51,7 @@ inline Img mkGrassTile(int shade, int variant) {
 
 // A patch of bare dark soil in the grass: rounded and a little ragged, with specks and grass blades round its rim. 16 x 16.
 inline Img mkSoilPatch(int variant) {
-    static const u32 SOIL[4] = {0x41362f, 0x4e3f38, 0x5a4a42, 0x2e2520};
+    static const u32 SOIL[4] = {0x5e4128, 0x6c4a2c, 0x8a6339, 0x3f2a1a};  // warm browns, from the leaf-floor and path dirt (the old grey-brown read as scorch marks)
     Img im(16, 16);
     Rng r(0x50a1u + variant * 811u);
     const float rx = 5.2f + r.irange(0, 20) / 10.f, ry = 4.4f + r.irange(0, 18) / 10.f, ph = r.irange(0, 628) / 100.f;

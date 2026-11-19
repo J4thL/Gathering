@@ -54,7 +54,6 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
     switch (pc.kind) {
         case HP_WALL_WOOD: case HP_WALL_STONE: {
             const int m = pc.kind == HP_WALL_STONE ? 1 : 0;
-            sprW(A.shadow[0], x0 + 9, y0 + 15, false, 0.5f * alpha);
             sprW(A.H.wall[m][isWall(pc.tx, pc.ty - 1) ? 1 : 0], x0 + 8, y0 + 16, false, alpha);
             break;
         }
@@ -75,17 +74,16 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
             break;
         }
         case HP_SHED: case HP_HOUSE: case HP_BARN: case HP_COOP: case HP_WORKSHOP: case HP_WAREHOUSE:
-            sprW(A.shadow[2], x0 + w / 2 + 6, y0 + h - 1, false, 0.55f * alpha);
             sprW(A.H.building[pc.kind][pc.rot & 1], x0 + w / 2, y0 + h, false, alpha);
             if (pc.kind == HP_WORKSHOP && alpha >= 1.f) sprW(A.fire[(int)(timeAcc * 9) % 3], x0 + w - 10, y0 + h - 4);
             break;
         case HP_GREENHOUSE: sprW(A.H.greenhouse[pc.rot & 1], x0 + 1, y0 + h, false, alpha); break;
-        case HP_WELL: sprW(A.shadow[2], x0 + 18, y0 + h - 1, false, 0.5f * alpha); sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;
-        case HP_CAMPFIRE: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.R.campfire[(int)(timeAcc * 9 + pc.id) % 3], x0 + 8, y0 + 14, false, alpha); break;
-        case HP_BENCH: sprW(A.shadow[0], x0 + w / 2, y0 + 14, false, 0.6f * alpha); sprW(A.T.bench, x0 + w / 2, y0 + 14, false, alpha); break;
-        case HP_PLANTER: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.T.planter, x0 + 8, y0 + 14, false, alpha); break;
-        case HP_BARREL: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.7f * alpha); sprW(A.barrel, x0 + 8, y0 + 14, false, alpha); break;
-        case HP_SCARECROW: sprW(A.shadow[0], x0 + 8, y0 + 14, false, 0.6f * alpha); sprW(A.H.scarecrow, x0 + 8, y0 + 15, false, alpha); break;
+        case HP_WELL: sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;
+        case HP_CAMPFIRE: sprW(A.R.campfire[(int)(timeAcc * 9 + pc.id) % 3], x0 + 8, y0 + 14, false, alpha); break;
+        case HP_BENCH: sprW(A.T.bench, x0 + w / 2, y0 + 14, false, alpha); break;
+        case HP_PLANTER: sprW(A.T.planter, x0 + 8, y0 + 14, false, alpha); break;
+        case HP_BARREL: sprW(A.barrel, x0 + 8, y0 + 14, false, alpha); break;
+        case HP_SCARECROW: sprW(A.H.scarecrow, x0 + 8, y0 + 15, false, alpha); break;
         case HP_SIGN: sprW(A.sign, x0 + 8, y0 + 14, false, alpha); break;
         case HP_LAMP: sprW(A.T.lamp, x0 + 8, y0 + 14, false, alpha); break;
         case HP_TORCH: sprW(A.D.torch[((int)(timeAcc * 8.f + pc.id)) % 3], x0 + 8, y0 + 14, false, alpha); break;
@@ -121,6 +119,7 @@ void Game::drawHsCrop(const HPiece& pc) {
 }
 
 void Game::drawHsAnimal(const HAnimal& a) {
+    ensureDomArt();
     const DomDef& D = DOMS[a.kind];
     if (a.kind == DA_MOUNT) {  // a raised wild animal: its own species art, a baby drawn smaller
         if (a.ridden || a.away) return;  // the rider (or the follower code, companion.cpp) draws it
@@ -133,7 +132,6 @@ void Game::drawHsAnimal(const HAnimal& a) {
         Spr s = rb->s[2 * a.tier][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][st][fr];
         if (!s.ok()) return;
         if (!a.adult(D)) s.sc *= 0.5f + 0.5f * std::min(1.f, a.age / a.growSec(D));
-        sprW(A.shadow[1], a.px, a.py + 1, false, 0.6f);
         sprW(s, a.px, a.py, false, 1.f);
         return;
     }
@@ -144,8 +142,11 @@ void Game::drawHsAnimal(const HAnimal& a) {
     Spr s = A.Dom.get(a.kind, a.face8, st, fr);
     if (!s.ok()) return;
     if (!adult) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / a.growSec(D));
-    sprW(A.shadow[a.kind == DA_COW ? 2 : (D.small ? 0 : 1)], a.px, a.py + 1, false, 0.6f);
-    sprW(s, a.px, a.py, false, 1.f);
+    {
+        const bool shaded = shadeBegin(s, a.px, a.py, 0.75f);
+        sprW(s, a.px, a.py, false, 1.f);
+        if (shaded) shadeEnd(s);
+    }
     if (a.stock > 0) icon(A.matIcon[D.product], (int)a.px - camX, (int)a.py - camY - (int)(26 * s.sc) - 2 + (int)(sinf(timeAcc * 4.f) * 1.5f), 10);
 }
 

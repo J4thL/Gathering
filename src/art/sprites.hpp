@@ -16,6 +16,8 @@ inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)
 #include "delve/sprites_delve.hpp"
 #include "farming/sprites_homestead.hpp"
 #include "player/hunter_chibi.hpp"
+#include "art/tile_edges.hpp"
+#include "art/sprites_forest.hpp"
 #include "art/sprites_biome.hpp"
 #include "npcs/sprites_town.hpp"
 #include "art/sprites_carcass.hpp"
@@ -26,33 +28,50 @@ inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)
 #include "art/tree_dead_spruce.hpp"
 #include "art/rock_sprites.hpp"
 #include "art/tiles_user.hpp"
+#include "art/tiles_water.hpp"
 #include "art/tiles_soil.hpp"
 #include "art/tiles_grasspack.hpp"
 
 // ================================================================= tiles
+// Ground grass, painted from the same green ramp as the grass around trees and bushes (tree_grass.hpp: 0x7cc450 / 0x4a963c / 0x286830,
+// the tuft: 0x6cb94a / 0x3f8b30), so a tile, a tree's grass skirt and a tuft all read as one grass.
+//   variant 0: little - slender, sparse blades on a lighter ground
+//   variant 1: average
+//   variant 2: lush - dense, taller, clumped blades with dark roots on a deeper ground
+//   variant 3: the darker grass (forest floor)
+// It draws the same number of random numbers from `r` as the old painter did and uses its own generator, so every sprite built
+// after it is unchanged.
 inline Img mkGrass(int variant, Rng& r) {
+    for (int i = 0; i < 2 * (9 + variant) + 10; i++) r.next();
+    Rng g(9100 + variant * 131);
+    constexpr u32 G_LIGHT = HEX(0x7cc450), G_MID = HEX(0x4a963c), G_DEEP = HEX(0x286830);  // the object-grass ramp
+    struct Look { u32 base, dk, lt; int nDark, nLight, nTip, hMin, hMax, nRoot; bool pairs; };
+    static const Look L[4] = {
+        {HEX(0x5ca843), HEX(0x4e9c3f), HEX(0x6eb84a), 4, 3, 0, 2, 2, 0, false},   // little
+        {HEX(0x5aa542), HEX(0x4a963c), HEX(0x6cb94a), 8, 5, 1, 2, 3, 0, false},   // average
+        {HEX(0x58a241), HEX(0x3e8638), HEX(0x68b448), 12, 8, 3, 3, 4, 5, true},   // lush
+        {HEX(0x46903a), HEX(0x3c8337), HEX(0x5aa844), 8, 5, 0, 2, 3, 0, false},   // dark
+    };
+    const Look& lk = L[variant & 3];
     Img im(16, 16);
-    u32 base = HEX(0x5aa63f), d = HEX(0x4b9235), l = HEX(0x70bd4c);
-    if (variant == 3) {
-        base = HEX(0x4d9738);
-        d = HEX(0x408530);
-        l = HEX(0x5fae44);
+    im.fill(lk.base);
+    auto px = [&](int x, int y, u32 c) { im.set(((x % 16) + 16) % 16, ((y % 16) + 16) % 16, c); };
+    auto blade = [&](int x, int y, int h, u32 c) {
+        for (int k = 0; k < h; k++) px(x, y - k, c);
+    };
+    for (int i = 0; i < lk.nDark; i++) {
+        const int x = g.irange(0, 15), y = g.irange(3, 15), h = g.irange(lk.hMin, lk.hMax);
+        blade(x, y, h, lk.dk);
+        if (lk.pairs && g.chance(0.6f)) blade(x + 1, y, std::max(2, h - 1), lk.dk);  // lush grass grows in clumps
+        if (i < lk.nRoot) px(x, y, G_DEEP);                                           // a dark root at the foot of some blades
     }
-    im.fill(base);
-    int n = 9 + variant;
-    for (int i = 0; i < n; i++) {
-        int x = r.irange(1, 14), y = r.irange(2, 14);
-        im.set(x, y, d);
-        im.set(x, y - 1, d);
-    }
-    for (int i = 0; i < 5; i++) {
-        int x = r.irange(1, 13), y = r.irange(2, 14);
-        im.set(x, y, l);
-        im.set(x + 1, y - 1, l);
-    }
+    for (int i = 0; i < lk.nLight; i++) blade(g.irange(0, 15), g.irange(3, 15), g.irange(lk.hMin, lk.hMax), lk.lt);
+    for (int i = 0; i < lk.nTip; i++) blade(g.irange(0, 15), g.irange(3, 15), 2, G_LIGHT);
+    (void)G_MID;
     return im;
 }
-inline Img mkDirt(int variant, Rng& r) {
+// the old brown dirt
+inline Img mkDirtBrown(int variant, Rng& r) {
     Img im(16, 16);
     im.fill(HEX(0xa87c4f));
     for (int i = 0; i < 18; i++) im.set(r.irange(0, 15), r.irange(0, 15), HEX(0x956b42));
@@ -65,6 +84,49 @@ inline Img mkDirt(int variant, Rng& r) {
     }
     return im;
 }
+// cobbled rocky ground: irregular stones with dark gaps, a lit top-left edge and a shaded underside; it wraps, so it tiles
+inline Img mkDirtRock(int variant, Rng& r) {
+    for (int i = 0; i < 62 + 2 * variant; i++) r.next();
+    Rng g(4200 + variant * 977);
+    const int N = 7 + variant;
+    float sx[16], sy[16];
+    u32 col[16];
+    const u32 pal[4] = {HEX(0x847c5c), HEX(0x796b54), HEX(0x746454), HEX(0x8a8264)};
+    for (int i = 0; i < N; i++) {
+        sx[i] = g.range(0, 16);
+        sy[i] = g.range(0, 16);
+        col[i] = pal[g.irange(0, 3)];
+    }
+    auto owner = [&](int x, int y, float* gap = nullptr) {
+        x = (x + 16) % 16;
+        y = (y + 16) % 16;
+        int best = 0;
+        float bd = 1e9f, bd2 = 1e9f;
+        for (int i = 0; i < N; i++) {
+            float dx = fabsf(x + 0.5f - sx[i]), dy = fabsf(y + 0.5f - sy[i]);
+            dx = std::min(dx, 16 - dx);
+            dy = std::min(dy, 16 - dy);
+            const float d = dx * dx + dy * dy * 1.3f;
+            if (d < bd) { bd2 = bd; bd = d; best = i; }
+            else if (d < bd2) bd2 = d;
+        }
+        if (gap) *gap = bd2 - bd;
+        return best;
+    };
+    Img im(16, 16);
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++) {
+            float gap;
+            const int o = owner(x, y, &gap);
+            if (gap < 3.2f) { im.set(x, y, HEX(0x5c4c4c)); continue; }
+            u32 c = col[o];
+            if (owner(x, y - 1) != o || owner(x - 1, y) != o) c = HEX(0x948c6c);
+            else if (owner(x, y + 1) != o) c = HEX(0x6a5a4c);
+            im.set(x, y, c);
+        }
+    return im;
+}
+inline Img mkDirt(int variant, Rng& r) { return ROCKY_DIRT ? mkDirtRock(variant, r) : mkDirtBrown(variant, r); }
 inline Img mkWater(int frame) {
     Img im(16, 16);
     im.fill(HEX(0x3c7fc7));
@@ -78,15 +140,38 @@ inline Img mkWater(int frame) {
 }
 
 // ================================================================= decor
-inline Img mkFlower(u32 petal) {
+// Meadow flowers: flat top-down blossoms, a plus of petals round a centre, with a teal shadow pixel (the look of the reference grass).
+//   variant 0: orange - 2x2 orange-red centre with a dark dot, four cream-peach petals
+//   variant 1: cream  - a small plus of pale yellow petals round a warm centre
+inline Img mkFlower(int variant) {
     Img im(8, 8);
-    im.rect(4, 4, 1, 4, HEX(0x3d8a2e));
-    im.set(5, 6, HEX(0x3d8a2e));
-    im.set(3, 3, petal);
-    im.set(5, 3, petal);
-    im.set(4, 2, petal);
-    im.set(4, 4, petal);
-    im.set(4, 3, HEX(0xf6d54a));
+    const u32 PEACH = HEX(0xe4c47c), ORANGE = HEX(0xcc7c54), DARK = HEX(0xa85c28), CREAM = HEX(0xf4f4ac), WARM = HEX(0xdc9a4e), SHADE = HEX(0x4f8a80);
+    if (variant == 0) {
+        im.set(3, 2, PEACH); im.set(4, 2, PEACH);                                    // top petals
+        im.set(2, 3, PEACH); im.set(3, 3, ORANGE); im.set(4, 3, ORANGE); im.set(5, 3, PEACH);
+        im.set(2, 4, PEACH); im.set(3, 4, ORANGE); im.set(4, 4, DARK);   im.set(5, 4, PEACH);
+        im.set(3, 5, PEACH); im.set(4, 5, PEACH);                                    // bottom petals
+        im.set(2, 5, SHADE); im.set(3, 6, SHADE);                                    // shadow, lower left
+    } else if (variant == 1) {
+        im.set(3, 3, CREAM);
+        im.set(2, 4, CREAM); im.set(3, 4, WARM); im.set(4, 4, CREAM);
+        im.set(3, 5, CREAM);
+        im.set(2, 5, SHADE);
+    } else if (variant == 2) {  // violet: a plus of lilac petals round a yellow centre, a taller bloom
+        const u32 LILAC = HEX(0xb08ae0), LIGHT = HEX(0xd2b8f4), YEL = HEX(0xf2d860);
+        im.set(3, 1, LIGHT);
+        im.set(3, 2, LILAC);
+        im.set(2, 3, LILAC); im.set(3, 3, YEL); im.set(4, 3, LILAC);
+        im.set(3, 4, LILAC);
+        im.set(2, 4, SHADE); im.set(3, 5, SHADE);
+    } else {  // poppy: four broad red petals round a dark heart
+        const u32 RED = HEX(0xd8463a), LIGHTRED = HEX(0xf07a5a), HEART = HEX(0x3a2428);
+        im.set(3, 2, LIGHTRED); im.set(4, 2, RED);
+        im.set(2, 3, RED); im.set(3, 3, HEART); im.set(4, 3, HEART); im.set(5, 3, RED);
+        im.set(2, 4, RED); im.set(3, 4, HEART); im.set(4, 4, RED); im.set(5, 4, LIGHTRED);
+        im.set(3, 5, RED); im.set(4, 5, RED);
+        im.set(2, 5, SHADE); im.set(3, 6, SHADE);
+    }
     return im;
 }
 inline Img mkTuft() {
@@ -106,6 +191,33 @@ inline Img mkMushroom() {
     im.set(5, 4, HEX(0xffffff));
     return im;
 }
+// Grass growing round the foot of a minable rock (tiny / small / large), drawn over the rock's lower edge like the grass around a tree.
+// Same green ramp as the ground grass and the trees. `frame` sways the blade tips; each rock look gets its own fixed pattern of blades.
+constexpr int ROCK_GRASS_FRAMES = 6;
+inline Img mkRockGrass(int rockW, int kind, int look, int frame) {
+    const int W = rockW + 6, H = 6 + kind * 2;              // kind 0 tiny, 1 small, 2 large: bigger rocks get taller grass
+    constexpr u32 G_LIGHT = HEX(0x7cc450), G_MID = HEX(0x4a963c), G_DEEP = HEX(0x286830);
+    Img im(W, H);
+    Rng g(31000 + kind * 977 + look * 131);                  // fixed per look, the same in every frame
+    const float sw = sinf(frame * 6.2832f / ROCK_GRASS_FRAMES);
+    const int n = W / 2 + 2;
+    for (int i = 0; i < n; i++) {
+        const int x = g.irange(0, W - 1);
+        const int edge = std::min(x, W - 1 - x);              // blades near the sides stand lower, so the clump hugs the rock
+        const int baseY = H - 1 - g.irange(0, 1);
+        const int hgt = std::max(2, std::min(H - 2, 2 + g.irange(0, 2 + kind) - (edge < 2 ? 1 : 0)));
+        const float ph = g.f() * 6.2832f;
+        const u32 col = g.chance(0.5f) ? G_MID : (g.chance(0.5f) ? G_LIGHT : G_DEEP);
+        const u32 tip = g.chance(0.4f) ? G_LIGHT : col;
+        for (int k = 0; k < hgt; k++) {
+            const float bend = (float)k / hgt;                // the tip moves most
+            const int dx = (int)lroundf((sw * 0.9f + sinf(ph) * 0.3f) * bend * 1.6f);
+            im.set(x + dx, baseY - k, k == hgt - 1 ? tip : col);
+        }
+        if (hgt >= 3 && g.chance(0.4f)) im.set(x, baseY, G_DEEP);  // dark root
+    }
+    return im;
+}
 inline Img mkPebbles() {
     Img im(8, 6);
     im.ellipse(3, 3.5f, 2.2f, 1.6f, HEX(0x9a9fa8));
@@ -113,20 +225,110 @@ inline Img mkPebbles() {
     im.set(2, 2, HEX(0xc3c7ce));
     return im;
 }
-inline Img mkBush(Rng& r) {
-    Img im(18, 14);
-    im.ellipseShaded(9, 8, 8, 5, HEX(0x62b34a), HEX(0x3f8a34), HEX(0x2e6b2b));
-    im.ellipseShaded(5, 8, 4, 3.5f, HEX(0x62b34a), HEX(0x3f8a34), HEX(0x2e6b2b));
-    im.ellipseShaded(13, 8, 4, 3.5f, HEX(0x62b34a), HEX(0x3f8a34), HEX(0x2e6b2b));
-    for (int i = 0; i < 5; i++) {
-        int x = r.irange(3, 14), y = r.irange(4, 9);
-        im.set(x, y, HEX(0xd8443f));
+// Wildwood bush: variant 0 = plain, variant 1 = orange berries.
+inline Img mkBush(int variant, Rng& r) {
+    const BushPal P{HEX(0x17381a), HEX(0x2b5f26), HEX(0x468a30), HEX(0x6fb046), HEX(0xa2d06c), HEX(0x7cc450)};
+    Img im = fuzzyShrub(P, variant == 0 ? 11 : 10, 0.24f, variant == 0 ? 11.2f : 10.2f, variant == 0 ? 7.6f : 7.0f, 52, r);
+    auto at = [&](int x, int y) { return (im.get(x, y) >> 24) != 0; };
+    if (variant == 1) {  // berries: 2x2, lit top-left, kept off the rim and apart from each other
+        const u32 B0 = HEX(0xe8602a), B1 = HEX(0xffd27a), B2 = HEX(0xb8401c);
+        int bx[16], by[16], n = 0;
+        for (int tries = 0; tries < 200 && n < 9; tries++) {
+            const int x = r.irange(4, 24 - 6), y = r.irange(3, 16 - 4);
+            if (!at(x, y) || !at(x + 1, y) || !at(x, y + 1) || !at(x + 1, y + 1)) continue;
+            bool ok = true;
+            for (int k = 0; k < n; k++) if (abs(bx[k] - x) < 4 && abs(by[k] - y) < 3) ok = false;
+            if (!ok) continue;
+            bx[n] = x; by[n] = y; n++;
+            im.set(x, y, B1); im.set(x + 1, y, B0); im.set(x, y + 1, B0); im.set(x + 1, y + 1, B2);
+        }
+    } else {  // a few bright leaf tips on the lit side
+        for (int i = 0; i < 7; i++) {
+            const int x = r.irange(3, 24 - 8), y = r.irange(2, 8);
+            if (at(x, y) && im.get(x, y) == P.lt) im.set(x, y, P.hl);
+        }
     }
-    im.outline(OUT);
+    return im;
+}
+
+// The homestead's flowering bush: the meadow shrub with small blue star flowers scattered over it (the plain round one is shared).
+inline Img mkFlowerBush(Rng& r) {
+    const BushPal P{HEX(0x17381a), HEX(0x2b5f26), HEX(0x468a30), HEX(0x6fb046), HEX(0xa2d06c), HEX(0x7cc450)};
+    Img im = fuzzyShrub(P, 10, 0.24f, 10.4f, 7.2f, 52, r);
+    const u32 CEN = HEX(0xf4f8ff), ARM = HEX(0x5f8cf2), ARM_DK = HEX(0x3f62c6);
+    int bx[16], by[16], n = 0;
+    for (int tries = 0; tries < 200 && n < 10; tries++) {
+        const int x = r.irange(5, 18), y = r.irange(4, 13);
+        const float dx = (x + .5f - 11.5f) / 10.4f, dy = (y + .5f - 9.5f) / 7.2f;
+        if (dx * dx + dy * dy > 0.55f || (im.get(x, y) >> 24) == 0) continue;
+        bool ok = true;
+        for (int k = 0; k < n; k++) if (abs(bx[k] - x) < 4 && abs(by[k] - y) < 3) ok = false;
+        if (!ok) continue;
+        bx[n] = x; by[n] = y; n++;
+        im.set(x, y, CEN);
+        im.set(x - 1, y, ARM); im.set(x + 1, y, ARM); im.set(x, y - 1, ARM); im.set(x, y + 1, ARM_DK);
+    }
     return im;
 }
 
 // ================================================================= trees & rocks
+inline Img mkOak(int variant, Rng& r) {
+    Img im(34, 42);
+    u32 dk = HEX(0x2f6b2b), md = HEX(0x3f8a34), lt = HEX(0x5fb046), hi = HEX(0x86cf5f);
+    if (variant == 1) {
+        dk = HEX(0x4a6b22);
+        md = HEX(0x6b9a2c);
+        lt = HEX(0x8bbb3a);
+        hi = HEX(0xb5d96a);
+    }
+    // trunk
+    im.rect(14, 28, 6, 12, HEX(0x7a5230));
+    im.rect(14, 28, 2, 12, HEX(0x93663b));
+    im.rect(18, 28, 2, 12, HEX(0x5e3d22));
+    im.rect(12, 38, 10, 2, HEX(0x5e3d22));
+    im.set(13, 37, HEX(0x7a5230));
+    im.set(20, 37, HEX(0x5e3d22));
+    // canopy
+    im.ellipseShaded(17, 24, 12, 7, lt, md, dk);
+    im.ellipseShaded(9, 19, 8, 8, lt, md, dk);
+    im.ellipseShaded(25, 19, 8, 8, lt, md, dk);
+    im.ellipseShaded(17, 13, 11, 11, lt, md, dk);
+    for (int i = 0; i < 26; i++) {
+        int x = r.irange(6, 28), y = r.irange(4, 26);
+        if (cA(im.get(x, y)) && im.get(x, y) != dk) im.set(x, y, hi);
+        im.set(x + 1, y + 2, dk);
+    }
+    im.outline(OUT);
+    return im;
+}
+inline Img mkPine(Rng& r) {
+    Img im(26, 44);
+    im.rect(11, 34, 4, 8, HEX(0x6b4423));
+    im.rect(13, 34, 2, 8, HEX(0x52341a));
+    u32 dk = HEX(0x1f5238), md = HEX(0x2d6f47), lt = HEX(0x4a9a58);
+    struct T {
+        int top, bot, hw;
+    } tiers[3] = {{2, 17, 8}, {10, 28, 10}, {20, 38, 12}};
+    for (auto& t : tiers) {
+        for (int y = t.top; y <= t.bot; y++) {
+            float k = (float)(y - t.top) / (t.bot - t.top);
+            int hw = (int)(1 + k * t.hw);
+            for (int x = 13 - hw; x <= 12 + hw; x++) {
+                u32 c = md;
+                if (x < 13 - hw + 2) c = lt;
+                if (x > 12 + hw - 3) c = dk;
+                if (y >= t.bot - 1) c = dk;
+                im.set(x, y, c);
+            }
+        }
+    }
+    for (int i = 0; i < 14; i++) {
+        int x = r.irange(6, 20), y = r.irange(6, 36);
+        if (cA(im.get(x, y))) im.set(x, y, lt);
+    }
+    im.outline(OUT);
+    return im;
+}
 inline Img mkRock(int variant) {
     if (variant == 0) {
         Img im(20, 15);
@@ -373,9 +575,9 @@ inline QuadSpec specRabbit() {
 inline QuadSpec specDeer(bool stag) {
     QuadSpec s{};
     s.W = 36; s.H = 36; s.cx = 14; s.bw = 18; s.bh = 8.5f; s.legLen = 11; s.legW = 2;
-    // the pixel-art reference: a warm orange coat, darker orange far legs, a cream belly, brown hooves and nose
-    s.body = HEX(0xd87d24); s.light = HEX(0xe48d34); s.belly = HEX(0xfbe3be); s.dark = HEX(0xb8641c);
-    s.hoof = HEX(0x5a3a18); s.snout = HEX(0x8c5a19); s.eye = HEX(0x232330);
+    // the pixel-art reference: two close warm browns, maroon far legs and shade, a cream belly, near-black hooves and nose
+    s.body = HEX(0x823e19); s.light = HEX(0x8f4620); s.belly = HEX(0xd8a284); s.dark = HEX(0x5b131b);
+    s.hoof = HEX(0x3d0d12); s.snout = HEX(0x793819); s.eye = HEX(0x2a0a0e);
     s.hr = 3.2f; s.hdx = 3.5f; s.hdy = -6.5f; s.snoutLen = 3.5f; s.ear = 2; s.tail = 2;
     s.antlers = stag; s.spots = false;
     return s;
@@ -741,20 +943,6 @@ inline Img mkSoftShadow() {
     return im;
 }
 
-inline Img mkShadow(int w, int h) {
-    Img im(w, h);
-    im.ellipse(w / 2.f, h / 2.f, w / 2.f, h / 2.f, RGBA(0, 0, 0, 70));
-    im.ellipse(w / 2.f, h / 2.f, w / 2.f - 1.5f, h / 2.f - 1.f, RGBA(0, 0, 0, 40));
-    return im;
-}
-// A shadow for a standing figure with the light coming from the upper left: a dark patch under the feet and a lighter tail
-// stretched down and to the right. Not mirrored with the figure, so every actor's shadow falls the same way.
-inline Img mkCastShadow() {
-    Img im(24, 9);
-    im.ellipse(12.f, 5.f, 6.5f, 2.f, RGBA(0, 0, 0, 80));    // the tail first, so the darker patch is drawn over it
-    im.ellipse(6.f, 4.5f, 5.5f, 2.6f, RGBA(0, 0, 0, 130));
-    return im;
-}
 
 inline Img mkBlood(int w, int h) {
     Img im(w, h);
@@ -864,14 +1052,20 @@ inline Img mkAmmoWorld(int a) {
 
 // ================================================================= the sprite bank
 struct Assets {
-    Spr grass[4], dirt[2], water[4];  // (grass[] and water[] are the older generated tiles; the world is drawn with the three arrays below)
+    Spr grass[4], dirt[2];
     Spr lip[LIP_COUNT][4], dirtTone[3][4], dirtRock[3][2];  // the face of raised ground (grass, sand, snow, stone, paving); dirt in three tones, and rocky dirt
-    Spr grassT[GRASS_SHADES][GRASS_VARIANTS], soilPatch[SOIL_PATCHES];  // pack-style grass tiles in three shades, and soil patches
-    Spr waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art: grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles
-    Spr flower[3], tuft, mushroom, pebbles, bush[2];
-    Spr oak[OAK_VARIANTS][OAK_FRAMES], oakShadow[OAK_VARIANTS], pine[PINE_FRAMES], pineShadow, treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
-    Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], snowSpruceShadow, deadSpruce[DEAD_SPRUCE_FRAMES], deadSpruceShadow;  // animated snow and dead spruces
-    Spr rockTiny[ROCK_LOOKS], rockSmall[ROCK_LOOKS], rockLarge[ROCK_LOOKS], pebbleSet[ROCK_LOOKS];  // pebbleSet lies around small rocks and boulders, like the grass around trees
+    Spr grassT[GRASS_SHADES][GRASS_VARIANTS], soilPatch[SOIL_PATCHES];  // pack-style grass tiles in three shades, and soil patches (built for the tests; the world is drawn with the generated grass)
+    WaterArt water;  // the lakes' and brooks' water and the bank round them, baked per tile (sprites_forest.hpp)
+    Spr waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art (tiles_user.hpp): grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles for water with land to its north
+    Spr leaf[3], needles[3], moss[3], bank[3], bankWet[3];  // the home forest's floors (sprites_forest.hpp); bankWet is the bank right at the waterline
+    Spr flower[3], flowerX[2], tuft, mushroom, pebbles, bush[2], homeBush;  // flowerX: violet and poppy (the flower fields)
+    Spr oak[OAK_VARIANTS][OAK_FRAMES], pine[PINE_FRAMES], treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
+    Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], deadSpruce[DEAD_SPRUCE_FRAMES];  // animated snow and dead spruces
+    Spr rockGrass[3][ROCK_LOOKS][ROCK_GRASS_FRAMES];  // swaying grass round minable rocks (tiny, small, large), see mkRockGrass
+    // [theme] = the biome's colours (ROCK_PALS); the picture is the same everywhere. pebbleSet lies around small rocks and boulders, like the grass around trees
+    Spr rockTiny[ROCK_THEMES][ROCK_LOOKS], rockSmall[ROCK_THEMES][ROCK_LOOKS], rockLarge[ROCK_THEMES][ROCK_LOOKS], pebbleSet[ROCK_THEMES][ROCK_LOOKS];
+    Spr desertDecor[DROCK_DECOR_N];  // the desert's scenery-only rocks (grey, not minable)
+    Spr rubbleT[ROCK_THEMES];  // what a broken scenery rock leaves, in the theme's colours
       // rock_sprites.hpp
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S E N][state][pose]; west is the east view mirrored
@@ -881,11 +1075,12 @@ struct Assets {
     Spr animalNS[A_COUNT][8][2][5];  // the crawlers' front (0) and back (1) views, same indexing
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], babyIcon[A_COUNT], bandage;
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
-    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadow[3], shadowCast, shadowSoft, blood[3], vignette;
+    Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadowSoft, blood[3], vignette;
     DelveAssets D;
     hart::HomeAssets H;  // the Homestead: building pieces, crops, portal and market (sprites_homestead.hpp)
     DomBank Dom;    // the farm animals of the Homestead: built on first entry (buildDomBank)
     MonsterBank M;  // the delve creatures: built on first entry (buildMonsterBank)  // the Abandoned Mine and the Frozen Dungeon (sprites_delve.hpp)
+    TileBlend blend;  // soft borders between ground tiles (tile_edges.hpp)
     BiomeAssets B;  // desert / swamp / snow / mountain art (sprites_biome.hpp)
     TownAssets T;   // the central town: building exteriors, street furniture, paving, interiors (sprites_town.hpp)
     ResAssets R;    // tools, consumables, placeables, depleted resources (sprites_res.hpp)
@@ -911,9 +1106,21 @@ inline void rebuildPlayerSprites(SDL_Renderer* r, Assets& a, const HunterLook& l
 
 inline void buildAssets(SDL_Renderer* r, Assets& a) {
     Rng rg(1234567);
-    for (int i = 0; i < 4; i++) a.grass[i] = makeSpr(r, mkGrass(i, rg), 0, 0);
-    for (int i = 0; i < 2; i++) a.dirt[i] = makeSpr(r, mkDirt(i, rg), 0, 0);
-    for (int i = 0; i < 4; i++) a.water[i] = makeSpr(r, mkWater(i), 0, 0);
+    for (int i = 0; i < 4; i++) a.grass[i] = makeSpr(r, mkGrass(i, rg), 0, 0);  // (the older generated tiles; the world is drawn with grassT)
+    // edge blending (tile_edges.hpp) uses the same pack-style tiles the world is drawn with: two light and two medium variants, one dark
+    for (int i = 0; i < 4; i++) a.blend.src[BL_GRASS][i] = mkGrassTile(i / 2, i % 2);
+    a.blend.src[BL_DARK][0] = mkGrassTile(2, 0);
+    a.blend.nvar[BL_GRASS] = 4;
+    a.blend.nvar[BL_DARK] = 1;
+    for (int i = 0; i < 2; i++) {
+        const Img im = mkDirt(i, rg);
+        a.dirt[i] = makeSpr(r, im, 0, 0);
+        a.blend.src[BL_DIRT][i] = im;
+    }
+    a.blend.nvar[BL_DIRT] = 2;
+    buildForestFloors(r, a.leaf, a.needles, a.moss, a.bank, a.blend);
+    a.water.init();
+    for (int i = 0; i < 3; i++) a.bankWet[i] = makeSpr(r, forestfloor::mkBankWet(i), 0, 0);
     for (int st = 0; st < LIP_COUNT; st++)
         for (int i = 0; i < 4; i++) a.lip[st][i] = makeSpr(r, mkLip(st, i), 0, 0);
     for (int t = 0; t < 3; t++) {
@@ -925,32 +1132,41 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int v = 0; v < SOIL_PATCHES; v++) a.soilPatch[v] = makeSpr(r, mkSoilPatch(v), 0, 0);
     for (int i = 0; i < WATER_TEX_W; i++) a.waterW[i] = makeSpr(r, tileCrop(WATER_ROWS, WATER_TEX_W, WATER_TEX_H, i, 0, 16, 16), 0, 0);
     for (int i = 0; i < BANK_TEX_W / 16; i++) a.bankW[i] = makeSpr(r, tileCrop(BANK_ROWS, BANK_TEX_W, BANK_TEX_H, i * 16, 0, 16, 16), 0, 0);
-    a.flower[0] = makeSpr(r, mkFlower(HEX(0xe8584f)), 4, 7);
-    a.flower[1] = makeSpr(r, mkFlower(HEX(0xf4f0ea)), 4, 7);
-    a.flower[2] = makeSpr(r, mkFlower(HEX(0x8f6fe0)), 4, 7);
+    a.flower[0] = makeSpr(r, mkFlower(0), 4, 7);
+    a.flower[1] = makeSpr(r, mkFlower(1), 4, 7);
+    a.flower[2] = makeSpr(r, mkFlower(0), 4, 7);  // decor kind 2 is no longer generated; kept so old data still draws
+    a.flowerX[0] = makeSpr(r, mkFlower(2), 4, 7);  // the flower fields' violet and poppy
+    a.flowerX[1] = makeSpr(r, mkFlower(3), 4, 7);
     a.tuft = makeSpr(r, mkTuft(), 4, 7);
     a.mushroom = makeSpr(r, mkMushroom(), 4, 7);
     a.pebbles = makeSpr(r, mkPebbles(), 4, 5);
-    for (int i = 0; i < 2; i++) a.bush[i] = makeSpr(r, mkBush(rg), 9, 12);
+    for (int i = 0; i < 2; i++) a.bush[i] = makeSpr(r, mkBush(i, rg), 12, 16);
+    { Rng hr(20241120); a.homeBush = makeSpr(r, mkFlowerBush(hr), 12, 16); }  // the homestead's flowering bush
     for (int v = 0; v < OAK_VARIANTS; v++)
-        a.oakShadow[v] = makeSpr(r, mkShadow(OAK_VAR[v].sw, OAK_VAR[v].sh), OAK_VAR[v].sw / 2, OAK_VAR[v].sh / 2);
-    for (int v = 0; v < OAK_VARIANTS; v++)
-        for (int f = 0; f < OAK_FRAMES; f++) a.oak[v][f] = makeSpr(r, mkOakFrame(v, f), OAK_VAR[v].ax, OAK_VAR[v].ay);
+        for (int f = 0; f < OAK_FRAMES; f++) a.oak[v][f] = makeSpr(r, mkOakFrame(v, f), OAK_VAR[v].ax, OAK_VAR[v].ay, false, true);  // with bottoms: the roots cast their own shadow base
     for (int f = 0; f < PINE_FRAMES; f++) a.pine[f] = makeSpr(r, mkPineFrame(f), PINE_AX, PINE_AY);
-    a.pineShadow = makeSpr(r, mkShadow(PINE_SW, PINE_SH), PINE_SW / 2, PINE_SH / 2);
     for (int g = 0; g < GRASS_SETS; g++)
         for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);  // round tufts round the roots
     for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrass[f] = makeSpr(r, mkSnowGrassFrame(f), GRASS_SET[GRASS_SPRUCE].ax, GRASS_SET[GRASS_SPRUCE].ay);
     for (int f = 0; f < SNOW_SPRUCE_FRAMES; f++) a.snowSpruce[f] = makeSpr(r, mkSnowSpruceFrame(f), SNOW_SPRUCE_AX, SNOW_SPRUCE_AY);
-    a.snowSpruceShadow = makeSpr(r, mkShadow(SNOW_SPRUCE_SW, SNOW_SPRUCE_SH), SNOW_SPRUCE_SW / 2, SNOW_SPRUCE_SH / 2);
     for (int f = 0; f < DEAD_SPRUCE_FRAMES; f++) a.deadSpruce[f] = makeSpr(r, mkDeadSpruceFrame(f), DEAD_SPRUCE_AX, DEAD_SPRUCE_AY);
-    a.deadSpruceShadow = makeSpr(r, mkShadow(DEAD_SPRUCE_SW, DEAD_SPRUCE_SH), DEAD_SPRUCE_SW / 2, DEAD_SPRUCE_SH / 2);
     for (int i = 0; i < ROCK_LOOKS; i++) {
-        a.rockTiny[i] = makeSpr(r, mkRockArt(ROCK_TINY[i]), ROCK_TINY[i].w / 2, ROCK_TINY[i].h - 2);
-        a.rockSmall[i] = makeSpr(r, mkRockArt(ROCK_SMALL[i]), ROCK_SMALL[i].w / 2, ROCK_SMALL[i].h - 2);
-        a.rockLarge[i] = makeSpr(r, mkRockArt(ROCK_LARGE[i]), ROCK_LARGE[i].w / 2, ROCK_LARGE[i].h - 2);
-        a.pebbleSet[i] = makeSpr(r, mkRockArt(ROCK_PEBBLES[i]), ROCK_PEBBLES[i].w / 2, ROCK_PEBBLES[i].h - 1);
+        for (int th = 0; th < ROCK_THEMES; th++) {
+            const bool des = th == ROCK_THEME_DESERT;  // the desert has its own pictures and palette; the other biomes recolour the forest ones
+            const RockArt &rt = des ? DROCK_TINY[i] : ROCK_TINY[i], &rs = des ? DROCK_SMALL[i] : ROCK_SMALL[i], &rl = des ? DROCK_LARGE[i] : ROCK_LARGE[i], &rp = des ? DROCK_PEBBLES[i] : ROCK_PEBBLES[i];
+            a.rockTiny[th][i] = makeSpr(r, des ? mkPalArt(rt, DROCK_PAL) : mkRockArt(rt, th), rt.w / 2, rt.h - 2, false, true);
+            a.rockSmall[th][i] = makeSpr(r, des ? mkPalArt(rs, DROCK_PAL) : mkRockArt(rs, th), rs.w / 2, rs.h - 2, false, true);
+            a.rockLarge[th][i] = makeSpr(r, des ? mkPalArt(rl, DROCK_PAL) : mkRockArt(rl, th), rl.w / 2, rl.h - 2, false, true);
+            a.pebbleSet[th][i] = makeSpr(r, des ? mkPalArt(rp, DROCK_PAL) : mkRockArt(rp, th), rp.w / 2, rp.h - 1);
+        }
+        const int gw[3] = {ROCK_TINY[i].w, ROCK_SMALL[i].w, ROCK_LARGE[i].w};
+        for (int k = 0; k < 3; k++)
+            for (int f = 0; f < ROCK_GRASS_FRAMES; f++) {
+                const Img gi = mkRockGrass(gw[k], k, i, f);
+                a.rockGrass[k][i][f] = makeSpr(r, gi, gi.w / 2, gi.h - 1);  // anchor: bottom centre, drawn 2px below the rock's foot
+            }
     }
+    for (int i = 0; i < DROCK_DECOR_N; i++) a.desertDecor[i] = makeSpr(r, mkPalArt(DROCK_DECOR[i], DROCK_DECOR_PAL), DROCK_DECOR[i].w / 2, DROCK_DECOR[i].h - 2, false, true);
     a.rock[0] = makeSpr(r, mkRock(0), 10, 13);
     a.rock[1] = makeSpr(r, mkRock(1), 12, 16);
     a.hut = makeSpr(r, mkHut(), 33, 56);
@@ -977,6 +1193,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.R.placeIcon[PL_CHEST] = makeSpr(r, mkChest(), 8, 7);
     a.R.stump = makeSpr(r, mkStump(), 7, 8);
     a.R.rubble = makeSpr(r, mkRubble(), 7, 6);
+    for (int th = 0; th < ROCK_THEMES; th++) a.rubbleT[th] = makeSpr(r, retintRock(mkRubble(), th), 7, 6);
     a.R.stub = makeSpr(r, mkStub(), 6, 6);
     a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
@@ -1007,7 +1224,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         Img im = mkAmmoWorld(k);
         a.ammoWorld[k] = makeSpr(r, im, im.w / 2, im.h / 2);
     }
-    buildBiomeAssets(r, a.B);
+    buildBiomeAssets(r, a.B, &a.blend);
     buildDelveAssets(r, a.D);
     hart::buildHomeAssets(r, a.H);
     buildTownAssets(r, a.T);
@@ -1019,10 +1236,6 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.glowCool = makeSpr(r, mkGlow(HEX(0xfff2b0), 24), 12, 12);
     SDL_SetTextureBlendMode(a.glowWarm.t, SDL_BLENDMODE_ADD);
     SDL_SetTextureBlendMode(a.glowCool.t, SDL_BLENDMODE_ADD);
-    a.shadow[0] = makeSpr(r, mkShadow(14, 6), 7, 3);
-    a.shadow[1] = makeSpr(r, mkShadow(26, 8), 13, 4);
-    a.shadow[2] = makeSpr(r, mkShadow(40, 12), 20, 6);
-    a.shadowCast = makeSpr(r, mkCastShadow(), 6, 4);
     a.shadowSoft = makeSpr(r, mkSoftShadow(), 0, 8);
     a.blood[0] = makeSpr(r, mkBlood(12, 7), 6, 3);
     a.blood[1] = makeSpr(r, mkBlood(20, 10), 10, 5);

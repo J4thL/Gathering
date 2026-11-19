@@ -28,6 +28,7 @@ inline bool keyReserved(SDL_Scancode sc) {
 
 struct Settings {
     int sfx = 10, amb = 10;  // volume steps 0..10
+    bool hiRes = false;      // hi-res sprites and text (EPX2 smoothing): read at start-up, so a change applies after a restart
     SDL_Scancode key[K_COUNT];
     Settings() { resetKeys(); }
     void resetKeys() {

@@ -5,6 +5,7 @@
 #include <cmath>
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
+#include "core/shadow_casters.hpp"
 #include "npcs/town.hpp"
 
 namespace {
@@ -35,24 +36,48 @@ float windowsLit(int kind, uint32_t h, float tod, float night) {
 }
 }  // namespace
 
-// ================================================================== update: storms and the lamp list
+// The weather schedule (see WX_CELL in game.hpp): a pure function of the world seed and the world clock.
+bool Game::weatherAt(int kind, double t, float* age, float* left) const {
+    if (kind <= WX_CLEAR || kind >= WX_COUNT || t < 0.0) return false;
+    const WeatherDef& W = WEATHER[kind];
+    const long long cell = (long long)floor(t / WX_CELL);
+    const int c = (int)(cell & 0x7fffffff);
+    const uint32_t h1 = hash2(c, kind * 7919 + 13, worldSeed ^ 0x57A7E5u), h2 = hash2(c, kind * 7919 + 29, worldSeed ^ 0x9E3779B9u);
+    if ((h1 & 0xffff) / 65535.f >= W.chance / (kind == WX_STORM ? seasonStorm() : 1.f)) return false;                                      // a quiet cell
+    const float dur = W.durLo + ((h1 >> 16) & 0xff) / 255.f * (W.durHi - W.durLo);              // how long
+    const float first = cell == 0 ? 100.f : 0.f;                                                // a new game starts with 100 s of calm
+    const float start = first + (h2 & 0xffff) / 65535.f * std::max(0.f, WX_CELL - dur - first);  // when in the cell it begins
+    const float local = (float)(t - (double)cell * WX_CELL);
+    if (local < start || local >= start + dur) return false;
+    if (age) *age = local - start;
+    if (left) *left = start + dur - local;
+    return true;
+}
+
+// ================================================================== update: weather and the lamp list
 void Game::updateLight(float dt) {
     lampList.clear();
     const bool outside = interior < 0 && delve < 0 && state != ST_TITLE;
-    // ---- storms: now and then, in the green parts of the world and the mountains
-    const float rainW = bw[B_HOME] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.8f;
-    if (!outside || rainW < 0.5f) {
-        stormT = 0;  // it blows over when the hunter leaves
-    } else {
-        stormNext -= dt;
-        if (stormT <= 0 && stormNext <= 0) {
-            stormT = wrng.range(40.f, 90.f);
-            stormNext = wrng.range(160.f, 420.f) * seasonStorm();
-        }
-        if (stormT > 0) stormT -= dt;
+    // ---- weather state machine: what can blow here (rain in the green parts and the mountains, sand in the desert, snow in the snowfields)
+    const float rainW = bw[B_HOME] + bw[B_HOMESTEAD] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.8f;
+    int allowed = WX_CLEAR;
+    if (outside) {
+        if (rainW >= 0.5f) allowed = WX_STORM;
+        else if (bw[B_DESERT] >= 0.5f) allowed = WX_SANDSTORM;
+        else if (bw[B_SNOW] >= 0.5f) allowed = WX_BLIZZARD;
     }
-    const float target = (stormT > 0 && outside) ? 1.f : 0.f;
-    stormK += clampf(target - stormK, -0.35f * dt, 0.2f * dt);
+    // the schedule says whether that kind is blowing right now; leaving (or entering a house) just means you are not under it
+    if (allowed != WX_CLEAR && weatherAt(allowed, dayT, &wxAge, &wxT)) wxKind = allowed;
+    else wxKind = WX_CLEAR, wxT = wxAge = 0.f;
+    // strengths ease towards their targets: a storm opens as a drizzle (the lead), then breaks
+    float rainTarget = 0.f, galeTarget = 0.f;
+    if (wxKind == WX_STORM) {
+        const WeatherDef& W = WEATHER[WX_STORM];
+        rainTarget = (wxAge < W.lead) ? 0.35f : 1.f;
+    } else if (wxKind == WX_SANDSTORM || wxKind == WX_BLIZZARD)
+        galeTarget = 1.f;
+    stormK += clampf(rainTarget - stormK, -0.35f * dt, 0.2f * dt);
+    galeK += clampf(galeTarget - galeK, -0.4f * dt, 0.25f * dt);
     // ---- lightning
     if (stormK > 0.6f) {
         flashNext -= dt;
@@ -94,7 +119,7 @@ void Game::updateLight(float dt) {
     }
     for (auto& lt : world.lanterns) lampList.push_back({lt.x, lt.y, 34.f + 22.f * clampf(lt.r, 0.f, 1.5f), 0.95f, 0, true, true});
     for (auto& st : structs)
-        if (st.kind == PL_CAMPFIRE) lampList.push_back({st.pos().x, st.pos().y - 8.f, 62.f, 1.f, 0, true, false});
+        if (st.kind == PL_CAMPFIRE) lampList.push_back({st.pos().x, st.pos().y - 8.f, 62.f * (1.f - 0.25f * rainK()), 1.f - 0.3f * rainK(), 0, true, false});
     if (inHomestead())
         for (auto& pc : hs.pieces) {
             const HPieceDef& D = HPDEF[pc.kind];
@@ -118,52 +143,596 @@ float Game::lampLight(V2 pos) const {
     return std::min(1.f, lit);
 }
 
-// ================================================================== tree and rock shadows
-// The sun crosses the sky from east (left) to west (right): shadows point the other way, short at noon, long near dawn and dusk.
+// ================================================================== sun, moon and cloud shadows
+// Everything that stands on the ground casts the shape of its own sprite: the picture is stood on the ground and leant over along the sun's
+// direction (like Unity's Shadow Caster 2D, but for the sun), drawn dark and soft, fading towards its far end. It uses the sprite's current
+// frame, so a swaying tree sways its shadow and a walking hunter walks his. The sun crosses the sky from the right (east) to the left
+// (west) of the map, so shadows swing from left to right through the day: long near dawn and dusk, short at noon. At night the moon takes
+// over (opposite the sun, much fainter and bluer), and clouds drift their own soft shadows over the land by day.
+//
+// How a frame is built (all plain SDL2 render targets and blend modes):
+//   1. shadowTex (full size): every caster is drawn into it with a MAXIMUM blend where the renderer has one, so two shadows that cross
+//      make one shadow, never a darker patch. The layer only records where shadow lies (its alpha).
+//   2. That is shrunk to half size (shadowSoftTex) and read back as the shadow mask: ground cover and creatures are darkened where
+//      standing things (not creatures) cast a shadow on them. The mask is read every other frame; it is kept in world coordinates.
+//   3. Creatures, then, are cast into the same layer. They are left out of the mask so they never darken themselves.
+//   4. The layer is turned white (an ADD of white keeps its alpha), shrunk again, and drawn into shadowModTex over white with the shadow
+//      colour as its colour mod: a picture that is white where it is lit and the shadow colour where it is shaded.
+//   5. That picture is MULTIPLIED over the ground (SDL_BLENDMODE_MOD), so shadowed grass stays grass with its texture, only cooler and
+//      darker, rather than being painted over with black. The shadow colour follows the biome and the hour.
+namespace {
+// a tiling cloud picture: periodic value noise, 128 x 128 texels, white with the cloud in its alpha
+SDL_Texture* makeCloudTex(SDL_Renderer* ren) {
+    constexpr int N = 128;
+    std::vector<uint32_t> px((size_t)N * N);
+    auto lat = [](int ix, int iy, int cells, uint32_t seed) {
+        const int x = ((ix % cells) + cells) % cells, y = ((iy % cells) + cells) % cells;
+        return (float)(hash2(x, y, seed) & 1023u) / 1023.f;
+    };
+    auto vnoise = [&](float u, float v, int cells, uint32_t seed) {
+        const float fx = u * cells, fy = v * cells;
+        const int ix = (int)floorf(fx), iy = (int)floorf(fy);
+        float tx = fx - ix, ty = fy - iy;
+        tx = tx * tx * (3.f - 2.f * tx);
+        ty = ty * ty * (3.f - 2.f * ty);
+        const float a = lat(ix, iy, cells, seed), b = lat(ix + 1, iy, cells, seed), c = lat(ix, iy + 1, cells, seed), d = lat(ix + 1, iy + 1, cells, seed);
+        const float top = a + (b - a) * tx, bot = c + (d - c) * tx;
+        return top + (bot - top) * ty;
+    };
+    for (int y = 0; y < N; y++)
+        for (int x = 0; x < N; x++) {
+            const float u = (x + 0.5f) / N, v = (y + 0.5f) / N;
+            const float n = 0.50f * vnoise(u, v, 4, 11) + 0.30f * vnoise(u, v, 8, 23) + 0.20f * vnoise(u, v, 16, 37);
+            px[(size_t)y * N + x] = ((uint32_t)(smooth01(0.47f, 0.72f, n) * 255.f) << 24) | 0x00FFFFFFu;
+        }
+    const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+    SDL_Texture* t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, N, N);
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+    if (t) {
+        SDL_UpdateTexture(t, nullptr, px.data(), N * 4);
+        SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
+    }
+    return t;
+}
+
+// puts a sprite's texture into the blend mode the shadow layer wants for as long as it is in scope, then puts back what it had
+struct TexBlendGuard {
+    SDL_Texture* t;
+    SDL_BlendMode old = SDL_BLENDMODE_BLEND;
+    bool on;
+    TexBlendGuard(SDL_Texture* tex, bool enable, SDL_BlendMode m) : t(tex), on(enable) {
+        if (on) {
+            SDL_GetTextureBlendMode(t, &old);
+            SDL_SetTextureBlendMode(t, m);
+        }
+    }
+    ~TexBlendGuard() {
+        if (on) SDL_SetTextureBlendMode(t, old);
+    }
+};
+}  // namespace
+
 void Game::drawGroundShadows() {
+    const bool prevMask = shadowMaskOn;
+    shadowMaskOn = false;  // set again below once this frame's shadow layer exists
     if (interior >= 0 || delve >= 0) return;
     const float t = tod();
-    const float sun = sinf(t * 6.2832f);
-    if (sun < 0.06f) return;  // night: no sun, no shadows
-    const float day = daylight();
-    const float alphaBase = clampf(day * (0.18f + 0.30f * std::min(1.f, sun * 1.6f)) * (1.f - 0.6f * stormK), 0.f, 0.5f);
-    const float alpha = std::min(0.55f, alphaBase * (1.f + 0.3f * smooth01(0.5f, 0.2f, sun)));
-    if (alpha < 0.02f) return;
-    // direction on the ground (down = south); the view is slanted, so the sideways reach is flattened
-    const float ang = (3.14159f - t * 6.2832f);                      // sun at the east (t=0): points west; noon: points south; west: east
-    const float dirx = cosf(ang), diry = sinf(ang < 0 ? -ang : ang);  // always a little southward
-    const float golden = smooth01(0.5f, 0.2f, sun);  // golden hour: the shadows stretch and darken
-    const float len = clampf(0.42f / std::max(sun, 0.14f), 0.55f, 2.7f) * (1.f + 0.15f * golden);
-    const float rot = atan2f(diry * 0.55f, dirx) * 57.2958f;
-    SDL_Texture* tx = A.shadowSoft.t;
-    SDL_SetTextureAlphaMod(tx, (Uint8)(255 * alpha));
-    for (size_t i = 0; i < world.props.size(); i++) {
-        const Prop& pr = world.props[i];
-        float h, w;
-        switch (pr.kind) {
-            case P_OAK0: case P_OAK1: {
-                const OakVar& v = OAK_VAR[oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS))];
-                h = v.h * 0.7f; w = v.w * 0.30f;
-                break;
-            }
-            case P_PINE: h = PINE_H * 0.7f; w = 13.f; break;
-            case P_SNOWPINE: h = SNOW_SPRUCE_H * 0.7f; w = 13.f; break;
-            case P_DEADTREE0: case P_DEADTREE1: case P_BARETREE: h = DEAD_SPRUCE_H * 0.7f; w = 6.f; break;
-            case P_BOULDER: h = 26.f; w = 18.f; break;
-            case P_ROCK1: h = 14.f; w = 11.f; break;
-            default: continue;
-        }
-        const float sx = pr.x - camX, sy = pr.y - camY;
-        const float reach = h * len + 20.f;
-        if (sx < -reach || sx > LW + reach || sy < -reach || sy > LH + reach) continue;
-        const int rs = propRsId[i];
-        if (rs >= 0 && (propSt[i].gone || propSt[i].fade > 0)) continue;  // felled: no shadow
-        const float L = h * len, W = w * (0.9f + 0.25f * (len - 1.f));
-        SDL_Rect dst{(int)sx, (int)(sy - W * 0.5f), (int)L, std::max(2, (int)W)};
-        SDL_Point c{0, (int)(W * 0.5f)};
-        SDL_RenderCopyEx(ren, tx, nullptr, &dst, rot, &c, SDL_FLIP_NONE);
+    const float sunRaw = sinf(t * 6.2832f);
+    const bool moonLit = sunRaw < 0.02f;  // night: the moon is half a day behind the sun, so it stands where the sun stood twelve hours ago
+    const float night = 1.f - daylight();
+    const float sun = moonLit ? -sunRaw : sunRaw;                  // height of whichever light is up, 0..1
+    const float lightT = moonLit ? fmodf(t + 0.5f, 1.f) : t;       // its own time of day: that is what swings the shadows
+    const float golden = moonLit ? 0.f : smooth01(0.5f, 0.2f, sun);  // golden hour: the shadows stretch and darken
+    float alpha;
+    if (!moonLit) {
+        const float alphaBase = clampf(daylight() * (0.18f + 0.30f * std::min(1.f, sun * 1.6f)) * (1.f - 0.6f * stormK), 0.f, 0.5f);
+        // how dark the finished shadow layer is; it fades in with the sunrise and out with the sunset instead of popping on and off
+        alpha = std::min(0.95f, std::min(0.55f, alphaBase * (1.f + 0.3f * golden)) * 0.9f * smooth01(0.02f, 0.16f, sun) * shadowBoost);
+    } else {
+        // moonlight: faint, and only once it is properly dark (the dusk shadows of the sun have just faded out)
+        alpha = std::min(0.5f, 0.34f * smooth01(0.3f, 0.85f, night) * smooth01(0.02f, 0.2f, sun) * (1.f - 0.7f * stormK) * shadowBoost);
     }
-    SDL_SetTextureAlphaMod(tx, 255);
+    if (alpha < 0.02f) return;
+
+    // ---- the shadow colour: what a full shadow multiplies the ground by. Cool in the green lands, violet on sand, blue on snow, murky in the swamp
+    static const float TINT[B_COUNT][3] = {
+        {0.13f, 0.15f, 0.36f},  // home
+        {0.30f, 0.17f, 0.36f},  // desert
+        {0.09f, 0.20f, 0.24f},  // swamp
+        {0.20f, 0.33f, 0.62f},  // snow
+        {0.17f, 0.19f, 0.36f},  // mountain
+        {0.13f, 0.15f, 0.36f},  // homestead
+    };
+    {
+        float ws = 0.f, c[3] = {0.f, 0.f, 0.f};
+        for (int b = 0; b < B_COUNT; b++) {
+            const float w = std::max(0.f, bw[b]);
+            ws += w;
+            for (int k = 0; k < 3; k++) c[k] += w * TINT[b][k];
+        }
+        for (int k = 0; k < 3; k++) c[k] = ws > 0.01f ? c[k] / ws : TINT[B_HOME][k];
+        const float violet[3] = {0.30f, 0.17f, 0.38f}, grey[3] = {0.30f, 0.32f, 0.42f}, moonC[3] = {0.10f, 0.16f, 0.40f};
+        for (int k = 0; k < 3; k++) {
+            c[k] += (violet[k] - c[k]) * 0.35f * golden;  // low sun: richer, more violet shadows
+            c[k] += (grey[k] - c[k]) * 0.4f * stormK;     // storm light: flat and grey
+            c[k] += (moonC[k] - c[k]) * (moonLit ? 0.85f : 0.f);
+            shadowTint[k] = clampf(c[k], 0.f, 1.f);
+        }
+    }
+
+    // ---- the layers
+    SDL_Texture* prevTarget = SDL_GetRenderTarget(ren);
+    if (!shadowTex) {
+        const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // linear: the layer is shrunk below
+        shadowTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
+        shadowSoftTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, LW / 2, LH / 2);
+        shadowModTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW / 2, LH / 2);
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+        if (shadowTex) SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_BLEND);
+        if (shadowSoftTex) SDL_SetTextureBlendMode(shadowSoftTex, SDL_BLENDMODE_BLEND);
+        if (shadowModTex) SDL_SetTextureBlendMode(shadowModTex, SDL_BLENDMODE_MOD);
+        cloudTex = makeCloudTex(ren);
+    }
+    if (!shadowTex || !shadowSoftTex || !shadowModTex) return;
+
+    // Two shadows that cross must make one shadow: the layer is drawn with a MAXIMUM blend wherever the renderer can (OpenGL, Direct3D and
+    // Metal can; the software renderer cannot, and then the ordinary blend is used, which only darkens the far tips where shadows cross).
+    static int maxBlendOk = -1;
+    static SDL_BlendMode maxBm = SDL_BLENDMODE_BLEND;
+    if (maxBlendOk < 0) {
+        const SDL_BlendMode m = SDL_ComposeCustomBlendMode(SDL_BLENDFACTOR_ONE, SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_MAXIMUM, SDL_BLENDFACTOR_ONE,
+                                                         SDL_BLENDFACTOR_ONE, SDL_BLENDOPERATION_MAXIMUM);
+        SDL_BlendMode oldDraw = SDL_BLENDMODE_NONE;
+        SDL_GetRenderDrawBlendMode(ren, &oldDraw);
+        maxBlendOk = SDL_SetRenderDrawBlendMode(ren, m) == 0 && SDL_SetTextureBlendMode(shadowTex, m) == 0 ? 1 : 0;
+        SDL_SetRenderDrawBlendMode(ren, oldDraw);
+        SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_BLEND);
+        if (maxBlendOk) maxBm = m;
+    }
+    const bool useMax = maxBlendOk == 1;
+    const SDL_BlendMode castBm = useMax ? maxBm : SDL_BLENDMODE_BLEND;
+
+    SDL_SetRenderTarget(ren, shadowTex);
+    SDL_SetRenderDrawColor(ren, 0, 0, 0, 0);
+    SDL_RenderClear(ren);
+    // ground direction of the shadow (south = down the screen) and its sideways direction; the view is slanted, so the ground is squashed
+    const float ang = 3.14159f - lightT * 6.2832f;
+    const float dx = cosf(ang), dy = sinf(ang < 0 ? -ang : ang);
+    const float px = dy, py = -dx;
+    const float K = clampf(0.42f / std::max(sun, 0.14f), 0.55f, 2.4f) * (1.f + 0.15f * golden) * 0.7f;  // shadow length per px of height
+    constexpr float SQ = 0.65f;
+    const SDL_Color nearC{10, 8, 30, 255}, farC{10, 8, 30, 115};  // full strength: the layer is faded as a whole below
+    static const int idx[6] = {0, 1, 2, 1, 3, 2};
+
+    // a fan of triangles from v[0] (the centre) round v[1..nv-1] (the rim), untextured
+    auto fanDraw = [&](SDL_Vertex* v, int nv) {
+        static int fan[64 * 3];
+        const int rim = std::min(nv - 1, 63);
+        for (int i = 0; i < rim; i++) fan[i * 3] = 0, fan[i * 3 + 1] = 1 + i, fan[i * 3 + 2] = 1 + (i + 1) % rim;
+        SDL_BlendMode oldBm = SDL_BLENDMODE_NONE;  // untextured geometry uses the renderer's draw blend mode: set it, then put it back
+        SDL_GetRenderDrawBlendMode(ren, &oldBm);
+        SDL_SetRenderDrawBlendMode(ren, castBm);
+        SDL_RenderGeometry(ren, nullptr, v, rim + 1, fan, rim * 3);
+        SDL_SetRenderDrawBlendMode(ren, oldBm);
+    };
+    // a soft dark oval on the ground: the contact shadow under a foot, a wheel, a paw
+    auto blob = [&](float cx, float cy, float rx, float ry, float a) {
+        constexpr int N = 14;
+        SDL_Vertex v[N + 1];
+        v[0].position = SDL_FPoint{cx, cy};
+        v[0].color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)(clampf(225.f * a, 0.f, 255.f))};
+        v[0].tex_coord = SDL_FPoint{0.f, 0.f};
+        for (int i = 0; i < N; i++) {
+            const float a2 = 6.2832f * i / N;
+            v[1 + i].position = SDL_FPoint{cx + cosf(a2) * rx, cy + sinf(a2) * ry};
+            v[1 + i].color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)(clampf(70.f * a, 0.f, 255.f))};
+            v[1 + i].tex_coord = SDL_FPoint{0.f, 0.f};
+        }
+        fanDraw(v, N + 1);
+    };
+
+    // draws one sprite's shadow, its foot at screen (fx, fy)
+    // pinned: keep the shadow's base on the object's base line (wide things: a rock, a big oak, a building).
+    // crx/cry (+ cdx/cdy from the foot): marks an object that stands on a small footprint (a tree, a post, a barrel); `foot` says how the root
+    // of its shadow is drawn (shadow_casters.hpp, FootKind):
+    //   FOOT_BASE (default) the object's own base: its lowest few pixel rows, flattened onto the ground. A big oak's roots are cast from
+    //                       their own bottom edge and swept along the sun up to the canopy's shadow, so the shadow is one piece.
+    //   FOOT_NONE           nothing: the sprite-shaped shadow just starts at the foot.
+    //   FOOT_OVAL           the old look: an oval footprint (crx/cry, cdx/cdy, or a rectangle with rectFoot) swept along the sun.
+    // cols: cast column by column from the sprite's own bottom edge (rocks, buildings), see below.
+    auto cast = [&](const Spr& s, float fx, float fy, bool flip, float aMul, float lenMul, bool pinned = false, float crx = 0.f,
+                    float cry = 0.f, float cdx = 0.f, float cdy = 0.f, bool rectFoot = false, bool cols = false,
+                    int foot = shadowdef::FOOT_BASE) {
+        if (!s.ok()) return;
+        const float L = K * lenMul;
+        const float sc = s.sc;  // sprites that are drawn smaller than their picture (the big animal pictures)
+        const float reach = (s.h * L + s.w) * sc + 8.f;
+        if (fx < -reach || fx > LW + reach || fy < -reach || fy > LH + reach) return;
+        const TexBlendGuard guard(s.t, useMax, castBm);
+        // corners of the sprite: left/right by top/bottom, as (sideways u from the foot, height v above it)
+        const float us[4] = {-(float)s.ax * sc, (float)(s.w - s.ax) * sc, -(float)s.ax * sc, (float)(s.w - s.ax) * sc};
+        const float vs[4] = {(float)s.ay * sc, (float)s.ay * sc, (float)(s.ay - s.h) * sc, (float)(s.ay - s.h) * sc};
+        // A slim thing (a tree) fans out with the sun: its width is laid across the shadow's direction. A wide thing (a building, a boulder)
+        // would have its base line turned away from the object that way, and the shadow would come loose at both ends of the base. So
+        // the wider the sprite, the more its width stays on the screen's horizontal, which keeps the shadow's base on the object's base.
+        // Then the sun may run along the wall (dawn, dusk) and the shadow would fold flat, so the height also leans a little downwards.
+        const float pin = pinned ? 1.f : clampf(((float)s.w * sc - 24.f) / 40.f, 0.f, 1.f);
+        const float ux = px + (1.f - px) * pin, uy = py * (1.f - pin);
+        const float vy = dy + pin * 0.3f * fabsf(dx);
+        if (cols && s.bot) {  // column by column: every part of the sprite casts from its own lowest pixel
+            // A rock or a building rests on the ground along its whole bottom edge. Along each run of columns, the shadow is one
+            // continuous mesh: at every column boundary there is a foot (where the sprite itself ends there, the lower of the two
+            // neighbours) and a top leant over along the sun from that foot. Neighbouring columns share these points, so where the
+            // base steps or curves the mesh follows it without a gap, and the shadow starts on the object's real outline everywhere.
+            static std::vector<SDL_Vertex> cv;
+            static std::vector<int> ci;
+            cv.clear();
+            ci.clear();
+            const std::vector<short>& bt = *s.bot;
+            const int W = std::min(s.w, (int)bt.size());
+            for (int x0 = 0; x0 < W;) {
+                if (bt[x0] <= 0) { x0++; continue; }
+                int x1 = x0 + 1;
+                while (x1 < W && bt[x1] > 0) x1++;  // columns x0 .. x1-1 have something in them
+                const int base = (int)cv.size();
+                for (int x = x0; x <= x1; x++) {
+                    const int bb = std::max(x > x0 ? (int)bt[x - 1] : 0, x < x1 ? (int)bt[x] : 0);  // the edge under the lower neighbour
+                    float u = (float)(x - s.ax) * sc;
+                    if (flip) u = -u;
+                    const float tu = (float)x / (float)s.w;
+                    const float cy0 = fy + (float)(bb - s.ay) * sc;  // screen row of the foot: where the sprite is drawn at that edge
+                    for (int k = 0; k < 2; k++) {  // k = 0 the top of the sprite leant over the ground, k = 1 the foot
+                        const float hgt = k == 0 ? (float)bb * sc : 0.f;
+                        SDL_Vertex q;
+                        q.position = SDL_FPoint{fx + u + dx * hgt * L, cy0 + vy * hgt * L * SQ};
+                        q.color = k == 0 ? farC : nearC;
+                        if (aMul != 1.f) q.color.a = (Uint8)(q.color.a * aMul);
+                        q.tex_coord = SDL_FPoint{flip ? 1.f - tu : tu, k == 0 ? 0.f : (float)bb / (float)s.h};
+                        cv.push_back(q);
+                    }
+                }
+                for (int x = 0; x < x1 - x0; x++) {  // a quad between boundary x and x+1: top, top, foot, foot
+                    const int t0 = base + 2 * x, t1 = base + 2 * x + 2, f0 = t0 + 1, f1 = t1 + 1;
+                    const int quad[6] = {t0, t1, f0, t1, f1, f0};
+                    for (int k = 0; k < 6; k++) ci.push_back(quad[k]);
+                }
+                x0 = x1;
+            }
+            if (!cv.empty()) SDL_RenderGeometry(ren, s.t, cv.data(), (int)cv.size(), ci.data(), (int)ci.size());
+            return;
+        }
+        SDL_Vertex v[4];
+        for (int i = 0; i < 4; i++) {
+            const float u = flip ? -us[i] : us[i];
+            const float gx = dx * vs[i] * L + ux * u, gy = vy * vs[i] * L + uy * u;
+            v[i].position = SDL_FPoint{fx + gx, fy + gy * SQ};
+            const bool far = i < 2;
+            v[i].color = far ? farC : nearC;
+            if (aMul != 1.f) v[i].color.a = (Uint8)(v[i].color.a * aMul);
+            const float tu = (i & 1) ? 1.f : 0.f;
+            v[i].tex_coord = SDL_FPoint{flip ? 1.f - tu : tu, far ? 0.f : 1.f};
+        }
+        SDL_RenderGeometry(ren, s.t, v, 4, idx, 6);
+        if (crx > 0.f && cry > 0.f && foot == shadowdef::FOOT_BASE && s.bot) {  // a big oak: the roots' own bottom edge, swept along the sun
+            // Only the columns that reach the ground (the roots and the trunk) cast from their bottom edge, not the canopy's overhang. That
+            // band starts 3 px up, under the roots, and 2 px wider at both ends, so the soft edge of the shadow layer leaves no light seam
+            // at the roots. It is swept up to the lowest edge of the leaves: there the canopy's own shadow begins, so nothing is left
+            // between them (only the thin trunk would cast there).
+            static std::vector<SDL_Vertex> rv;
+            static std::vector<int> ri;
+            rv.clear();
+            ri.clear();
+            const std::vector<short>& bt0 = *s.bot;
+            const int W = std::min(s.w, (int)bt0.size());
+            const int rootMin = s.h - 8;
+            int canopyBottom = 0;
+            for (int x = 0; x < W; x++)
+                if (bt0[x] > 0 && bt0[x] < rootMin) canopyBottom = std::max(canopyBottom, (int)bt0[x]);
+            const float lowS = canopyBottom > 0 ? clampf((float)(s.ay - canopyBottom + 3), 6.f, 0.7f * (float)s.ay) * sc : 0.45f * (float)s.ay * sc;
+            const float swx = dx * lowS * L, swy = vy * lowS * L * SQ;
+            auto bt = [&](int x) { return bt0[x] >= rootMin ? (int)bt0[x] : 0; };
+            for (int x0 = 0; x0 < W;) {
+                if (bt(x0) <= 0) { x0++; continue; }
+                int x1 = x0 + 1;
+                while (x1 < W && bt(x1) > 0) x1++;
+                const int base = (int)rv.size();
+                for (int x = x0; x <= x1; x++) {
+                    const int bb = std::max(x > x0 ? bt(x - 1) : 0, x < x1 ? bt(x) : 0);
+                    float u = (float)(x - s.ax) * sc;
+                    if (flip) u = -u;
+                    const float ext = (x == x0 ? -2.f : x == x1 ? 2.f : 0.f) * sc;
+                    u += flip ? -ext : ext;
+                    const float cy0 = fy + (float)(bb - s.ay) * sc - 3.f;
+                    for (int k = 0; k < 2; k++) {  // k = 0 the foot, k = 1 the same point swept along the sun
+                        SDL_Vertex q;
+                        q.position = SDL_FPoint{fx + u + (k ? swx : 0.f), cy0 + (k ? swy : 0.f)};
+                        q.color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)((k ? 150 : 215) * aMul)};
+                        q.tex_coord = SDL_FPoint{0.f, 0.f};
+                        rv.push_back(q);
+                    }
+                }
+                for (int x = 0; x < x1 - x0; x++) {
+                    const int f0 = base + 2 * x, f1 = f0 + 2, t0 = f0 + 1, t1 = f1 + 1;
+                    const int quad[6] = {f0, f1, t0, f1, t1, t0};
+                    for (int k = 0; k < 6; k++) ri.push_back(quad[k]);
+                }
+                x0 = x1;
+            }
+            if (!rv.empty()) {
+                SDL_BlendMode oldBm = SDL_BLENDMODE_NONE;
+                SDL_GetRenderDrawBlendMode(ren, &oldBm);
+                SDL_SetRenderDrawBlendMode(ren, castBm);
+                SDL_RenderGeometry(ren, nullptr, rv.data(), (int)rv.size(), ri.data(), (int)ri.size());
+                SDL_SetRenderDrawBlendMode(ren, oldBm);
+            }
+        } else if (crx > 0.f && cry > 0.f && foot == shadowdef::FOOT_BASE) {  // any other object: its lowest pixel rows, flattened onto the ground
+            const float r = std::min(6.f, std::max(3.f, s.h * 0.08f));
+            const float rows[4] = {(float)s.h - r, (float)s.h - r, (float)s.h, (float)s.h};
+            SDL_Vertex b[4];
+            for (int i = 0; i < 4; i++) {
+                const float u = flip ? -us[i] : us[i];
+                b[i].position = SDL_FPoint{fx + u + dx * 1.5f, fy + (rows[i] - (float)s.ay) * sc * 0.6f + 0.5f};
+                b[i].color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)(215 * aMul)};
+                const float tu = (i & 1) ? 1.f : 0.f;
+                b[i].tex_coord = SDL_FPoint{flip ? 1.f - tu : tu, rows[i] / (float)s.h};
+            }
+            SDL_RenderGeometry(ren, s.t, b, 4, idx, 6);
+        } else if (crx > 0.f && cry > 0.f && foot == shadowdef::FOOT_OVAL) {  // the old oval footprint: the footprint swept along the shadow
+            // The shadow of the lowest part of the body (about the lower 45% of the height) is the footprint moved on along the sun. The root
+            // is the hull of the two shapes: it starts exactly on the footprint, follows the sun's direction and length, and the
+            // sprite-shaped shadow above carries on from it. No gap can open at either end of the base.
+            constexpr int SEG = 20, MAXP = 2 * SEG + 8;
+            struct P2 { float x, y; };
+            const float ecx = fx + (flip ? -cdx : cdx), ecy = fy + cdy;
+            const float low = 0.45f * (float)s.ay * sc;
+            const float swx = dx * low * L, swy = vy * low * L * SQ;
+            P2 pts[MAXP], hull[MAXP + 1];
+            int n = 0;
+            auto add = [&](float x, float y) {
+                pts[n++] = P2{ecx + x, ecy + y};
+                pts[n++] = P2{ecx + x + swx, ecy + y + swy};
+            };
+            if (rectFoot) {
+                add(-crx, -cry), add(crx, -cry), add(crx, cry), add(-crx, cry);
+            } else {
+                for (int i = 0; i < SEG; i++) add(cosf(6.2832f * i / SEG) * crx, sinf(6.2832f * i / SEG) * cry);
+            }
+            std::sort(pts, pts + n, [](const P2& p, const P2& q) { return p.x < q.x || (p.x == q.x && p.y < q.y); });
+            auto cross = [](const P2& o, const P2& p, const P2& q) { return (p.x - o.x) * (q.y - o.y) - (p.y - o.y) * (q.x - o.x); };
+            int h = 0;  // convex hull of both shapes (monotone chain)
+            for (int i = 0; i < n; i++) {
+                while (h >= 2 && cross(hull[h - 2], hull[h - 1], pts[i]) <= 0.f) h--;
+                hull[h++] = pts[i];
+            }
+            for (int i = n - 2, t = h + 1; i >= 0; i--) {
+                while (h >= t && cross(hull[h - 2], hull[h - 1], pts[i]) <= 0.f) h--;
+                hull[h++] = pts[i];
+            }
+            h--;  // the last point is the first again
+            if (h >= 3) {
+                SDL_Vertex e[MAXP + 2];
+                float mx = 0.f, my = 0.f;
+                for (int i = 0; i < h; i++) mx += hull[i].x, my += hull[i].y;
+                e[0].position = SDL_FPoint{mx / h, my / h};
+                e[0].color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)(215 * aMul)};
+                e[0].tex_coord = SDL_FPoint{0.f, 0.f};
+                for (int i = 0; i < h; i++) {
+                    e[1 + i].position = SDL_FPoint{hull[i].x, hull[i].y};
+                    e[1 + i].color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)(150 * aMul)};
+                    e[1 + i].tex_coord = SDL_FPoint{0.f, 0.f};
+                }
+                fanDraw(e, h + 1);
+            }
+        }
+    };
+
+    // ordinary things that stand on a small footprint (a post, a cactus, a barrel, a gravestone): a slim shadow that starts on the object's base
+    auto standing = [&](const Spr& s, float fx, float fy, float aMul = 0.9f, float lenMul = 1.f, int foot = shadowdef::FOOT_BASE) {
+        const float crx = std::max(2.f, s.w * s.sc * 0.16f);
+        cast(s, fx, fy, false, aMul, lenMul, false, crx, std::max(1.f, crx * 0.45f), 0.f, -1.f, false, false, foot);
+    };
+    // wide things with a flat base (a hut, a wall, an arch): the base stays on the object's own base line
+    auto wide = [&](const Spr& s, float fx, float fy, float aMul = 0.8f, float lenMul = 0.7f) { cast(s, fx, fy, false, aMul, lenMul, true); };
+
+    // ---- the things that stand in the world: trees, rocks and buildings first
+    {
+        const float yLo = camY - 170.f, yHi = camY + LH + 40.f;  // shadows only ever fall down the screen, so nothing below the view can reach it
+        auto first = std::lower_bound(world.props.begin(), world.props.end(), yLo, [](const Prop& a, float y) { return a.y < y; });
+        for (auto it = first; it != world.props.end() && it->y <= yHi; ++it) {
+            const size_t i = (size_t)(it - world.props.begin());
+            const Prop& pr = *it;
+            const float fx = pr.x - camX, fy = pr.y + 1.f - camY;
+            if (fx < -200 || fx > LW + 200) continue;
+            auto frame = [&](float fps, int n) { return ((int)(timeAcc * fps + pr.ph * n / 6.2832f) % n + n) % n; };
+            const int rs = propRsId[i];
+            if (rs >= 0 && (propSt[i].gone || propSt[i].fade > 0)) continue;  // felled or broken: no shadow
+            const shadowdef::PropShadow* d = shadowdef::propShadow(pr.kind);  // the table: shadow_casters.hpp
+            if (!d) continue;
+            const shadowdef::PropCtx pc{A, pr, windT};  // the trees sway by the wind clock, and so do their shadows
+            if (d->shape == shadowdef::SH_OAK) {
+                const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));
+                const OakVar& V = OAK_VAR[ov];  // the big oaks stand on wide roots: the shadow joins them along the whole footprint
+                cast(A.oak[ov][pc.frame(OAK_FPS, OAK_FRAMES)], fx, fy, false, 1.f, 1.f, true, V.sw * 0.5f, V.sh * 0.5f, (float)V.sdx, (float)V.sdy, false, false, d->foot);
+                continue;
+            }
+            const Spr& sp = d->spr(pc);
+            const float py = fy + d->yOff;
+            switch (d->shape) {
+                case shadowdef::SH_STANDING: standing(sp, fx, py, d->aMul, d->lenMul, d->foot); break;
+                case shadowdef::SH_WIDE: wide(sp, fx, py, d->aMul, d->lenMul); break;
+                case shadowdef::SH_COLS: cast(sp, fx, py, false, d->aMul, d->lenMul, true, 0.f, 0.f, 0.f, 0.f, false, true); break;
+                case shadowdef::SH_TRUNK:
+                    cast(sp, fx, py, d->flip && d->flip(pr), d->aMul, d->lenMul, false, std::max(d->minW, sp.w * d->fw), std::max(d->minH, sp.w * d->fh), 0.f, -1.f, false, false, d->foot);
+                    break;
+                default: break;
+            }
+        }
+    }
+    // placed structures (chests...)
+    for (const Structure& st : structs) {
+        const shadowdef::StructShadow* d = shadowdef::structShadow(st.kind);
+        if (!d) continue;
+        const V2 c = st.pos();
+        standing(d->spr(shadowdef::StructCtx{A}), floorf(c.x) - camX, floorf(c.y) - camY, d->aMul, d->lenMul, d->foot);
+    }
+    // the homestead (walls, houses, barns, wells...)
+    if (inHomestead()) {
+        for (const HPiece& pc : hs.pieces) {
+            if (!(pc.tx + pc.w() >= camX / TS - 2 && pc.tx <= (camX + LW) / TS + 2 && pc.ty + pc.h() >= camY / TS - 8 && pc.ty <= (camY + LH) / TS + 3)) continue;
+            const shadowdef::HomeShadow* d = shadowdef::homeShadow(pc.kind);
+            if (!d) continue;
+            const float x0 = pc.tx * (float)TS - camX, y0 = pc.ty * (float)TS - camY, w = pc.w() * (float)TS, h = pc.h() * (float)TS;
+            const float fx = x0 + d->foot.ox + d->foot.ow * w, fy = y0 + d->foot.oy + d->foot.oh * h;
+            const Spr& sp = d->spr(shadowdef::HomeCtx{*this, A, pc});
+            if (d->shape == shadowdef::SH_WIDE) wide(sp, fx, fy, d->aMul, d->lenMul);
+            else standing(sp, fx, fy, d->aMul, d->lenMul, d->footKind);
+        }
+    }
+
+    // ---- read the layer back as the shadow mask, before the creatures are cast: only things that stand still darken what walks through them
+    // The finished layer is shrunk to half size (the soft edges); the same picture is then the mask. Every other frame is enough.
+    auto toSoft = [&]() {
+        SDL_SetRenderTarget(ren, shadowSoftTex);
+        SDL_SetRenderDrawColor(ren, 0, 0, 0, 0);
+        SDL_RenderClear(ren);
+        SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_NONE);  // copy, not blend: the shrunken layer keeps its own alpha
+        SDL_SetTextureAlphaMod(shadowTex, 255);
+        SDL_Rect half{0, 0, LW / 2, LH / 2};
+        SDL_RenderCopy(ren, shadowTex, nullptr, &half);
+        SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_BLEND);
+    };
+    const bool readNow = !prevMask || ((shadowFrame++ & 1) == 0);
+    if (readNow) {
+        toSoft();  // the render target is now the half-size layer
+        const int mw = LW >> 1, mh = LH >> 1;
+        shadowMask.resize((size_t)mw * mh);
+        const SDL_Rect all{0, 0, mw, mh};
+        if (SDL_RenderReadPixels(ren, &all, SDL_PIXELFORMAT_RGBA8888, shadowMask.data(), mw * 4) == 0) {
+            shadowMaskW = mw, shadowMaskH = mh, shadowMaskShift = 1;
+            shadowMaskCamX = camX, shadowMaskCamY = camY;
+            shadowMaskOn = true;
+        }
+        SDL_SetRenderTarget(ren, shadowTex);
+    } else {
+        shadowMaskOn = prevMask;  // keep the last mask (it is anchored in the world, not on the screen)
+    }
+    shadowMaskAlpha = alpha;
+
+    // ---- creatures: the hunter, villagers, animals. Each casts its own current frame, with a contact oval under the feet.
+    // airH: how high it is off the ground (a bird): then only its oval is drawn, it slides along the sun and fades with the height
+    auto creature = [&](const Spr& s, float fx, float fy, bool flip, float airH = 0.f, float aFade = 1.f) {
+        if (!s.ok() || aFade <= 0.02f) return;
+        if (fx < -60 || fx > LW + 60 || fy < -60 || fy > LH + 90) return;
+        const float lift = 1.f / (1.f + airH * 0.06f);
+        const float rx = std::max(3.5f, s.w * s.sc * 0.34f) * (0.55f + 0.45f * lift), ry = std::max(2.f, rx * 0.5f);
+        // the oval sits a little in front of the feet, so more than its upper half shows below the sprite
+        blob(fx + dx * airH * K * 0.5f, fy + ry * 0.45f + dy * airH * K * 0.5f * SQ, rx, ry, aFade * (0.4f + 0.6f * lift));
+        if (airH < 5.f) cast(s, fx, fy, flip, 0.9f * aFade, 0.85f);
+    };
+    if (!p.dead && state != ST_TITLE) {
+        const FacingView fv = facingView(p.face8);
+        const int st = std::max(0, std::min((int)HS_COUNT - 1, p.anim.state));
+        const int pose = std::min(p.anim.frame(), hunterPoseCount(st) - 1);
+        creature(A.hunter[fv.view][st][pose], floorf(p.pos.x) - camX, floorf(p.pos.y) - camY, fv.mirror);
+    }
+    for (const Animal& a : animals) {
+        const float ax = floorf(a.pos.x) - camX, ay = floorf(a.pos.y) - camY;
+        if (ax < -60 || ax > LW + 60 || ay < -60 || ay > LH + 90) continue;
+        if (a.dead) {  // the carcass lies where it fell (and fades as it goes)
+            creature(A.animal[a.kind][a.variant + 2 * a.tier][4], ax, ay - 6.f, a.face < 0, 0.f, a.fade);
+            continue;
+        }
+        const AnimalDef& D = ANIMAL[a.kind];
+        const float spd = a.vel.len();
+        const RichAnimal* rich = A.rich[a.kind].get();
+        float air = a.air, hop = (D.hop && spd > 1) ? fabsf(sinf(a.animT * 3.14159f * 2)) * 3.f : 0.f;
+        const Spr* sp;
+        bool mirror = a.face < 0;
+        if (rich) {
+            const AnimalClips* ac = animalClips(a.kind);
+            const int st = std::max(0, std::min((int)AN_COUNT - 1, a.anim.state));
+            sp = &rich->s[a.variant + 2 * a.tier][std::max(0, std::min((int)AV_VIEWS - 1, a.face8))][st][std::min(a.anim.frame(), ac->poses[st] - 1)];
+            mirror = false;
+            hop = 0.f;
+            if (!(D.flags & BH_FLIES)) air = 0.f;
+        } else {
+            const int fr = (a.st == AS_REST || a.st == AS_FEED) ? 0 : (spd > 1 ? ((int)a.animT) & 3 : 0);
+            sp = &A.animal[a.kind][a.variant + 2 * a.tier][fr];
+        }
+        creature(*sp, ax, ay, mirror, air + hop * 0.5f);
+    }
+    if (world.mapId == B_HOME)
+        for (const Villager& v : villagers)
+            creature(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], floorf(v.pos.x) - camX, floorf(v.pos.y) - camY, v.faceLeft);
+    {
+        const V2& k = world.keeper;
+        creature(A.keeper[((int)(timeAcc * 1.6f)) & 1], floorf(k.x) - camX, floorf(k.y) - camY, p.pos.x < k.x);
+        const V2& q = world.questGiver;
+        creature(A.quester[elderMoving ? ((int)(elderAnimT * 5.f)) & 1 : ((int)(timeAcc * 1.3f)) & 1], floorf(q.x) - camX, floorf(q.y) - camY,
+                 elderMoving ? elderFaceLeft : p.pos.x < q.x);
+        for (size_t i = 0; i < world.npcs.size(); i++) {
+            const World::Npc& n = world.npcs[i];
+            creature(A.T.npc[n.kind][((int)(timeAcc * 1.5f + i)) & 1], floorf(n.pos.x) - camX, floorf(n.pos.y) - camY, p.pos.x < n.pos.x);
+        }
+    }
+    if (inHomestead())
+        for (const HAnimal& a : hs.animals) {
+            ensureDomArt();
+            const DomDef& D = DOMS[a.kind];
+            const int st = a.state == 1 ? DS_WALK : a.state == 2 ? DS_EAT : DS_IDLE;
+            Spr s = A.Dom.get(a.kind, a.face8, st, (int)(a.animT * (st == DS_WALK ? 6.f : 2.f)) % DS_FRAMES[st]);
+            if (!a.adult(D)) s.sc *= 0.55f + 0.45f * std::min(1.f, a.age / D.growSec);  // a young one is drawn smaller; so is its shadow
+            creature(s, floorf(a.px) - camX, floorf(a.py) - camY, false);
+        }
+
+    // ---- the layer is finished. Make it white (it only has to say where the shadow lies), shrink it, and turn it into the multiplier
+    {
+        SDL_BlendMode oldBm = SDL_BLENDMODE_NONE;
+        SDL_GetRenderDrawBlendMode(ren, &oldBm);
+        SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_ADD);  // ADD keeps the alpha and pushes the colour up to white
+        SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
+        SDL_RenderFillRect(ren, nullptr);
+        SDL_SetRenderDrawBlendMode(ren, oldBm);
+    }
+    toSoft();
+    SDL_SetRenderTarget(ren, shadowModTex);
+    SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
+    SDL_RenderClear(ren);  // white = lit: multiplying by white changes nothing
+    SDL_SetTextureColorMod(shadowSoftTex, (Uint8)(shadowTint[0] * 255.f), (Uint8)(shadowTint[1] * 255.f), (Uint8)(shadowTint[2] * 255.f));
+    SDL_SetTextureAlphaMod(shadowSoftTex, (Uint8)(255.f * alpha));
+    SDL_RenderCopy(ren, shadowSoftTex, nullptr, nullptr);  // over white: the shadow colour, as strong as the shadow is
+    SDL_SetTextureColorMod(shadowSoftTex, 255, 255, 255);
+    SDL_SetTextureAlphaMod(shadowSoftTex, 255);
+    // ---- clouds: big soft patches that drift with the wind (they stand still on the land, the land does not follow the camera)
+    constexpr bool CLOUD_SHADOWS = true;
+    if (CLOUD_SHADOWS && cloudTex && !moonLit && shadowBoost == 1.f) {
+        const float cover = clampf(bw[B_HOME] + bw[B_HOMESTEAD] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.9f + bw[B_SNOW] * 0.7f + bw[B_DESERT] * 0.2f, 0.f, 1.f);
+        const float cs = 0.17f * cover * (1.f - stormK) * smooth01(0.05f, 0.35f, sun);
+        if (cs > 0.01f) {
+            constexpr float TILE = 384.f;  // world px: one 128 x 128 picture drawn at 3x
+            const float ox = fmodf(timeAcc * 5.f - camX, TILE), oy = fmodf(timeAcc * 2.f - camY, TILE);
+            const float x0 = (ox > 0 ? ox - TILE : ox) * 0.5f, y0 = (oy > 0 ? oy - TILE : oy) * 0.5f;  // half size: this layer is half the screen
+            SDL_SetTextureColorMod(cloudTex, (Uint8)(shadowTint[0] * 255.f), (Uint8)(shadowTint[1] * 255.f), (Uint8)(shadowTint[2] * 255.f));
+            SDL_SetTextureAlphaMod(cloudTex, (Uint8)(255.f * cs));
+            // the tiles meet exactly (each one ends where the next begins): an overlap would be darkened twice and show as a seam
+            for (int j = 0; j < 3; j++)
+                for (int i = 0; i < 3; i++) {
+                    const int ex0 = (int)floorf(x0 + i * TILE * 0.5f), ex1 = (int)floorf(x0 + (i + 1) * TILE * 0.5f);
+                    const int ey0 = (int)floorf(y0 + j * TILE * 0.5f), ey1 = (int)floorf(y0 + (j + 1) * TILE * 0.5f);
+                    const SDL_Rect d{ex0, ey0, ex1 - ex0, ey1 - ey0};
+                    if (d.x >= LW / 2 || d.y >= LH / 2) continue;
+                    SDL_RenderCopy(ren, cloudTex, nullptr, &d);
+                }
+            SDL_SetTextureColorMod(cloudTex, 255, 255, 255);
+            SDL_SetTextureAlphaMod(cloudTex, 255);
+        }
+    }
+    SDL_SetRenderTarget(ren, prevTarget);
+    if (prevTarget == canvas) SDL_RenderSetScale(ren, (float)LS, (float)LS);  // (switching targets reset the scale)
+    SDL_Rect whole{0, 0, LW, LH};
+    SDL_RenderCopy(ren, shadowModTex, nullptr, &whole);  // multiplied over the ground (the texture's blend mode is MOD)
 }
 
 // ================================================================== darkness, pools of light, colour, glows
@@ -451,10 +1020,25 @@ void Game::drawSkyFx(float night2) {
         for (int i = 0; i < n; i++) {
             const uint32_t h = hash2(i, 31, 777);
             const float sp = 230.f + (h & 63);
-            const float x = fmodf((h >> 6 & 1023) * (LW + 80) / 1023.f - timeAcc * 70.f + 4000.f, (float)(LW + 80)) - 20.f;
+            const float x = fmodf((h >> 6 & 1023) * (LW + 80) / 1023.f + rainDrift + 4000.f, (float)(LW + 80)) - 20.f;  // carried sideways by the wind
             const float y = fmodf((h >> 16 & 1023) * LH / 1023.f + timeAcc * sp, (float)LH);
             fillRect((int)x, (int)y, 1, 3 + (int)(h >> 28 & 1), RGBA(195, 215, 250, (int)(175 * stormK)));
-            fillRect((int)x - 1, (int)y + 3, 1, 1, RGBA(185, 205, 245, (int)(60 * stormK)));
+            fillRect((int)x + 1, (int)y + 3, 1, 1, RGBA(185, 205, 245, (int)(60 * stormK)));  // the streak leans downwind
         }
+        const int splashes = (int)(70 * stormK);  // drops landing: a dot, then a small flat ring, somewhere new every fifth of a second
+        for (int i = 0; i < splashes; i++) {
+            const float cyc = timeAcc * 5.f + i * 0.618f;
+            const int cn = (int)cyc;
+            const uint32_t h = hash2(i, cn, 991);
+            const int x = (int)(h % LW), y = (int)((h >> 10) % LH);
+            if (cyc - cn < 0.5f) fillRect(x, y, 1, 1, RGBA(215, 230, 252, (int)(150 * stormK)));
+            else fillRect(x - 1, y, 3, 1, RGBA(205, 222, 250, (int)(85 * stormK)));
+        }
+    }
+
+    // ---- sandstorm / blizzard: a thick haze over everything (the streaks are the weather particles, see drawBiomeFx in game_hud.cpp)
+    if (galeK > 0.02f) {
+        if (bw[B_DESERT] >= bw[B_SNOW]) fillRect(0, 0, LW, LH, RGBA(206, 164, 96, (int)(95 * galeK)));
+        else fillRect(0, 0, LW, LH, RGBA(226, 234, 246, (int)(120 * galeK)));
     }
 }

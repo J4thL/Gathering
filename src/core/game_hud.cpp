@@ -1,6 +1,7 @@
 // game_hud.cpp - biome atmosphere, prompts, minimap, the HUD (hotbar, bars) and the reticle.
 #include <cstdio>
 #include "core/game.hpp"
+#include "npcs/town.hpp"
 #include "core/logic_util.hpp"
 
 // ================================================================= HUD
@@ -39,11 +40,13 @@ void Game::drawBiomeFx() {
         SDL_SetTextureAlphaMod(A.B.fog.t, 255);
     }
 
-    // weather particles
-    for (auto& f : flakes) {
+    // weather particles (more of them in a sandstorm / blizzard)
+    const int nActive = std::min((int)flakes.size(), activeFlakes());
+    for (int fi = 0; fi < nActive; fi++) {
+        const Flake& f = flakes[fi];
         int x = (int)f.x, y = (int)f.y;
-        if (bw[B_SNOW] > 0.02f) fillRect(x, y, f.sz > 0.7f ? 2 : 1, f.sz > 0.7f ? 2 : 1, RGBA(255, 255, 255, (int)(235 * bw[B_SNOW])));
-        if (bw[B_DESERT] > 0.02f && f.sz > 0.35f) fillRect(x, y, 2, 1, RGBA(226, 196, 130, (int)(120 * bw[B_DESERT])));
+        if (bw[B_SNOW] > 0.02f) fillRect(x, y, (f.sz > 0.7f ? 2 : 1) + (int)(3 * galeK), f.sz > 0.7f ? 2 : 1, RGBA(255, 255, 255, (int)(235 * bw[B_SNOW])));
+        if (bw[B_DESERT] > 0.02f && f.sz > 0.35f * (1.f - galeK)) fillRect(x, y, 2 + (int)(5 * galeK), 1, RGBA(226, 196, 130, (int)(std::min(1.f, 120.f / 255.f * (1.f + 1.5f * galeK)) * 255.f * bw[B_DESERT])));
         if (bw[B_SWAMP] > 0.02f && f.sz > 0.6f) fillRect(x, y, 1, 1, RGBA(46, 50, 30, (int)(190 * bw[B_SWAMP] * (0.4f + 0.6f * day))));
         if (bw[B_MOUNTAIN] > 0.02f && f.sz > 0.5f) fillRect(x, y, 2, 1, RGBA(225, 228, 238, (int)(100 * bw[B_MOUNTAIN])));
     }
@@ -129,7 +132,7 @@ void Game::drawMinimap() {
         const Portal& pt = MAPS[world.mapId].portals[i];
         mapIcon(MI_PORTAL, ox + (pt.zone.x0 + pt.zone.x1) / 2, oy + (pt.zone.y0 + pt.zone.y1) / 2, 5, BIOME[pt.toMap].col);
     }
-    if (inWilds() && bossForBiome(world.mapId) && bossSeen[world.mapId] && bossCool[world.mapId] <= 0) {
+    if (inWilds() && bossForBiome(world.mapId) && bossSeen[world.mapId] && bossCool[world.mapId] <= 0) {  // a found lair whose boss is back
         const V2 lp = bossLairPos();
         mapIcon(MI_LAIR, mx(lp.x), my(lp.y), 5, C_RED);
     }
@@ -139,9 +142,10 @@ void Game::drawMinimap() {
     // animals the scouting companion sniffed out: green for game, red for fighters (blinking as the mark runs out)
     for (auto& a : animals)
         if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
-    // a wounded quarry that bled out of sight is marked (a pulsing ring)
+    // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
+            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
                 fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);
@@ -160,7 +164,6 @@ void Game::drawMinimap() {
 
 void Game::drawHud() {
     if (state == ST_TITLE) return;
-    drawWildBossBar();
     // ---- floating marker over the elder: "!" = quest available, "?" = ready to turn in
     if (!questActive || questReady()) {
         int qx = (int)world.questGiver.x - camX, qy = (int)world.questGiver.y - camY - 38 + (int)(sinf(timeAcc * 4.f) * 1.5f);
@@ -235,7 +238,7 @@ void Game::drawHud() {
         float t = tod();
         int mins = (int)(fmodf(6.f + t * 24.f, 24.f) * 60);
         char buf[32];
-        snprintf(buf, sizeof(buf), "DAY %d %s %02d:%02d", 1 + (int)(dayT / 300.f), SEASON_NAME[season()], mins / 60, mins % 60);
+        snprintf(buf, sizeof(buf), "DAY %d %s %02d:%02d", 1 + (int)(dayT / DAY_LEN), SEASON_NAME[season()], mins / 60, mins % 60);
         int w = textW(buf) + 18;
         int x = LW / 2 - w / 2 - 8;
         panel(x, 4, w, 13, HEX(0x33241a));
@@ -256,6 +259,7 @@ void Game::drawHud() {
     }
     if (showMap && interior < 0 && delve < 0) drawMinimap();
     drawBiomeBanner();
+    drawWildBossBar();
     if (state == ST_PLAY && interior < 0 && delve < 0) drawPortalLabels();
     if (delve >= 0) { drawDelveBanner(); drawBossBar(); }
 
@@ -264,7 +268,9 @@ void Game::drawHud() {
         int ty = 46;
         if (p.warmT > 0) text(6, ty, "WARM BREW " + S((int)p.warmT) + "S", C_ORANGE), ty += 8;
         if (p.coolT > 0) text(6, ty, "REFRESHED " + S((int)p.coolT) + "S", C_BLUE), ty += 8;
+        if (galeNow() > 0.3f) text(6, ty, curBiome == B_DESERT ? "SANDSTORM" : "BLIZZARD", curBiome == B_DESERT ? C_ORANGE : C_BLUE), ty += 8;
         if (warmthAt(p.pos) > 0.35f) text(6, ty, "BY THE FIRE", C_ORANGE), ty += 8;
+        else if (rainK() > 0.3f && warmthAt(p.pos) < 0.3f) text(6, ty, "SOAKED", C_BLUE), ty += 8;
     }
     // ---- weight meter (the material counters are gone from the screen: materials live in the pack, press I)
     const int stripY = LH - 4;

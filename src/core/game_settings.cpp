@@ -13,8 +13,21 @@ std::string Game::settingsPath() {
 void Game::saveSettings() {
     std::ofstream f(settingsPath(), std::ios::trunc);
     if (!f) return;
-    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\n";
+    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires " << (cfg.hiRes ? 1 : 0) << "\n";
     for (int i = 0; i < K_COUNT; i++) f << "key " << i << ' ' << (int)cfg.key[i] << "\n";
+}
+
+// The hi-res option decides how the sprites are built, so it is read before they are (see init).
+bool Game::readHiResSetting() {
+    std::ifstream f(settingsPath());
+    std::string line;
+    while (std::getline(f, line)) {
+        std::istringstream ss(line);
+        std::string k;
+        long long a = 0;
+        if (ss >> k >> a && k == "hires") return a != 0;
+    }
+    return false;
 }
 
 void Game::loadSettings() {
@@ -28,6 +41,7 @@ void Game::loadSettings() {
         if (k == "sfx" && ss >> a) cfg.sfx = (int)std::max(0LL, std::min(10LL, a));
         else if (k == "amb" && ss >> a) cfg.amb = (int)std::max(0LL, std::min(10LL, a));
         else if (k == "muted" && ss >> a) audio.muted = a != 0;
+        else if (k == "hires" && ss >> a) cfg.hiRes = a != 0;
         else if (k == "key" && ss >> a >> b && a >= 0 && a < K_COUNT && !keyReserved((SDL_Scancode)b) && b > 0 && b < SDL_NUM_SCANCODES) cfg.key[a] = (SDL_Scancode)b;
     }
     // a hand-edited file must not bind one key to two actions
@@ -78,7 +92,7 @@ void Game::updateSettings(float dt) {
 
 void Game::drawSettings() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 170));
-    const int X = 40, Y = 8, W = 320, H = 208;
+    const int X = 40, Y = 8, W = 320, H = 216;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, "SETTINGS", C_GOLD);
@@ -112,6 +126,14 @@ void Game::drawSettings() {
         cfg.resetKeys();
         rebind = -1;
     }
+    // hi-res: sprites and text are drawn with EPX2 smoothing at double resolution; the sprites are built at start-up, so it applies after a restart
+    if (button(X + 108, Y + H - 22, 104, 14, cfg.hiRes ? "HI-RES: ON" : "HI-RES: OFF", true, cfg.hiRes ? HEX(0x4a5a2e) : HEX(0x3f3220))) {
+        cfg.hiRes = !cfg.hiRes;
+        saveSettings();
+        audio.play(S_CLICK, 0.5f);
+    }
+    if (cfg.hiRes != (LS > 1)) textC(X + W / 2, Y + H - 33, "RESTART THE GAME TO APPLY HI-RES", C_ORANGE, 1, false);
+    else textC(X + W / 2, Y + H - 33, "HI-RES: SMOOTHER SPRITES AND TEXT (NEEDS A RESTART)", C_DIM, 1, false);
     if (button(X + W - 70, Y + H - 22, 60, 14, "BACK", true, HEX(0x5d7a2e))) {
         state = settingsBack;
         saveSettings();

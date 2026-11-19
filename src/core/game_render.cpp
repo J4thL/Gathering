@@ -22,6 +22,18 @@ void Game::sprS(const Spr& s, int sx, int sy, bool flip, float alpha, double ang
     SDL_SetTextureAlphaMod(s.t, 255);
 }
 
+void Game::sprWSquash(const Spr& s, float wx, float wy, float sx, float sy, double angle, float alpha) {
+    if (!s.t) return;
+    const int dax = (int)lroundf(s.ax * s.sc), day = (int)lroundf(s.ay * s.sc);
+    const int dw = std::max(1, (int)lroundf(s.w * s.sc * sx)), dh = std::max(1, (int)lroundf(s.h * s.sc * sy));
+    const int fx = (int)lroundf(dax * sx), fy = (int)lroundf(day * sy);  // the foot stays where it was
+    SDL_Rect d{(int)floorf(wx) - camX - fx, (int)floorf(wy) - camY - fy, dw, dh};
+    SDL_Point c{fx, fy};
+    SDL_SetTextureAlphaMod(s.t, (Uint8)(clampf(alpha, 0, 1) * 255));
+    SDL_RenderCopyEx(ren, s.t, nullptr, &d, angle, &c, SDL_FLIP_NONE);
+    SDL_SetTextureAlphaMod(s.t, 255);
+}
+
 void Game::icon(const Spr& s, int cx, int cy, int size, float alpha) {
     if (!s.t) return;
     SDL_Rect d{cx - size / 2, cy - size / 2, size, size};
@@ -153,13 +165,27 @@ void Game::drawTitle() {
     textC(LW / 2, 22 + bob, "WILDWOOD", HEX(0xf6d96a), 6);
     textC(LW / 2, 56 + bob, "HUNTER", HEX(0xf3e9d2), 6);
     textC(LW / 2, 92, "A TOP-DOWN HUNTING ADVENTURE", C_TEXT);
-    int bx = LW / 2 - 55, by = 110;
-    if (button(bx, by, 110, 20, "NEW GAME", true, HEX(0x5d7a2e))) {
-        const bool first = !hasSave;  // the how-to card is for the very first start only
-        newGame();
-        if (first) helpT = 16;
-        state = ST_PLAY;
+    if (shapeWait > 0) {  // the world is being built (a moment: every new world is checked and repaired first)
+        panel(LW / 2 - 90, 90, 180, 46, HEX(0x4a3524));
+        textC(LW / 2, 98, "SHAPING THE WORLD...", C_GOLD, 2);
+        textC(LW / 2, 120, "CHECKING THE PATHS AND TERRAIN", C_DIM, 1, false);
+        return;
     }
+    if (newGameAsk) {  // a saved game exists: say what a new game does before doing it
+        panel(LW / 2 - 110, 74, 220, 86, HEX(0x4a3524));
+        textC(LW / 2, 82, "START A NEW GAME?", C_GOLD, 2);
+        textC(LW / 2, 104, "YOU HAVE A SAVED GAME. A NEW GAME BUILDS A NEW", C_TEXT, 1, false);
+        textC(LW / 2, 114, "WORLD AND REPLACES THE SAVE WHEN YOU SAVE OR QUIT.", C_TEXT, 1, false);
+        if (button(LW / 2 - 100, 128, 96, 18, "YES, NEW GAME", true, HEX(0x7a3a2a))) {
+            newGameAsk = false;
+            beginNewGame();
+        }
+        if (button(LW / 2 + 4, 128, 96, 18, "CANCEL", true, HEX(0x5d7a2e))) newGameAsk = false;
+        textC(LW / 2, 150, "ENTER: YES    ESC: CANCEL", C_DIM, 1, false);
+        return;
+    }
+    int bx = LW / 2 - 55, by = 110;
+    if (button(bx, by, 110, 20, "NEW GAME", true, HEX(0x5d7a2e))) requestNewGame();
     by += 22;
     if (button(bx, by, 110, 20, "CONTINUE", hasSave)) {
         if (load()) state = ST_PLAY;
@@ -193,12 +219,13 @@ void Game::drawPause() {
         state = ST_TITLE;
     }
     textC(LW / 2, by + 24, "KILLS " + S(kills) + "    COINS EARNED " + S(sold), C_DIM, 1, false);
-    textC(LW / 2, by + 34, "F11: FULLSCREEN", C_DIM, 1, false);
+    textC(LW / 2, by + 34, "F11: FULLSCREEN     WORLD " + std::to_string(worldSeed), C_DIM, 1, false);
 }
 
+// draw into the canvas in logical coordinates: with hi-res on, the canvas holds LS x LS real pixels for each logical one
 void Game::targetCanvas() {
-    SDL_SetRenderTarget(ren, canvas);
-    SDL_RenderSetScale(ren, (float)LS, (float)LS);  // drawing stays in logical coordinates; the canvas holds LS x LS pixels for each
+    SDL_SetRenderTarget(ren, canvas);  // (switching to a texture target resets SDL's scale to 1)
+    SDL_RenderSetScale(ren, (float)LS, (float)LS);
 }
 
 void Game::render() {
@@ -207,18 +234,19 @@ void Game::render() {
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
     renderWorld(true);
+    if (debugAI) drawAIDebug();
     switch (state) {
         case ST_TITLE: drawTitle(); break;
         case ST_PLAY: drawHud(); drawHsHud(); drawPortalFx(); break;
-        case ST_BUILD: drawHud(); { SkinScope sk(packSkin); drawBuildMenu(); } break;
-        case ST_FARM: drawHud(); { SkinScope sk(packSkin); drawFarmMenu(); } break;
-        case ST_ANIMAL: drawHud(); { SkinScope sk(packSkin); drawAnimalMenu(); } break;
-        case ST_MARKET: drawHud(); { SkinScope sk(packSkin); drawMarket(); } break;
+        case ST_BUILD: drawHud(); drawBuildMenu(); break;
+        case ST_FARM: drawHud(); drawFarmMenu(); break;
+        case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
+        case ST_MARKET: drawHud(); drawMarket(); break;
         case ST_SHOP: {
             drawHud();
             const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;  // the sell slider takes every click while open
             if (modal) in.uiClick = false;
-            { SkinScope sk(packSkin); drawShop(); }
+            drawShop();
             if (modal) in.uiClick = clk;
             amountDraw();
             break;
@@ -227,7 +255,7 @@ void Game::render() {
         case ST_PAUSE: drawHud(); drawPause(); break;
         case ST_SETTINGS: drawHud(); drawSettings(); break;
         case ST_HELP: drawHud(); drawHelp(); break;
-        case ST_QUEST: drawHud(); { SkinScope sk(packSkin); drawQuestPanel(); } break;
+        case ST_QUEST: drawHud(); drawQuestPanel(); break;
         case ST_GATE: drawHud(); drawGatePanel(); break;
         case ST_INVENTORY: case ST_CHEST: {
             drawHud();
@@ -235,7 +263,7 @@ void Game::render() {
             const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;
             if (modal) in.uiClick = false;
             if (state == ST_INVENTORY) drawInventory();
-            else { SkinScope sk(packSkin); drawChest(); }
+            else drawChest();
             if (modal) in.uiClick = clk;
             amountDraw();
             break;
@@ -254,10 +282,15 @@ void Game::present() {
     SDL_RenderClear(ren);
     int ww, wh;
     SDL_GetRendererOutputSize(ren, &ww, &wh);
-    // the canvas has LS x the logical pixels: whole multiples of it stay perfectly sharp, anything between is filtered (linear)
-    float sc = std::min((float)ww / (LW * LS), (float)wh / (LH * LS));
-    if (sc >= 1.f && fabsf(sc - roundf(sc)) < 0.02f) sc = roundf(sc);
-    sc *= LS;  // real pixels per logical pixel
+    float sc;
+    if (LS > 1) {  // the canvas has LS x the logical pixels: whole multiples of it stay perfectly sharp, anything between is filtered (linear)
+        sc = std::min((float)ww / (LW * LS), (float)wh / (LH * LS));
+        if (sc >= 1.f && fabsf(sc - roundf(sc)) < 0.02f) sc = roundf(sc);
+        sc *= LS;  // real pixels per logical pixel
+    } else {
+        sc = std::min((float)ww / LW, (float)wh / LH);
+        if (sc >= 1.f) sc = floorf(sc);
+    }
     int dw = (int)(LW * sc), dh = (int)(LH * sc);
     offX = (float)((ww - dw) / 2);
     offY = (float)((wh - dh) / 2);

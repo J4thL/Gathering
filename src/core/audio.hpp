@@ -9,7 +9,7 @@
 #include <vector>
 
 enum Sfx { S_THROW, S_HIT, S_CRIT, S_KILL, S_PICKUP, S_COIN, S_GATHER, S_HURT, S_CLICK, S_CRAFT, S_ERROR, S_BREAK, S_CHOP, S_MINE, S_RUSTLE, S_FELL, S_SMELT,
-           S_STEP_GRASS, S_STEP_STONE, S_STEP_WOOD, S_STEP_SAND, S_STEP_SNOW, S_STEP_MUD, S_COUNT };
+           S_STEP_GRASS, S_STEP_STONE, S_STEP_WOOD, S_STEP_SAND, S_STEP_SNOW, S_STEP_MUD, S_HOWL, S_COUNT };
 
 // Ambient beds (one plays at a time, synthesised live in the audio callback, cross-faded when the scene changes)
 enum Ambience { AMB_NONE, AMB_DAY, AMB_NIGHT, AMB_DESERT, AMB_SWAMP, AMB_SNOW, AMB_MOUNTAIN, AMB_CAVE, AMB_COUNT };
@@ -31,11 +31,36 @@ struct Audio {
     // ---- ambience: the game sets the wanted bed + volume; the callback fades to it and synthesises it sample by sample
     int ambWant = AMB_NONE, ambNow = AMB_NONE;
     float ambVolWant = 0, ambGain = 0;
+    float windLvl = 1.f;  // how hard the game's wind blows right now (1 = a calm breeze); the bed's wind follows it
     uint32_t aSeed = 777;
     float aLp1 = 0, aLp2 = 0, aLfo = 0, aLfo2 = 0;
     float aEvT = 1.f, aEvAge = 99.f, aEvF = 3000.f, aEvPh = 0;  // the current one-shot voice (bird chirp, frog, drip) and the time to the next
     int aEvKind = 0;
     float aCri = 0;
+    // ---- rain: a layer on top of whatever bed is playing (hiss + low roar + close drops); the game sets its volume, the callback fades to it
+    float rainWant = 0, rainGain = 0;
+    uint32_t rSeed = 4242;
+    float rLp1 = 0, rLp2 = 0, rLfo = 0, rDrop = 0;
+    float rNoise() {
+        rSeed ^= rSeed << 13;
+        rSeed ^= rSeed >> 17;
+        rSeed ^= rSeed << 5;
+        return ((rSeed & 0xFFFF) / 32768.0f) - 1.0f;
+    }
+    // one sample of the rain, at amplitude 1 (the caller scales and fades it)
+    float rainSample() {
+        const float PI2 = 6.2831853f, dt = 1.f / rate;
+        rLfo += dt * 0.07f;
+        const float swell = 0.85f + 0.15f * sinf(PI2 * rLfo);  // the downpour breathes slowly
+        const float n = rNoise();
+        rLp1 += (n - rLp1) * 0.35f;  // n - rLp1 is hiss: noise with the lows taken out
+        rLp2 += (n - rLp2) * 0.04f;  // the low roar underneath
+        if ((rNoise() + 1.f) * 0.5f < 0.0006f) rDrop = 0.5f + 0.25f * (rNoise() + 1.f);  // a close drop: a short click
+        const float hiss = n - rLp1;
+        const float v = (hiss * 0.28f + rLp2 * 1.6f + hiss * rDrop * 0.6f) * swell;
+        rDrop = rDrop < 0.0001f ? 0.f : rDrop * 0.998f;
+        return v;
+    }
     float aNoise() {
         aSeed ^= aSeed << 13;
         aSeed ^= aSeed >> 17;
@@ -62,7 +87,7 @@ struct Audio {
         }
         aLp1 += (aNoise() - aLp1) * cut;
         aLp2 += (aLp1 - aLp2) * cut * 2.f;
-        float v = aLp2 * windGain * gust * 6.f;
+        float v = aLp2 * windGain * windLvl * gust * 6.f;
         // one-shot voices
         aEvT -= dt;
         if (aEvT <= 0 && aEvAge > 1.f) {
@@ -196,6 +221,16 @@ struct Audio {
             gen(S_STEP_MUD, 0.14f, [&](float t, float u) { f6 += (noise() - f6) * 0.12f; return f6 * expf(-t * 16.f) * 1.1f + sinf(2 * PI * (130.f - 400.f * t) * t) * expf(-t * 30.f) * 0.25f; });
         }
         gen(S_BREAK, 0.16f, [&](float t, float u) { return noise() * expf(-t * 28.f) * (0.5f + 0.5f * sinf(t * 900.f)) * 0.7f; });
+        // a wolf's howl: the pitch climbs, holds with a slow wavering, and falls away (about 2.6 s)
+        float hph = 0;
+        gen(S_HOWL, 2.6f, [&](float t, float u) {
+            const float rise = std::min(1.f, u / 0.30f), fall = std::max(0.f, (u - 0.62f) / 0.38f);
+            const float f = 300.f + 250.f * rise - 170.f * fall * fall;
+            const float vib = 1.f + 0.022f * sinf(2 * PI * 5.2f * t) * std::min(1.f, u * 4.f);
+            hph += 2 * PI * f * vib / rate;
+            const float env = std::min(1.f, u / 0.12f) * (1.f - u * u * u);
+            return ((sinf(hph) * 0.7f + sinf(2 * hph) * 0.22f + sinf(3 * hph) * 0.08f) * 0.4f + noise() * 0.02f) * env;
+        });
     }
 
     static void cb(void* ud, Uint8* stream, int len) {
@@ -208,6 +243,8 @@ struct Audio {
             a->ambGain += (want - a->ambGain) * 0.00008f;
             if (a->ambWant != a->ambNow && a->ambGain < 0.004f) a->ambNow = a->ambWant, a->aEvAge = 99.f, a->aEvT = 1.f;
             if (a->ambNow != AMB_NONE && a->ambGain > 0.0005f) out[i] += a->ambSample() * a->ambGain * 0.5f;
+            a->rainGain += ((a->muted ? 0.f : a->rainWant) - a->rainGain) * 0.00004f;  // fades in and out over about half a second
+            if (a->rainGain > 0.0005f) out[i] += a->rainSample() * a->rainGain * 0.5f;
         }
         for (auto& v : a->voices) {
             const auto& b = a->bank[v.snd];
@@ -246,6 +283,20 @@ struct Audio {
         SDL_LockAudioDevice(dev);
         ambWant = kind;
         ambVolWant = vol;
+        SDL_UnlockAudioDevice(dev);
+    }
+    // how hard the wind blows (1 = calm); only the wind inside the ambient bed follows it
+    void setWind(float lvl) {
+        if (!ok || lvl == windLvl) return;
+        SDL_LockAudioDevice(dev);
+        windLvl = lvl;
+        SDL_UnlockAudioDevice(dev);
+    }
+    // how loud the rain is (0..1); the callback fades to it
+    void setRain(float vol) {
+        if (!ok || vol == rainWant) return;
+        SDL_LockAudioDevice(dev);
+        rainWant = vol;
         SDL_UnlockAudioDevice(dev);
     }
     void shutdown() {
