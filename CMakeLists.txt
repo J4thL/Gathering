@@ -10,10 +10,11 @@ endif()
 set(WILDWOOD_MAIN src/main.cpp)
 set(WILDWOOD_CORE
     src/core/game_logic.cpp
-    src/core/game_save.cpp
-    src/core/game_animals.cpp
+    src/core/game_prints.cpp
     src/core/game_tracks.cpp
     src/core/game_boss.cpp
+    src/core/game_save.cpp
+    src/core/game_animals.cpp
     src/core/game_player.cpp
     src/animals/mount_ride.cpp
     src/world/grass_react.cpp
@@ -63,6 +64,7 @@ set(WILDWOOD_TESTS
     src/tests/selftest_rules.cpp
     src/tests/selftest_screens.cpp
     src/tests/selftest_world.cpp
+    src/tests/selftest_weather.cpp
     src/tests/selftest_skills.cpp
     src/tests/selftest_town.cpp
     src/tests/delve_tests.cpp
