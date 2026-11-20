@@ -109,7 +109,8 @@ inline float matWeight(int m) {
         /*BERRY*/ 0.05f, /*WHEAT*/ 0.2f, /*CARROT*/ 0.15f, /*POTATO*/ 0.3f, /*CABBAGE*/ 0.6f, /*CORN*/ 0.25f, /*TOMATO*/ 0.2f, /*PUMPKIN*/ 3.0f, /*STRAWBERRY*/ 0.05f,
         0.01f, 0.01f, 0.02f, 0.01f, 0.01f, 0.01f, 0.02f, 0.01f,
         /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f,
-        /*TROUT*/ 0.8f, /*BASS*/ 1.0f, /*CATFISH*/ 1.8f, /*EEL*/ 0.7f, /*CHAR*/ 0.6f, /*PIKE*/ 1.6f};
+        /*TROUT*/ 0.8f, /*BASS*/ 1.0f, /*CATFISH*/ 1.8f, /*EEL*/ 0.7f, /*CHAR*/ 0.6f, /*PIKE*/ 1.6f,
+        /*VOIDSHARD*/ 0.4f, /*GLOWCAP*/ 0.1f, /*RELIC*/ 0.5f};
     return W[m];
 }
 inline float wpnWeight(int w) {

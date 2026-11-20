@@ -37,6 +37,7 @@ void Game::save() {
         if (trophyMask) f << "trophy " << trophyMask << "\n";
         if (fishCaught) f << "fish " << fishCaught << "\n";
         if (kingTier) f << "kingtier " << kingTier << "\n";
+        if (endlessBest || endlessCheckpoint) f << "endless " << endlessBest << ' ' << endlessCheckpoint << "\n";
         for (int i = 0; i < B_COUNT; i++)
             if (bossKills[i] || bossCool[i] > 0 || bossSeen[i]) f << "boss " << i << ' ' << bossKills[i] << ' ' << (int)bossCool[i] << ' ' << (bossSeen[i] ? 1 : 0) << "\n";
         economySave(f);
@@ -216,6 +217,12 @@ bool Game::load() {
                 bossKills[bi] = std::max(0, std::min(100000, kills));
                 bossCool[bi] = (float)std::max(0, std::min((int)BOSS_RESPAWN, cool));
                 bossSeen[bi] = seen != 0;
+            }
+        } else if (k == "endless") {  // "endless <deepest floor> <last boss floor beaten>"
+            int best = 0, cp = 0;
+            if (ss >> best >> cp) {
+                endlessBest = std::max(0, std::min(100000, best));
+                endlessCheckpoint = std::max(0, std::min(endlessBest, cp));
             }
         } else if (k == "kingtier") {
             int n = 0;

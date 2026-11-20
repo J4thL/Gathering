@@ -169,6 +169,7 @@ void Game::drawHelp() {
                  "INTERACT / HOLD TO GATHER: " + k(K_USE),
                  "HOLD LEFT CLICK TO CHARGE A THROW OR DRAW A BOW, RELEASE TO FIRE",
                  "1-8 OR WHEEL: HOTBAR     " + k(K_HEAL) + ": BANDAGE     " + k(K_MOUNT) + ": MOUNT     " + k(K_COMMAND) + ": COMPANION ORDER     " + k(K_DODGE) + ": DODGE ROLL",
+                 "RIGHT CLICK OR " + k(K_MELEE) + ": MELEE SWING (TAP), HEAVY SWING (HOLD) - 3 QUICK SWINGS MAKE A COMBO",
                  k(K_PACK) + ": PACK     " + k(K_MAP) + ": MAP     TAB: MINIMAP     " + k(K_HELP) + ": HELP CARD",
                  k(K_BUILD) + ": BUILD MENU     " + k(K_ROTATE) + ": ROTATE     " + k(K_DEMOLISH) + ": DEMOLISH",
                  "ESC: PAUSE (SETTINGS, HELP, SAVE)     F11: FULLSCREEN",

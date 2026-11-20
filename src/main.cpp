@@ -108,6 +108,7 @@ static void pollInput(Game& g) {
     in.right = k[K[K_RIGHT]] || k[SDL_SCANCODE_RIGHT];
     in.sprint = k[K[K_SPRINT]] || (K[K_SPRINT] == SDL_SCANCODE_LSHIFT && k[SDL_SCANCODE_RSHIFT]);
     in.e = k[K[K_USE]];
+    in.melee = k[K[K_MELEE]] || (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
 }
 
 // ---- scripted run used for automated screenshots / smoke testing

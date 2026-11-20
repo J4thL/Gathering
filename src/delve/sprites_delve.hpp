@@ -163,7 +163,25 @@ inline Img nodeSprite(int which) {  // 0 coal, 1 silver, 2 cave crystal, 3 gems,
         im.set(x, y, l);
         im.set(x + s - 1, y + s - 1, d);
     };
+    if (which == 6) {  // glowcaps: three luminous mushrooms on the cave floor
+        Img g(18, 18);
+        for (auto d : {std::array<int, 3>{4, 11, 3}, std::array<int, 3>{9, 8, 4}, std::array<int, 3>{13, 12, 2}}) {
+            g.rect(d[0], d[1], 1 + d[2] / 3, 14 - d[1], HEX(0xe8f4e0));
+            g.ellipseShaded(d[0], d[1], (float)d[2] + 1.5f, (float)d[2] * 0.7f + 1.f, HEX(0xc8fff0), HEX(0x2ad8b0), HEX(0x0a6a64));
+            g.set(d[0] - 1, d[1] - 1, HEX(0xffffff));
+        }
+        g.outline(OUT);
+        return g;
+    }
     switch (which) {
+        case 5:  // void stone: dark rock split by violet crystal
+            for (auto d : {std::array<int, 3>{5, 6, 3}, std::array<int, 3>{9, 3, 4}, std::array<int, 3>{12, 7, 3}}) {
+                im.rect(d[0], d[1], d[2], 10 - d[1] + 3, HEX(0x6a3aa8));
+                im.rect(d[0], d[1], 1, 10 - d[1] + 3, HEX(0xd8b8ff));
+                im.rect(d[0] + d[2] - 1, d[1] + 1, 1, 10 - d[1] + 2, HEX(0x1c0a34));
+            }
+            im.set(10, 3, HEX(0xffffff)); im.set(6, 6, HEX(0xff7ad8));
+            break;
         case 0:  // coal: glossy black lumps
             for (auto d : {std::pair<int, int>{4, 7}, {9, 5}, {7, 9}, {11, 9}, {5, 11}, {12, 12}}) spot(d.first, d.second, HEX(0x6a6a78), HEX(0x26262e), HEX(0x101016), 3);
             im.set(10, 6, HEX(0xffffff));
@@ -665,6 +683,32 @@ inline Img rockChunk() {
 }
 
 // ------------------------------------------------------------------ item icons (16 x 16)
+// the Endless Depths' own finds (16 x 16): a void shard, a glowing mushroom, an ancient relic
+inline Img iconDeepMat(int m) {
+    Img im(16, 16);
+    if (m == M_VOIDSHARD) {
+        for (int y = 1; y < 15; y++) {
+            const int w = std::max(1, 6 - abs(y - 7) * 6 / 7);
+            im.rect(8 - w / 2 + (y % 5 == 0 ? 1 : 0), y, w, 1, y < 6 ? HEX(0xb48aff) : (y > 10 ? HEX(0x2a1250) : HEX(0x6a3aa8)));
+        }
+        im.line(7, 2, 7, 12, HEX(0xe6d2ff));
+        im.set(9, 5, HEX(0xffffff));
+        im.set(6, 10, HEX(0xff7ad8));
+    } else if (m == M_GLOWCAP) {
+        im.rect(7, 8, 2, 6, HEX(0xe8f4e0));
+        im.ellipseShaded(8, 6, 6.f, 4.5f, HEX(0xc8fff0), HEX(0x2ad8b0), HEX(0x0a6a64));
+        im.set(5, 5, HEX(0xffffff)); im.set(9, 4, HEX(0xffffff)); im.set(11, 6, HEX(0xffffff));
+        im.rect(4, 10, 2, 3, HEX(0x8af0d8)); im.rect(11, 11, 2, 2, HEX(0x8af0d8));
+    } else {
+        im.ellipseShaded(8, 8, 6.5f, 6.5f, HEX(0xffe9a0), HEX(0xc99a3a), HEX(0x6a4a14));
+        im.ellipseShaded(8, 8, 3.8f, 3.8f, HEX(0x6a4a14), HEX(0x8a6420), HEX(0x4a3010));
+        im.line(8, 5, 8, 11, HEX(0xffe9a0)); im.line(5, 8, 11, 8, HEX(0xffe9a0));
+        im.set(6, 5, HEX(0xffffff));
+    }
+    im.outline(OUT);
+    return im;
+}
+
 inline Img iconDelveMat(int m) {
     Img im(16, 16);
     auto gem = [&](int cx, int cy, u32 l, u32 mm, u32 d, int r) {
@@ -749,7 +793,7 @@ struct DelveAssets {
     Spr mineGate, frostGate, beamArch, beamSide, cart, torch[3], brazier[3], crystalViolet[3], crystalIce[3], statue[3], pillar;
     Spr chest[4][2], stairs[2], exitDoor[2], bossDoor[2], equip[4], debris[3], sarco, throne, bones[2], banner, icicles;
     Spr spike[3], vent[3], iceSpike[3], iceBolt, rockChunk;
-    Spr node[5];
+    Spr node[7];
 };
 
 inline void buildDelveAssets(SDL_Renderer* r, DelveAssets& d) {
@@ -795,5 +839,5 @@ inline void buildDelveAssets(SDL_Renderer* r, DelveAssets& d) {
     d.icicles = makeSpr(r, icicles(), 8, 15);
     d.iceBolt = makeSpr(r, iceBolt(), 7, 4);
     d.rockChunk = makeSpr(r, rockChunk(), 6, 6);
-    for (int i = 0; i < 5; i++) d.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
+    for (int i = 0; i < 7; i++) d.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
 }

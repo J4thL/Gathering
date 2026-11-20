@@ -29,6 +29,7 @@ enum Mat {
     M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,  // seeds (same order)
     M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,                                                              // animal products and feed
     M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,                                                               // fish: caught with a rod (fishing.cpp)
+    M_VOIDSHARD, M_GLOWCAP, M_RELIC,                                                                                   // found only in the Endless Depths (delve/endless)
     M_COUNT
 };
 constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N = 8;  // crop i: produce M_CROP0 + i, seed M_SEED0 + i
@@ -57,7 +58,8 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "WILD BERRIES", "WHEAT", "CARROT", "POTATO", "CABBAGE", "CORN", "TOMATO", "PUMPKIN", "STRAWBERRY",
     "WHEAT SEEDS", "CARROT SEEDS", "POTATO EYES", "CABBAGE SEEDS", "CORN SEEDS", "TOMATO SEEDS", "PUMPKIN SEEDS", "STRAWBERRY RUNNERS",
     "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY",
-    "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE"};
+    "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE",
+    "VOID SHARD", "GLOWCAP", "ANCIENT RELIC"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -77,7 +79,8 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        3, 4, 4, 4, 6, 5, 6, 12, 8,
                                        1, 1, 1, 1, 1, 1, 2, 2,
                                        4, 5, 6, 10, 30, 2,
-                                       12, 14, 18, 16, 20, 26};
+                                       12, 14, 18, 16, 20, 26,
+                                       70, 30, 160};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -108,7 +111,8 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "PLANT IN TILLED SOIL - GROWS INTO CORN", "PLANT IN TILLED SOIL - GROWS INTO TOMATOES", "PLANT IN TILLED SOIL - GROWS INTO A PUMPKIN", "PLANT IN TILLED SOIL - GROWS INTO STRAWBERRIES",
     "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS",
     "A QUICK RIVER FISH - FOOD AND TRADE", "A GREEN LAKE FISH - FOOD AND TRADE", "A WHISKERED BOTTOM-FEEDER - FOOD AND TRADE", "SLIPPERY AND RICH - FOOD AND TRADE",
-    "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH"};
+    "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH",
+    "A SHARD OF DARKNESS FROM THE ENDLESS DEPTHS - FOUND NOWHERE ELSE", "A GLOWING FUNGUS OF THE DEEP - FOUND ONLY IN THE ENDLESS DEPTHS", "A TREASURE OF A LOST AGE - FOUND ONLY IN THE ENDLESS DEPTHS"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -123,7 +127,8 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,
                                           M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,
                                           M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
-                                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE};
+                                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,
+                                          M_VOIDSHARD, M_GLOWCAP, M_RELIC};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
@@ -202,11 +207,12 @@ enum NodeKind {
     RN_GOLD,                                                                                    // mountain rare vein
     RN_COAL, RN_SILVER, RN_CAVECRYSTAL, RN_GEM, RN_ETERNALICE,                                  // the mine and the frozen dungeon
     RN_BERRY, RN_WILDFLOWER,                                                                    // the homestead's berry bushes and wild flowers
+    RN_VOIDSTONE, RN_GLOWCAP,                                                                   // the Endless Depths only
     RN_COUNT
 };
 [[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"PRICKLY PEAR", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE",
                                                            "WILD HERB", "MUSHROOMS", "FALLEN BRANCH", "WILD FLAX", "DRY WOOD", "COPPER ORE",
-                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE", "BERRY BUSH", "WILD FLOWERS"};
+                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE", "BERRY BUSH", "WILD FLOWERS", "VOID STONE", "GLOWCAPS"};
 
 // ---- crafting
 // RK_ITEM: `out` is a registry item id (tools, consumables, placeables, processed materials).

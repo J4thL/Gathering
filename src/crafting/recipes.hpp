@@ -118,6 +118,9 @@ static const Recipe RECIPES[] = {
     // ---- the mine and the frozen dungeon: steel and silver from coal, mining equipment, better weapons, armour sets, frost gear, accessories
     {RK_ITEM, itemMat(M_SILVERBAR), 1, {M_SILVER, M_COAL, -1}, {2, 1, 0}, RC_MATERIALS, STN_FIRE, SK_SMITHING, 12},
     {RK_ITEM, itemMat(M_STEELBAR), 1, {M_IRONBAR, M_COAL, -1}, {1, 3, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 20},
+    {RK_ITEM, itemMat(M_STEELBAR), 3, {M_IRONBAR, M_VOIDSHARD, -1}, {2, 1, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 26},  // void shard: dungeon-only
+    {RK_ITEM, itemCons(C_TONIC), 3, {M_GLOWCAP, M_HERB, -1}, {1, 1, 0}, RC_MEDICINE, STN_ANY, SK_ALCHEMY, 12},  // glowcap: dungeon-only
+    {RK_ITEM, itemCarry(CG_GEMRING), 1, {M_RELIC, M_GOLDBAR, -1}, {1, 1, 0}, RC_ARMOR, STN_SHOP, SK_SMITHING, 34},  // relic: dungeon-only
     {RK_ITEM, itemCarry(CG_LANTERN), 1, {M_IRONBAR, M_GREASE, M_RARECRYSTAL}, {1, 2, 1}, RC_TOOLS, STN_SHOP, SK_SMITHING, 12},
     {RK_WEAPON, W_SILVERDAGGER, 2, {M_SILVERBAR, M_BONEFRAG, M_FIBER}, {1, 2, 1}, RC_WEAPONS, STN_SHOP, SK_SMITHING, 18},
     {RK_WEAPON, W_STEELSPEAR, 2, {M_STEELBAR, M_PLANK, M_ROPE}, {1, 1, 1}, RC_WEAPONS, STN_SHOP, SK_SMITHING, 24},

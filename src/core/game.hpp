@@ -19,6 +19,7 @@
 #include "combat/monsters.hpp"
 #include "farming/homestead.hpp"
 #include "combat/effects.hpp"
+#include "combat/melee.hpp"
 #include "animals/bosses.hpp"
 
 // ----------------------------------------------------------------- palette
@@ -36,7 +37,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false, melee = false;  // melee: right mouse button or the melee key is held  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -154,6 +155,10 @@ struct Player {
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
+    float meleeT = 0, meleeDur = 0.4f, meleeHold = 0, meleeComboT = 0;  // melee swing (combat/melee.hpp)
+    int meleeStep = 0;
+    bool meleeHeavy = false, meleeStruck = false, meleePrev = false;
+    V2 meleeAim;
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
@@ -507,10 +512,19 @@ struct Game {
     V2 bossLair; int bossLairMap = -1;
     V2 bossLairPos();
     Animal* liveBoss();
+    int meleeWeapon() const;
+    bool startMelee(bool heavy);
+    void meleeStrike();
+    void updateMelee(float dt);
+    void drawMelee();
     void updateBosses(float dt);
     void bossKilled(Animal& a);
     void drawBossTelegraph();
     void drawWildBossBar();
+    int endlessFloor = 1, endlessBest = 0, endlessCheckpoint = 0;  // Endless Depths: the floor now, the deepest reached, the last boss floor beaten (delve/endless.hpp)
+    bool endlessDescend();                                          // take the stairs down to the next floor
+    void endlessBossKilled(const Monster& m);
+    std::string delveBossName() const;
     HAnimal* companionAnimal();
     int mountKgNow(const HAnimal& m) const;
     static int bondLevel(int bond);
@@ -996,6 +1010,9 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR, MI_ANVIL, MI_LEATHER, MI_TOOLS, MI_COIN, MI_FLOWER, MI_SCISSORS };
+    static int bldMapIcon(int bldKind);  // the icon that says what a town building does
+    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void drawWorldMap();             // the full-map screen (M), game_map.cpp
     void updateWorldMap(float dt);
     void drawBiomeFx();
@@ -1038,8 +1055,6 @@ struct Game {
     }
     void icon(const Spr& s, int cx, int cy, int size = 16, float alpha = 1.f);
     void text(int x, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true, float alpha = 1.f);
-    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR };
-    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void textC(int cx, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true);
     void textOutlined(int x, int y, const std::string& s, u32 col, float alpha = 1.f);
     int textW(const std::string& s, int sc = 1) const { return (int)s.size() * 4 * sc - sc; }

@@ -288,8 +288,8 @@ void Game::renderWorld(bool) {
         }
         const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
         const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
-        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && (n.kind < RN_COAL || n.kind >= RN_BERRY);
-        sprW(n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && n.kind != RN_VOIDSTONE && (n.kind < RN_COAL || n.kind >= RN_BERRY);
+        sprW(n.kind >= RN_VOIDSTONE ? A.D.node[5 + n.kind - RN_VOIDSTONE] : n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
         if (hs.fade <= 0 && g < 0.22f) {
             int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
@@ -570,6 +570,7 @@ void Game::renderWorld(bool) {
                     else ang = 50.f - 35.f * (f - 0.8f) / 0.2f;                                     // rest on the soil, lift away
                     sprW(A.R.toolSwing[p.tool[p.farmType]], p.pos.x + (left ? -3 : 3), p.pos.y - 6, left, 1.f, left ? -ang : ang, true);
                 }
+                drawMelee();
                 // weapon in hand while winding up
                 if (p.charging && p.wpn(p.sel) > 0) {
                     float back = p.charge * 3.f;

@@ -225,6 +225,7 @@ struct World {
     std::vector<DSpawn> dsp;
     std::vector<DLight> lights;
     V2 stairsDn, stairsUp;     // the stairs of a dungeon level
+    int endlessFloor = 1;      // the floor the Endless Depths generator builds next (delve/endless.hpp)
     V2 gate;                   // on the mountain / snow maps: where E enters the mine / the dungeon (x < 0: none)
     V2 hportal = V2(-99999.f, -99999.f), hmarket = V2(-99999.f, -99999.f);  // the Homestead Portal (town: the way in, homestead: the way back) and the market stall
     V2 bossPos;                // the Frostbound King's spot in the throne room

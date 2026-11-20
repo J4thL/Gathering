@@ -589,6 +589,55 @@ int delveTest(Game& g) {
         check(g.delveMem[DV_FROST2].chests == 0x5 && g.delveMem[DV_FROST3].bossDead && g.delveMem[DV_FROST3].bossTimer > 800.f, "opened chests and the fallen king are remembered");
     }
 
+    printf("--- endless depths\n");
+    {
+        check(endlessTier(1) == 0 && endlessTier(10) == 0 && endlessTier(11) == 1 && endlessTier(31) == 3, "a new tier every ten floors");
+        check(endlessBossFloor(10) && endlessBossFloor(20) && !endlessBossFloor(11) && !endlessBossFloor(1), "a boss on every tenth floor");
+        check(endlessDepth(11) > endlessDepth(10) && endlessDepth(21) > endlessDepth(11) && endlessDepth(50) > endlessDepth(20), "difficulty only rises");
+        check(endlessBossHp(20) > endlessBossHp(10) && endlessBossDmg(20) > endlessBossDmg(10), "later wardens hit harder and last longer");
+        check(endlessStartFloor(0) == 1 && endlessStartFloor(10) == 11, "a descent resumes below the last boss beaten");
+        g.newGame();
+        g.state = ST_PLAY;
+        g.p.up[U_ARMOR] = 0;
+        check(!g.enterDelve(DV_ENDLESS), "the depths need armour");
+        g.p.up[U_ARMOR] = ENDLESS_ARMOR_NEED;
+        g.endlessCheckpoint = 0;
+        g.bldCd = 0;
+        check(g.enterDelve(DV_ENDLESS) && g.delve == DV_ENDLESS && g.endlessFloor == 1, "enter at floor 1");
+        check(g.world.mapId == DELVE_MAP0 + DV_ENDLESS, "the depths are a map of their own");
+        check(g.endlessDescend() && g.endlessFloor == 2 && g.endlessBest == 2 && g.world.endlessFloor == 2, "descending goes one floor deeper");
+        bool vs = false, gc = false;
+        for (int f = 2; f < 8 && !(vs && gc); f++) {
+            if (f > 2) g.endlessDescend();
+            for (const ResNode& n : g.world.nodes) { vs |= n.kind == RN_VOIDSTONE; gc |= n.kind == RN_GLOWCAP; }
+        }
+        check(vs && gc, "void stone and glowcaps grow in the depths");
+        g.items.clear();
+        int found = 0;
+        for (int i = 0; i < 300; i++) {
+            Monster* q = g.spawnMonster(MK_GOLEM, g.p.pos + V2(30, 0), endlessDepth(5), true, -1);
+            if (q) g.dropLoot(*q);
+        }
+        for (const GroundItem& it : g.items)
+            if (it.item == itemMat(M_RELIC) || it.item == itemMat(M_VOIDSHARD) || it.item == itemMat(M_GLOWCAP)) found += it.n;
+        check(found > 0, "monsters of the depths drop dungeon-only materials");
+        g.endlessFloor = 10;
+        g.world.endlessFloor = 10;
+        g.delveGo(DV_ENDLESS, true);
+        check(g.delve == DV_ENDLESS && g.endlessFloor >= 10, "(to the tenth floor)");
+        Monster k;
+        k.kind = MK_KING;
+        g.endlessFloor = 10;
+        g.endlessBossKilled(k);
+        check(g.endlessCheckpoint == 10 && g.endlessBest >= 10, "the boss sets a checkpoint");
+        check(g.world.stairsDn.x > 0, "the stairs down open");
+        g.save();
+        const int cp = g.endlessCheckpoint, best = g.endlessBest;
+        g.newGame();
+        g.state = ST_PLAY;
+        check(g.load() && g.endlessCheckpoint == cp && g.endlessBest == best, "checkpoint and best floor survive the save");
+    }
+
     // put the player's own save back
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
