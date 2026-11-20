@@ -14,6 +14,39 @@
 #include <fstream>
 #include "core/game.hpp"
 #include "art/export_sprites.hpp"
+#include <csignal>
+#ifdef __GLIBC__
+#include <execinfo.h>
+#endif
+
+// ---- crash log: if the game dies from a signal (segfault, abort...), wildwood_crash.txt is written next to the save with what the game
+// was doing, so a crash always leaves a trace. Best effort: it is written from inside the signal handler.
+static Game* crashGame = nullptr;
+static char crashPath[1024] = "wildwood_crash.txt";
+static void crashHandler(int sig) {
+    static volatile int busy = 0;
+    if (!busy) {
+        busy = 1;
+        if (FILE* f = fopen(crashPath, "w")) {
+            fprintf(f, "WILDWOOD HUNTER crashed: signal %d\n", sig);
+            if (crashGame) {
+                const Game& g = *crashGame;
+                fprintf(f, "state %d  map %d  delve %d  interior %d  endless floor %d  hires %d  window %dx%d  fullscreen %d\n", (int)g.state, g.world.mapId, g.delve,
+                        g.interior, g.endlessFloor, LS > 1 ? 1 : 0, g.winW, g.winH, g.fullscreen ? 1 : 0);
+                fprintf(f, "player %.0f %.0f  hp %.0f\n", g.p.pos.x, g.p.pos.y, g.p.hp);
+            }
+#ifdef __GLIBC__
+            fflush(f);
+            void* bt[40];
+            const int n = backtrace(bt, 40);
+            backtrace_symbols_fd(bt, n, fileno(f));
+#endif
+            fclose(f);
+        }
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
 
 void enterMap(Game& g, int b);                          // world_check.cpp (shared with the tours)
 V2 portalPoint(const World& w, const Portal& pt);      // world_check.cpp
@@ -91,12 +124,18 @@ static void pollInput(Game& g) {
                     case SDLK_F11:
                         g.fullscreen = !g.fullscreen;
                         SDL_SetWindowFullscreen(g.win, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                        g.saveSettings();
                         break;
                     default: break;
                 }
                 break;
             case SDL_WINDOWEVENT:
                 if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) in.l = false;
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && !g.fullscreen && e.window.data1 >= 400 && e.window.data2 >= 225) {
+                    g.winW = e.window.data1;  // remembered for next time (written a moment after the last resize)
+                    g.winH = e.window.data2;
+                    g.winSaveT = 1.0f;
+                }
                 break;
         }
     }
@@ -1116,7 +1155,18 @@ int main(int argc, char** argv) {
         setenv("SDL_AUDIODRIVER", "dummy", 1);
         setenv("SDL_RENDER_DRIVER", "software", 1);
     }
+#ifdef _WIN32
+    SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");  // a sharp window on high-DPI screens (not stretched by Windows)
+#endif
     Game g;
+    crashGame = &g;
+    if (!toolRun) {
+        const std::string sp = g.savePath();
+        const size_t k = sp.find_last_of("/\\");
+        const std::string cp = (k == std::string::npos ? std::string() : sp.substr(0, k + 1)) + "wildwood_crash.txt";
+        snprintf(crashPath, sizeof crashPath, "%s", cp.c_str());
+        for (int sg : {SIGSEGV, SIGABRT, SIGFPE, SIGILL}) signal(sg, crashHandler);
+    }
     if (!g.init(headless)) return 1;
     if (!dumpFile.empty()) {
         dumpCore(g, dumpFile.c_str());
@@ -1377,6 +1427,7 @@ int main(int argc, char** argv) {
         if (dt > 0.1) dt = 0.1;
         acc += dt;
         pollInput(g);
+        if (g.winSaveT > 0.f && (g.winSaveT -= (float)dt) <= 0.f) g.saveSettings();
         // edge-triggered input must only be consumed once per frame even if several sim steps run
         bool first = true;
         while (acc >= step) {

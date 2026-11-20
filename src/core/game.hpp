@@ -352,6 +352,8 @@ struct Game {
     float presScale = 3, offX = 0, offY = 0;
     bool running = true;
     bool fullscreen = false;
+    int winW = 1200, winH = 675;  // the windowed size, remembered in settings.txt (with fullscreen) and restored at start-up
+    float winSaveT = -1.f;        // > 0: the window was just resized; settings are written when this runs out
     bool packSkin = false;  // while the pack is drawn: tan and copper panels with dark text (the inventory look), applied by panel/button/text
     struct SkinScope {  // switches the pack skin on for a scope
         bool& f;
@@ -981,6 +983,7 @@ struct Game {
     void saveSettings();
     void loadSettings();
     bool readHiResSetting();
+    void readWindowSetting(int& w, int& h, bool& fs);
     std::string keyName(int act) const;
     void rebindKey(SDL_Scancode sc);
     void openSettings();
