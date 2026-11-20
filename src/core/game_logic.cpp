@@ -17,7 +17,7 @@ bool Game::init(bool headless) {
         return false;
     }
     // the window: the size it had last time (settings.txt), or 1200x675 the first time, shrunk to fit the screen's usable area
-    int ww = 1200, wh = 675;
+    int ww = 1600, wh = 900;  // (shrunk below to fit a smaller screen)
     bool wantFs = false;
     if (!headless) {
         readWindowSetting(ww, wh, wantFs);
@@ -35,7 +35,8 @@ bool Game::init(bool headless) {
         fprintf(stderr, "window failed: %s\n", SDL_GetError());
         return false;
     }
-    LS = readHiResSetting() ? 2 : 1;  // hi-res option (settings.txt): decides how the sprites and the canvas are built below
+    LS = readHiResSetting() ? 2 : 1;
+    cfg.hiRes = LS > 1;  // hi-res option (settings.txt): decides how the sprites and the canvas are built below
     if (!headless) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
     if (!ren) {
