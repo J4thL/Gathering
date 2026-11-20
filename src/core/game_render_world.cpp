@@ -4,11 +4,94 @@
 #include "core/logic_util.hpp"
 
 
+// ================================================================= ground edge blending
+// which ground tiles blend into each other (tile_edges.hpp); everything else (water, ice, cliffs, interiors) keeps its hard edge
+static int blendClass(uint8_t t) {
+    switch (t) {
+        case T_GRASS: return BL_GRASS;
+        case T_DARK: return BL_DARK;
+        case T_LEAF: return BL_LEAF;
+        case T_NEEDLES: return BL_NEEDLES;
+        case T_MOSS: return BL_MOSS;
+        case T_BANK: return BL_BANK;
+        case T_ROOTS: return BL_NEEDLES;  // (never generated any more; an old map would show needles)
+        case T_DIRT: return BL_DIRT;
+        case T_SAND: return BL_SAND;
+        case T_DUNE: return BL_DUNE;
+        case T_MUD: return BL_MUD;
+        case T_SNOW: return BL_SNOW;
+        case T_SNOWP: return BL_SNOWP;
+        case T_STONE: return BL_STONE;
+        case T_ICE: return BL_ICE;  // never grows over anything (lowest priority, no texture of its own to grow), only receives the snow round a lake
+        default: return -1;
+    }
+}
+// draws, over tile (tx, ty), the texture of every neighbouring ground type of a higher priority, grown a few pixels into it
+void Game::blendEdges(int tx, int ty, int sx, int sy, int cls, uint32_t h) {
+    static const int DX[8] = {0, 1, 0, -1, 1, 1, -1, -1}, DY[8] = {-1, 0, 1, 0, -1, 1, 1, -1};  // N E S W NE SE SW NW
+    int nc[8], present = 0;
+    for (int d = 0; d < 8; d++) {
+        const int nx = tx + DX[d], ny = ty + DY[d];
+        nc[d] = (nx >= 0 && ny >= 0 && nx < MW && ny < MH) ? blendClass(world.tile[ny][nx]) : -1;
+        if (nc[d] >= 0 && BLEND_PRIO[nc[d]] > BLEND_PRIO[cls]) present |= 1 << nc[d];
+    }
+    if (!present) return;
+    for (int pass = 0; pass < BL_COUNT; pass++) {  // lowest priority first, so the highest ends up on top
+        int c = -1;
+        for (int k = 0; k < BL_COUNT; k++)
+            if ((present >> k & 1) && (c < 0 || BLEND_PRIO[k] < BLEND_PRIO[c])) c = k;
+        if (c < 0) break;
+        present &= ~(1 << c);
+        int cfg = 0;
+        for (int d = 0; d < 8; d++)
+            if (nc[d] == c) cfg |= 1 << d;
+        if (const Spr* s = A.blend.get(ren, c, (int)(h % 7), cfg, (int)((h >> 5) & 3))) sprS(*s, sx, sy);
+    }
+}
+
 // ================================================================= world
 void Game::renderWorld(bool) {
     int tx0 = std::max(0, camX / TS), ty0 = std::max(0, camY / TS);
     int tx1 = std::min(MW - 1, (camX + LW) / TS), ty1 = std::min(MH - 1, (camY + LH) / TS);
     int wf = (int)(timeAcc * 2.4f);
+    // wet = water of any depth (a lake of any depth or a brook); off the map counts as water
+    auto wetT = [&](int x, int y) { return x < 0 || y < 0 || x >= MW || y >= MH || tileLake(world.tile[y][x]) || world.tile[y][x] == T_SHALLOW; };
+    // water: WaterArt (sprites_forest.hpp) bakes every tile from the depth of its neighbourhood: the author's ripples in four depths of light blue,
+    // foam and a ragged waterline where it meets land. Depth follows the game's own: a brook / shallows are light, T_LAKE_MID is the author's
+    // normal blue, T_WATER (deep) is the deepest; the water in between blends smoothly.
+    const int waterFrame = (int)(timeAcc * 1.5f) & (WATER_FRAMES - 1);
+    auto depthAt = [&](int x, int y) -> float {
+        if (x < 0 || y < 0 || x >= MW || y >= MH) return 3.4f;
+        switch (world.tile[y][x]) {
+            case T_SHALLOW: return 0.5f;
+            case T_LAKE_SHALLOW: return 0.7f;
+            case T_LAKE_MID: return 1.75f;
+            case T_WATER: return 3.4f;
+            default: return 0.f;  // dry land
+        }
+    };
+    static const int NDX[8] = {0, 1, 1, 1, 0, -1, -1, -1}, NDY[8] = {-1, -1, 0, 1, 1, 1, 0, -1};  // N, NE, E, SE, S, SW, W, NW
+    auto waterTile = [&](int tx, int ty, int sx, int sy) {
+        float dep[3][3];
+        for (int j = 0; j < 3; j++)
+            for (int i = 0; i < 3; i++) dep[j][i] = depthAt(tx + i - 1, ty + j - 1);
+        int land = 0;  // neighbours that are dry land
+        for (int k = 0; k < 8; k++)
+            if (!wetT(tx + NDX[k], ty + NDY[k])) land |= 1 << k;
+        if (land) sprS(A.bankWet[hash2(tx - COX, ty - COY, 5) % 3], sx, sy);  // the wet bank is the bed the shallows show through
+        sprS(*A.water.get(ren, tx, ty, waterFrame, dep, land, world.tile[ty][tx] == T_SHALLOW), sx, sy);
+    };
+    // the bank round the water: dry ground touching water gets wet earth fading out into it (WaterArt::bakeBank)
+    auto bankOverlay = [&](int tx, int ty, int sx, int sy) {
+        const uint8_t tt = world.tile[ty][tx];
+        if (tt != T_GRASS && tt != T_DARK && tt != T_LEAF && tt != T_NEEDLES && tt != T_MOSS && tt != T_ROOTS && tt != T_DIRT && tt != T_SAND && tt != T_MUD) return;
+        int wb = 0;
+        for (int k = 0; k < 8; k++) {
+            const int x = tx + NDX[k], y = ty + NDY[k];
+            if (x >= 0 && y >= 0 && x < MW && y < MH && (tileLake(world.tile[y][x]) || world.tile[y][x] == T_SHALLOW)) wb |= 1 << k;
+        }
+        if (wb) sprS(*A.water.getBank(ren, tx, ty, wb), sx, sy);
+    };
     for (int ty = ty0; ty <= ty1; ty++)
         for (int tx = tx0; tx <= tx1; tx++) {
             int sx = tx * TS - camX, sy = ty * TS - camY;
@@ -20,6 +103,12 @@ void Game::renderWorld(bool) {
                     if (soilPatchAt(world, tx, ty)) sprS(A.soilPatch[(h >> 7) % SOIL_PATCHES], sx + (int)((h >> 11) % 3) - 1, sy + (int)((h >> 13) % 3) - 1);
                     break;
                 }
+                case T_LEAF: sprS(A.leaf[h % 3], sx, sy); break;
+                case T_NEEDLES: sprS(A.needles[h % 3], sx, sy); break;
+                case T_MOSS: sprS(A.moss[h % 3], sx, sy); break;
+                case T_ROOTS: sprS(A.needles[h % 3], sx, sy); break;
+                case T_BANK: sprS((wetT(tx, ty - 1) || wetT(tx, ty + 1) || wetT(tx - 1, ty) || wetT(tx + 1, ty) ? A.bankWet : A.bank)[h % 3], sx, sy); break;  // wet earth right at the waterline
+                case T_SHALLOW: waterTile(tx, ty, sx, sy); break;
                 case T_DIRT: {  // patches of light, medium and dark soil; a few tiles are rocky
                     const int tone = (int)((hash2(tx / 6, ty / 6, 11) + ((h % 7) == 0 ? 1u : 0u)) % 3);
                     sprS((h % 9) == 0 ? A.dirtRock[tone][(h >> 4) & 1] : A.dirtTone[tone][(h >> 3) & 3], sx, sy);
@@ -72,42 +161,40 @@ void Game::renderWorld(bool) {
                 case T_RUG: sprS(A.T.rug[std::max(0, interior)], sx, sy); break;
                 case T_MAT: sprS(A.T.mat, sx, sy); break;
                 case T_CLIFF: {
+                    if (world.mapId == B_SNOW) {  // snow-capped brown rock: the top tile of a ridge carries the snow, the tile below it is bare face
+                        sprS(world.tileIs(tx, ty - 1, T_CLIFF) ? A.B.snowCliff[h % 3] : A.B.snowCliffCap[h % 3], sx, sy);
+                        if (!world.tileIs(tx, ty + 1, T_CLIFF)) fillRect(sx, sy + TS - 3, TS, 3, HEX(0x2e2a34));
+                        break;
+                    }
                     sprS(A.B.cliff[h % 3], sx, sy);
                     if (!world.tileIs(tx, ty - 1, T_CLIFF)) fillRect(sx, sy, TS, 2, HEX(0x9b9eb2));
                     if (!world.tileIs(tx, ty + 1, T_CLIFF)) fillRect(sx, sy + TS - 3, TS, 3, HEX(0x2c2d3a));
                     break;
                 }
-                case T_WATER: {
-                    sprS(A.waterW[(tx * TS + (int)(timeAcc * 3.f)) & (WATER_TEX_W - 1)], sx, sy);  // the water texture drifts sideways
-                    u32 foam = RGBA(235, 248, 255, 150);
-                    if (!world.water(tx, ty - 1)) sprS(A.bankW[tx & 3], sx, sy);  // land to the north: a dirt bank and a stone ledge
-                    if (!world.water(tx, ty + 1)) fillRect(sx, sy + TS - 2, TS, 2, foam);
-                    if (world.water(tx, ty - 1)) {  // (a bank tile has no side foam)
-                        if (!world.water(tx - 1, ty)) fillRect(sx, sy, 2, TS, foam);
-                        if (!world.water(tx + 1, ty)) fillRect(sx + TS - 2, sy, 2, TS, foam);
-                    }
-                    break;
-                }
+                case T_WATER: case T_LAKE_MID: case T_LAKE_SHALLOW: waterTile(tx, ty, sx, sy); break;
             }
+            if (const int bc = blendClass(world.tile[ty][tx]); bc >= 0) blendEdges(tx, ty, sx, sy, bc, h);  // soft borders (tile_edges.hpp)
+            bankOverlay(tx, ty, sx, sy);
             if (ty > 0 && !world.solid[ty][tx]) {  // ground standing higher than the tile below it: its face shows along the top of that tile
                 const int rk = tileRank(world.tile[ty][tx]), upRk = tileRank(world.tile[ty - 1][tx]);
                 if (rk >= 0 && upRk > rk) sprS(A.lip[tileLipStyle(world.tile[ty - 1][tx])][(tx * 7 + ty * 3) & 3], sx, sy);
             }
+            if (wet > 0.02f && wetGroundTile(world.tile[ty][tx])) fillRect(sx, sy, TS, TS, RGBA(24, 34, 56, (int)(55 * wet)));  // rain-soaked ground is darker
         }
+    drawFootprints();  // what walking left behind (game_prints.cpp)
+    drawTracks();      // animal tracks the hunter can read (game_tracks.cpp)
+    drawBossTelegraph();
     // blood stains
     if (inHomestead()) drawHomesteadGround();
     for (auto& d : decals) {
         float a = std::min(1.f, (d.life - d.t) / 8.f) * 0.9f;
         sprW(A.blood[d.size], d.p.x, d.p.y, false, a);
     }
-    drawTracks();
-    drawBossTelegraph();
     // thrown weapons lying on the ground
     for (auto& it : items) {
         const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
         if (left < DESPAWN_WARN && despawnBlink(timeAcc + it.pos.x * 0.01f)) continue;  // about to vanish: blinks
-        sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f);
-        if (it.item >= 0) icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON);  // a stack the hunter dropped: a small icon, not a whole tile
+        if (it.item >= 0) { sprW(A.shadowSoft, it.pos.x, it.pos.y, false, 0.6f); icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON); }  // a stack the hunter dropped: a small icon, not a whole tile
         else sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
         float g = fmodf(timeAcc + it.pos.x * 0.01f, 1.8f);
         if (g < 0.25f) {
@@ -131,7 +218,6 @@ void Game::renderWorld(bool) {
         const bool flipC = !(dc && rb) && !vert && (a.face8 == F_W || (a.face8 != F_E && a.face < 0));
         const float corpseLeft = (a.tier == TR_LEGENDARY ? CORPSE_LIFE_LEGEND : CORPSE_LIFE) - a.deadT;
         const float blink = (a.dead && a.fade >= 1.f && corpseLeft < DESPAWN_WARN && despawnBlink(timeAcc)) ? 0.45f : 1.f;  // about to vanish: pulses
-        sprW(A.shadow[1], a.pos.x, a.pos.y + 2, false, 0.7f * a.fade * blink);
         sprW(s, a.pos.x, a.pos.y - ((dc && rb) ? 0 : 6), flipC, a.fade * blink);
         if (a.flash > 0) {
             Spr f = s;
@@ -153,25 +239,43 @@ void Game::renderWorld(bool) {
         const Spr* s = nullptr;
         bool sway = true;
         float swayAmt = 6.f, alpha = 1.f;
+        bool squash = false;  // round bushes: no idle sway, a springy squash when brushed
         switch (d.kind) {
             case D_FLOWER0: case D_FLOWER1: case D_FLOWER2: s = &A.flower[d.kind]; break;
             case D_TUFT: s = &A.tuft; break;
             case D_MUSHROOM: s = &A.mushroom; sway = false; break;
-            case D_PEBBLES: s = &A.pebbleSet[(std::abs((int)(d.x / 9.f)) + 3 * std::abs((int)(d.y / 9.f))) % ROCK_LOOKS]; sway = false; break;
-            case D_BUSH0: case D_BUSH1: s = &A.bush[d.kind - D_BUSH0]; sway = false; break;
+            case D_PEBBLES: s = &A.pebbleSet[rockTheme()][(std::abs((int)(d.x / 9.f)) + 3 * std::abs((int)(d.y / 9.f))) % ROCK_LOOKS]; sway = false; break;
+            case D_BUSH0: case D_BUSH1: {
+                s = world.mapId == B_HOMESTEAD ? (d.kind == D_BUSH1 ? &A.homeBush : &A.bush[0]) : rockTheme() == B_SWAMP ? &A.B.swampBush[d.kind - D_BUSH0] : rockTheme() == B_SNOW ? &A.B.snowBush[d.kind - D_BUSH0] : rockTheme() == B_MOUNTAIN ? &A.B.mountainBush[d.kind - D_BUSH0] : &A.bush[d.kind - D_BUSH0];
+                // twig and frond bushes stir in the wind and lean away from whoever runs through them; the round ones stay put and
+                // squash a little when brushed (see below)
+                const int bv = d.kind - D_BUSH0, bt = world.mapId == B_HOMESTEAD ? -1 : rockTheme();
+                const bool twiggy = bt == B_SWAMP ? bv == 1 : bt == B_SNOW ? true : bt == B_MOUNTAIN ? bv == 1 : false;
+                sway = twiggy;
+                squash = !twiggy;
+                swayAmt = bt == B_SWAMP ? 3.5f : 2.5f;
+                break;
+            }
             case D_DRYBUSH: s = &A.B.drybush; swayAmt = 3.f; break;
             case D_SKULL: s = &A.B.skull; sway = false; break;
-            case D_SANDTUFT: s = &A.B.sandtuft; break;
+            case D_DROCK0: case D_DROCK1: case D_DROCK2: case D_DROCK3: s = &A.desertDecor[d.kind - D_DROCK0]; sway = false; break;
+            case D_SANDTUFT: s = &A.B.sandtuft; swayAmt = 1.5f; break;  // the agave: stiff leaves, so only a hint of sway
             case D_REEDS0: case D_REEDS1: s = &A.B.reeds[d.kind - D_REEDS0]; swayAmt = 4.f; break;
             case D_LILY: s = &A.B.lily; sway = false; break;
             case D_BUBBLES: s = &A.B.bubbles; sway = false; alpha = fmaxf(0.f, sinf(timeAcc * 1.3f + d.ph * 3.f)) * 0.9f + 0.1f; break;
             case D_DRIFT: s = &A.B.drift; sway = false; break;
             case D_FROSTTUFT: s = &A.B.frosttuft; swayAmt = 3.f; break;
             case D_ALPINE: s = &A.B.alpine; break;
+            case D_STUMP: s = &A.R.stump; sway = false; break;
+            case D_VIOLET: case D_POPPY: s = &A.flowerX[d.kind - D_VIOLET]; break;
             default: s = &A.B.gravel; sway = false; break;
         }
-        float ang = sway ? sinf(timeAcc * 1.9f + d.ph + d.x * 0.02f) * swayAmt + grassBend((size_t)(it - world.decor.begin())) : 0.f;  // plus the lean from whoever just walked through
-        sprW(*s, d.x, d.y, false, alpha, ang, true);
+        float ang = sway ? sinf(windT * 1.9f + d.ph + d.x * 0.02f) * swayAmt * (0.8f + wind) + grassBend((size_t)(it - world.decor.begin())) : 0.f;  // plus the lean from whoever just walked through
+        if (squash) {  // the bend is the lean a walker's kick would give a tuft: a bush turns it into a short squat-and-spring and a slight tilt
+            const float bend = grassBend((size_t)(it - world.decor.begin())), k = std::min(1.f, fabsf(bend) / 30.f);
+            sprWSquash(*s, d.x, d.y, 1.f + 0.10f * k, 1.f - 0.12f * k, bend * 0.12f, alpha);
+        } else
+            sprW(*s, d.x, d.y, false, alpha, ang, true);
     }
     // resource nodes: a soft shadow, the plant or ore, and a slow glint so they read as "pick me"
     for (auto it = std::lower_bound(world.nodes.begin(), world.nodes.end(), camY - 10.f, yLess); it != world.nodes.end() && it->y <= camY + LH + 30; ++it) {
@@ -184,7 +288,6 @@ void Game::renderWorld(bool) {
         }
         const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
         const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
-        sprW(A.shadow[0], n.x + shk, n.y, false, 0.55f * grow);
         bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && n.kind != RN_VOIDSTONE && (n.kind < RN_COAL || n.kind >= RN_BERRY);
         sprW(n.kind >= RN_VOIDSTONE ? A.D.node[5 + n.kind - RN_VOIDSTONE] : n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
@@ -242,7 +345,22 @@ void Game::renderWorld(bool) {
     // pebbles scattered round the foot of a small rock or a boulder, like the grass round a tree: which pile and which way round it lies is fixed per rock
     auto pebblesAround = [&](const Prop& pr) {
         const int tx = (int)(pr.x / TS), ty = (int)(pr.y / TS);
-        sprW(A.pebbleSet[std::abs(tx * 11 + ty * 5) % ROCK_LOOKS], pr.x, pr.y + 2, ((tx + ty) & 1) != 0);
+        sprWG(A.pebbleSet[rockTheme()][std::abs(tx * 11 + ty * 5) % ROCK_LOOKS], pr.x, pr.y + 2, ((tx + ty) & 1) != 0);
+    };
+    // grass round the foot of a minable rock on grassland, swaying like the grass round a tree; it stays when the rock is broken
+    // trees on leaf litter, needles or bare roots have no grass skirt round their roots
+    auto bareFloor = [&](const Prop& pr) {
+        const uint8_t gt = world.tileAt(pr.x, pr.y - 1.f);
+        return gt == T_LEAF || gt == T_NEEDLES || gt == T_ROOTS;
+    };
+    auto grassAround = [&](const Prop& pr) {
+        const int tx = std::min(MW - 1, std::max(0, (int)(pr.x / TS))), ty = std::min(MH - 1, std::max(0, (int)((pr.y - 1.f) / TS)));
+        const uint8_t gt = world.tile[ty][tx];
+        if (gt != T_GRASS && gt != T_DARK && gt != T_MOSS) return;  // not on sand, snow, stone, bare forest floors or the interior floors
+        const int kind = rockClass(pr.kind);
+        const int look = rockLookOf(pr);
+        const int fr = ((int)(windT * 5.f + pr.ph * ROCK_GRASS_FRAMES / 6.2832f) % ROCK_GRASS_FRAMES + ROCK_GRASS_FRAMES) % ROCK_GRASS_FRAMES;
+        sprWG(A.rockGrass[kind][look][fr], pr.x, pr.y + 2);
     };
     for (auto& e : dl) {
         if (e.t == 0) {
@@ -253,14 +371,14 @@ void Game::renderWorld(bool) {
                 const HState& hs = propSt[e.i];
                 if (hs.gone || hs.fade > 0) {  // felled tree / broken rock, then a sprout while it grows back
                     const bool tree = RES[rs].cls == RCL_TREE;
-                    sprW(A.shadow[0], pr.x, pr.y, false, 0.5f);
-                    sprW(tree ? A.R.stump : A.R.rubble, pr.x, pr.y);
-                    if (!tree && (pr.kind == P_ROCK1 || pr.kind == P_BOULDER)) pebblesAround(pr);  // the pebbles stay where the rock was
+                    sprW(tree ? A.R.stump : (isRockKind(pr.kind) ? A.rubbleT[rockTheme()] : A.R.rubble), pr.x, pr.y);
+                    if (!tree && rockClass(pr.kind) >= 1) pebblesAround(pr);  // the pebbles stay where the rock was
+                    if (!tree && isRockKind(pr.kind)) grassAround(pr);
                     if (tree && pr.kind == P_SNOWPINE)  // the frosty grass stays around the stump too
-                        sprW(A.snowGrass[((int)(timeAcc * SNOW_SPRUCE_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
+                        sprWG(A.snowGrass[((int)(windT * SNOW_SPRUCE_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
                     if (tree && (pr.kind == P_OAK0 || pr.kind == P_OAK1 || pr.kind == P_PINE)) {  // the grass stays around the stump
                         const int gset = pr.kind == P_PINE ? GRASS_SPRUCE : OAK_VAR[oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS))].grass;
-                        sprW(A.treeGrass[gset][((int)(timeAcc * OAK_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
+                        if (!bareFloor(pr)) sprWG(A.treeGrass[gset][((int)(windT * OAK_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
                     }
                     if (!hs.gone && tree) sprW(A.R.sprout, pr.x, pr.y - 2, false, 0.4f + 0.6f * (1.f - hs.fade / REGROW_FADE));
                     continue;
@@ -271,122 +389,111 @@ void Game::renderWorld(bool) {
                 case P_OAK0: case P_OAK1:
                     {
                         const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));  // which look this tree has, fixed per tree
-                        sprW(A.oakShadow[ov], pr.x + OAK_VAR[ov].sdx, pr.y + 1 + OAK_VAR[ov].sdy, false, 0.8f);
-                        const int fr = ((int)(timeAcc * OAK_FPS + pr.ph * OAK_FRAMES / 6.2832f) % OAK_FRAMES + OAK_FRAMES) % OAK_FRAMES;
+                        const int fr = ((int)(windT * OAK_FPS + pr.ph * OAK_FRAMES / 6.2832f) % OAK_FRAMES + OAK_FRAMES) % OAK_FRAMES;
                         sprW(A.oak[ov][fr], pr.x, pr.y + 1);
-                        sprW(A.treeGrass[OAK_VAR[ov].grass][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                        if (!bareFloor(pr)) sprWG(A.treeGrass[OAK_VAR[ov].grass][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
                     }
                     break;
                 case P_PINE:
-                    sprW(A.pineShadow, pr.x + PINE_SDX, pr.y + 1 + PINE_SDY, false, 0.8f);
                     {
-                        const int fr = ((int)(timeAcc * PINE_FPS + pr.ph * PINE_FRAMES / 6.2832f) % PINE_FRAMES + PINE_FRAMES) % PINE_FRAMES;
+                        const int fr = ((int)(windT * PINE_FPS + pr.ph * PINE_FRAMES / 6.2832f) % PINE_FRAMES + PINE_FRAMES) % PINE_FRAMES;
                         sprW(A.pine[fr], pr.x, pr.y + 1);
-                        sprW(A.treeGrass[GRASS_SPRUCE][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                        if (!bareFloor(pr)) sprWG(A.treeGrass[GRASS_SPRUCE][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
                     }
                     break;
-                case P_ROCK0: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.rockTiny[rockLookOf(pr)], pr.x, pr.y); break;
-                case P_ROCK1: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); pebblesAround(pr); sprW(A.rockSmall[rockLookOf(pr)], pr.x, pr.y); break;
+                case P_ROCK0: case P_ROCK1: case P_BOULDER: case P_SANDBOULDER: case P_SANDROCK0: case P_SANDROCK1: case P_SNOWROCK:
+                    {  // every biome's rocks are the same pictures in the biome's colours
+                        const int rc = rockClass(pr.kind), look = rockLookOf(pr), th = rockTheme();
+                        if (rc >= 1) pebblesAround(pr);
+                        sprW(rc == 0 ? A.rockTiny[th][look] : rc == 1 ? A.rockSmall[th][look] : A.rockLarge[th][look], pr.x, pr.y);
+                        grassAround(pr);
+                    }
+                    break;
                 case P_HUT: sprW(A.hut, pr.x, pr.y); break;
                 case P_FIRE: sprW(A.fire[(int)(timeAcc * 9) % 3], pr.x, pr.y); break;
-                case P_CRATE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.crate, pr.x, pr.y); break;
-                case P_BARREL: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.barrel, pr.x, pr.y); break;
+                case P_CRATE: sprW(A.crate, pr.x, pr.y); break;
+                case P_BARREL: sprW(A.barrel, pr.x, pr.y); break;
                 case P_SIGN: sprW(A.sign, pr.x, pr.y); break;
                 // ---- the town
                 case P_BLD0: case P_BLD1: case P_BLD2: case P_BLD3: case P_BLD4: case P_BLD5:
-                    sprW(A.shadow[2], pr.x + 6, pr.y - 1, false, 0.55f);
                     sprW(A.T.bld[pr.kind - P_BLD0], pr.x, pr.y);
                     break;
-                case P_FURN: sprW(A.shadow[0], pr.x, pr.y, false, 0.5f); sprW(A.T.furn[std::max(0, std::min(FU_COUNT - 1, (int)pr.ph))], pr.x, pr.y); break;
+                case P_FURN: sprW(A.T.furn[std::max(0, std::min(FU_COUNT - 1, (int)pr.ph))], pr.x, pr.y); break;
                 case P_LAMP: sprW(A.T.lamp, pr.x, pr.y); break;
                 case P_FENCE: sprW(A.T.fence, pr.x, pr.y); break;
-                case P_BENCH: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.T.bench, pr.x, pr.y); break;
-                case P_PLANTER: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.T.planter, pr.x, pr.y); break;
-                case P_WELL: sprW(A.shadow[1], pr.x, pr.y, false, 0.6f); sprW(A.T.well, pr.x, pr.y); break;
+                case P_BENCH: sprW(A.T.bench, pr.x, pr.y); break;
+                case P_PLANTER: sprW(A.T.planter, pr.x, pr.y); break;
+                case P_WELL: sprW(A.T.well, pr.x, pr.y); break;
                 // ---- desert
-                case P_CACTUS0: case P_CACTUS1: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cactus[pr.kind - P_CACTUS0], pr.x, pr.y); break;
+                case P_CACTUS0: case P_CACTUS1: sprW(A.B.cactus[pr.kind - P_CACTUS0], pr.x, pr.y); break;
                 case P_PALM:
-                    sprW(A.shadow[2], pr.x + 5, pr.y - 1, false, 0.8f);
-                    sprW(A.B.palm, pr.x, pr.y + 1, false, 1.f, sinf(timeAcc * 0.9f + pr.ph) * 0.9f, true);
+                    sprW(A.B.palm, pr.x, pr.y + 1, false, 1.f, sinf(windT * 0.9f + pr.ph) * 0.9f, true);
                     break;
-                case P_SANDROCK0: case P_SANDROCK1: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.sandrock[pr.kind - P_SANDROCK0], pr.x, pr.y); break;
-                case P_COLUMN: sprW(A.shadow[0], pr.x + 3, pr.y, false, 0.7f); sprW(A.B.column, pr.x, pr.y); break;
-                case P_RUINWALL: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.B.ruinwall, pr.x, pr.y); break;
-                case P_ARCH: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.B.arch, pr.x, pr.y); break;
+                case P_COLUMN: sprW(A.B.column, pr.x, pr.y); break;
+                case P_RUINWALL: sprW(A.B.ruinwall, pr.x, pr.y); break;
+                case P_ARCH: sprW(A.B.arch, pr.x, pr.y); break;
                 // ---- swamp
                 case P_DEADTREE0: case P_DEADTREE1:
                     {
-                        sprW(A.deadSpruceShadow, pr.x + DEAD_SPRUCE_SDX, pr.y + 1 + DEAD_SPRUCE_SDY, false, 0.7f);
-                        const int fr = ((int)(timeAcc * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
+                        const int fr = ((int)(windT * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
                         sprW(A.deadSpruce[fr], pr.x, pr.y + 1, pr.kind == P_DEADTREE1);  // the second look is the mirror image
                     }
                     break;
-                case P_LOG: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); sprW(A.B.log, pr.x, pr.y); break;
+                case P_LOG: sprW(A.B.log, pr.x, pr.y); break;
                 case P_STILTHUT: sprW(A.B.stilthut, pr.x, pr.y); break;
-                case P_WITCHTREE: sprW(A.shadow[2], pr.x + 4, pr.y - 1, false, 0.8f); sprW(A.B.witchtree, pr.x, pr.y); break;
-                case P_GRAVE: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.grave, pr.x, pr.y); break;
+                case P_WITCHTREE: sprW(A.B.witchtree, pr.x, pr.y); break;
+                case P_GRAVE: sprW(A.B.grave, pr.x, pr.y); break;
                 // ---- snow
                 case P_SNOWPINE:
                     {
-                        sprW(A.snowSpruceShadow, pr.x + SNOW_SPRUCE_SDX, pr.y + 1 + SNOW_SPRUCE_SDY, false, 0.7f);
-                        const int fr = ((int)(timeAcc * SNOW_SPRUCE_FPS + pr.ph * SNOW_SPRUCE_FRAMES / 6.2832f) % SNOW_SPRUCE_FRAMES + SNOW_SPRUCE_FRAMES) % SNOW_SPRUCE_FRAMES;
+                        const int fr = ((int)(windT * SNOW_SPRUCE_FPS + pr.ph * SNOW_SPRUCE_FRAMES / 6.2832f) % SNOW_SPRUCE_FRAMES + SNOW_SPRUCE_FRAMES) % SNOW_SPRUCE_FRAMES;
                         sprW(A.snowSpruce[fr], pr.x, pr.y + 1);
-                        sprW(A.snowGrass[fr % GRASS_FRAMES], pr.x, pr.y + 1);  // frosty grass around the roots, over the trunk
+                        sprWG(A.snowGrass[fr % GRASS_FRAMES], pr.x, pr.y + 1);  // frosty grass around the roots, over the trunk
                     }
                     break;
                 case P_BARETREE:
                     {
-                        sprW(A.deadSpruceShadow, pr.x + DEAD_SPRUCE_SDX, pr.y + 1 + DEAD_SPRUCE_SDY, false, 0.7f);
-                        const int fr = ((int)(timeAcc * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
+                        const int fr = ((int)(windT * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
                         sprW(A.deadSpruce[fr], pr.x, pr.y + 1, ((int)pr.x >> 4) & 1);  // mirrored on every other tile, so they differ
                     }
                     break;
-                case P_SNOWROCK: {
-                    int v = ((int)pr.x >> 4) & 1;
-                    sprW(A.shadow[1], pr.x, pr.y, false, 0.6f);
-                    sprW(A.B.snowrock[v], pr.x, pr.y);
-                    break;
-                }
                 case P_CRYSTAL: {
-                    sprW(A.shadow[0], pr.x, pr.y, false, 0.6f);
                     sprW(A.B.crystal, pr.x, pr.y);
                     float tw = fmodf(timeAcc * 1.1f + pr.ph, 2.6f);
                     if (tw < 0.2f) fillRect((int)pr.x - camX + 1, (int)pr.y - camY - 18, 1, 3, RGBA(255, 255, 255, 230));
                     break;
                 }
                 case P_ICEHUT: sprW(A.B.icehut, pr.x, pr.y); break;
-                case P_CAIRN: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.cairn, pr.x, pr.y); break;
+                case P_CAIRN: sprW(A.B.cairn, pr.x, pr.y); break;
                 // ---- mountain
                 case P_CAVE: sprW(A.B.cave, pr.x, pr.y); break;
-                case P_BOULDER: sprW(A.shadow[1], pr.x, pr.y, false, 0.7f); pebblesAround(pr); sprW(A.rockLarge[rockLookOf(pr)], pr.x, pr.y); break;
                 case P_STANDING: {
-                    sprW(A.shadow[0], pr.x + 2, pr.y, false, 0.7f);
                     sprW(A.B.standing, pr.x, pr.y);
                     float pulse = 0.5f + 0.5f * sinf(timeAcc * 1.8f + pr.ph);
                     fillRect((int)pr.x - camX - 1, (int)pr.y - camY - 21, 3, 1, RGBA(127, 214, 232, (int)(120 + 120 * pulse)));
                     break;
                 }
-                case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.shadow[0], pr.x, pr.y, false, 0.7f); sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
+                case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
                 // ---- the mine and the frozen dungeon
-                case P_HPORTAL: sprW(A.shadow[2], pr.x, pr.y, false, 0.5f); sprW(A.H.portal[((int)(timeAcc * 6.f)) & 3], pr.x, pr.y); break;
-                case P_HMARKET: sprW(A.shadow[2], pr.x + 4, pr.y, false, 0.5f); sprW(A.H.market, pr.x, pr.y); break;
+                case P_HPORTAL: sprW(A.H.portal[((int)(timeAcc * 6.f)) & 3], pr.x, pr.y); break;
+                case P_HMARKET: sprW(A.H.market, pr.x, pr.y); break;
                 case P_MINEGATE: sprW(A.D.mineGate, pr.x, pr.y); break;
                 case P_FROSTGATE: sprW(A.D.frostGate, pr.x, pr.y); break;
                 case P_BEAM: break;  // drawn over the heads (below)
-                case P_MINECART: sprW(A.shadow[1], pr.x, pr.y, false, 0.6f); sprW(A.D.cart, pr.x, pr.y); break;
+                case P_MINECART: sprW(A.D.cart, pr.x, pr.y); break;
                 case P_TORCH: sprW(A.D.torch[((int)(timeAcc * 8.f + pr.ph * 3.f)) % 3], pr.x, pr.y); break;
-                case P_CAVECRYSTAL: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.crystalViolet[(int)pr.ph % 3], pr.x, pr.y); break;
-                case P_ICECRYSTAL: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.crystalIce[(int)pr.ph % 3], pr.x, pr.y); break;
-                case P_STATUE: sprW(A.shadow[0], pr.x + 2, pr.y, false, 0.7f); sprW(A.D.statue[(int)pr.ph % 3], pr.x, pr.y); break;
-                case P_PILLAR: sprW(A.shadow[0], pr.x + 3, pr.y, false, 0.7f); sprW(A.D.pillar, pr.x, pr.y); break;
+                case P_CAVECRYSTAL: sprW(A.D.crystalViolet[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_ICECRYSTAL: sprW(A.D.crystalIce[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_STATUE: sprW(A.D.statue[(int)pr.ph % 3], pr.x, pr.y); break;
+                case P_PILLAR: sprW(A.D.pillar, pr.x, pr.y); break;
                 case P_STAIRS: sprW(A.D.stairs[(int)pr.ph & 1], pr.x, pr.y); break;
                 case P_EXIT: sprW(A.D.exitDoor[(int)pr.ph & 1], pr.x, pr.y); break;
                 case P_BOSSDOOR: sprW(A.D.bossDoor[pr.ph > 0.5f ? 1 : 0], pr.x, pr.y); break;
-                case P_EQUIP: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.equip[(int)pr.ph & 3], pr.x, pr.y); break;
+                case P_EQUIP: sprW(A.D.equip[(int)pr.ph & 3], pr.x, pr.y); break;
                 case P_DEBRIS: sprW(A.D.debris[(int)pr.ph % 3], pr.x, pr.y); break;
-                case P_SARCO: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.D.sarco, pr.x, pr.y); break;
-                case P_THRONE: sprW(A.shadow[2], pr.x, pr.y, false, 0.6f); sprW(A.D.throne, pr.x, pr.y); break;
-                case P_BRAZIER: sprW(A.shadow[0], pr.x, pr.y, false, 0.6f); sprW(A.D.brazier[((int)(timeAcc * 8.f + pr.ph * 2.f)) % 3], pr.x, pr.y); break;
+                case P_SARCO: sprW(A.D.sarco, pr.x, pr.y); break;
+                case P_THRONE: sprW(A.D.throne, pr.x, pr.y); break;
+                case P_BRAZIER: sprW(A.D.brazier[((int)(timeAcc * 8.f + pr.ph * 2.f)) % 3], pr.x, pr.y); break;
                 case P_BONES: sprW(A.D.bones[(int)pr.ph & 1], pr.x, pr.y); break;
                 case P_BANNER: sprW(A.D.banner, pr.x, pr.y); break;
                 case P_ICICLE: sprW(A.D.icicles, pr.x, pr.y); break;
@@ -405,24 +512,19 @@ void Game::renderWorld(bool) {
         } else if (e.t == 5) {
             const Structure& st = structs[e.i];
             const V2 c = st.pos();
-            sprW(A.shadow[0], c.x, c.y, false, 0.7f);
             if (st.kind == PL_CAMPFIRE) sprW(A.R.campfire[(int)(timeAcc * 9 + e.i) % 3], c.x, c.y);
             else sprW(A.R.chest, c.x, c.y);
         } else if (e.t == 1) {
-            sprW(A.shadow[0], world.keeper.x, world.keeper.y, false, 0.8f);
-            sprW(A.keeper[((int)(timeAcc * 1.6f)) & 1], world.keeper.x, world.keeper.y, p.pos.x < world.keeper.x);
+            sprWG(A.keeper[((int)(timeAcc * 1.6f)) & 1], world.keeper.x, world.keeper.y, p.pos.x < world.keeper.x, 0.75f);
         } else if (e.t == 6) {
             const World::Npc& n = world.npcs[e.i];
-            sprW(A.shadow[0], n.pos.x, n.pos.y, false, 0.8f);
-            sprW(A.T.npc[n.kind][((int)(timeAcc * 1.5f + e.i)) & 1], n.pos.x, n.pos.y, p.pos.x < n.pos.x);
+            sprWG(A.T.npc[n.kind][((int)(timeAcc * 1.5f + e.i)) & 1], n.pos.x, n.pos.y, p.pos.x < n.pos.x, 0.75f);
         } else if (e.t == 12) {
             const Villager& v = villagers[e.i];
-            sprW(A.shadow[0], v.pos.x, v.pos.y, false, 0.8f);
-            sprW(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], v.pos.x, v.pos.y, v.faceLeft);
+            sprWG(A.T.villager[v.look % 5][v.moving ? ((int)(v.animT * 8.f)) & 3 : 0], v.pos.x, v.pos.y, v.faceLeft, 0.75f);
         } else if (e.t == 4) {
-            sprW(A.shadow[0], world.questGiver.x, world.questGiver.y, false, 0.8f);
-            sprW(A.quester[elderMoving ? ((int)(elderAnimT * 5.f)) & 1 : ((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y,
-                 elderMoving ? elderFaceLeft : p.pos.x < world.questGiver.x);
+            sprWG(A.quester[elderMoving ? ((int)(elderAnimT * 5.f)) & 1 : ((int)(timeAcc * 1.3f)) & 1], world.questGiver.x, world.questGiver.y,
+                  elderMoving ? elderFaceLeft : p.pos.x < world.questGiver.x, 0.75f);
         } else if (e.t == 2) {
             const FacingView fv = facingView(p.face8);
             HAnimal* mount = p.dead ? nullptr : riddenMount();
@@ -441,16 +543,12 @@ void Game::renderWorld(bool) {
                     const int ms = mv ? AN_WALK : AN_IDLE;
                     const int mf = mv ? (int)(mountAnimT * 7.f) % std::max(1, ac->poses[ms]) : 0;
                     const Spr& msp = rb->s[2 * mount->tier][std::max(0, std::min((int)AV_VIEWS - 1, p.face8))][ms][std::min(mf, ac->poses[ms] - 1)];
-                    sprW(A.shadow[1], p.pos.x, p.pos.y, false, 0.8f);
                     if (msp.ok()) {
                         sprW(msp, p.pos.x, p.pos.y, false);
                         rise = std::max(6.f, std::min(44.f, 0.6f * msp.ay * msp.sc));  // the rider sits on the back, about 60% of the way up
                     }
                 }
             }
-            // the light comes from the upper left: one shadow shape for every pose, falling to the lower right
-            if (p.dead) sprW(A.shadow[1], p.pos.x, p.pos.y, false, 0.6f);
-            else if (!mount) sprW(A.shadowCast, p.pos.x - 1, p.pos.y, false, st == HS_RUN ? 0.85f : 1.f);
             if (p.dead) {
                 // stagger, sink to the knees, then topple over
                 const float fall = clampf((p.deadT - 0.32f) / 0.22f, 0.f, 1.f);
@@ -529,12 +627,12 @@ void Game::renderWorld(bool) {
             const Spr& s = *sp;
             if (a.tier == TR_LEGENDARY && !a.dead) {  // golden pulse so a legendary is easy to spot
                 float pulse = 0.35f + 0.2f * sinf(timeAcc * 3.f);
-                sprW(A.shadow[2], a.pos.x, a.pos.y - a.bodyH * 0.6f, false, pulse);
                 if (((int)(timeAcc * 6) + e.i) % 5 == 0)
                     fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
             }
-            sprW(A.shadow[std::min(2, D.shadow)], a.pos.x, a.pos.y, false, 0.9f * (1.f - clampf(a.air / 30.f, 0.f, 0.4f)));  // a high flyer's shadow is fainter
+            const bool shaded = shadeBegin(s, a.pos.x, a.pos.y, 0.75f);  // sampled on the ground, not up in the air
             sprW(s, a.pos.x, a.pos.y - hop, mirror);
+            if (shaded) shadeEnd(s);
             if (a.flash > 0) {
                 Spr f = s;
                 f.t = s.flash;
@@ -565,7 +663,6 @@ void Game::renderWorld(bool) {
     drawHsOverlay();
     // projectiles
     for (auto& pr : projs) {
-        sprW(A.shadow[0], pr.pos.x, pr.pos.y + 9, false, 0.45f);
         float ang = (pr.angle + pr.spin * (pr.travelled / pr.speed)) * 57.2958;
         sprW(pr.ammo >= 0 ? A.ammoWorld[pr.ammo] : A.wpnWorld[pr.wpn], pr.pos.x, pr.pos.y, false, 1.f, ang, true);
         if (pr.crit) fillRect((int)pr.pos.x - camX, (int)pr.pos.y - camY, 1, 1, RGBA(255, 200, 80, 220));

@@ -1,6 +1,7 @@
 // game_map.cpp - the full-map screen (M): the explored part of the current map, landmarks, gates and where to look next.
 #include <cstdio>
 #include "core/game.hpp"
+#include "npcs/town.hpp"
 #include "world/gates.hpp"
 
 // compass word for a direction (only used in the hint text)
@@ -117,7 +118,7 @@ void Game::drawWorldMap() {
             }
     auto sx = [&](float wx) { return ox + (int)(wx / TS / MM_DIV * K); };
     auto sy = [&](float wy) { return oy + (int)(wy / TS / MM_DIV * K); };
-    // the shop, the town's buildings and the elder (home only); a building's name shows while the mouse is over its icon
+    // the shop and the elder (home only)
     if (world.mapId == B_HOME) {
         mapIcon(MI_COIN, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
         text(sx(world.hut.x) + 6, sy(world.hut.y) - 3, "SHOP", C_GOLD);
@@ -168,9 +169,10 @@ void Game::drawWorldMap() {
     }
     for (auto& a : animals)  // animals the scouting companion sniffed out
         if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(sx(a.pos.x), sy(a.pos.y), 3, 3, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
-    // only a wounded quarry that bled out of sight is marked (a pulsing ring); ordinary kills are not
+    // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
+            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
                 fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);

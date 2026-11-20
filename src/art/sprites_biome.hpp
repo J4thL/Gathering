@@ -77,6 +77,23 @@ inline Img mkSnow(int v, Rng& r) {
     }
     return im;
 }
+// the soft pattern on the snowfields' ground: faint plus-shaped sparkles and small drifted blobs, a tone darker than the snow itself, so the
+// ground has a texture without getting busy. Added on top of the speckle tile with its own random numbers, so nothing else's art shifts.
+inline void snowTexture(Img& im, int variant, bool packed) {
+    Rng r(0x5a0b + variant * 977 + (packed ? 31 : 0));
+    const u32 plus = packed ? HEX(0xb4c6da) : HEX(0xcddbea), blob = packed ? HEX(0xc0d0e2) : HEX(0xd9e4f0), glint = packed ? HEX(0xf2f7fb) : HEX(0xffffff);
+    for (int i = 0; i < 3; i++) {  // drifted blobs: a lumpy 3 x 2 patch with a lit pixel
+        const int x = r.irange(1, 11), y = r.irange(2, 12);
+        for (int k = 0; k < 3; k++) im.set(x + k, y + (k == 1 ? 0 : 1), blob);
+        im.set(x + 1, y + 1, blob);
+        im.set(x + 1, y - 1 < 0 ? 0 : y - 1, blob);
+    }
+    for (int i = 0; i < 4; i++) {  // plus-shaped sparkles
+        const int x = r.irange(2, 13), y = r.irange(2, 13);
+        im.set(x, y, plus); im.set(x - 1, y, plus); im.set(x + 1, y, plus); im.set(x, y - 1, plus); im.set(x, y + 1, plus);
+        im.set(x, y, glint);
+    }
+}
 inline Img mkSnowPacked(int v, Rng& r) {
     Img im = mkSpeckleTile(HEX(0xd5e0ea), HEX(0xc0cfdd), HEX(0xe6eef5), 14, 8, r);
     for (int i = 0; i < 3 + v; i++) im.set(r.irange(0, 15), r.irange(0, 15), HEX(0x9d8f7c));  // trampled earth
@@ -108,6 +125,33 @@ inline Img mkStone(int v, Rng& r) {
     for (int i = 0; i < 3; i++) im.set(r.irange(1, 14), r.irange(1, 14), HEX(0x6f9a58));  // lichen
     return im;
 }
+// A cliff of the snowfields: warm brown rock in stacked, uneven blocks. cap = the top tile of a ridge, with a deep snow lip over the rock whose lower edge
+// is scalloped (so it reads as snow lying over a ledge, the way the reference sheets draw it); not cap = the bare face below it.
+inline Img mkSnowCliff(int v, bool cap, Rng& r) {
+    Img im(16, 16);
+    const u32 ROCK = HEX(0x6b5a4d), DK = HEX(0x4a3d35), LT = HEX(0x8a7662), SH = HEX(0x3a3029);
+    im.fill(ROCK);
+    for (int row = 0; row < 4; row++) {  // rows of blocks, each row offset from the one above; the joints between them dark
+        const int y0 = row * 4 + (v % 2);
+        for (int x = 0; x < 16; x++) if (y0 >= 0 && y0 < 16) im.set(x, y0, DK);
+        const int off = (row * 5 + v * 3) % 8;
+        for (int jx = off; jx < 16; jx += 8) for (int y = y0 + 1; y < y0 + 4 && y < 16; y++) im.set(jx, y, DK);
+        for (int k = 0; k < 3; k++) {  // a lit top edge on a block or two, and chips
+            const int x = r.irange(1, 13), y = y0 + 1;
+            if (y < 16) { im.set(x, y, LT); im.set(x + 1, y, LT); }
+        }
+    }
+    for (int i = 0; i < 6; i++) im.set(r.irange(0, 15), r.irange(0, 15), r.chance(0.5f) ? DK : LT);
+    if (cap) {
+        const float ph = r.f() * 6.28f;
+        for (int x = 0; x < 16; x++) {
+            const int h = 5 + (int)lroundf(1.6f * sinf(x * 0.9f + ph) + 1.1f * sinf(x * 2.3f + ph * 2.f));  // how far the snow reaches down this column
+            for (int y = 0; y < h && y < 16; y++) im.set(x, y, y < 2 ? HEX(0xffffff) : y == h - 1 ? HEX(0xb9cde2) : HEX(0xeef4fa));
+            if (h < 16) im.set(x, h, SH);  // the shadow the lip throws on the rock below it
+        }
+    }
+    return im;
+}
 inline Img mkCliff(int v, Rng& r) {
     Img im(16, 16);
     im.fill(HEX(0x5a5c6e));
@@ -122,29 +166,6 @@ inline Img mkCliff(int v, Rng& r) {
 }
 
 // ================================================================= props
-// rock tinted with three colours, optional snow cap
-inline Img mkRockC(int variant, u32 lt, u32 md, u32 dk, bool snow) {
-    Img im(variant == 0 ? 20 : 26, variant == 0 ? 15 : 19);
-    if (variant == 0) {
-        im.ellipseShaded(9, 8, 8, 5.5f, lt, md, dk);
-        im.ellipseShaded(15, 10, 4, 3, lt, md, dk);
-        im.line(6, 5, 9, 8, dk);
-    } else {
-        im.ellipseShaded(13, 10, 11, 7, lt, md, dk);
-        im.ellipseShaded(7, 13, 5, 3.5f, lt, md, dk);
-        im.line(12, 7, 14, 11, dk);
-    }
-    if (snow) {
-        for (int x = 2; x < im.w - 2; x++)
-            for (int y = 2; y < 7; y++)
-                if (cA(im.get(x, y)) && cA(im.get(x, y - 1)) == 0 && y < 8) {
-                    im.set(x, y, HEX(0xf6fafd));
-                    if (cA(im.get(x, y + 1))) im.set(x, y + 1, HEX(0xdde8f2));
-                }
-    }
-    im.outline(OUT);
-    return im;
-}
 inline Img mkBoulder() {
     Img im(30, 24);
     u32 lt = HEX(0xa9acb8), md = HEX(0x7d808d), dk = HEX(0x575a67);
@@ -160,38 +181,74 @@ inline Img mkBoulder() {
     return im;
 }
 
-inline Img mkCactusTall(Rng& r) {
-    Img im(20, 30);
-    u32 dk = HEX(0x2f7a3a), md = HEX(0x4a9a4c), lt = HEX(0x72bb62);
-    auto limb = [&](int x, int y0, int y1, int w) {
-        for (int y = y0; y <= y1; y++)
-            for (int x2 = x; x2 < x + w; x2++) im.set(x2, y, x2 == x ? lt : (x2 == x + w - 1 ? dk : md));
+// A soft tinted rim for the no-black-outline plants: dark where the shape meets the ground or its own shade, a mid tone along the lit top edge.
+inline void softRim(Img& im, u32 under, u32 top) {
+    const Img src = im;
+    auto a = [&](int x, int y) { return (src.get(x, y) >> 24) != 0; };
+    for (int y = 0; y < im.h; y++)
+        for (int x = 0; x < im.w; x++) {
+            if (!a(x, y)) continue;
+            if (a(x + 1, y) && a(x - 1, y) && a(x, y + 1) && a(x, y - 1)) continue;
+            im.set(x, y, (!a(x, y + 1) || !a(x - 1, y) || !a(x + 1, y)) ? under : top);
+        }
+}
+// Prickly pear: flat pads stacked and fanned out, pale spines, magenta fruit along the top. (Replaces the tall saguaro.)
+inline Img mkPricklyPear(Rng& r) {
+    Img im(24, 26);
+    const u32 DK = HEX(0x2f6a45), MD = HEX(0x4f9a62), LT = HEX(0x7fc27a);
+    auto pad = [&](float cx, float cy, float rx, float ry, float ang) {
+        const float ca = cosf(ang), sa = sinf(ang), big = std::max(rx, ry);
+        for (int pass = 0; pass < 2; pass++) {  // pass 0: a dark ring one pixel wider, so each pad is cut out from the ones behind it
+            const float g = pass == 0 ? 0.9f : 0.f;
+            for (int y = 0; y < im.h; y++)
+                for (int x = 0; x < im.w; x++) {
+                    const float dx = x + .5f - cx, dy = y + .5f - cy;
+                    const float u = (dx * ca + dy * sa) / (rx + g), v = (-dx * sa + dy * ca) / (ry + g);
+                    if (u * u + v * v > 1.f) continue;
+                    const float s = -(dx / big) * 0.5f - (dy / big) * 0.85f;
+                    im.set(x, y, pass == 0 ? DK : s > 0.30f ? LT : s > -0.30f ? MD : DK);
+                }
+        }
     };
-    limb(8, 5, 27, 5);
-    im.set(10, 4, md), im.set(9, 4, lt), im.set(11, 4, dk);
-    limb(3, 12, 20, 3);  // left arm
-    im.rect(3, 19, 7, 3, md);
-    im.rect(3, 19, 7, 1, lt);
-    limb(14, 8, 16, 3);  // right arm
-    im.rect(10, 15, 5, 3, md);
-    im.rect(10, 15, 5, 1, lt);
-    for (int i = 0; i < 12; i++) {  // spines
-        int x = r.irange(3, 16), y = r.irange(5, 26);
-        if (cA(im.get(x, y))) im.set(x, y, HEX(0xe8f0c0));
+    pad(17.5f, 5.0f, 2.8f, 3.6f, 0.6f);
+    pad(11.0f, 7.5f, 3.9f, 5.2f, -0.1f);
+    pad(6.5f, 13.0f, 4.2f, 5.3f, -0.55f);
+    pad(17.5f, 12.0f, 4.2f, 5.5f, 0.45f);
+    pad(12.0f, 19.5f, 6.8f, 5.6f, 0.0f);
+    for (int i = 0; i < 26; i++) {  // spines
+        const int x = r.irange(2, 21), y = r.irange(2, 24);
+        const u32 c = im.get(x, y);
+        if (c == MD || c == LT) im.set(x, y, HEX(0xeef2c8));
     }
-    im.set(10, 3, HEX(0xe86aa0));  // flower
-    im.set(9, 3, HEX(0xf6a0c4));
-    im.outline(OUT);
+    im.rect(0, 25, 24, 1, 0u);
+    softRim(im, HEX(0x1b3a28), DK);
+    const u32 F0 = HEX(0xd8447a), F1 = HEX(0xf59ab8);  // fruit on the upper edges
+    for (auto [fx, fy] : {std::pair<int, int>{16, 0}, {10, 1}, {5, 7}, {19, 6}, {18, 9}}) {
+        im.set(fx, fy, F1); im.set(fx + 1, fy, F0); im.set(fx, fy + 1, F0); im.set(fx + 1, fy + 1, F0);
+    }
     return im;
 }
+// Barrel cactus: a ribbed ball seen from a little above, spines along the ribs, a small crown flower.
 inline Img mkCactusBarrel() {
     Img im(16, 16);
-    im.ellipseShaded(8, 9, 6, 6, HEX(0x72bb62), HEX(0x4a9a4c), HEX(0x2f7a3a));
-    for (int x = 4; x <= 12; x += 2) im.line(x, 4, x, 14, HEX(0x2f7a3a));
-    im.set(8, 3, HEX(0xf2c94c));
-    im.set(7, 3, HEX(0xe8584f));
-    im.set(9, 3, HEX(0xe8584f));
-    im.outline(OUT);
+    const u32 DK = HEX(0x2f6a45), MD = HEX(0x4f9a62), LT = HEX(0x7fc27a);
+    const float cx = 8.f, cy = 9.5f, rx = 6.8f, ry = 5.9f;
+    for (int y = 0; y <= 14; y++)
+        for (int x = 0; x < 16; x++) {
+            const float u = (x + .5f - cx) / rx, v = (y + .5f - cy) / ry;
+            if (u * u + v * v > 1.f) continue;
+            const float phi = asinf(std::max(-1.f, std::min(1.f, u)));
+            const float k = (phi + 1.5708f) / 3.1416f * 7.f, f = k - floorf(k);  // seven ribs across the front
+            const float s = -u * 0.55f - v * 0.85f;
+            u32 c = s > 0.35f ? LT : s > -0.25f ? MD : DK;
+            if (f < 0.16f) c = DK;
+            else if (f > 0.46f && f < 0.60f && (y % 3 == 0)) c = HEX(0xeef2c8);
+            im.set(x, y, c);
+        }
+    im.ellipse(cx, 5.f, 3.2f, 1.3f, LT);  // the flat crown
+    softRim(im, HEX(0x1b3a28), DK);
+    im.set(8, 3, HEX(0xf2c94c)); im.set(9, 3, HEX(0xf2c94c)); im.set(8, 4, HEX(0xf2c94c));
+    im.set(7, 3, HEX(0xe8584f)); im.set(10, 3, HEX(0xe8584f)); im.set(8, 2, HEX(0xe8584f));
     return im;
 }
 inline Img mkPalm(Rng& r) {
@@ -538,14 +595,30 @@ inline Img mkBiomeSign(const char* label, u32 accent) {
 }
 
 // ================================================================= decor
-inline Img mkDryBush() {
-    Img im(12, 10);
-    u32 a = HEX(0x8a6a3a), b = HEX(0xb08a4c);
-    im.line(6, 9, 2, 3, a);
-    im.line(6, 9, 6, 1, b);
-    im.line(6, 9, 10, 3, a);
-    im.line(6, 9, 4, 5, b);
-    im.line(6, 9, 9, 5, b);
+// A burst of twigs from a dark root clump: n twigs fanned over the upper half-circle, each a little kinked, dark at the root and
+// lighter at the tip (pal = root, base, mid, tip). Used by the desert's dead bush and the snowfield's bare shrubs.
+inline void twigBurst(Img& im, const u32 pal[4], float bx, float by, int n, float lenBase, float lenVar, Rng& r) {
+    im.ellipse(bx, by - 0.5f, 3.4f, 1.7f, pal[0]);
+    for (int i = 0; i < n; i++) {
+        const float a = -1.45f + 2.9f * i / (float)(n - 1) + r.range(-0.07f, 0.07f);
+        const float len = (lenBase + lenVar * (1.f - fabsf(a) / 1.6f)) * r.range(0.85f, 1.1f);
+        const float kink = r.range(-0.35f, 0.35f);
+        float x = bx, y = by - 1.f;
+        const int steps = (int)(len * 2.f);
+        for (int s = 0; s < steps; s++) {
+            const float t = (float)s / steps, ang = a + kink * t;
+            x += sinf(ang) * 0.5f;
+            y -= cosf(ang) * 0.5f * 0.85f;
+            const int px = (int)lroundf(x), py = (int)lroundf(y);
+            im.set(px, py, t < 0.35f ? pal[1] : t < 0.75f ? pal[2] : pal[3]);
+            if (t < 0.40f) im.set(px + 1, py, t < 0.2f ? pal[0] : pal[1]);
+        }
+    }
+}
+inline Img mkDryBush(Rng& r) {  // a dead, spiky burst of twigs from a dark root clump
+    Img im(18, 14);
+    const u32 pal[4] = {HEX(0x2e1e14), HEX(0x4d3622), HEX(0x6f4f2f), HEX(0x93703f)};
+    twigBurst(im, pal, 9.f, 12.f, 15, 5.5f, 6.f, r);
     return im;
 }
 inline Img mkSkull() {
@@ -558,11 +631,202 @@ inline Img mkSkull() {
     im.line(1, 7, 3, 6, HEX(0xd4ccb4));  // a rib
     return im;
 }
-inline Img mkSandTuft() {
-    Img im(8, 8);
-    im.line(4, 7, 2, 3, HEX(0x9aa65a));
-    im.line(4, 7, 4, 2, HEX(0xb8c46c));
-    im.line(4, 7, 6, 3, HEX(0x9aa65a));
+inline Img mkAgave(Rng& r) {  // a rosette of pointed blue-green leaves with a tall pink bloom (replaces the sand tuft)
+    Img im(22, 22);
+    const u32 DK = HEX(0x2f5f4a), MD = HEX(0x4f8f6a), LT = HEX(0x7fbf8a), HL = HEX(0xb5e0a8);
+    const float cx = 11.f, cy = 16.f;
+    struct Lf { float a; };
+    float ang[11];
+    for (int k = 0; k < 11; k++) ang[k] = 6.2832f * k / 11.f + r.range(-0.12f, 0.12f);
+    std::sort(ang, ang + 11, [](float p, float q) { return sinf(p) < sinf(q); });  // far (upper) leaves first, near ones over them
+    for (int k = 0; k < 11; k++) {
+        const float a = ang[k], L = 8.8f * r.range(0.86f, 1.04f);
+        const float dx = cosf(a), dy = sinf(a) * 0.55f, dl = sqrtf(dx * dx + dy * dy);
+        const float ux = dx / dl, uy = dy / dl, px = -uy, py = ux;
+        const float lit = -ux * 0.5f - uy * 0.85f;
+        const u32 body = lit > -0.05f ? LT : lit > -0.55f ? MD : DK, edgeC = body == LT ? MD : DK, rib = body == DK ? MD : HL;
+        const int n = (int)(L * 2.4f);
+        for (int s = 1; s <= n; s++) {
+            const float t = (float)s / n, w = 2.5f * powf(1.f - t, 0.85f) * (t < 0.15f ? t / 0.15f : 1.f);
+            const float x = cx + dx * L * t, y = cy + dy * L * t;
+            for (float o = -w; o <= w + 0.01f; o += 0.5f) {
+                const bool edge = fabsf(o) > w - 0.55f && t > 0.12f;
+                im.set((int)lroundf(x + px * o), (int)lroundf(y + py * o), edge ? edgeC : (fabsf(o) < 0.6f && t > 0.15f && t < 0.9f) ? rib : body);
+            }
+        }
+    }
+    im.ellipse(cx, cy, 2.f, 1.4f, DK);
+    softRim(im, HEX(0x1f3f33), DK);
+    // the bloom: a thin stalk and a pink spike with a darker rim
+    for (int y = 9; y <= 15; y++) im.set(11, y, MD);
+    im.ellipse(11.f, 5.5f, 2.6f, 4.4f, HEX(0x7a2a52));
+    im.ellipse(11.f, 5.5f, 1.7f, 3.6f, HEX(0xd8608a));
+    for (int y = 3; y <= 7; y++) im.set(10, y, HEX(0xf6a0c4));
+    for (int y = 5; y <= 8; y++) im.set(12, y, HEX(0xa8386a));
+    im.set(8, 8, HEX(0xd8608a)); im.set(14, 7, HEX(0xd8608a)); im.set(8, 9, HEX(0x7a2a52)); im.set(14, 8, HEX(0x7a2a52));
+    return im;
+}
+// A fuzzy, spiky-edged shrub seen from slightly above, in the same soft no-black-outline style as the meadow ground:
+// an ellipse silhouette with leaf points on its rim, lit from the top-left, flecked with small leaf ticks that point away
+// from the middle, a soft tinted rim, a flat dark base and a short grass skirt. Every biome's bush is this body in its own
+// palette (spikes/amp set how pointed the rim is). 24x19, sitting on row 16.
+struct BushPal { u32 rim, dk, md, lt, hl, sk; };
+inline Img fuzzyShrub(const BushPal& P, int spikes, float amp, float rx, float ry, int ticks, Rng& r) {
+    constexpr int W = 24, H = 19, BASE = 16;
+    Img im(W, H);
+    const float cx = 11.5f, cy = 9.5f;
+    const float ph = r.range(0.f, 6.28f);
+    bool in[W * H] = {};
+    float nx[W * H] = {}, ny[W * H] = {};
+    for (int y = 0; y <= BASE; y++)
+        for (int x = 0; x < W; x++) {
+            const float dx = (x + .5f - cx) / rx, dy = (y + .5f - cy) / ry, d = sqrtf(dx * dx + dy * dy), th = atan2f(dy, dx);
+            const float tip = 1.f - fabsf(sinf(th * spikes * 0.5f + ph));  // 1 at a leaf point, 0 in the notch between two
+            const float R = 0.82f + amp * powf(tip, 1.3f) + 0.035f * sinf(th * 3.f + ph * 2.f);
+            if (d <= R) { in[y * W + x] = true; nx[y * W + x] = dx; ny[y * W + x] = dy; }
+        }
+    auto at = [&](int x, int y) { return x >= 0 && y >= 0 && x < W && y < H && in[y * W + x]; };
+    auto up = [&](u32 c) { return c == P.dk ? P.md : c == P.md ? P.lt : P.hl; };
+    auto dn = [&](u32 c) { return c == P.hl ? P.lt : c == P.lt ? P.md : P.dk; };
+    for (int y = 0; y < H; y++)
+        for (int x = 0; x < W; x++) {
+            if (!in[y * W + x]) continue;
+            const float s = -nx[y * W + x] * 0.5f - ny[y * W + x] * 0.85f;
+            im.set(x, y, s < -0.22f ? P.dk : s < 0.40f ? P.md : s < 0.78f ? P.lt : P.hl);
+        }
+    for (int i = 0; i < ticks; i++) {  // leaf ticks: two pixels pointing outward, lighter on the lit side, darker on the shaded side
+        const int x = r.irange(2, W - 3), y = r.irange(2, BASE - 1);
+        if (!at(x, y)) continue;
+        float dx = x + .5f - cx, dy = (y + .5f - cy) * (rx / ry);
+        const float l = sqrtf(dx * dx + dy * dy) + 1e-3f;
+        const int x2 = x + (int)lroundf(dx / l), y2 = y + (int)lroundf(dy / l);
+        if (!at(x2, y2) || (x2 == x && y2 == y)) continue;
+        const u32 c = im.get(x, y);
+        const bool lit = (-dx * 0.5f - dy * 0.85f) > 0.1f;
+        const u32 t = lit ? up(c) : dn(c);
+        im.set(x, y, t);
+        if (r.chance(0.6f)) im.set(x2, y2, t);
+    }
+    for (int y = 0; y < H; y++)  // soft tinted rim instead of a black outline: dark underneath and at the sides, a mid green along the lit top
+        for (int x = 0; x < W; x++) {
+            if (!at(x, y)) continue;
+            if (at(x + 1, y) && at(x - 1, y) && at(x, y + 1) && at(x, y - 1)) continue;
+            im.set(x, y, ny[y * W + x] > -0.25f ? P.rim : P.dk);
+        }
+    for (int x = 0; x < W; x++)
+        if (at(x, BASE)) im.set(x, BASE, P.rim);
+    for (int x = 2; x < W - 2; x++)
+        if (at(x, BASE) && r.chance(0.45f)) im.set(x, BASE + 1, r.chance(0.7f) ? P.sk : P.dk);
+    return im;
+}
+// Swamp bush, variant 0: an olive moss mound -- round and soft, with pale lichen and a few dark pits.
+inline Img mkMossBush(Rng& r) {
+    const BushPal P{HEX(0x1e2a12), HEX(0x4a5a1e), HEX(0x6e8030), HEX(0x98a848), HEX(0xc8cf6a), HEX(0x8a9a3a)};
+    Img im = fuzzyShrub(P, 15, 0.12f, 11.f, 7.4f, 84, r);
+    for (int i = 0; i < 60; i++) {
+        const int x = r.irange(3, 20), y = r.irange(3, 14);
+        const u32 c = im.get(x, y);
+        if (c == P.md && r.chance(0.35f)) im.set(x, y, P.dk);
+        else if (c == P.lt && r.chance(0.45f)) im.set(x, y, HEX(0xdcdc98));  // lichen
+    }
+    return im;
+}
+// Swamp bush, variant 1: a dark fern -- feathery fronds radiating from a dark crown.
+inline Img mkSwampFern(Rng& r) {
+    Img im(24, 20);
+    const u32 DK = HEX(0x1d4a26), MD = HEX(0x4f9f3e), LT = HEX(0x86c850), HL = HEX(0xc8ee80);  // yellower than the teal swamp floor, so it stands off it
+    const float cx = 12.f, cy = 13.f;
+    constexpr int N = 8;
+    float ang[N];
+    for (int k = 0; k < N; k++) ang[k] = 6.2832f * k / N + r.range(-0.15f, 0.15f);
+    std::sort(ang, ang + N, [](float p, float q) { return sinf(p) < sinf(q); });  // far fronds first, near ones over them
+    for (int k = 0; k < N; k++) {
+        const float a = ang[k], L = 10.8f * r.range(0.85f, 1.05f);
+        float ux = cosf(a), uy = sinf(a) * 0.6f;
+        const float ul = sqrtf(ux * ux + uy * uy);
+        ux /= ul; uy /= ul;
+        const float px = -uy, py = ux, lit = -ux * 0.5f - uy * 0.85f;
+        const u32 rib = lit > 0.05f ? LT : MD, pin = lit > 0.05f ? LT : lit > -0.5f ? MD : DK;
+        const int n = (int)(L * 2.f);
+        for (int s = 1; s <= n; s++) {
+            const float t = (float)s / n;
+            const float x = cx + cosf(a) * L * t, y = cy + sinf(a) * 0.6f * L * t + t * t * 1.6f;
+            im.set((int)lroundf(x), (int)lroundf(y), rib);
+            if (s % 3 == 0 && t > 0.12f) {  // a pair of pinnae angled forward
+                const float pl = 4.6f * powf(1.f - t, 0.7f) + 0.9f;
+                for (int sd = -1; sd <= 1; sd += 2) {
+                    const float ex = x + (px * sd * 0.85f + ux * 0.55f) * pl, ey = y + (py * sd * 0.85f + uy * 0.55f) * pl;
+                    im.line((int)lroundf(x), (int)lroundf(y), (int)lroundf(ex), (int)lroundf(ey), (s % 6 == 0) ? pin : (pin == LT ? MD : pin));
+                }
+            }
+        }
+        im.set((int)lroundf(cx + cosf(a) * L), (int)lroundf(cy + sinf(a) * 0.6f * L + 1.6f), lit > 0.05f ? HL : LT);
+    }
+    im.ellipse(cx, cy, 2.2f, 1.5f, DK);
+    softRim(im, HEX(0x12301a), DK);
+    return im;
+}
+// Snowfield bush, variant 0: a bare twig shrub with a heap of snow banked round its foot -- the twigs fan out above it, frosted on top.
+inline Img mkSnowBush(Rng& r) {
+    Img im(24, 19);
+    const u32 pal[4] = {HEX(0x2a2018), HEX(0x4a3a2c), HEX(0x6e5a46), HEX(0x9a866a)};
+    twigBurst(im, pal, 11.5f, 16.f, 17, 9.f, 8.f, r);
+    const Img twigs = im;  // frost on the upward-facing side of the twigs
+    for (int y = 1; y < im.h; y++)
+        for (int x = 0; x < im.w; x++)
+            if ((twigs.get(x, y) >> 24) != 0 && (twigs.get(x, y - 1) >> 24) == 0 && r.chance(0.3f)) im.set(x, y, HEX(0xeef4fc));
+    const u32 RIM = HEX(0x6f84ac), LT = HEX(0xf8fcff), MD = HEX(0xdbe7f6), DK = HEX(0xa5b8d6);
+    const float lump[5][3] = {{11.5f, 13.2f, 3.0f}, {8.f, 14.4f, 2.6f}, {15.2f, 14.2f, 2.8f}, {5.f, 15.4f, 1.9f}, {18.5f, 15.4f, 2.0f}};
+    for (const auto& l : lump) {  // back to front: a ring one pixel wider cuts each lump out from the ones behind it
+        const float cx = l[0] + r.range(-0.3f, 0.3f), cy = l[1] + r.range(-0.2f, 0.2f), rx = l[2], ry = l[2] * 0.8f;
+        im.ellipse(cx, cy, rx + 0.9f, ry + 0.9f, RIM);
+        im.ellipseShaded(cx, cy, rx, ry, LT, MD, DK);
+    }
+    im.ellipse(11.5f, 15.8f, 6.6f, 1.5f, RIM);
+    im.ellipseShaded(11.5f, 15.8f, 5.8f, 1.0f, MD, MD, DK);
+    for (int y = 17; y < im.h; y++) for (int x = 0; x < im.w; x++) im.set(x, y, 0u);
+    return im;
+}
+// Snowfield bush, variant 1: a dead twig clump with a little frost on its upper sides and a snow drift round its root.
+inline Img mkFrostTwigs(Rng& r) {
+    Img im(18, 14);
+    const u32 pal[4] = {HEX(0x2a2018), HEX(0x4a3a2c), HEX(0x6e5a46), HEX(0x9a866a)};
+    im.ellipse(9.f, 11.8f, 5.6f, 1.8f, HEX(0xe6eef8));
+    twigBurst(im, pal, 9.f, 12.f, 15, 5.5f, 6.f, r);
+    const Img src = im;
+    for (int y = 1; y < im.h; y++)
+        for (int x = 0; x < im.w; x++)
+            if ((src.get(x, y) >> 24) != 0 && (src.get(x, y - 1) >> 24) == 0 && r.chance(0.55f)) im.set(x, y, HEX(0xeef4fc));
+    return im;
+}
+// Mountain bush, variant 0: a cool blue-green alpine cushion, dotted with small blue star flowers.
+inline Img mkAlpineCushion(Rng& r) {
+    const BushPal P{HEX(0x14302a), HEX(0x2f5a44), HEX(0x4a8060), HEX(0x6fa67c), HEX(0x9fcf98), HEX(0x4a8060)};
+    Img im = fuzzyShrub(P, 17, 0.11f, 10.5f, 7.2f, 80, r);
+    const u32 CEN = HEX(0xd8ecff), ARM = HEX(0x4f8fe8), ARM_DK = HEX(0x3a6cc0);
+    int placed = 0;
+    for (int tries = 0; tries < 80 && placed < 9; tries++) {
+        const int x = r.irange(4, 19), y = r.irange(3, 13);
+        const float dx = (x + .5f - 11.5f) / 10.5f, dy = (y + .5f - 9.5f) / 7.2f;
+        if (dx * dx + dy * dy > 0.5f) continue;  // keep flowers well inside the body
+        if ((im.get(x, y) >> 24) == 0) continue;
+        im.set(x, y, CEN);  // a plus-shaped bloom: pale centre, blue petals
+        const u32 a = (y > 9) ? ARM_DK : ARM;
+        im.set(x - 1, y, a); im.set(x + 1, y, a); im.set(x, y - 1, a); im.set(x, y + 1, ARM_DK);
+        placed++;
+    }
+    return im;
+}
+// Mountain bush, variant 1: a dead grey-brown twig clump wedged in a little pile of scree.
+inline Img mkScreeTwigs(Rng& r) {
+    Img im(18, 14);
+    const u32 pal[4] = {HEX(0x241c16), HEX(0x3e3128), HEX(0x5c4a3c), HEX(0x84705a)};
+    const u32 ST_DK = HEX(0x3c444a), ST_MD = HEX(0x6b777c), ST_LT = HEX(0x9aa6a6);
+    for (int i = 0; i < 7; i++) {  // pebbles round the root
+        const int x = 9 + r.irange(-6, 6), y = 11 + r.irange(0, 1);
+        im.set(x, y, ST_MD); im.set(x + 1, y, ST_LT); im.set(x, y + 1, ST_DK); im.set(x + 1, y + 1, ST_DK);
+    }
+    twigBurst(im, pal, 9.f, 12.f, 17, 6.f, 6.5f, r);
     return im;
 }
 inline Img mkReeds(int v) {
@@ -713,34 +977,72 @@ inline Img mkFog() {
 
 // ================================================================= bank
 struct BiomeAssets {
-    Spr sand[3], dune[2], mud[2], murk[4], bog[4], snow[3], snowp[2], ice[2], stone[3], cliff[3];
-    Spr cactus[2], palm, sandrock[2], column, ruinwall, arch;
+    Spr sand[3], dune[2], mud[2], murk[4], bog[4], snow[3], snowp[2], ice[2], stone[3], cliff[3], snowCliff[3], snowCliffCap[3];
+    Spr cactus[2], palm, column, ruinwall, arch;
     Spr deadtree[2], log, stilthut, witchtree, grave;
-    Spr snowpine, baretree, snowrock[2], crystal, icehut, cairn;
+    Spr snowpine, baretree, crystal, icehut, cairn;
     Spr cave, boulder, standing, bsign[4];
-    Spr drybush, skull, sandtuft, reeds[2], lily, bubbles, drift, frosttuft, alpine, gravel;
+    Spr swampBush[2], snowBush[2], mountainBush[2], drybush, skull, sandtuft, reeds[2], lily, bubbles, drift, frosttuft, alpine, gravel;
     Spr node[RN_COUNT];
     Spr fog;
 };
 
-inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b) {
+inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b, TileBlend* tb = nullptr) {
     Rng rg(7654321);
-    for (int i = 0; i < 3; i++) b.sand[i] = makeSpr(r, mkSand(i, rg), 0, 0);
-    for (int i = 0; i < 2; i++) b.dune[i] = makeSpr(r, mkDune(i, rg), 0, 0);
-    for (int i = 0; i < 2; i++) b.mud[i] = makeSpr(r, mkMud(i, rg), 0, 0);
+    for (int i = 0; i < 3; i++) {
+        const Img im = mkSand(i, rg);
+        b.sand[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_SAND][i] = im;
+    }
+    if (tb) tb->nvar[BL_SAND] = 3;
+    for (int i = 0; i < 2; i++) {
+        const Img im = mkDune(i, rg);
+        b.dune[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_DUNE][i] = im;
+    }
+    if (tb) tb->nvar[BL_DUNE] = 2;
+    for (int i = 0; i < 2; i++) {
+        const Img im = mkMud(i, rg);
+        b.mud[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_MUD][i] = im;
+    }
+    if (tb) tb->nvar[BL_MUD] = 2;
     for (int i = 0; i < 4; i++) b.murk[i] = makeSpr(r, mkMurk(i), 0, 0);
     for (int i = 0; i < 4; i++) b.bog[i] = makeSpr(r, mkBog(i), 0, 0);
-    for (int i = 0; i < 3; i++) b.snow[i] = makeSpr(r, mkSnow(i, rg), 0, 0);
-    for (int i = 0; i < 2; i++) b.snowp[i] = makeSpr(r, mkSnowPacked(i, rg), 0, 0);
+    for (int i = 0; i < 3; i++) {
+        Img im = mkSnow(i, rg);
+        snowTexture(im, i, false);
+        b.snow[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_SNOW][i] = im;
+    }
+    if (tb) tb->nvar[BL_SNOW] = 3;
+    for (int i = 0; i < 2; i++) {
+        Img im = mkSnowPacked(i, rg);
+        snowTexture(im, i, true);
+        b.snowp[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_SNOWP][i] = im;
+    }
+    if (tb) tb->nvar[BL_SNOWP] = 2;
     for (int i = 0; i < 2; i++) b.ice[i] = makeSpr(r, mkIce(i, rg), 0, 0);
-    for (int i = 0; i < 3; i++) b.stone[i] = makeSpr(r, mkStone(i, rg), 0, 0);
+    for (int i = 0; i < 3; i++) {
+        const Img im = mkStone(i, rg);
+        b.stone[i] = makeSpr(r, im, 0, 0);
+        if (tb) tb->src[BL_STONE][i] = im;
+    }
+    if (tb) tb->nvar[BL_STONE] = 3;
     for (int i = 0; i < 3; i++) b.cliff[i] = makeSpr(r, mkCliff(i, rg), 0, 0);
+    {
+        Rng sc(20241122);  // the snowfields' cliffs, with their own random numbers
+        for (int i = 0; i < 3; i++) {
+            b.snowCliff[i] = makeSpr(r, mkSnowCliff(i, false, sc), 0, 0);
+            b.snowCliffCap[i] = makeSpr(r, mkSnowCliff(i, true, sc), 0, 0);
+        }
+    }
 
-    b.cactus[0] = makeSpr(r, mkCactusTall(rg), 10, 28);
+    Rng dr(20241116);  // its own random stream, so the desert plants don't shift what the sprites after them get
+    b.cactus[0] = makeSpr(r, mkPricklyPear(dr), 12, 24);
     b.cactus[1] = makeSpr(r, mkCactusBarrel(), 8, 14);
     b.palm = makeSpr(r, mkPalm(rg), 20, 50);
-    b.sandrock[0] = makeSpr(r, mkRockC(0, HEX(0xe3cf9c), HEX(0xc2a56e), HEX(0x9a804e), false), 10, 13);
-    b.sandrock[1] = makeSpr(r, mkRockC(1, HEX(0xe3cf9c), HEX(0xc2a56e), HEX(0x9a804e), false), 13, 16);
     b.column = makeSpr(r, mkColumn(), 8, 34);
     b.ruinwall = makeSpr(r, mkRuinWall(rg), 26, 20);
     b.arch = makeSpr(r, mkArch(), 28, 42);
@@ -752,8 +1054,6 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b) {
     b.grave = makeSpr(r, mkGrave(), 8, 18);
     b.snowpine = makeSpr(r, mkSnowPine(rg), 14, 44);
     b.baretree = makeSpr(r, mkBareTree(rg), 14, 38);
-    b.snowrock[0] = makeSpr(r, mkRockC(0, HEX(0xd2d8e2), HEX(0x9aa2b2), HEX(0x6e768a), true), 10, 13);
-    b.snowrock[1] = makeSpr(r, mkRockC(1, HEX(0xd2d8e2), HEX(0x9aa2b2), HEX(0x6e768a), true), 13, 16);
     b.crystal = makeSpr(r, mkCrystal(), 9, 24);
     b.icehut = makeSpr(r, mkIceHut(), 28, 44);
     b.cairn = makeSpr(r, mkCairn(), 9, 22);
@@ -763,9 +1063,18 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b) {
     static const char* lbl[4] = {"DESERT", "SWAMP", "SNOW", "PEAKS"};
     for (int i = 0; i < 4; i++) b.bsign[i] = makeSpr(r, mkBiomeSign(lbl[i], BIOME[i == 0 ? B_DESERT : i == 1 ? B_SWAMP : i == 2 ? B_SNOW : B_MOUNTAIN].col), 18, 32);
 
-    b.drybush = makeSpr(r, mkDryBush(), 6, 9);
+    b.drybush = makeSpr(r, mkDryBush(dr), 9, 12);
     b.skull = makeSpr(r, mkSkull(), 5, 6);
-    b.sandtuft = makeSpr(r, mkSandTuft(), 4, 7);
+    b.sandtuft = makeSpr(r, mkAgave(dr), 11, 19);
+    Rng sr(20241117);  // the swamp's two bushes (the swamp reuses the bush decor kinds; the renderer picks these when you are in the swamp)
+    b.swampBush[0] = makeSpr(r, mkMossBush(sr), 12, 16);
+    b.swampBush[1] = makeSpr(r, mkSwampFern(sr), 12, 15);
+    Rng wr(20241118);  // the snowfield's two bushes
+    b.snowBush[0] = makeSpr(r, mkSnowBush(wr), 12, 16);
+    b.snowBush[1] = makeSpr(r, mkFrostTwigs(wr), 9, 12);
+    Rng mr(20241119);  // the mountains' two bushes
+    b.mountainBush[0] = makeSpr(r, mkAlpineCushion(mr), 12, 16);
+    b.mountainBush[1] = makeSpr(r, mkScreeTwigs(mr), 9, 12);
     b.reeds[0] = makeSpr(r, mkReeds(0), 6, 17);
     b.reeds[1] = makeSpr(r, mkReeds(1), 6, 17);
     b.lily = makeSpr(r, mkLily(), 5, 4);

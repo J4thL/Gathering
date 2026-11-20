@@ -103,7 +103,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
                 if (gp) return no("ALREADY BUILT HERE");
                 continue;
             }
-            if (t != T_GRASS && t != T_DARK && t != T_DIRT) return no(tileDeep(t) ? "CANNOT BUILD ON WATER" : "CANNOT BUILD HERE");
+            if (!tileGrassy(t) && t != T_DIRT) return no(tileDeep(t) ? "CANNOT BUILD ON WATER" : "CANNOT BUILD HERE");
             if (D.layer == HL_ROOF) {
                 if (hsAt(x, y, HL_ROOF)) return no("ALREADY ROOFED");
                 continue;
@@ -111,7 +111,7 @@ bool Game::hsCanBuild(int kind, int tx, int ty, int rot, std::string* why) {
             if (D.layer == HL_GROUND) {
                 if (gp) return no("ALREADY BUILT HERE");
                 if (op && op->kind != HP_GREENHOUSE) return no("SOMETHING IS IN THE WAY");
-                if (needsHoe && !(t == T_GRASS || t == T_DARK || t == T_DIRT)) return no("SOIL TOO HARD");
+                if (needsHoe && !(tileGrassy(t) || t == T_DIRT)) return no("SOIL TOO HARD");
                 if (world.solid[y][x] && !op) return no("SOMETHING IS IN THE WAY");
                 continue;
             }
@@ -268,10 +268,12 @@ bool inGreenhouse(const Homestead& hs, const HPiece& plot) {
 }  // namespace
 
 void Game::hsTickCrops(float dt) {
+    const float rain = rainK();
     for (auto& pc : hs.pieces) {
         if (pc.kind != HP_PLOT || pc.crop < 0 || pc.crop >= CR_COUNT || pc.stage >= CROP_STAGES - 1) continue;
         const CropDef& C = CROPS[pc.crop];
         const bool gh = inGreenhouse(hs, pc);
+        if (rain > 0.3f && !gh) pc.water = std::min(1.f, pc.water + dt * 0.03f * rain);  // a storm waters the open-air plots for free
         if (pc.water <= 0.f) continue;  // dry soil: the crop waits
         float grow = 1.f;
         if (gh) grow *= GREENHOUSE_GROWTH;

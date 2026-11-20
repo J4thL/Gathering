@@ -78,9 +78,10 @@ bool Game::nearFire() const {
 
 float Game::warmthAt(V2 pos) const {
     float w = 0.f;
-    auto add = [&](V2 fire) { w = std::max(w, clampf(1.f - dist(pos, fire) / 90.f, 0.f, 1.f)); };
+    auto add = [&](V2 fire, float k = 1.f) { w = std::max(w, clampf(1.f - dist(pos, fire) / 90.f, 0.f, 1.f) * k); };
+    const float wet = 1.f - 0.6f * rainK();  // a storm beats down a campfire: you have to stand right next to it to stay warm
     for (auto& s : structs)
-        if (s.kind == PL_CAMPFIRE) add(s.pos());
+        if (s.kind == PL_CAMPFIRE) add(s.pos(), wet);
     if (world.biomeAtPos(pos.x, pos.y) == B_SNOW) add(world.fire);  // only matters in the snow; the village fire is far from it
     return w;
 }

@@ -565,7 +565,7 @@ int homesteadTest(Game& g) {
             g.saveCanvas((std::string(dir) + "/" + name).c_str());
         };
         g.state = ST_PLAY;
-        g.dayT = 60.f; g.helpT = 0;
+        g.dayT = DAY_LEN * 0.2f; g.helpT = 0;
         g.travelCd = 0;
         g.hs.animals.resize(std::min<size_t>(g.hs.animals.size(), 2));
         g.travelTo(B_HOME, COX + 33, COY + 33, false);
@@ -591,7 +591,7 @@ int homesteadTest(Game& g) {
         g.state = ST_FARM; g.farmPieceId = g.hsAt(fx, fy, HL_GROUND) ? g.hsAt(fx, fy, HL_GROUND)->id : -1; shot("i_seeds.bmp");
         g.state = ST_PLAY;
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
-        g.dayT = 210.f;
+        g.dayT = DAY_LEN * 0.7f;
         steps(g, 3); shot("j_night.bmp");
     }
     printf("--- the E key at a ripe crop beside a harvestable tree, rock or plant\n");

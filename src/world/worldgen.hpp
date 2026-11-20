@@ -70,6 +70,9 @@ inline void World::generateMap(int map) {
             }
             case B_SNOW: {
                 float p = fbm(x * 0.07f, y * 0.07f, S + 301);
+                // thin ridges of snow-capped rock with gaps in them (the same recipe as the mountains' ridge lines); trails and plazas cut through
+                const float ridge = fbm(x * 0.065f, y * 0.065f, S + 311), gap = fbm(x * 0.13f + 9.f, y * 0.13f + 9.f, S + 312);
+                if (fabsf(ridge - 0.5f) < 0.012f && gap < 0.64f) return T_CLIFF;
                 return p > 0.58f ? T_SNOWP : T_SNOW;
             }
             default: {  // mountains: cliff massifs, thin ridge lines with gaps, alpine meadows near the gate (the east side)
@@ -85,14 +88,98 @@ inline void World::generateMap(int map) {
             }
         }
     };
-    if (home) {  // the home forest around the original area: the same grass / dark-grass noise, a few lakes
+    // The home forest's floor from two fields. DENSITY is the field that has always set the trees' density (S + 1; its high end is the dark
+    // thickets); MOISTURE (S + 31) is new. A fine jitter frays the borders so patches do not come out as smooth blobs.
+    //   dense + wet -> moss            dense + dry -> pine needles          dense, mid -> dark grass
+    //   woodland edge + dry -> leaf litter (oak woods)    woodland edge + wet -> moss      the rest -> meadow grass
+    // how deep inside a glade a tile is: < 1 is the open clearing, up to ~1.5 its thinned rim (the fine noise frays the edge). Returns the
+    // lowest value over all glades; `which` is that glade (or -1). The glades themselves are chosen in the home block below.
+    auto gladeQ = [&](int x, int y, int* which = nullptr) {
+        float best = 99.f;
+        int bi = -1;
+        for (size_t i = 0; i < glades.size(); i++) {
+            const Glade& g = glades[i];
+            const float dx = (x - g.cx) / g.rx, dy = (y - g.cy) / g.ry;
+            const float q0 = dx * dx + dy * dy;
+            if (q0 > 3.2f) continue;
+            const float q = q0 + (fbm(x * 0.28f, y * 0.28f, S + 57) - 0.5f) * 0.55f;
+            if (q < best) { best = q; bi = (int)i; }
+        }
+        if (which) *which = bi;
+        return best;
+    };
+    // the same idea for the flower fields: < 1 is the field itself (its edge is ragged, on a bigger scale than a glade's)
+    auto fieldQ = [&](int x, int y) {
+        float best = 99.f;
+        for (const FlowerField& f : fields) {
+            const float dx = (x - f.cx) / f.rx, dy = (y - f.cy) / f.ry;
+            const float q0 = dx * dx + dy * dy;
+            if (q0 > 2.6f) continue;
+            best = std::min(best, q0 + (fbm(x * 0.18f, y * 0.18f, S + 91) - 0.5f) * 0.5f);
+        }
+        return best;
+    };
+    auto homeFloor = [&](int x, int y) -> uint8_t {
+        if (gladeQ(x, y) < 1.f || fieldQ(x, y) < 1.f) return T_GRASS;  // a clearing or a flower field is meadow
+        const float jit = (fbm(x * 0.3f, y * 0.3f, S + 37) - 0.5f) * 0.07f;
+        const float d = fbm((x - COX) * 0.08f, (y - COY) * 0.08f, S + 1) + jit;
+        const float w = fbm((x - COX) * 0.045f, (y - COY) * 0.045f, S + 31) + jit;
+        if (d > 0.60f) {
+            if (w > 0.60f) return T_MOSS;
+            if (w < 0.42f) return T_NEEDLES;
+            return T_DARK;
+        }
+        if (d > 0.50f) {
+            if (w < 0.44f) return T_LEAF;
+            if (w > 0.64f) return T_MOSS;
+        }
+        return T_GRASS;
+    };
+    if (home) {  // the home forest around the original area: the same grass / dark-grass noise (continued from the area's own
+                 // coordinates, so the meadows and thickets flow across its old edge without a seam), a few lakes
         struct Lake {
             float cx, cy, rx, ry;
         } lakes[] = {{30, 30, 12, 6}, {205, 28, 14, 7}, {30, 140, 12, 6}, {205, 142, 13, 6.5f}, {62, 84, 6, 9}, {180, 84, 6, 9}, {120, 20, 9, 4.5f}, {120, 150, 9, 4.5f}};
+        if (!(genOff & GEN_NO_GLADES)) {   // ---- glades: ~14 clearings in the dense forest, away from the village, the lakes, the map edge and each other
+            Rng gr(seed * 69061u + 555u);
+            for (int att = 0; att < 4000 && glades.size() < 14; att++) {
+                const float cx = gr.range(20.f, MW - 20.f), cy = gr.range(16.f, MH - 16.f);
+                const float rx = gr.range(4.5f, 7.5f), ry = rx * gr.range(0.7f, 1.0f);
+                const float wk = gr.f();  // (drawn every attempt, so the kinds do not depend on how many attempts failed)
+                if (cx > COX - 8 && cx < COX + CW + 8 && cy > COY - 8 && cy < COY + CH + 8) continue;  // not by the village
+                if (fbm((cx - COX) * 0.08f, (cy - COY) * 0.08f, S + 1) < 0.5f) continue;                  // forest clearings only: dense forest around
+                bool ok = true;
+                for (auto& l : lakes)
+                    if (hypotf((cx - l.cx) / (l.rx + rx + 3.f), (cy - l.cy) / (l.ry + ry + 3.f)) < 1.f) ok = false;
+                for (auto& o : glades)
+                    if (hypotf(cx - o.cx, cy - o.cy) < 24.f) ok = false;
+                if (!ok) continue;
+                // flowers 3, old oak 2, rune stone 1.5, mushroom ring 2, herb patch 2, hunter's rest 1.5 (out of 12)
+                const int kind = wk < 0.25f ? GL_FLOWERS : wk < 0.417f ? GL_OAK : wk < 0.542f ? GL_STONE : wk < 0.708f ? GL_FUNGI : wk < 0.875f ? GL_HERBS : GL_CAMP;
+                glades.push_back({cx, cy, rx, ry, kind});
+            }
+        }
+        if (!(genOff & GEN_NO_FIELDS)) {   // ---- flower fields: 3 wide meadows in open country, away from the village, lakes, glades, the edge and each other
+            Rng fr(seed * 31337u + 4242u);
+            for (int att = 0; att < 3000 && fields.size() < 3; att++) {
+                const float cx = fr.range(26.f, MW - 26.f), cy = fr.range(22.f, MH - 22.f);
+                const float rx = fr.range(9.f, 13.f), ry = rx * fr.range(0.65f, 0.9f);
+                if (cx > COX - 12 && cx < COX + CW + 12 && cy > COY - 12 && cy < COY + CH + 12) continue;  // not by the village
+                if (fbm((cx - COX) * 0.08f, (cy - COY) * 0.08f, S + 1) > 0.47f) continue;                  // open country only (not in the forest)
+                bool ok = true;
+                for (auto& l : lakes)
+                    if (hypotf((cx - l.cx) / (l.rx + rx + 4.f), (cy - l.cy) / (l.ry + ry + 4.f)) < 1.f) ok = false;
+                for (auto& g : glades)
+                    if (hypotf(cx - g.cx, cy - g.cy) < g.rx + rx + 4.f) ok = false;
+                for (auto& o : fields)
+                    if (hypotf(cx - o.cx, cy - o.cy) < 40.f) ok = false;
+                if (ok) fields.push_back({cx, cy, rx, ry});
+            }
+        }
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) {
                 if (inCore(x, y)) continue;
-                uint8_t t = fbm(x * 0.08f, y * 0.08f, S + 1) > 0.6f ? T_DARK : T_GRASS;
+                uint8_t t = homeFloor(x, y);
                 for (auto& l : lakes) {
                     float dx = (x - l.cx) / l.rx, dy = (y - l.cy) / l.ry;
                     if (dx * dx + dy * dy + (fbm(x * 0.22f, y * 0.22f, S + 7) - 0.5f) * 0.8f < 1.f) t = T_WATER;
@@ -100,6 +187,100 @@ inline void World::generateMap(int map) {
                 tile[y][x] = t;
                 biome[y][x] = B_HOME;
             }
+        if (!(genOff & GEN_NO_STREAMS)) {   // ---- streams: ~9 brooks, each wandering from a spring in the wet forest to the nearest lake (they are shallow and walkable: a
+            // path that meets one simply fords it). A path is only kept if it reaches a lake, so no brook ends in the middle of nowhere.
+            Rng sr(seed * 40503u + 909u);
+            auto nearVillage = [&](float x, float y, float m) { return x > COX - m && x < COX + CW + m && y > COY - m && y < COY + CH + m; };
+            int made = 0;
+            for (int att = 0; att < 900 && made < 9; att++) {
+                const float sx = sr.range(14.f, MW - 14.f), sy = sr.range(12.f, MH - 12.f);
+                const float amp = sr.range(0.8f, 1.5f), phase = sr.f() * 6.28f, freq = sr.range(0.16f, 0.30f);
+                if (nearVillage(sx, sy, 6.f) || fbm((sx - COX) * 0.045f, (sy - COY) * 0.045f, S + 31) < 0.5f) continue;  // springs are in the wet forest
+                const Lake* tgt = nullptr;
+                float bestD = 1e9f;
+                for (auto& l : lakes) {
+                    const float d = hypotf(l.cx - sx, l.cy - sy);
+                    if (d >= 22.f && d < bestD) { bestD = d; tgt = &l; }
+                }
+                if (!tgt || bestD > 95.f) continue;
+                bool crosses = false;  // the straight line to the lake must keep clear of the village
+                for (int i = 0; i <= 40; i++)
+                    if (nearVillage(sx + (tgt->cx - sx) * i / 40.f, sy + (tgt->cy - sy) * i / 40.f, 6.f)) crosses = true;
+                if (crosses) continue;
+                std::vector<std::pair<int, int>> path;
+                float px = sx, py = sy, dirx = tgt->cx - sx, diry = tgt->cy - sy;
+                { const float l0 = hypotf(dirx, diry); dirx /= l0; diry /= l0; }
+                bool reached = false;
+                for (int step = 0; step < 520 && !reached; step++) {
+                    float tx = tgt->cx - px, ty = tgt->cy - py;
+                    const float dist = hypotf(tx, ty);
+                    tx /= dist; ty /= dist;
+                    const float m = sinf(step * freq + phase) * amp * cl(dist / 16.f, 0.f, 1.f);  // the wander dies away near the lake
+                    float vx = tx - ty * m * 0.8f, vy = ty + tx * m * 0.8f;
+                    dirx = dirx * 0.65f + vx * 0.35f;
+                    diry = diry * 0.65f + vy * 0.35f;
+                    const float dl = hypotf(dirx, diry);
+                    dirx /= dl; diry /= dl;
+                    px += dirx * 0.8f;
+                    py += diry * 0.8f;
+                    const int ix = (int)px, iy = (int)py;
+                    if (ix < 4 || iy < 4 || ix >= MW - 4 || iy >= MH - 4 || nearVillage(px, py, 3.f)) break;
+                    if (tile[iy][ix] == T_WATER) { reached = true; break; }
+                    if (!path.empty() && path.back().first != ix && path.back().second != iy) path.push_back({ix, path.back().second});  // keep the run 4-connected: no diagonal gaps
+                    path.push_back({ix, iy});
+                    const bool wide = fbm(step * 0.11f, (float)made * 7.f, S + 73) > 0.44f;  // about half the way the brook is two tiles wide
+                    const bool horiz = fabsf(dirx) > fabsf(diry);
+                    if (wide) path.push_back({horiz ? ix : ix + 1, horiz ? iy + 1 : iy});
+                }
+                if (!reached || path.size() < 24) continue;
+                for (auto& pt : path)
+                    if (tile[pt.second][pt.first] != T_WATER && !inCore(pt.first, pt.second)) tile[pt.second][pt.first] = T_SHALLOW;
+                made++;
+            }
+        }
+        // lake shores: the ground a tile or two from the water is mossy and damp (the shore is ragged: its width follows a fine noise)
+        for (int y = 2; y < MH - 2; y++)
+            for (int x = 2; x < MW - 2; x++) {
+                if (inCore(x, y) || (tile[y][x] != T_GRASS && tile[y][x] != T_DARK)) continue;
+                const int reach = fbm(x * 0.35f, y * 0.35f, S + 41) > 0.5f ? 2 : 1;
+                bool near = false;
+                for (int dy = -reach; dy <= reach && !near; dy++)
+                    for (int dx = -reach; dx <= reach; dx++)
+                        if (tile[y + dy][x + dx] == T_WATER) { near = true; break; }
+                if (!near && fbm(x * 0.4f, y * 0.4f, S + 43) > 0.38f)  // a brook has a narrower, frayed damp bank
+                    for (int dy = -1; dy <= 1 && !near; dy++)
+                        for (int dx = -1; dx <= 1; dx++)
+                            if (tile[y + dy][x + dx] == T_SHALLOW) { near = true; break; }
+                if (near) tile[y][x] = T_MOSS;
+            }
+        // smoothing: noise leaves single-tile specks and one-tile spurs of a floor in the middle of another. A tile that is mostly surrounded
+        // by one other floor (4 or more of its 8 neighbours, and at most 2 of its own kind) takes that floor. Three passes. Water banks, glades,
+        // the village and everything that is not a floor are left alone.
+        if (!(genOff & GEN_NO_SMOOTH)) {
+            auto isFloor = [](uint8_t t) { return t == T_GRASS || t == T_DARK || t == T_LEAF || t == T_MOSS || t == T_NEEDLES || t == T_ROOTS; };
+            for (int pass = 0; pass < 3; pass++) {
+                std::vector<std::pair<int, uint8_t>> change;
+                for (int y = 3; y < MH - 3; y++)
+                    for (int x = 3; x < MW - 3; x++) {
+                        const uint8_t t = tile[y][x];
+                        if (!isFloor(t) || inCore(x, y) || gladeQ(x, y) < 1.5f) continue;
+                        int n[T_SHALLOW + 1] = {};
+                        bool wet = false;
+                        for (int dy = -2; dy <= 2; dy++)
+                            for (int dx = -2; dx <= 2; dx++) {
+                                const uint8_t o = tile[y + dy][x + dx];
+                                if (o == T_WATER || o == T_SHALLOW) wet = true;
+                                if (abs(dx) <= 1 && abs(dy) <= 1 && (dx || dy) && isFloor(o)) n[o]++;
+                            }
+                        if (wet) continue;
+                        int best = -1;
+                        for (int k = 0; k <= T_SHALLOW; k++)
+                            if (k != t && isFloor((uint8_t)k) && n[k] >= 4 && (best < 0 || n[k] > n[best])) best = k;
+                        if (best >= 0 && n[t] <= 2) change.push_back({y * MW + x, (uint8_t)best});
+                    }
+                for (auto& c : change) tile[c.first / MW][c.first % MW] = c.second;
+            }
+        }
     } else {
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) {
@@ -132,7 +313,7 @@ inline void World::generateMap(int map) {
     }
 
     // ------------------------------------------------------------ 2. trails, hub plaza, gates
-    // In the home map the trails run through the tree wall (the wall is the ring); in a biome map the ring is cut by an explicit gap.
+    // In every map the ring is the map's edge wall; the trails are cut through it by an explicit gap.
     auto trailTile = [&](int x, int y) {
         if (!inMap(x, y)) return;
         if (inRing(x, y)) return;
@@ -167,7 +348,7 @@ inline void World::generateMap(int map) {
     };
 
     if (home) {
-        // The four original paths, continued to the edge of the map with the same wiggle formula; where they meet the tree wall
+        // The four original paths, continued to the edge of the map with the same wiggle formula; where they meet the map's edge wall
         // the wall is opened (the gaps are the portals to the biome maps).
         const float vx = COX + 44, vy = COY + 30;
         const int dirs[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
@@ -182,7 +363,7 @@ inline void World::generateMap(int map) {
             const Prop& p = props[i];
             int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
             bool tree = p.kind == P_OAK0 || p.kind == P_OAK1 || p.kind == P_PINE || p.kind == P_ROCK0 || p.kind == P_ROCK1;
-            if (inMap(tx, ty) && K(tx, ty) != 0 && tree) {  // the trail opens the core's tree wall
+            if (inMap(tx, ty) && K(tx, ty) != 0 && tree) {  // the trail clears the trees and rocks standing on it
                 solid[ty][tx] = false;  // (rocks get their wider footprint later, in fitRocks)
                 props.erase(props.begin() + i);
             } else
@@ -456,20 +637,81 @@ inline void World::generateMap(int map) {
     for (int ty = 2; ty < MH - 2; ty++)
             for (int tx = 2; tx < MW - 2; tx++) {
                 if (K(tx, ty) != 0 || solid[ty][tx] || (home && inCore(tx, ty))) continue;
+                // every home-forest tile draws from a random stream of its own (seeded from the tile's position), so what is placed on a tile
+                // never depends on what happened on the tiles before it: adding or removing a layer (a stream, a glade) leaves every tree it
+                // does not touch exactly where it was
+                if (home) r = Rng(hash2(tx, ty, S + 4001u) * 2654435761u + 977u);
                 uint8_t t = tile[ty][tx];
                 if (tileSolid(t)) continue;
                 const float fx = tx * TS, fy = ty * TS;
                 auto dx = [&]() { return fx + r.range(2, 14); };
                 auto dy = [&]() { return fy + r.range(6, 15); };
+                if (home && t == T_SHALLOW) {  // a brook: lilies and reeds, nothing solid
+                    if (r.chance(0.04f)) addDecor(D_LILY, dx(), dy());
+                    continue;
+                }
                 if (home) {  // the home forest outside the original area: same recipe as inside it
-                    float ff = fbm(tx * 0.08f, ty * 0.08f, S + 1);
+                    float ff = fbm((tx - COX) * 0.08f, (ty - COY) * 0.08f, S + 1);  // the same field the original area used, so the forest density flows on
                     float pTree = 0.014f + 0.36f * cl((ff - 0.5f) / 0.2f, 0, 1);
-                    if (r.chance(pTree)) tileProp(t == T_DARK ? (r.chance(0.55f) ? P_PINE : P_OAK0) : (r.chance(0.12f) ? P_PINE : (r.chance(0.5f) ? P_OAK0 : P_OAK1)), tx, ty);
+                    int gi = -1;
+                    const float gq = gladeQ(tx, ty, &gi);
+                    if (gq < 1.f) {  // inside a clearing: no trees or rocks, flowers in drifting clusters (the flower glades are carpeted)
+                        const bool flowery = glades[gi].kind == GL_FLOWERS;
+                        const bool patch = fbm(tx * 0.45f, ty * 0.45f, S + 61) > (flowery ? 0.42f : 0.56f);
+                        if (r.chance(patch ? (flowery ? 0.70f : 0.50f) : 0.07f)) addDecor(r.irange(D_FLOWER0, D_FLOWER2), dx(), dy());
+                        else if (r.chance(0.09f)) addDecor(D_TUFT, dx(), dy());
+                        continue;
+                    }
+                    const float fq = fieldQ(tx, ty);
+                    if (fq < 1.f) {  // inside a flower field: no trees or rocks, flowers thickest in the middle, in drifts of one colour
+                        const float depth = 1.f - fq;  // 0 at the edge .. 1 in the middle
+                        if (r.chance(std::min(0.95f, 0.35f + 0.9f * depth))) {
+                            const float cn = fbm(tx * 0.17f, ty * 0.17f, S + 93);  // patches a few tiles across: several colours in one view
+                            static const int FK[4] = {D_FLOWER0, D_FLOWER1, D_VIOLET, D_POPPY};  // orange, cream, violet, red
+                            int fk = cn < 0.41f ? D_POPPY : cn < 0.50f ? D_FLOWER0 : cn < 0.59f ? D_FLOWER1 : D_VIOLET;
+                            if (r.chance(0.12f)) fk = FK[r.irange(0, 3)];  // a little mixing
+                            addDecor(fk, dx(), dy());
+                            if (depth > 0.25f && r.chance(0.75f)) addDecor(fk, dx(), dy());  // thicker towards the middle: two and three to a tile
+                            if (depth > 0.55f && r.chance(0.55f)) addDecor(fk, dx(), dy());
+                        } else if (r.chance(0.12f)) addDecor(D_TUFT, dx(), dy());
+                        continue;
+                    }
+                    if (fq < 1.4f) pTree *= 0.3f;  // the rim of a field: only a few trees
+                    if (gq < 1.5f) pTree *= 0.35f;  // the rim of a clearing: the forest thins out
+                    // groves: a clumping field makes the trees gather in stands with open ground between them (it averages out, so the
+                    // forest keeps its overall density); a second field makes a stand mostly pines or mostly oaks
+                    const float groveK = cl((fbm(tx * 0.13f, ty * 0.13f, S + 81) - 0.42f) / 0.2f, 0.f, 1.f);
+                    pTree = std::min(0.5f, pTree * (0.3f + 1.7f * groveK));
+                    const float standPine = (fbm(tx * 0.10f, ty * 0.10f, S + 83) - 0.5f) * 0.6f;
+                    // in open country (not thicket) a tree keeps its distance from the next one: lone trees, not a dotted carpet
+                    bool crowded = false;
+                    if (ff < 0.55f)
+                        for (int yy = ty - 2; yy <= ty + 2 && !crowded; yy++)
+                            for (int xx = tx - 2; xx <= tx + 2; xx++)
+                                if (inMap(xx, yy) && solid[yy][xx]) { crowded = true; break; }
+                    if (crowded) pTree = 0.f;
+                    const bool thicket = ff >= 0.55f || t == T_ROOTS || t == T_MOSS || t == T_NEEDLES;
+                    if (r.chance(pTree)) {  // pines like needles, roots and dark thickets; oaks like leaf litter, moss and meadows
+                        const float pPine = cl((t == T_NEEDLES ? 0.88f : t == T_ROOTS ? 0.62f : t == T_DARK ? 0.55f : t == T_MOSS ? 0.30f : t == T_LEAF ? 0.04f : 0.12f) + standPine, 0.02f, 0.97f);
+                        const bool oakOnly = t == T_DARK || t == T_NEEDLES || t == T_ROOTS;  // (their oaks are always the dark-leaved look)
+                        tileProp(r.chance(pPine) ? P_PINE : (oakOnly || r.chance(0.5f) ? P_OAK0 : P_OAK1), tx, ty);
+                    }
+                    else if (r.chance(t == T_ROOTS ? 0.030f : t == T_MOSS ? 0.008f : thicket ? 0.004f : 0.0012f)) tileProp(r.chance(0.5f) ? P_DEADTREE0 : P_DEADTREE1, tx, ty);  // dead trees stand in the gloomy ground
+                    else if (thicket && r.chance(0.0035f)) {  // a fallen log
+                        props.push_back({P_LOG, tx * TS + 8.f, ty * TS + 14.f, 0});
+                        solid[ty][tx] = true;
+                    }
+                    else if (r.chance(thicket ? 0.0075f : 0.0020f)) addDecor(D_STUMP, tx * TS + 8.f, ty * TS + 14.f);  // an old stump
                     else if (r.chance(0.007f)) rockProp(r.chance(0.6f) ? P_ROCK0 : P_ROCK1, tx, ty);
                     else if (r.chance(0.011f)) addDecor(6 + r.irange(0, 1), tx * TS + 8.f, ty * TS + 15.f);
                     else if (r.chance(0.085f)) {
-                        float roll = r.f();
-                        addDecor(roll < 0.3f ? r.irange(0, 2) : roll < 0.82f ? 3 : roll < 0.9f ? (t == T_DARK ? 4 : 3) : 5, dx(), dy());
+                        const float roll = r.f();
+                        int dk = -1;  // -1: nothing here (the forest floors keep clean: only an odd mushroom or stone)
+                        if (t == T_LEAF || t == T_NEEDLES) dk = roll < 0.10f ? D_MUSHROOM : roll < 0.16f ? D_PEBBLES : -1;
+                        else if (t == T_ROOTS) dk = roll < 0.22f ? D_MUSHROOM : roll < 0.40f ? D_PEBBLES : -1;
+                        else if (t == T_MOSS) dk = roll < 0.30f ? D_MUSHROOM : roll < 0.85f ? D_TUFT : D_PEBBLES;
+                        else dk = roll < 0.3f ? r.irange(0, 2) : roll < 0.82f ? 3 : roll < 0.9f ? (t == T_DARK ? 4 : 3) : 5;
+                        if (dk >= 0) addDecor(dk, dx(), dy());
                     }
                     continue;
                 }
@@ -481,7 +723,12 @@ inline void World::generateMap(int map) {
                             break;
                         }
                         if (r.chance(t == T_STONE ? 0.035f : 0.008f)) {
-                            rockProp(r.chance(0.5f) ? P_SANDROCK0 : P_SANDROCK1, tx, ty);
+                            const float rr = r.f();  // tiny (hand-mined), small, and now the odd large desert rock
+                            rockProp(rr < 0.45f ? P_SANDROCK0 : rr < 0.85f ? P_SANDROCK1 : P_SANDBOULDER, tx, ty);
+                            break;
+                        }
+                        if (r.chance(0.006f)) {  // decor rocks: scenery only, cannot be mined
+                            addDecor(D_DROCK0 + r.irange(0, 3), dx(), dy());
                             break;
                         }
                         if (r.chance(0.035f)) addDecor(D_DRYBUSH, dx(), dy());
@@ -535,6 +782,10 @@ inline void World::generateMap(int map) {
                         if (r.chance(0.06f)) addDecor(D_DRIFT, dx(), dy());
                         else if (r.chance(0.05f)) addDecor(D_FROSTTUFT, dx(), dy());
                         else if (r.chance(0.008f)) addDecor(D_PEBBLES, dx(), dy());
+                        // snow bushes: decided by their own per-tile hash and pushed directly, so they take nothing from the shared random
+                        // stream and every other thing in the snowfield stays exactly where it was for an existing seed
+                        else if ((hash2(tx, ty, S + 5101u) & 0xFFFF) < (uint32_t)(0.009f * 65536.f))
+                            decor.push_back({D_BUSH0 + (int)(hash2(tx, ty, S + 5102u) & 1u), fx + 8.f, fy + 15.f, (hash2(tx, ty, S + 5103u) & 0xFFFF) / 65535.f * 6.28f});
                         break;
                     }
                     default: {  // mountains
@@ -553,12 +804,16 @@ inline void World::generateMap(int map) {
                         else if (r.chance(0.045f)) addDecor(D_ALPINE, dx(), dy());
                         else if (meadow && r.chance(0.08f)) addDecor(D_TUFT, dx(), dy());
                         else if (meadow && r.chance(0.04f)) addDecor(r.irange(0, 2), dx(), dy());
+                        // alpine cushions on the meadow, dead twig clumps on the scree: their own per-tile hash, pushed directly, so the shared
+                        // random stream (and with it every other thing on the map) is unchanged for an existing seed
+                        else if ((hash2(tx, ty, S + 5201u) & 0xFFFF) < (uint32_t)((meadow ? 0.012f : 0.007f) * 65536.f))
+                            decor.push_back({D_BUSH0 + (meadow ? 0 : 1), fx + 8.f, fy + 15.f, (hash2(tx, ty, S + 5203u) & 0xFFFF) / 65535.f * 6.28f});
                         break;
                     }
                 }
             }
 
-    // ------------------------------------------------------------ 6. the map's edge wall (biome maps; home has its own tree wall)
+    // ------------------------------------------------------------ 6. the map's edge wall 
     for (int ty = 0; ty < MH; ty++)
             for (int tx = 0; tx < MW; tx++) {
                 if (!inRing(tx, ty) || K(tx, ty) == 1) continue;  // the gate gap stays open
@@ -583,7 +838,7 @@ inline void World::generateMap(int map) {
     };
     auto passable = [&](int tx, int ty) { return inMap(tx, ty) && !solid[ty][tx] && !tileSolid(tile[ty][tx]); };
     auto nodeFree = [&](int tx, int ty) {
-        if (inRing(tx, ty) || K(tx, ty) != 0) return false;
+        if (inRing(tx, ty) || K(tx, ty) != 0 || tile[ty][tx] == T_SHALLOW) return false;
         return passable(tx, ty) && passable(tx + 1, ty) && passable(tx - 1, ty) && passable(tx, ty + 1) && passable(tx, ty - 1);
     };
     auto farFromNodes = [&](float x, float y, float minD) {
@@ -644,11 +899,92 @@ inline void World::generateMap(int map) {
     // so the original home map (terrain, trees, rocks, decor) is exactly what it always was.
     if (home) {
         Rng hr(seed * 104729u + 31u);
+        // ---- the glades' features (the clearings themselves are carved in the terrain and tree passes above)
+        {
+            Rng gf(seed * 7919u + 88u);
+            auto gFree = [&](int x, int y) {
+                return inMap(x, y) && !inRing(x, y) && (K(x, y) == 0 || K(x, y) == 2) && !solid[y][x] && !tileSolid(tile[y][x]) && tile[y][x] != T_DIRT && tile[y][x] != T_SHALLOW && gladeQ(x, y) < 0.85f;
+            };
+            // the free tile nearest a glade's middle (a trail may cross it)
+            auto gSpot = [&](const Glade& g, int& ox, int& oy) {
+                const int cx = (int)lroundf(g.cx), cy = (int)lroundf(g.cy);
+                for (int rad = 0; rad <= 3; rad++)
+                    for (int dy = -rad; dy <= rad; dy++)
+                        for (int dx = -rad; dx <= rad; dx++)
+                            if ((abs(dx) == rad || abs(dy) == rad) && gFree(cx + dx, cy + dy)) { ox = cx + dx; oy = cy + dy; return true; }
+                return false;
+            };
+            // a node near (cx, cy) tiles, within `rad` tiles, on a free tile
+            auto gNode = [&](int kind, float cx, float cy, float rad) {
+                for (int att = 0; att < 80; att++) {  // (the search widens a little each try: a brook may cover the middle of the clearing)
+                    const float reach = rad + att * 0.06f;
+                    const int tx = (int)lroundf(cx + gf.range(-reach, reach)), ty = (int)lroundf(cy + gf.range(-reach, reach));
+                    if (!gFree(tx, ty) || !passable(tx, ty) || !passable(tx + 1, ty) || !passable(tx - 1, ty) || !passable(tx, ty + 1) || !passable(tx, ty - 1)) continue;  // (a trail's cleared margin is fine)
+                    const float nx = tx * TS + 8.f + gf.range(-3, 3), ny = ty * TS + 12.f + gf.range(-1, 2);
+                    if (!farFromNodes(nx, ny, 14.f)) continue;
+                    nodes.push_back({kind, nx, ny, gf.f() * 6.28f});
+                    return true;
+                }
+                return false;
+            };
+            // decor on a ring `rad` tiles round the middle, skipping tiles that are not open meadow
+            auto gRing = [&](const Glade& g, int kind, int n, float rad) {
+                for (int i = 0; i < n; i++) {
+                    const float a = i * 6.2832f / n + gf.range(-0.2f, 0.2f);
+                    const float px = (g.cx + cosf(a) * rad) * TS + 8.f, py = (g.cy + sinf(a) * rad * 0.8f) * TS + 10.f;
+                    const int tx = (int)(px / TS), ty = (int)(py / TS);
+                    if (inMap(tx, ty) && K(tx, ty) == 0 && !solid[ty][tx] && tile[ty][tx] != T_DIRT && tile[ty][tx] != T_SHALLOW && !tileSolid(tile[ty][tx])) addDecor(kind, px, py);
+                }
+            };
+            for (const Glade& g : glades) {
+                int ox, oy;
+                switch (g.kind) {
+                    case GL_OAK:  // one great old oak in the middle of the clearing
+                        if (gSpot(g, ox, oy)) tileProp(P_OAK1, ox, oy);
+                        break;
+                    case GL_STONE:  // a rune stone (it glows at night) with a scatter of pebbles
+                        if (gSpot(g, ox, oy)) addP(P_STANDING, ox, oy);
+                        gRing(g, D_PEBBLES, 7, 1.7f);
+                        break;
+                    case GL_FUNGI:  // a fairy ring of mushrooms, with mushrooms to gather inside it
+                        gRing(g, D_MUSHROOM, 11, 2.6f);
+                        for (int i = 0; i < 3; i++) gNode(RN_MUSHROOM, g.cx, g.cy, 1.4f);
+                        break;
+                    case GL_HERBS:  // a herb patch
+                        for (int i = 0; i < 4; i++) gNode(RN_HERB, g.cx, g.cy, 2.6f);
+                        for (int i = 0; i < 2; i++) gNode(RN_FLAX, g.cx, g.cy, 3.f);
+                        break;
+                    case GL_CAMP: {  // a hunter's rest: a ring of stones where a fire once burned, a log on each side
+                        gRing(g, D_PEBBLES, 9, 1.2f);
+                        for (int side = -1; side <= 1; side += 2) {
+                            const int tx = (int)lroundf(g.cx) + side * 3, ty = (int)lroundf(g.cy) + 1;
+                            if (gFree(tx, ty)) {
+                                props.push_back({P_LOG, tx * TS + 8.f, ty * TS + 14.f, 0});
+                                solid[ty][tx] = true;
+                            }
+                        }
+                        break;
+                    }
+                    default: break;  // GL_FLOWERS: the flowers themselves (the tree pass) are the feature
+                }
+            }
+            // a flower field has herbs to gather among the flowers
+            for (const FlowerField& f : fields)
+                for (int i = 0, placed = 0; i < 90 && placed < 7; i++) {
+                    const int tx = (int)lroundf(f.cx + gf.range(-f.rx, f.rx) * 0.8f), ty = (int)lroundf(f.cy + gf.range(-f.ry, f.ry) * 0.8f);
+                    if (!inMap(tx, ty) || fieldQ(tx, ty) > 0.7f || inRing(tx, ty) || K(tx, ty) != 0 || solid[ty][tx] || tile[ty][tx] != T_GRASS) continue;
+                    if (!passable(tx, ty) || !passable(tx + 1, ty) || !passable(tx - 1, ty) || !passable(tx, ty + 1) || !passable(tx, ty - 1)) continue;
+                    const float nx = tx * TS + 8.f + gf.range(-3, 3), ny = ty * TS + 12.f + gf.range(-1, 2);
+                    if (!farFromNodes(nx, ny, 16.f)) continue;
+                    nodes.push_back({RN_HERB, nx, ny, gf.f() * 6.28f});
+                    placed++;
+                }
+        }
         auto homeOk = [&](int tx, int ty) {
             const int cx = tx - COX, cy = ty - COY;
             if (cx < 4 || cy < 4 || cx >= CW - 4 || cy >= CH - 4 || K(tx, ty) != 0) return false;
             if (hypotf(cx - 44.f, (cy - 30.f) * 1.15f) < 11.f) return false;  // the village plaza stays clear
-            return passable(tx, ty) && passable(tx + 1, ty) && passable(tx - 1, ty) && passable(tx, ty + 1) && passable(tx, ty - 1) && tile[ty][tx] != T_DIRT;
+            return passable(tx, ty) && passable(tx + 1, ty) && passable(tx - 1, ty) && passable(tx, ty + 1) && passable(tx, ty - 1) && tile[ty][tx] != T_DIRT && tile[ty][tx] != T_SHALLOW;
         };
         auto homeScatter = [&](int kind, int count, const std::function<bool(int, int)>& ok) {
             int placed = 0;
@@ -667,10 +1003,43 @@ inline void World::generateMap(int map) {
         homeScatter(RN_FLAX, 28, [&](int x, int y) { return tile[y][x] == T_GRASS; });
         // and the same plants through the home forest around the original area
         auto outer = [&](int x, int y) { return !inCore(x, y); };
-        scatter(RN_HERB, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK); }, 4.f);
-        scatter(RN_MUSHROOM, 40, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_DARK; }, 4.f);
-        scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK) && nearTree(x * TS + 8.f, y * TS + 12.f, 40.f); }, 4.f);
+        scatter(RN_HERB, 70, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_GRASS || tile[y][x] == T_DARK || tile[y][x] == T_MOSS || tile[y][x] == T_LEAF); }, 4.f);
+        scatter(RN_MUSHROOM, 40, [&](int x, int y) { return outer(x, y) && (tile[y][x] == T_DARK || tile[y][x] == T_MOSS || tile[y][x] == T_ROOTS); }, 4.f);
+        scatter(RN_BRANCH, 70, [&](int x, int y) { return outer(x, y) && tileGrassy(tile[y][x]) && nearTree(x * TS + 8.f, y * TS + 12.f, 40.f); }, 4.f);
         scatter(RN_FLAX, 50, [&](int x, int y) { return outer(x, y) && tile[y][x] == T_GRASS; }, 4.f);
+        // ---- lake banks: a ring of trodden earth round every lake, one tile wide and ragged (a second tile here and there). Made after every tree,
+        // plant and random choice above, so none of them depends on it; only forest floors turn into bank (paths, brooks and glades' meadows stay)
+        // ---- lake depth as real tiles: round the shore the water is shallow (wade), one tile further in it is mid (wade, slow), and the rest stays
+        // deep (T_WATER, solid). A brook or any dry tile counts as shore. The village area is left alone (the town is laid over it afterwards).
+        {
+            std::vector<std::pair<int, int>> shallow, mid;
+            for (int y = 0; y < MH; y++)
+                for (int x = 0; x < MW; x++) {
+                    if (tile[y][x] != T_WATER || inCore(x, y) || inRing(x, y)) continue;
+                    int d = 3;
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++)
+                            if (inMap(x + dx, y + dy) && tile[y + dy][x + dx] != T_WATER) d = std::min(d, std::max(std::abs(dx), std::abs(dy)));
+                    if (d == 1) shallow.push_back({x, y});
+                    else if (d == 2) mid.push_back({x, y});
+                }
+            for (auto& pt : shallow) tile[pt.second][pt.first] = T_LAKE_SHALLOW;
+            for (auto& pt : mid) tile[pt.second][pt.first] = T_LAKE_MID;
+        }
+        {
+            auto bankable = [](uint8_t t) { return t == T_GRASS || t == T_DARK || t == T_LEAF || t == T_NEEDLES || t == T_MOSS; };
+            std::vector<std::pair<int, int>> todo;
+            for (int y = 0; y < MH; y++)
+                for (int x = 0; x < MW; x++) {
+                    if (!bankable(tile[y][x]) || inCore(x, y)) continue;
+                    int dmin = 3;
+                    for (int dy = -2; dy <= 2; dy++)
+                        for (int dx = -2; dx <= 2; dx++)
+                            if (inMap(x + dx, y + dy) && tileLake(tile[y + dy][x + dx])) dmin = std::min(dmin, std::max(std::abs(dx), std::abs(dy)));
+                    if (dmin == 1 || (dmin == 2 && fbm(x * 0.4f, y * 0.4f, S + 9) < 0.47f)) todo.push_back({x, y});
+                }
+            for (auto& pt : todo) tile[pt.second][pt.first] = T_BANK;
+        }
         generateTown();  // last: the town is laid over the middle of the original area
     }
 }
@@ -688,7 +1057,7 @@ inline void World::generateTown() {
     const int X0 = COX + TOWN_X0, Y0 = COY + TOWN_Y0, X1 = COX + TOWN_X1, Y1 = COY + TOWN_Y1;  // map tiles, X1 / Y1 exclusive
     auto inRect = [&](float px, float py) { return px >= X0 * TS && px < X1 * TS && py > Y0 * TS && py <= Y1 * TS; };
     // 0. nothing gatherable in the town, beside it or on its four roads: no tree, rock, plant or ore to chop, mine or pick (the thick
-    // tree wall around the whole original area is the town's boundary; it is untouched)
+    // forest around the town is ordinary forest)
     {
         const int M = 2;  // tiles of clearing around the rectangle
         auto zone = [&](float px, float py) {
@@ -820,7 +1189,7 @@ inline void World::generateTown() {
 
 #include "farming/homestead_gen.hpp"
 
-// Keeps oaks and pines from piling on top of each other. Runs once after a map is generated: walking the trees in order, a tree is
+// Keeps trees (oaks, pines, snow spruces, dead and bare trees) from piling on top of each other. Runs once after a map is generated: walking the trees in order, a tree is
 // dropped when its canopy would cover more than TREE_OVERLAP (a share, 0 to 1) of an already kept tree's canopy (tree_lime.hpp). Rocks, bushes and everything else are left alone. Nothing random is used, so the map stays the same every run.
 inline void World::thinTrees() {
     struct T { float x, y, w, c; };  // c = height of the leafy part
@@ -830,19 +1199,18 @@ inline void World::thinTrees() {
     std::vector<Prop> out;
     out.reserve(props.size());
     for (const Prop& p : props) {
-        if (p.kind != P_OAK0 && p.kind != P_OAK1 && p.kind != P_PINE) { out.push_back(p); continue; }
+        const bool tree = p.kind == P_OAK0 || p.kind == P_OAK1 || p.kind == P_PINE || p.kind == P_SNOWPINE || p.kind == P_DEADTREE0 ||
+                          p.kind == P_DEADTREE1 || p.kind == P_BARETREE;
+        if (!tree) { out.push_back(p); continue; }
         const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
-        float w = PINE_W, h = PINE_H;
-        if (p.kind != P_PINE) { const OakVar& v = OAK_VAR[oakVariantFor(tx, ty)]; w = (float)v.w; h = (float)v.h; }
+        float w = PINE_W, h = PINE_H;  // the size of the tree's sprite: how far its top reaches sideways and up
+        if (p.kind == P_OAK0 || p.kind == P_OAK1) { const OakVar& v = OAK_VAR[oakVariantFor(tx, ty)]; w = (float)v.w; h = (float)v.h; }
+        else if (p.kind == P_SNOWPINE) { w = SNOW_SPRUCE_W; h = SNOW_SPRUCE_H; }
+        else if (p.kind != P_PINE) { w = DEAD_SPRUCE_W; h = DEAD_SPRUCE_H; }
         const T t{p.x, p.y, w, h * 0.7f};
         const int cx = (int)(p.x / CELL), cy = (int)(p.y / CELL);
-        // the trees of the map's edge wall stay: they are walls, not forest. The box around the town is thinned like the forest (so its
-        // trees do not pile up), but its inner row keeps blocking, see below.
-        const int cx2 = tx - COX, cy2 = ty - COY;
-        const bool box = cx2 >= 0 && cy2 >= 0 && cx2 < CW && cy2 < CH && (cx2 < 2 || cy2 < 2 || cx2 >= CW - 2 || cy2 >= CH - 2);
+        // the trees of the map's edge wall stay: they are walls, not forest
         const bool wall = tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2;
-        const bool townBox = box && mapId == B_HOME;
-        const bool boxInner = townBox && cx2 > 0 && cy2 > 0 && cx2 < CW - 1 && cy2 < CH - 1;
         bool crowded = false;
         for (int gy = std::max(0, cy - 1); gy <= std::min(gh - 1, cy + 1) && !crowded; gy++)
             for (int gx = std::max(0, cx - 1); gx <= std::min(gw - 1, cx + 1) && !crowded; gx++)
@@ -856,56 +1224,14 @@ inline void World::thinTrees() {
                     if (!wall && ow * oh > TREE_OVERLAP) { crowded = true; break; }
                 }
         if (crowded) {
-            // the tree is gone, so is its blocking tile. Except in the inner row of the town's box: that row is a sealed wall, its
-            // tiles keep blocking and the neighbouring trees cover the spot.
-            if (!boxInner && tx >= 0 && ty >= 0 && tx < MW && ty < MH) solid[ty][tx] = false;
+            // the tree is gone, so is its blocking tile
+            if (tx >= 0 && ty >= 0 && tx < MW && ty < MH) solid[ty][tx] = false;
             continue;
         }
         grid[(size_t)cy * gw + cx].push_back(t);
         out.push_back(p);
     }
     props.swap(out);
-}
-
-// More rows of trees outside the box around the town, so the edge is a thick forest and not one line. Each tile near the box gets a
-// tree by chance (more likely close to the box, fewer further out), placed at a random spot in the tile. The gaps where the paths
-// leave the town, and the paths themselves, are kept clear. thinTrees() runs afterwards and removes the ones that would pile up.
-// It uses its own random numbers, so the rest of the map is unchanged.
-inline void World::addTownBelt() {
-    constexpr int DEPTH = 7;
-    static const float CHANCE[DEPTH] = {0.75f, 0.7f, 0.6f, 0.5f, 0.4f, 0.3f, 0.2f};
-    Rng br(seed * 40503u + 12345u);
-    std::vector<std::pair<int, int>> gates;  // open tiles in the inner row of the box: where the paths leave the town
-    for (int y = COY; y < COY + CH; y++)
-        for (int x = COX; x < COX + CW; x++) {
-            const int cx = x - COX, cy = y - COY;
-            const bool inner = (cx == 1 || cy == 1 || cx == CW - 2 || cy == CH - 2) && cx >= 1 && cy >= 1 && cx <= CW - 2 && cy <= CH - 2;
-            if (inner && !solid[y][x]) gates.push_back({x, y});
-        }
-    for (int ty = COY - DEPTH; ty < COY + CH + DEPTH; ty++)
-        for (int tx = COX - DEPTH; tx < COX + CW + DEPTH; tx++) {
-            if (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3) continue;
-            const int dx = std::max(std::max(COX - tx, tx - (COX + CW - 1)), 0), dy = std::max(std::max(COY - ty, ty - (COY + CH - 1)), 0);
-            const int d = std::max(dx, dy);  // how many tiles outside the box
-            if (d < 1 || d > DEPTH) continue;
-            // same random numbers every time, whatever happens below
-            const bool roll = br.chance(CHANCE[d - 1]);
-            const float px = tx * (float)TS + 2.f + br.range(0.f, 12.f), py = ty * (float)TS + 4.f + br.range(0.f, 11.f), ph = br.f() * 6.28f;
-            const bool coin = br.chance(0.5f), pineRoll = br.chance(0.55f), pineRoll2 = br.chance(0.12f);
-            if (!roll || solid[ty][tx]) continue;
-            const uint8_t t = tile[ty][tx];
-            if (t != T_GRASS && t != T_DARK) continue;
-            bool clear = true;
-            for (int y = ty - 2; y <= ty + 2 && clear; y++)
-                for (int x = tx - 2; x <= tx + 2; x++)
-                    if (y >= 0 && x >= 0 && y < MH && x < MW && tile[y][x] == T_DIRT) { clear = false; break; }
-            for (const auto& g : gates)
-                if (std::abs(g.first - tx) <= 3 && std::abs(g.second - ty) <= 3) { clear = false; break; }
-            if (!clear) continue;
-            const int kind = (t == T_DARK) ? (pineRoll ? P_PINE : P_OAK0) : (pineRoll2 ? P_PINE : (coin ? P_OAK0 : P_OAK1));
-            props.push_back({kind, px, py, ph});
-            solid[ty][tx] = true;
-        }
 }
 
 // Gives every rock one of its 5 looks and makes it block as wide as that sprite is. A look is used only when all the extra tiles it
@@ -918,14 +1244,41 @@ inline void World::fitRocks() {
         const uint8_t t = tile[ty][tx];
         return t != T_DIRT && t != T_COBBLE && t != T_WATER && t != T_CLIFF && t != T_RAIL && t != T_ICE;
     };
-    for (Prop& p : props) {
-        if (!isRockKind(p.kind)) continue;
+    // The sprite boxes of the rocks kept so far. A rock whose picture would cover more than ROCK_OVERLAP of a kept rock's picture
+    // (the share of the smaller one) tries its other looks, and is dropped when none fits: boulders first, then small, then tiny rocks.
+    struct Box { float x0, y0, x1, y1; };
+    std::vector<Box> kept;
+    auto boxOf = [&](const Prop& p, int look) {
+        const RockArt& a = rockSet(p.kind)[look];
+        return Box{p.x - a.w * 0.5f, p.y - a.h + 2.f, p.x + a.w * 0.5f, p.y + 2.f};
+    };
+    auto crowds = [&](const Box& b) {
+        const float ba = (b.x1 - b.x0) * (b.y1 - b.y0);
+        for (const Box& o : kept) {
+            const float iw = std::min(b.x1, o.x1) - std::max(b.x0, o.x0), ih = std::min(b.y1, o.y1) - std::max(b.y0, o.y0);
+            if (iw <= 0 || ih <= 0) continue;
+            const float oa = (o.x1 - o.x0) * (o.y1 - o.y0);
+            if (iw * ih > ROCK_OVERLAP * std::min(ba, oa)) return true;
+        }
+        return false;
+    };
+    std::vector<size_t> order;
+    for (int pass = 0; pass < 3; pass++)
+        for (size_t i = 0; i < props.size(); i++) {
+            const int k = props[i].kind;
+            const int rc = rockClass(k);
+            if (rc >= 0 && rc == 2 - pass) order.push_back(i);
+        }
+    std::vector<bool> drop(props.size(), false);
+    for (size_t i : order) {
+        Prop& p = props[i];
         const int tx = (int)(p.x / TS), ty = (int)(p.y / TS);
         const int start = std::abs((tx * 7 + ty * 13)) % ROCK_LOOKS;
-        if (tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2) { p.ph = 100.f + start; continue; }
+        if (tx < 2 || ty < 2 || tx >= MW - 2 || ty >= MH - 2) { p.ph = 100.f + start; kept.push_back(boxOf(p, start)); continue; }  // the edge wall stays
         bool done = false;
         for (int k = 0; k < ROCK_LOOKS && !done; k++) {
             const int look = (start + k) % ROCK_LOOKS;
+            if (crowds(boxOf(p, look))) continue;
             int x0, y0, x1, y1;
             rockFoot(p, look, false, x0, y0, x1, y1);
             bool ok = true;
@@ -936,10 +1289,27 @@ inline void World::fitRocks() {
             for (int y = y0; y <= y1; y++)
                 for (int x = x0; x <= x1; x++) solid[y][x] = true;
             p.ph = (float)look;
+            kept.push_back(boxOf(p, look));
             done = true;
         }
-        if (!done) { p.ph = 100.f + start; solid[ty][tx] = true; }
+        if (done) continue;
+        // no look fits without a crowded picture or a blocked footprint: a boulder stays as it is (blocking its own tile), the rest go
+        bool free = true;
+        for (int k = 0; k < ROCK_LOOKS && free; k++) free = !crowds(boxOf(p, (start + k) % ROCK_LOOKS));
+        if (p.kind == P_BOULDER || p.kind == P_SANDBOULDER || free) {
+            p.ph = 100.f + start;
+            solid[ty][tx] = true;
+            kept.push_back(boxOf(p, start));
+        } else {
+            drop[i] = true;
+            solid[ty][tx] = false;  // it blocked its own tile (placed that way): the tile is free again
+        }
     }
+    std::vector<Prop> out;
+    out.reserve(props.size());
+    for (size_t i = 0; i < props.size(); i++)
+        if (!drop[i]) out.push_back(props[i]);
+    props.swap(out);
 }
 
 inline void World::setPropSolid(const Prop& p, bool v) {
@@ -971,7 +1341,7 @@ inline void World::buildOccluders() {
         else if (isRockKind(p.kind)) {
             int x0, y0, x1, y1;
             rockFoot(p, x0, y0, x1, y1);
-            if (x1 > x0 || p.kind == P_BOULDER)
+            if (x1 > x0 || p.kind == P_BOULDER || p.kind == P_SANDBOULDER)
                 for (int y = y0; y <= y1; y++)
                     for (int x = x0; x <= x1; x++)
                         if (x >= 0 && y >= 0 && x < MW && y < MH) occ[y][x] = true;

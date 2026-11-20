@@ -42,8 +42,8 @@ Eight story quests (kill, gather, craft, earn) lead into endless scaling bountie
 bandages. The active quest shows bottom-left, and the elder is marked on the minimap. Quest progress is saved.
 
 ## World
-The game has five separate maps, each exactly 240x168 tiles: WILDWOOD (the start map: the original 88x60 Wildwood area, unchanged, in the centre of
-home forest, with four gates at the map edge), DESERT, SWAMP, SNOW and MOUNTAIN. Each biome map has its own terrain, props, weather, landmarks
+The game has five separate maps, each exactly 240x168 tiles: WILDWOOD (the start map: the original 88x60 Wildwood area in the centre of
+home forest, with four gates at the map edge; there is no wall round the original area, its forest simply continues into the wider forest), DESERT, SWAMP, SNOW and MOUNTAIN. Each biome map has its own terrain, props, weather, landmarks
 (walk up to one to discover it), gathering plants/ore, wildlife table and a trail from its gate to its hub landmark. Walk out of
 WILDWOOD through a gate (east desert, south swamp, north snow, west mountain) to travel; each biome has one gate leading back home. A
 "TO <MAP>" label shows near a gate and the minimap marks gates in the colour of their destination. Travelling keeps your health, pack,
@@ -54,6 +54,39 @@ Terrain and climate matter: sand, mud and deep snow slow you down, ice makes you
 Maps are defined in `src/world/maps.hpp` (gates, entry and hub per map), generated in `src/world/world.hpp` / `src/world/worldgen.hpp`, and travel
 is `Game::travelTo` in `src/world/maps.cpp`. To add a biome: a Biome id, a row in `MAPS`, a ground / landmark / resource section in
 `worldgen.hpp` and a table in `spawns.hpp`. Saves from before the separate maps still load: the original area sits at the same tiles as before, and campfires / chests that stood out in the old biome areas are returned to your pack with their contents.
+
+## New worlds and sun shadows
+Every new game builds a new random world (the seed is kept in the save, so Continue returns to the same one; the pause menu shows it). A seed is only used when all five maps come out reachable (`src/world/worldfix.hpp` opens a way to anything cut off). Starting a new game with a save on disk asks first. Trees, rocks and buildings cast the shape of their own sprite as a sun shadow (`game_light.cpp`), ground tiles blend softly into each other (`src/art/tile_edges.hpp`), and meadow flowers grow in small clusters.
+
+The home forest's floor comes from two noise fields: **density** (the old tree-density field) and a new **moisture** field (`homeFloor()` in `src/world/worldgen.hpp`).
+Dense and wet gives moss, dense and dry gives pine needles, dense in between stays dark grass (the very densest dry cores are root-tangled earth), the woodland edge is leaf litter when dry and moss when wet, and the rest is meadow. Lake shores are mossy. Trees follow the floor (pines on needles and roots, oaks on leaf litter), and decor does too. The tiles are painted in `src/art/sprites_forest.hpp` and blend into their neighbours like every other ground. `wildwood --forest DIR` writes a close-up screenshot of each floor and of each kind of glade.
+
+**Streams and groves:** about nine brooks wander from springs in the wet forest to the nearest lake (`T_SHALLOW`: clear shallow water you can wade through at reduced speed; a path that meets one is a ford, and a brook only exists if it reaches a lake). Their banks are damp moss, with lilies floating in them. Trees gather in groves (a clumping noise leaves open ground between stands, and a second one makes a stand mostly pines or mostly oaks); in open country a tree keeps its distance from the next; and the forest has old stumps (decor), fallen logs and dead trees, thickest in the root-tangled and mossy ground.
+
+**Flower fields:** three per world, wide open meadows (9-13 tiles across) in open country, away from the village, lakes, glades and the forest. No trees grow in them; they are carpeted with flowers, thickest in the middle, in drifts of one colour (orange, cream, violet `D_VIOLET`, poppy red `D_POPPY`: the last two are new flowers used only here), with a few herbs to gather. Rabbits and deer favour them, boars and wolves keep off. Chosen in `worldgen.hpp`, listed in `World::fields`, switched off with `GEN_NO_FIELDS`.
+
+**Smoothing and independent layers:** a cleanup pass takes single-tile specks and one-tile spurs of one floor over to the floor around them (water banks, glades and the village are left alone). Every home-forest tile draws from a random stream of its own, seeded from its position, so a layer can be left out (`World::genOff`: `GEN_NO_STREAMS`, `GEN_NO_GLADES`, `GEN_NO_SMOOTH`) without moving any tree it does not touch (a self-test checks it). `wildwood --forest DIR` also writes `density.ppm` and `moisture.ppm`, the two fields behind the floor, for tuning.
+
+**Animal routines and senses (home forest):** each of the four species lives by a daily routine (`chooseAct` / `performAct` in `game_animals.cpp`). It has a bed (a sheltered spot on the ground its species sleeps on, never in a glade or flower field) and, for deer, a watering place, and its day is made of acts: sleep, graze, drink, forage, patrol, roam. Rabbits sleep in burrows all night; deer drink and graze at dawn and dusk and lie up in the thicket at midday; boars root about at all hours and wallow at midday; wolves sleep by their den by day, go back to it at dawn and make their rounds at dusk and night. A surplus animal (the hour calls for fewer) walks to its bed and is gone once it is there and out of sight, not mid-meadow.
+What an animal notices is now decided by `Game::sightFactor` instead of distance alone: its **field of view** (prey see almost all round, with a blind arc behind; predators look further ahead; outside the view it only hears), **cover** (each tree, rock or wall between it and the hunter cuts the range: one to 60%, two to 35%, three or more hide the hunter entirely), **light** (prey see worse at dusk and night), **sleep** (a sleeping animal is slow to notice) and **noise** (a sprint is heard through trees from about half the range; a hunter standing still is noticed later). Predators and prey use the same rules on each other. **F3** shows the AI overlay: every animal's act and state, its route (yellow) and bed (blue), its field of view (cyan) and the line of sight to you (green clear, orange screened, red seen) with the percentage of its range it keeps. `wildwood --forest DIR` writes `ai_debug.bmp`.
+
+**Wolf packs:** wolves live in packs of 3-5 with one leader (`spawnPack`, `packLeader` in `game_animals.cpp`); they spawn and return as packs, with a lone wolf only as a leftover. The followers keep to the leader (they take its act and go to its place, spread by slot, and sleep beside it), catch up if they lag, and if the leader is lost another is promoted. When one wolf sees the hunter the whole pack within ~500 px joins the chase and the one that saw you gives a howl; the followers **flank**, circling to either side of the hunter before closing in, so a pack comes at you from several directions. A pack wolf breaks off at 40% health (a lone wolf at 25%), a hurt wolf goes back to its bed and slowly heals asleep, and if the **leader falls the pack scatters** for a few seconds. As the evening comes (dusk) the packs **howl** (`S_HOWL`, synthesised in `audio.hpp`, quieter the further the pack is), so the first night is announced before it arrives. In the F3 overlay a pack member shows as `wolf#N` (the leader `#NL`) with a line to its leader.
+(Overlay colours: blue = bed, yellow = route, cyan = view, purple = to the leader, line to you green = clear / orange = screened / red = seen.)
+
+**Wildlife by hour and ground:** the home forest's four animals each have a population that follows the clock (`Game::homeTarget`): rabbits are many by day and few at night, deer are busiest at dawn and dusk, boars are about at every hour (a few more at night), and wolves hunt at night (about 2.5x as many as at noon). When the hour calls for fewer, a surplus animal quietly leaves from out of sight (`Game::cullHome`; never rare or legendary ones, never one in a fight). Placement follows the ground (`zoneWeight` in `game_animals.cpp`): rabbits and deer graze meadows, leaf litter and glades (deer also like water), boars favour thickets, moss and roots, wolves keep to needles, roots and dark thickets by day and range over the meadows at night. Boars and wolves shy away from glades.
+
+**Glades:** every world has about 14 open clearings cut out of the dense forest (away from the village, lakes and each other), with the trees thinning at their rim and flowers drifting across the meadow inside. Each has a feature: a flower-carpeted meadow, one great old oak, a rune stone that glows at night, a fairy ring of mushrooms with mushrooms to pick, a herb and flax patch, or a hunter's rest (a ring of stones and two logs). They are chosen in `worldgen.hpp` and listed in `World::glades`.
+
+## Bosses, status effects, tracking and the dodge-roll
+**Bosses** (`src/animals/bosses.hpp`, `src/core/game_boss.cpp`): each wild biome map has one named boss (SANDMANE in the desert, OLD SNAPJAW in the swamp, WHITE DEATH on the snow, CRAGSHADE in the mountains) that sleeps at a lair near the map's middle. It wakes when you come within `BOSS_WAKE_RANGE`, fights with telegraphed attacks (a charge shown as a red line, a ground slam shown as a red ring) and calls its pack at two thirds and one third of its health. A slain boss pays coins and Hunting XP at once and returns after `BOSS_RESPAWN` seconds. A lair you have found is marked on the map and minimap; kills, timers and found lairs are saved (`boss` lines).
+
+**Status effects** (`src/combat/effects.hpp`): axes may stun (frozen in place), the Sunstrike javelin scares (the animal bolts), the Bogbane spear poisons (health lost over time). Legendary animals get half the duration. Small pips over an animal show its effects.
+
+**Tracking** (`src/core/game_tracks.cpp`): walking animals near you leave tracks that fade; the **Tracking** skill makes them visible from further and last longer, and walking over a fresh one reads it for a little XP. (These are separate from the purely visual footprints of `game_prints.cpp`.)
+
+**Dodge-roll:** **C** (rebindable) rolls a short burst in the direction you walk (or back from your aim) with a moment of invulnerability. It costs stamina, has a cooldown and cannot be done while riding.
+
+**Companion orders:** **F** (rebindable) cycles the companion between follow, fetch (brings back weapons and arrows you threw) and scout (marks nearby animals on the minimap; needs bond level 2). **Saddlebags** (leather gear, crafted) add half again to a mount's carry weight, and raised mounts now breed with their own species: a foal takes the better parent's tier and sometimes comes out one tier better.
 
 ## Settings, help and shortcuts
 The pause menu (Esc) and the title screen open SETTINGS: sound effects and ambience volume, a mute switch, and every key action can be rebound (click one, press a key;
@@ -73,10 +106,6 @@ as a `gates` line; a save from before gates existed keeps every gate open.
 - **Market demand**: each material has a demand multiplier (0.7 to 1.3). Selling lowers it by 1% per item, and each new day it drifts back toward normal with a small random push. In the SELL tab the price is green when the store wants it and red when it has too much.
 - **Orders**: the ORDERS tab of the general store lists three crafted items (things you can make at your skill level, never carried gear). Higher reputation asks for better minimum quality and pays 1.5 times the item's value. Orders are renewed every day (300 s of game time).
 - **Bestiary card**: hover a hunted species in the BESTIARY tab to see its health, whether it fights back, which rarity tiers you have hunted and its drops (form and legendary extras are tagged).
-- **Time limits**: nothing lies around forever. A carcass is gone after 3 minutes (5 for a legendary), a thrown weapon or arrow after 5 minutes, and a stack you dropped (or a baby a kill left) after 10. The last 20 seconds it blinks. How long a dropped stack has lain there is saved.
-- **Animation**: four-legged animals have jointed legs (knees and hocks bend as a foot lifts), a bobbing walk with a nodding head and swaying tail, a gathering and stretching gallop, and a six-pose idle with a head sweep, ear flicks and a tail swish.
-- **Raised ground**: where one ground stands higher than the one south of it its face shows - a fringe of blades over brown soil for grass, sand, snow-and-ice, stone and a stone curb for the paved plaza (paving over grass, grass over dirt, dirt over mud). Dirt comes in light, medium and dark patches with rocky tiles.
-- **Living grass**: tufts, flowers, reeds and other plants lean away from a hunter or animal moving past them and rustle back to rest; running through grass throws up a few blades. Standing still does not disturb it.
 - **Wounded quarry**: if an animal you hurt bleeds out beyond 150 px, its carcass blinks with a gold ring on the minimap and the map until you reach it.
 - Saved lines: `rep`, `demand`, `order`, and `bestiary <kind> <kills> <tier mask>`. Older saves load with defaults.
 
@@ -85,18 +114,6 @@ as a `gates` line; a save from before gates existed keeps every gate open.
 stream species in just off-screen (`src/world/spawns.hpp`: per-biome caps, cooldowns, terrain, night caps, 60-animal ceiling).
 Any specimen can roll a rarity tier: uncommon 15%, rare 4%, legendary 0.3% (max one alive, 5 min cooldown). Higher tiers are
 recoloured, larger, tougher and drop more; rare and legendary pay a coin bounty. Rattlesnakes, panthers etc. are ambush / night hunters.
-
-**Animal art** is flat 2D with four directions (down, right, up, left). `src/animals/sprites_rig.hpp` paints every four-legged species, the hoppers
-and the birds as side, front and back elevations (camera pitch `kCamPhi`) with idle, walk, run, attack, hurt, death, eat, rest and alert poses
-(flight states for birds). A four-legged species is described by its `QuadSpec` in `sprites_fauna.hpp`, and its rig shape is derived from that
-(`quadShapeFromSpec`). Only the crawlers (snakes, lizard, frog, gator) keep the four-frame walk cycle, with their own front and back views
-(`drawCrawlerNS`). `--export-sprites DIR` writes sprite sheets for every species and direction.
-
-## Mounts
-
-Any listed wild animal (boar, the deer family, goat, bighorn, wolf, coyote, panther, lynx, lions, polar bear; table in `src/animals/mounts.hpp`) has a small chance to leave a **baby** when you hunt it: higher for rarer tiers. Pick it up (it weighs 3 kg and keeps its tier), then use it at the Homestead to set it down as a growing animal; feed it and it grows up over a few minutes.
-
-An adult is saddled in the animal panel (SADDLE / UNSADDLE, one at a time). Press **V** (rebindable) near it to ride: faster travel and extra carry weight by species and tier, and you can still throw and shoot from the saddle. Mounts cannot enter buildings, caves or mines. Dismount outdoors and the mount waits idle where you got off; walk more than 520 px away and it returns to its pen, and the mount key (or a click on the MOUNT slot of the pack's GEAR column) calls it again from anywhere outdoors. A mount is either saddled or the companion, never both. Species, tier and saddle are saved; a ridden mount is back in its pen after loading.
 
 ## Items and ranged weapons
 `src/items/items.hpp` is the item registry: one id space and one table (name, kind, stack size, price, backpack slots) for materials,
@@ -107,8 +124,8 @@ hit can be picked up again. Both weapons and their ammo are sold on the shop's B
 drop from the new species (see `fauna.hpp`).
 
 ## Inventory
-The pack (`src/items/inventory.hpp`) always has exactly 100 slots; every item - gear included (launchers, tools, bags, carried gear, babies) - stacks to 999 per
-quality tier, and different items never share a slot. The pack's GEAR column shows the weapon in hand, the worn bag, the six tools and the mount. What limits the hunter is **weight**: every item has a weight in kg, defined once in
+The pack (`src/items/inventory.hpp`) always has exactly 100 slots; every stackable item stacks to 999, launchers / tools / bags / carried gear take a
+slot each, and different items never share a slot. What limits the hunter is **weight**: every item has a weight in kg, defined once in
 `src/items/items.hpp` (`matWeight`, `wpnWeight`, ...), and the pack has a maximum carrying weight. `Inventory::add` never takes more than fits (slots
 or weight), so gathering, looting, pickups, crafting, shop purchases and chest withdrawals all refuse politely ("PACK FULL" / "TOO HEAVY")
 and nothing is ever deleted. Carrying limit: 50 kg with no bag; bags are crafted items you wear (HIDE SATCHEL 100, TRAPPER PACK 150,
@@ -186,7 +203,7 @@ Trees, rocks, ore and plants are harvested by holding E beside them (data in `sr
 Tools come in four tiers (stone, copper, iron, gilded): higher tiers swing faster, give bonus yield and open harder resources
 (copper and iron ore need a tier 2 pickaxe, gold and crystal tier 3). Each resource takes a number of hits, shows a hit counter and progress
 bar, drops its yields, then becomes a stump / rubble / stub and regrows after a respawn time (trees become solid again). A resource is never
-finished into a full bag, and nothing can be gathered through walls. Trees on the map border and around the home area are never harvestable.
+finished into a full bag, and nothing can be gathered through walls. Trees on the map's edge wall are never harvestable.
 Each biome has its own plants and ore; thorny and poisonous plants hurt unless you wear armor. Progression: stone tools -> campfire,
 rope and copper bars -> copper tools -> iron bars at the shop -> iron and gilded tools, crossbow, scale mail. Campfires and chests are crafted
 and placed from the pack; chests hold 20 slots.

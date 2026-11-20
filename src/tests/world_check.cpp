@@ -123,13 +123,13 @@ static int mapCheck(Game& g, int map, long nodeTotals[]) {
         printf("  PROBLEM: map size is not 240x168\n");
         bad++;
     }
-    // purity: every tile belongs to this map's biome; the home map has only its own four ground types
+    // purity: every tile belongs to this map's biome; the home map has only its own ground types (grasses, forest floors, paths, water, town paving)
     long foreign = 0, wrongGround = 0;
     for (int y = 0; y < MH; y++)
         for (int x = 0; x < MW; x++) {
             if (w.biome[y][x] != map) foreign++;
             const uint8_t t = w.tile[y][x];
-            if (map == B_HOME && !(t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_WATER || t == T_COBBLE)) wrongGround++;
+            if (map == B_HOME && !(t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_WATER || t == T_COBBLE || t == T_SHALLOW || t == T_BANK || tileLake(t) || tileForestFloor(t))) wrongGround++;
         }
     printf("  tiles of another biome: %ld%s   foreign ground in home: %ld\n", foreign, foreign ? "  <-- PROBLEM" : "", wrongGround);
     if (foreign || wrongGround) bad++;
@@ -395,7 +395,7 @@ int worldCheck(Game& g) {
                 enterMap(g, c.biome);
                 V2 at;
                 if (!findPatch(g.world, c.tile, at, c.tile == T_MUD ? 2 : 4)) continue;
-                g.dayT = 60;  // midday
+                g.dayT = DAY_LEN * 0.2f;  // midday
                 g.p.up[U_ARMOR] = armor;
                 g.p.pos = at;
                 g.in.right = true;
@@ -403,7 +403,7 @@ int worldCheck(Game& g) {
                 float s0 = g.p.stamina;
                 for (int f = 0; f < 60; f++) {
                     g.p.hp = g.p.maxhp;
-                    g.dayT = 60;
+                    g.dayT = DAY_LEN * 0.2f;
                     g.update(1.f / 60.f);
                 }
                 g.in.right = g.in.sprint = false;

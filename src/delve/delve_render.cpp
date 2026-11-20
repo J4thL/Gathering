@@ -64,7 +64,6 @@ void Game::drawDelveFloor() {
 }
 
 void Game::drawDChest(const DChest& c) {
-    sprW(A.shadow[0], c.pos.x, c.pos.y, false, 0.7f);
     sprW(A.D.chest[std::max(0, std::min(3, c.tier))][0], c.pos.x, c.pos.y);
     const float g = fmodf(timeAcc * 0.9f + c.pos.x * 0.03f, 2.4f);
     if (g < 0.25f) {
@@ -99,8 +98,6 @@ void Game::drawMonster(const Monster& m) {
     if (!s.ok()) return;
     float alpha = 1.f;
     if (m.state == MN_DEAD && m.deadT > 22.f) alpha = clampf((30.f - m.deadT) / 8.f, 0.f, 1.f);
-    const int shadow = m.kind == MK_KING || m.kind == MK_GOLEM || m.kind == MK_ICEGOLEM ? 2 : (m.kind == MK_BAT ? 0 : 1);
-    sprW(A.shadow[shadow], m.pos.x, m.pos.y + 1, false, (m.state == MN_DEAD ? 0.5f : 0.8f) * alpha * (m.kind == MK_BAT ? 0.7f : 1.f));
     sprW(s, m.pos.x, m.pos.y, false, alpha);
     if (m.flash > 0 && s.flash) {
         Spr f = s;
@@ -121,7 +118,6 @@ void Game::drawMonster(const Monster& m) {
 // things that hang or fly above the hunter's head: the support beams and the ice bolts
 void Game::drawDelveOverlay() {
     for (const MProj& b : mprojs) {
-        sprW(A.shadow[0], b.pos.x, b.pos.y + 9, false, 0.4f);
         sprW(A.D.iceBolt, b.pos.x, b.pos.y, false, 1.f, atan2f(b.dir.y, b.dir.x) * 57.2958, true);
         sprS(A.glowCool, (int)b.pos.x - camX, (int)b.pos.y - camY, false, 0.7f);
     }

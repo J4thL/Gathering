@@ -17,10 +17,10 @@
 #include "player/skills.hpp"
 #include "world/spawns.hpp"
 #include "combat/monsters.hpp"
+#include "farming/homestead.hpp"
 #include "combat/effects.hpp"
 #include "combat/melee.hpp"
 #include "animals/bosses.hpp"
-#include "farming/homestead.hpp"
 
 // ----------------------------------------------------------------- palette
 const u32 C_TEXT = HEX(0xf3e9d2), C_DIM = HEX(0xa8977a), C_GOLD = HEX(0xf2c94c), C_RED = HEX(0xe8605a),
@@ -41,6 +41,8 @@ struct Input {
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
+enum Act { ACT_ROAM, ACT_SLEEP, ACT_GRAZE, ACT_DRINK, ACT_FORAGE, ACT_PATROL, ACT_LEAVE, ACT_COUNT };  // what a routine animal is up to
+enum Hour { H_DAWN, H_DAY, H_DUSK, H_NIGHT };
 enum AState { AS_WANDER, AS_FLEE, AS_CHASE, AS_FEED, AS_REST, AS_HUNT };  // AS_HUNT: a predator stalking prey (AS_CHASE is after the hunter)
 // A townsperson strolling the cobbled town outside the buildings. Purely ambient: nothing is saved, nobody needs to be talked to.
 struct Villager {
@@ -60,14 +62,25 @@ struct Villager {
 // ignores the hunter for CHASE_COOLDOWN seconds; a wounded animal bleeds for BLEED_TIME seconds
 constexpr float CHASE_RANGE = 170.f, CHASE_COOLDOWN = 8.f, BLEED_TIME = 5.f, BLEED_FRAC = 0.04f;  // a bleeding animal loses BLEED_FRAC of its health each second
 
+// A footprint (game_prints.cpp): a fixed pool, at most FOOT_PER_WALKER of them per walker (the hunter is owner 0, an animal its index + 1)
+constexpr int FOOT_POOL = 96, FOOT_PER_WALKER = 10;
+constexpr float FOOT_LIFE = 3.6f;  // seconds until a print is gone
+struct Footprint {
+    float x = 0, y = 0, age = FOOT_LIFE;  // age >= FOOT_LIFE: the slot is free
+    int owner = -1;
+    uint8_t kind = 0;
+    int8_t dx = 1, dy = 0;
+};
+
 struct Animal {
     int kind = 0, variant = 0;
     int biome = 0;  // the biome it lives in; animals don't wander across biome borders
     V2 pos, vel, kb;
+    V2 fpPrev;  float fpAcc = 0;  bool fpL = false, fpInit = false;  // footprints (game_prints.cpp)
+    V2 printAt;            // where it last left a track (game_tracks.cpp)
+    float scoutT = 0.f;    // seconds left that the companion's scouting marks it on the minimap
     int hp = 1, maxhp = 1;
     bool dead = false;
-    V2 printAt;            // where it last left a footprint
-    float scoutT = 0.f;    // seconds left that the companion's scouting marks it on the minimap
     bool tracked = false;  // a wounded quarry that bled out of sight: its carcass is marked on the maps until the hunter finds it
     float deadT = 0;
     int face = 1;
@@ -89,12 +102,6 @@ struct Animal {
     float huntCd = 0;     // predators: time before it hunts again after a hunt
     float calmT = 0;      // after giving up a chase it ignores the hunter for a while (it cannot be re-triggered at once)
     float bleedT = 0;     // > 0 while a wounded animal bleeds: it leaves a blood trail and loses health
-    int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
-    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
-    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
-    bool bossHit = false;
-    V2 bossDir;
-    float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
     float bleedTick = 0;  // seconds until the next bit of bleeding damage
     bool bleedByHunter = true;  // who made the wound (the kill counts for the hunter only when the hunter did)
     V2 chaseFrom;         // where the current chase began (the chase has a range limit)
@@ -103,6 +110,24 @@ struct Animal {
     V2 threat;
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
+    int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
+    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
+    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
+    bool bossHit = false;
+    V2 bossDir;
+    float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
+    // ---- daily routine (the home forest's four species, see game_animals.cpp): where it sleeps, drinks, and what it is up to
+    V2 bed, drink;            // its sleeping place (a sheltered spot) and its watering place; chosen when first needed
+    bool hasBed = false, hasDrink = false;
+    int act = 0;              // ACT_*: what it is doing now (the debug overlay shows it)
+    bool actArrived = true;   // it has reached the place of the current act (false: still on its way)
+    bool leaving = false;     // surplus for this hour: it walks home to its bed and is gone once out of sight
+    // ---- wolf packs (see spawnPack): a pack is 3-5 wolves with one leader; the others keep to it, flank the hunter, and scatter if it falls
+    int pack = -1;            // the pack's id (-1: a lone wolf, or not a wolf)
+    bool leader = false;
+    int packSlot = 0;         // its place in the pack (it keeps to this side of the leader)
+    float flankSide = 1.f;    // +1 / -1: which side of the hunter it circles to
+    float regenAcc = 0;       // a hurt animal asleep at its bed slowly heals
 };
 
 struct Player {
@@ -120,6 +145,9 @@ struct Player {
     float animSince = 99; // sinceHurt as last seen by the animator, to notice a new hit
     float hp = 100, maxhp = 100, stamina = 100;
     bool exhausted = false;
+    float rollT = 0, rollCd = 0;  // dodge-roll: seconds left rolling / until the next roll is allowed
+    V2 rollDir;
+    bool sprinting = false, walking = false;  // this frame: animals hear a sprint from further off and notice a walker sooner than a still hunter
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
@@ -131,8 +159,6 @@ struct Player {
     int meleeStep = 0;
     bool meleeHeavy = false, meleeStruck = false, meleePrev = false;
     V2 meleeAim;
-    float rollT = 0, rollCd = 0;  // dodge-roll: seconds left rolling / until the next roll is allowed
-    V2 rollDir;
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
@@ -181,9 +207,10 @@ struct Proj {
     int q = 0;      // quality of the thrown weapon / launcher
     int aq = 0;     // quality of the arrow / bolt
 };
+// one full day-night cycle in real seconds (dayT / DAY_LEN is the day count; tod() is the fraction through it)
+constexpr float DAY_LEN = 600.f;
 // how long things lie around before they are gone (seconds); the last DESPAWN_WARN seconds they blink
 constexpr float THROWN_LIFE = 300.f;         // a thrown weapon or an arrow
-constexpr int DROP_ICON = 10;                // pixels a dropped stack's icon is drawn at in the world (the item icons are 16 px)
 constexpr float DROP_LIFE = 600.f;           // a stack the hunter dropped (or a baby a kill left)
 constexpr float CORPSE_LIFE = 180.f;         // a carcass; a legendary one lasts CORPSE_LIFE_LEGEND
 constexpr float CORPSE_LIFE_LEGEND = 300.f;
@@ -212,20 +239,6 @@ struct FText {
     u32 col;
     float t, life;
 };
-// an animal's footprint: fresh ones are easy to see; the Tracking skill lets the hunter see them from farther and keeps them longer
-// dodge-roll: a short burst in the movement direction (or back from the aim when standing still) with i-frames; it costs stamina
-constexpr float DODGE_TIME = 0.30f, DODGE_SPEED = 190.f, DODGE_COOLDOWN = 0.9f, DODGE_COST = 22.f, DODGE_GRACE = 0.08f;
-struct Track {
-    V2 p;
-    int kind;
-    float t, life;
-    bool read;  // the hunter has already studied this one (pays Tracking XP once)
-};
-constexpr float TRACK_STEP = 13.f;       // an animal leaves a print every this many pixels
-constexpr float TRACK_LIFE = 40.f;       // seconds a print lasts at Tracking 0
-constexpr float TRACK_SIGHT = 70.f;      // how far from the hunter prints are visible at Tracking 0
-constexpr float TRACK_SPAWN_RANGE = 340.f;  // animals farther away than this leave no prints (they could not be seen anyway)
-constexpr size_t TRACK_MAX = 400;
 struct Decal {
     V2 p;
     int size;
@@ -243,6 +256,20 @@ struct Fly {
 struct Flake {  // screen-space weather particle (snow / blown sand / gnats / wind dust)
     float x, y, vx, vy, ph, sz;
 };
+constexpr int DROP_ICON = 10;  // pixels a dropped stack's icon is drawn at in the world (the item icons are 16 px)
+// dodge-roll: a short burst in the movement direction (or back from the aim when standing still) with i-frames; it costs stamina
+constexpr float DODGE_TIME = 0.30f, DODGE_SPEED = 190.f, DODGE_COOLDOWN = 0.9f, DODGE_COST = 22.f, DODGE_GRACE = 0.08f;
+// an animal's track: fresh ones are easy to see; the Tracking skill lets the hunter see them from farther and keeps them longer
+struct Track {
+    V2 p;
+    int kind;
+    float t, life;
+    bool read;  // the hunter has already studied this one (pays Tracking XP once)
+};
+constexpr float TRACK_STEP = 13.f, TRACK_LIFE = 40.f, TRACK_SIGHT = 70.f, TRACK_SPAWN_RANGE = 340.f;
+constexpr size_t TRACK_MAX = 400;
+constexpr int FLAKES_CALM = 110;  // particles in the air on a calm day
+constexpr int FLAKES_MAX = 260;   // ... and in a sandstorm / blizzard (the pool; Game::activeFlakes says how many are in use)
 
 // a source of light for game_light.cpp: pool of light with radius r, strength k (0..1), tint tone (0 = flame, 1 = cold, 2 = player)
 struct LightSrc {
@@ -282,7 +309,7 @@ struct Structure {
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
                ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
-// seasons: a week of days each (a day is 300 s), spring first. They change how many animals roam, which pelts and fat a kill gives,
+// seasons: a week of days each (a day is DAY_LEN seconds), spring first. They change how many animals roam, which pelts and fat a kill gives,
 // how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
 enum Season { SEASON_SPRING, SEASON_SUMMER, SEASON_AUTUMN, SEASON_WINTER, SEASON_COUNT };
 static const char* const SEASON_NAME[SEASON_COUNT] = {"SPRING", "SUMMER", "AUTUMN", "WINTER"};
@@ -293,6 +320,28 @@ constexpr float COMPANION_DAMAGE_PER_LEVEL = 0.02f;                           //
 constexpr int KING_TIER_COINS = 300;  // bonus coins per tier for slaying a stronger king (a repeatable payout, so kept modest)
 constexpr int KING_TIERS = 4;     // the Frostbound King's strongest return (tier 4)
 constexpr int TROPHY_COUNT = 12;  // see bestiary.cpp
+
+// ---- weather kinds and their tuning (Game::updateLight picks one per area; a kind only blows where its biomes are)
+enum WeatherKind { WX_CLEAR, WX_STORM, WX_SANDSTORM, WX_BLIZZARD, WX_COUNT };
+// The weather follows a fixed schedule: the clock is cut into WX_CELL-second cells and, per kind, the world seed and the cell number
+// decide whether an event happens in that cell, when it starts and how long it lasts (Game::weatherAt). So the same save always
+// has the same weather at the same time: reloading cannot dodge a storm, and nothing needs to be stored.
+constexpr float WX_CELL = 360.f;
+// bare ground that the rain darkens (Game::wet) and makes a little slippery; mud, sand, snow, water and floors indoors do not
+inline bool wetGroundTile(int t) {
+    return t == T_GRASS || t == T_DARK || t == T_DIRT || t == T_STONE || t == T_COBBLE || t == T_LEAF || t == T_MOSS || t == T_NEEDLES || t == T_ROOTS;
+}
+struct WeatherDef {
+    float durLo, durHi;  // how long it lasts (s)
+    float chance;        // chance that a cell holds one
+    float lead;          // seconds of drizzle / build-up before it reaches full strength
+};
+inline constexpr WeatherDef WEATHER[WX_COUNT] = {
+    {0, 0, 0, 0},             // clear
+    {40, 90, 0.85f, 15},      // rain storm (home forest, homestead, swamp, mountains): starts as drizzle
+    {35, 75, 0.85f, 0},       // sandstorm (desert)
+    {35, 75, 0.85f, 0},       // blizzard (snowfields)
+};
 
 struct Game {
     // platform
@@ -318,18 +367,23 @@ struct Game {
     State state = ST_TITLE;
     Player p;
     std::vector<Animal> animals;
+    std::vector<Track> tracks;
+    float trackReadCd = 0.f;
+    void updateTracks(float dt);   // animals leave tracks; the hunter reads them (game_tracks.cpp)
+    void drawTracks();
     std::vector<GroundItem> items;
     std::vector<Proj> projs;
     std::vector<Part> parts;
     std::vector<FText> ftexts;
     std::vector<Decal> decals;
-    std::vector<Track> tracks;
-    float trackReadCd = 0.f;
-    void updateTracks(float dt);   // animals leave prints; the hunter reads them (game_tracks.cpp)
-    void drawTracks();
     std::deque<Msg> msgs;
     std::vector<Fly> flies;
     std::vector<Flake> flakes;
+    int activeFlakes() const { return FLAKES_CALM + (int)((FLAKES_MAX - FLAKES_CALM) * std::min(1.f, std::max(0.f, galeK))); }  // a gale fills the air
+    // the wind: ONE value that everything reads (updateWeather). It always blows towards +x (east). wind 0..2 is its strength, windGust 0..1 the
+    // current surge, windT is the clock the trees and grass sway by (it runs faster in a gale), rainDrift how far the rain has been carried sideways.
+    float wind = 0.2f, windGust = 0.5f, windT = 0, rainDrift = 0;
+    float wet = 0;  // 0..1 how soaked the ground is: builds up in a storm (20 s), dries over about 90 s afterwards (darker ground, a little slippery)
     Rng rng{20261024};
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
@@ -374,6 +428,10 @@ struct Game {
     int shopTab = 0;
     bool showMap = true;
     bool hasSave = false;
+    uint32_t worldSeed = WORLD_SEED;  // the seed every map of this game is generated from: random per new game, kept in the save
+    bool newGameAsk = false;          // the title screen is asking "replace your saved game?"
+    int shapeWait = 0;                // frames left before the new world is built: the title shows "SHAPING THE WORLD" meanwhile
+    float newGameAskT = 0;            // Enter is ignored for a moment after the question opens, so a double press cannot confirm it
     int kills = 0, sold = 0;
     // ---- town economy (game_economy.cpp): reputation, shop demand and the daily orders board
     struct Order { int item = -1, q = 0, n = 0, pay = 0, rep = 0; bool done = false; };
@@ -429,7 +487,7 @@ struct Game {
         float bossTimer = 0;           // seconds until he returns
         float chestT = 0;              // seconds until the opened chests are refilled
     } delveMem[DV_COUNT];
-    int season() const { return ((int)(dayT / 300.f) / SEASON_DAYS) % SEASON_COUNT; }
+    int season() const { return ((int)(dayT / DAY_LEN) / SEASON_DAYS) % SEASON_COUNT; }
     float seasonHerds() const { return season() == SEASON_SPRING ? 1.25f : season() == SEASON_WINTER ? 0.75f : 1.f; }  // how full the wilds are
     float seasonStorm() const { return season() == SEASON_SPRING ? 0.7f : season() == SEASON_SUMMER ? 1.5f : 1.f; }    // multiplier on the wait between storms (spring: wet, summer: dry)
     // fishing (gathering/fishing.cpp): the line in the water. phase 0 none, 1 waiting for a bite, 2 the bobber dips (click now)
@@ -448,13 +506,6 @@ struct Game {
     enum CompanionMode { CM_FOLLOW, CM_FETCH, CM_SCOUT, CM_COUNT };
     struct Companion { bool active = false, moving = false; V2 pos; int face8 = 0; float animT = 0, forageT = 0; int mode = CM_FOLLOW; bool fetching = false; V2 fetchPos; float orderT = 0; } companion;
     void companionOrder();
-    HAnimal* companionAnimal();
-    static int bondLevel(int bond);
-    float companionDamage() const;
-    void companionHome();
-    void companionKill();
-    void updateCompanion(float dt, bool forceWilds = false);
-    void drawCompanion();
     int bossKills[B_COUNT] = {};       // per biome map: times its boss has fallen
     float bossCool[B_COUNT] = {};      // seconds until the boss is back (0 = it waits at its lair)
     bool bossSeen[B_COUNT] = {};       // the lair has been found (it shows on the maps)
@@ -474,6 +525,14 @@ struct Game {
     bool endlessDescend();                                          // take the stairs down to the next floor
     void endlessBossKilled(const Monster& m);
     std::string delveBossName() const;
+    HAnimal* companionAnimal();
+    int mountKgNow(const HAnimal& m) const;
+    static int bondLevel(int bond);
+    float companionDamage() const;
+    void companionHome();
+    void companionKill();
+    void updateCompanion(float dt, bool forceWilds = false);
+    void drawCompanion();
     int kingTier = 0;                  // how many times the Frostbound King has fallen (0..KING_TIERS): each return is stronger and pays more
     std::vector<Monster> mons;
     std::vector<Hazard> hazards;
@@ -483,11 +542,29 @@ struct Game {
     std::vector<int16_t> flow;         // flow field: steps to the hunter, around the walls (monsters.cpp)
     int flowTx = -1, flowTy = -1;
     float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
-    float pSlowT = 0, pPoisonT = 0;  // the hunter's slow (frost) and poison, seconds left
+    float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
     // ---- light and weather (game_light.cpp)
-    float stormK = 0, stormT = 0, stormNext = 100.f, flashT = 0, flashNext = 4.f, thunderT = -1.f;  // storm: strength 0..1, time left, until the next one
+    // weather: ONE state machine (updateLight) picks what blows; the K values are its smoothed strengths, which everything else reads
+    int wxKind = WX_CLEAR;           // WeatherKind now blowing
+    float wxT = 0, wxAge = 0;        // seconds left of it / since it began (from the schedule, see weatherAt)
+    float stormK = 0, flashT = 0, flashNext = 4.f, thunderT = -1.f;  // rain strength 0..1 (+ lightning)
+    float galeK = 0;                 // sandstorm (desert) / blizzard (snow) strength 0..1
     std::vector<LightSrc> lampList;  // every fixed light of this map, rebuilt each frame
     std::vector<LightSrc> winList;   // the town's lit windows (x, y = centre of the glass, k = how lit, tone = which shop), rebuilt each frame
+    SDL_Texture* shadowTex = nullptr;  // all of the sun shadows are drawn into this layer first, so overlapping ones do not add up
+    // where the shadows lie this frame, read back from the finished shadow layer (a small picture), so ground cover drawn on top of the
+    // shadows (the grass round a tree or a rock) and everything that walks through one can be darkened where a shadow falls on it
+    std::vector<uint32_t> shadowMask;
+    int shadowMaskW = 0, shadowMaskH = 0, shadowMaskShift = 0;  // size, and how many bits a screen coordinate is shifted to index it
+    int shadowMaskCamX = 0, shadowMaskCamY = 0;                // where the camera was when the mask was read (it is read every other frame)
+    float shadowMaskAlpha = 0;                                 // how dark the layer is laid over the ground this frame
+    bool shadowMaskOn = false;
+    int shadowFrame = 0;
+    float shadowTint[3] = {0.15f, 0.15f, 0.4f};  // what a full shadow multiplies the ground by, per channel (cool in the green lands, violet on sand...)
+    float shadowBoost = 1.f;  // test shots only (--smith): multiplies how dark the shadows are, so their shape is easy to judge
+    SDL_Texture* shadowSoftTex = nullptr;  // the same layer at half size: scaling it down and up again softens the shadows' edges
+    SDL_Texture* shadowModTex = nullptr;   // half size: the shadow as a colour (white = no shadow) that is multiplied over the picture
+    SDL_Texture* cloudTex = nullptr;       // tiling soft noise: the shadows of clouds drifting over the land
     SDL_Texture* darkTex = nullptr;    // the delve darkness (a small alpha grid scaled up)
     int bossIdx = -1;                  // index in mons of the awake boss, -1 = none
     bool monsArtReady = false;
@@ -500,11 +577,14 @@ struct Game {
     bool init(bool headless);
     void shutdown();
     void present();
-    void targetCanvas();  // draw into the canvas in logical coordinates (see LS)
     void saveCanvas(const char* path);
     std::string savePath();
     void save();
     bool load();
+    void requestNewGame();  // title screen: starts a new game, or asks first when a saved game exists
+    void beginNewGame();    // a new game in a fresh random world (shows the shaping screen, then buildNewWorld)
+    void buildNewWorld();   // picks a seed whose five maps are all sound (World::repairReach), builds the world and starts
+    bool soundSeed(uint32_t seed) const;  // every map of that seed generates with nothing the hunter cannot reach
 
     // ---- logic (game_logic.cpp)
     void newGame();
@@ -527,6 +607,7 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
+    void drawGearColumn(int x0, int y0);
     bool equipFarmTool(int slot);       // equip the farming tool in this pack slot: it goes on the hotbar like a weapon and stays in the pack
     bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off the hotbar (it stays in the pack)
     void giveFarmTool(int toolId);      // add a tool to the pack and equip it (starter / bought tools)
@@ -552,6 +633,31 @@ struct Game {
     void gatherStep(Animal& c);
     bool stepAnimal(Animal& a, V2 dir, float speed, float dt);
     bool trySpawn(int kind, float minDist, bool offscreen);
+    Footprint prints[FOOT_POOL];  // game_prints.cpp
+    V2 fpPrevP;  float fpAccP = 0;  bool fpLP = false, fpInitP = false;  // the hunter's own stride (a print every few pixels walked)
+    void addFootprint(float x, float y, int owner, float dx, float dy, bool left);
+    void updateFootprints(float dt);
+    void drawFootprints();
+    int footprintsActive(int owner = -1) const;  // how many prints of that walker (or of everyone) are showing
+    float sightFactor(const Animal& a, V2 tgt, bool hunterTarget) const;  // how much of its notice range an animal keeps against a target (cone, cover, noise)
+    int hourOfDay() const;           // H_DAWN / H_DAY / H_DUSK / H_NIGHT
+    void chooseAct(Animal& a);       // a routine animal decides what to do next (by species and hour) and where
+    void performAct(Animal& a);      // ... and does it once it has got there (sleep, drink, graze...)
+    bool assignBed(Animal& a);
+    bool assignDrink(Animal& a);
+    int nextPack = 1, lastHour = -1, howls = 0;  // wolf pack ids; the hour last seen (the dusk howl); howls so far (tests)
+    float howlCool = 0;
+    void spawnPack(int size, float minDist, bool offscreen);  // a pack of wolves (leader and followers) in the home forest
+    Animal* packLeader(int id);
+    void promotePack(int id);        // a pack that has lost its leader picks a new one
+    void packAlert(Animal& a);       // one wolf has seen the hunter: the pack joins the chase
+    void packLoses(Animal& dead);    // a pack member has died; if it was the leader, the pack scatters
+    void howl(V2 at, float vol);
+    bool debugAI = false;            // F3: draws every animal's state, route, bed, vision cone and line of sight
+    void drawAIDebug();
+    int homeTarget(int kind) const;  // how many of a home species are out at this hour (day / night / dawn / dusk)
+    void cullHome(int kind);         // sends one surplus specimen of a home species away, out of sight
+
     void populate();
     Animal* spawnAnimal(int kind, V2 pos, int form, int tier);
     void streamSpawns(float dt);
@@ -575,8 +681,8 @@ struct Game {
         int kind = HP_FENCE, rot = 0, tx = 0, ty = 0, cat = 0, scroll = 0;
         std::string why;
     } bm;
-    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0;
-    float portalFx = 0, hsMsgT = 0;
+    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0, hsTileHit = -1;
+    float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
     bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
     // mounts (mount_ride.cpp): a saddled, grown mount from the homestead is ridden with V - faster, more carry weight, no buildings or caves
@@ -599,7 +705,6 @@ struct Game {
     static constexpr float PARK_RANGE = 520.f;
     struct Parked { bool active = false; V2 pos; int face8 = 0; float animT = 0; int map = -1; } parked;
     void parkedHome(bool say);
-    int mountKgNow(const HAnimal& m) const;
     void updateParked(float dt);
     void drawParked();
     bool inWilds() const { return !inHomestead() && interior < 0 && delve < 0 && world.mapId < B_COUNT; }
@@ -700,6 +805,7 @@ struct Game {
     void drawDelveOverlay();                     // ice bolts
     void updateLight(float dt);                  // storms, thunder, and the list of lamps (game_light.cpp)
     void drawLighting(float night);              // darkness with pools of light, dusk and dawn colour, glows
+    int rockTheme() const { return world.mapId >= 0 && world.mapId <= B_MOUNTAIN ? world.mapId : 0; }  // rock colours of the map you are in (the homestead and interiors use the forest's)
     void drawGroundShadows();                    // tree and rock shadows that swing with the sun
     void drawSkyFx(float night2);                // aurora, shimmer, wisps, rain, lightning
     float lampLight(V2 pos) const;               // 0..1: how much a fire, lamp or window lights this spot at night (monsters shy away)
@@ -742,7 +848,10 @@ struct Game {
     bool canPlaceAt(int tx, int ty) const;
     Structure* structNear(float r, int kind = -1);
     bool nearFire() const;
-    float warmthAt(V2 pos) const;  // 0..1, how warm the spot is from nearby campfires
+    float warmthAt(V2 pos) const;  // 0..1, how warm the spot is from nearby campfires (rain dampens placed campfires)
+    bool weatherAt(int kind, double t, float* age = nullptr, float* left = nullptr) const;  // the schedule: is `kind` blowing at world time t (dayT)?
+    float galeNow() const { return (interior < 0 && delve < 0) ? galeK : 0.f; }  // 0..1 sandstorm / blizzard on the hunter right now
+    float rainK() const { return (interior < 0 && delve < 0) ? stormK : 0.f; }  // 0..1 rain on the hunter right now (0 indoors / in a delve)
     void updateStructures(float dt);
     void structSave(std::ostream& f) const;
     void structLoad(const std::vector<std::string>& lines);
@@ -857,6 +966,7 @@ struct Game {
     // ---- rendering (game_render.cpp)
     void render();
     void renderWorld(bool showPlayerPrompts);
+    void blendEdges(int tx, int ty, int sx, int sy, int cls, uint32_t h);  // soft borders between ground tiles
     void drawHud();
     void drawShop();
     void drawQuestPanel();
@@ -870,11 +980,13 @@ struct Game {
     std::string settingsPath();
     void saveSettings();
     void loadSettings();
+    bool readHiResSetting();
     std::string keyName(int act) const;
     void rebindKey(SDL_Scancode sc);
     void openSettings();
     void updateSettings(float dt);
     void drawSettings();
+    void targetCanvas();  // draw into the canvas in logical coordinates (see LS in gfx.hpp)
     void openHelp();
     void updateHelp(float dt);
     void drawHelp();
@@ -894,7 +1006,6 @@ struct Game {
     void updateGatePanel(float dt);
     void drawGatePanel();
     void drawInventory();
-    void drawGearColumn(int x0, int y0);
     void drawTitle();
     void drawPause();
     void drawReticle();
@@ -910,8 +1021,37 @@ struct Game {
     // 2d primitives on canvas
     void fillRect(int x, int y, int w, int h, u32 c);
     void sprS(const Spr& s, int sx, int sy, bool flip = false, float alpha = 1.f, double angle = 0, bool pivot = false);
+    // a sprite scaled about its foot (sx wider, sy shorter) and tilted a little: the squash of a bush that was just brushed
+    void sprWSquash(const Spr& s, float wx, float wy, float sx, float sy, double angle, float alpha = 1.f);
     void sprW(const Spr& s, float wx, float wy, bool flip = false, float alpha = 1.f, double angle = 0, bool pivot = false) {
         sprS(s, (int)floorf(wx) - camX, (int)floorf(wy) - camY, flip, alpha, angle, pivot);
+    }
+    // 0..1: how much shadow lies on this world position right now (0 = none, or no shadows this frame)
+    float shadowCover(float wx, float wy) const {
+        if (!shadowMaskOn) return 0.f;
+        const int mx = ((int)floorf(wx) - shadowMaskCamX) >> shadowMaskShift, my = ((int)floorf(wy) - shadowMaskCamY) >> shadowMaskShift;
+        if (mx < 0 || my < 0 || mx >= shadowMaskW || my >= shadowMaskH) return 0.f;
+        return (float)(shadowMask[(size_t)my * shadowMaskW + mx] & 0xFFu) / 255.f * shadowMaskAlpha;
+    }
+    // Multiplies a sprite by the shadow it stands in, the way the ground under it is multiplied (same colour, same strength): three samples
+    // across it, just above its foot. k < 1 keeps people and animals readable in deep shade. Returns true when it changed the sprite's
+    // colour: the caller draws it and then calls shadeEnd(s).
+    bool shadeBegin(const Spr& s, float wx, float wy, float k = 1.f) const {
+        if (!shadowMaskOn || !s.ok()) return false;
+        const float hw = s.w * s.sc * 0.3f;
+        float c = (shadowCover(wx - hw, wy - 2.f) + shadowCover(wx, wy - 2.f) + shadowCover(wx + hw, wy - 2.f)) / 3.f * k;
+        c = std::max(0.f, std::min(c, 0.95f));
+        if (c < 0.01f) return false;
+        auto ch = [&](int i) { return (Uint8)(255.f * (1.f - c * (1.f - shadowTint[i]))); };
+        SDL_SetTextureColorMod(s.t, ch(0), ch(1), ch(2));
+        return true;
+    }
+    void shadeEnd(const Spr& s) const { SDL_SetTextureColorMod(s.t, 255, 255, 255); }
+    // sprW for ground cover (grass, pebbles) and for things that stand on the ground: a shadow that falls on it darkens it
+    void sprWG(const Spr& s, float wx, float wy, bool flip = false, float k = 1.f) {
+        const bool sh = shadeBegin(s, wx, wy, k);
+        sprW(s, wx, wy, flip);
+        if (sh) shadeEnd(s);
     }
     void icon(const Spr& s, int cx, int cy, int size = 16, float alpha = 1.f);
     void text(int x, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true, float alpha = 1.f);

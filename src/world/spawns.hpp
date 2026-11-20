@@ -7,14 +7,14 @@
 #pragma once
 #include "world/world.hpp"
 
-constexpr unsigned TM(int t) { return 1u << t; }
+constexpr uint64_t TM(int t) { return 1ull << t; }
 
 struct SpawnDef {
     int kind;
     int cap;             // max live animals of this species within SPAWN_AREA of the player
     float cooldown;      // seconds before this species may spawn again after a spawn
     float chance;        // chance that a due spawn actually happens (rare predators use small values)
-    unsigned terrain;    // allowed ground tiles (bit per Tile); 0 = any walkable ground
+    uint64_t terrain;    // allowed ground tiles (bit per Tile); 0 = any walkable ground
     float form1;         // chance that the animal uses its second form
     bool nearWater;      // must be within 3 tiles of deep water / bog
     float capNight;      // extra cap at night (0 = same as day)
@@ -26,39 +26,39 @@ constexpr float DESPAWN_DIST = 920.f;                  // live animals this far 
 constexpr int MAX_LIVE_ANIMALS = 60;                   // hard ceiling on live animals (carcasses excluded)
 constexpr float SPAWN_TICK = 1.2f;
 // the home forest's population (rabbit, deer, boar, wolf): spread over the whole forest, so it is sized for the whole map
-constexpr int HOME_HERDS[4] = {48, 28, 12, 10};  // (rabbits and deer raised: the forest felt empty away from the village; fighters unchanged)
+constexpr int HOME_HERDS[4] = {36, 20, 12, 10};
 
 static const std::vector<SpawnDef> SPAWNS[B_COUNT] = {
     // ---- home: handled by Game::populate (original behaviour)
     {},
     // ---- desert
     {
-        {A_HARE, 5, 6, 1.0f, TM(T_SAND) | TM(T_DUNE), 0, false, 0},
-        {A_FENNEC, 4, 14, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
-        {A_COYOTE, 2, 18, 1.0f, TM(T_SAND) | TM(T_DUNE) | TM(T_STONE), 0, false, 1},
-        {A_RATTLER, 2, 16, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
+        {A_HARE, 6, 6, 1.0f, TM(T_SAND) | TM(T_DUNE), 0, false, 0},
+        {A_FENNEC, 3, 14, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
+        {A_COYOTE, 3, 16, 1.0f, TM(T_SAND) | TM(T_DUNE) | TM(T_STONE), 0, false, 2},
+        {A_RATTLER, 3, 14, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
         {A_ROADRUNNER, 3, 12, 1.0f, TM(T_SAND) | TM(T_DUNE), 0, false, 0},
-        {A_LIZARD, 4, 8, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
+        {A_LIZARD, 5, 8, 1.0f, TM(T_SAND) | TM(T_STONE), 0, false, 0},
         {A_DUNELION, 1, 240, 0.12f, TM(T_SAND) | TM(T_DUNE), 0, false, 0},
     },
     // ---- swamp
     {
-        {A_FROG, 5, 5, 1.0f, TM(T_MUD) | TM(T_MURK), 0, true, 0},
+        {A_FROG, 7, 5, 1.0f, TM(T_MUD) | TM(T_MURK), 0, true, 0},
         {A_DUCK, 4, 10, 1.0f, TM(T_MURK), 0, false, 0},
         {A_MARSHDEER, 4, 16, 1.0f, TM(T_MUD) | TM(T_DARK) | TM(T_GRASS), 0.45f, false, 0},
-        {A_BOAR, 2, 18, 1.0f, TM(T_MUD) | TM(T_DARK), 0, false, 0},
-        {A_MOCCASIN, 2, 14, 1.0f, TM(T_MUD) | TM(T_MURK), 0, true, 0},
-        {A_GATOR, 1, 40, 0.6f, TM(T_MURK), 0, true, 0},
+        {A_BOAR, 3, 18, 1.0f, TM(T_MUD) | TM(T_DARK), 0, false, 0},
+        {A_MOCCASIN, 3, 12, 1.0f, TM(T_MUD) | TM(T_MURK), 0, true, 0},
+        {A_GATOR, 2, 30, 0.6f, TM(T_MURK), 0, true, 0},
         {A_PANTHER, 1, 240, 0.12f, TM(T_MUD) | TM(T_DARK), 0, false, 0},
     },
     // ---- snow
     {
-        {A_ARCTICFOX, 5, 12, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
+        {A_ARCTICFOX, 4, 12, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
         {A_SNOWHARE, 6, 6, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
-        {A_REINDEER, 5, 15, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
-        {A_WOLF, 2, 24, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 1.0f, false, 1},  // all snow wolves are the white form
-        {A_MOOSE, 1, 50, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
-        {A_LYNX, 1, 50, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
+        {A_REINDEER, 4, 15, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
+        {A_WOLF, 3, 20, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 1.0f, false, 2},  // all snow wolves are the white form
+        {A_MOOSE, 2, 40, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
+        {A_LYNX, 2, 40, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
         {A_POLARBEAR, 1, 240, 0.12f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
     },
     // ---- mountain

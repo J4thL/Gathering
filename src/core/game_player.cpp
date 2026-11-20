@@ -159,8 +159,8 @@ void Game::updatePlayer(float dt) {
         return;
     }
     P.cd = std::max(0.f, P.cd - dt);
-    P.invuln = std::max(0.f, P.invuln - dt);
     P.rollCd = std::max(0.f, P.rollCd - dt);
+    P.invuln = std::max(0.f, P.invuln - dt);
     P.sinceHurt += dt;
     P.throwAnim = std::max(0.f, P.throwAnim - dt);
     P.useT = std::max(0.f, P.useT - dt);
@@ -209,15 +209,24 @@ void Game::updatePlayer(float dt) {
     if (moving) mv = mv.norm();
     float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
-    { float ts = tileSpeed(groundT); if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f; spd *= ts; }  // sand, mud, deep snow slow you down
+    {
+        float ts = tileSpeed(groundT);
+        if (groundT == T_MUD || groundT == T_MURK) ts *= 1.f - 0.15f * rainK();  // rain turns the mud to soup
+        if (ts < 0.93f && p.has(CG_WADERS) && (curBiome == B_SWAMP)) ts = 0.93f;
+        spd *= ts;
+    }  // sand, mud, deep snow slow you down
+    spd *= 1.f - 0.10f * galeNow();  // leaning into a sandstorm / blizzard
     float drain = 1.f, regen = 1.f;
     climateMods(drain, regen);
     bool sprinting = false;
+    P.walking = moving;
+    P.sprinting = false;
     const bool riding = riddenMount() != nullptr;
     if (in.sprint && moving && P.rollT <= 0 && !P.exhausted && P.stamina > 0 && !wantGather && !wantHarvest) {
         sprinting = true;
-        spd *= riding ? MOUNT_SPRINT_MUL : 1.55f;
-        P.stamina -= 24 * dt * drain * (riding ? MOUNT_SPRINT_DRAIN : 1.f);
+        P.sprinting = true;
+        spd *= 1.55f;
+        P.stamina -= 24 * dt * drain;
         P.staDelay = 0.7f;
         if (P.stamina <= 0) {
             P.stamina = 0;
@@ -232,6 +241,7 @@ void Game::updatePlayer(float dt) {
     if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
     spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
     if (HAnimal* mt = riddenMount()) spd *= mountSpeed(mt->species, mt->tier);
+    if (wantGather || wantHarvest) spd = 0;
     // dodge-roll: not while riding, exhausted, or already rolling; it cancels a throw/draw and costs stamina
     if (in.dodgePressed && P.rollT <= 0 && P.rollCd <= 0 && !riding && !P.exhausted && P.stamina >= DODGE_COST) {
         P.rollDir = moving ? mv : (P.aim * -1.f);
@@ -244,16 +254,19 @@ void Game::updatePlayer(float dt) {
         P.invuln = std::max(P.invuln, DODGE_TIME + DODGE_GRACE);
         audio.play(S_THROW, 0.35f);
     }
-    if (wantGather || wantHarvest) spd = 0;
     V2 want = mv * spd;
-    if (groundT == T_ICE) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
-        P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-2.4f * dt));
+    // rain makes bare ground (grass, dirt, stone, cobbles, forest floor) a little slippery, and it stays so for a while while it dries; mud, sand and snow don't slip
+    const float wetSlip = wetGroundTile(groundT) ? std::max(clampf((rainK() - 0.3f) / 0.7f, 0.f, 1.f), 0.5f * wet) : 0.f;
+    if (groundT == T_ICE || wetSlip > 0.f) {  // slippery: velocity eases towards the wanted velocity instead of snapping to it
+        const float k = groundT == T_ICE ? 2.4f : 18.f - 12.f * wetSlip;  // full storm: k = 6 (ice is 2.4, dry ground is effectively instant)
+        P.iceV = P.iceV + (want - P.iceV) * (1.f - expf(-k * dt));
         want = P.iceV;
     } else
         P.iceV = want;
     if (P.rollT > 0) {  // rolling: the roll's velocity replaces walking (ice and the load do not matter)
         P.rollT = std::max(0.f, P.rollT - dt);
         want = P.rollDir * (DODGE_SPEED * (0.6f + 0.4f * (P.rollT / DODGE_TIME)));  // fast at first, easing out
+        P.iceV = want;
         if (rng.chance(0.5f)) puff(P.pos + V2(0, -1), 1, HEX(0xcdb98f));
     }
     V2 vel = want + P.kb;

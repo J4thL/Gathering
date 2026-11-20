@@ -1,5 +1,6 @@
 // main.cpp - entry point, input and fixed-timestep loop.
 // Test flags:  --headless (dummy video/audio)  --shots DIR (write screenshots then exit)
+//              --forest DIR (close-up screenshots of the home forest's floors)
 //              --worldcheck (reachability + walking test)  --tour DIR (screenshots of every map)  --dumpcore FILE (home-area dump)
 #include <map>
 #include <set>
@@ -86,6 +87,7 @@ static void pollInput(Game& g) {
                     case SDLK_8: in.selectKey = 7; break;
                     case SDLK_9: in.selectKey = 8; break;
                     case SDLK_0: in.selectKey = 9; break;
+                    case SDLK_F3: g.debugAI = !g.debugAI; break;  // the animal AI overlay
                     case SDLK_F11:
                         g.fullscreen = !g.fullscreen;
                         SDL_SetWindowFullscreen(g.win, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
@@ -327,7 +329,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
 
     // night + wolf + hud
     g.p.pos = g.world.village + V2(0, 70);
-    g.dayT = 300.f * 0.55f;
+    g.dayT = DAY_LEN * 0.55f;
     g.showMap = true;
     frames(40);
     shot("09_night.bmp");
@@ -378,43 +380,191 @@ static void scriptedRun(Game& g, const std::string& dir) {
         }
         g.p.pos = keepPos;
     }
-    {   // a raised mount: its panel at the homestead, then the rider
-        g.newGame();
-        g.state = ST_PLAY;
-        g.helpT = 0;
-        g.p.pos = g.world.hportal + V2(0, 16);
-        g.homesteadInteract();
-        g.state = ST_PLAY;
-        g.hsAddAnimal(DA_MOUNT, g.p.pos + V2(30, 10), false, -1, A_DEER, 3);
-        g.hsAddAnimal(DA_MOUNT, g.p.pos + V2(-30, 10), true, -1, A_WOLF, 1);
-        g.hs.animals[0].saddled = true;
-        g.animSelId = g.hs.animals[0].id;
-        g.state = ST_ANIMAL;
-        frames(3);
-        shot("27_mount_panel.bmp");
-        g.state = ST_PLAY;
-        g.p.pos = V2(g.hs.animals[0].px, g.hs.animals[0].py);
-        g.toggleMount();
-        g.in.right = true;
-        frames(30);
-        g.in.right = false;
-        g.setCam(0, true);
-        frames(2);
-        shot("28_mount_ride.bmp");
-        g.p.inv.addIgnoringWeight(itemBaby(A_WOLF), 1, 3);
-        for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == itemBaby(A_WOLF)) g.invSel = i;
-        g.in.mx = 400; g.in.my = 300; g.state = ST_INVENTORY; frames(3); shot("30_pack_baby.bmp"); g.state = ST_PLAY;
-    }
     printf("scripted run complete; animals=%zu\n", g.animals.size());
 }
 
+
+// ---- blacksmith shots (flag: --smith DIR): the blacksmith's house from the front at three times of day, to judge its shadow
+static void smithShots(Game& g, const std::string& dir) {
+    g.newGame();
+    g.state = ST_PLAY;
+    g.helpT = 0;
+    g.animals.clear();
+    const BuildingDef& B = BUILDINGS[BLD_SMITH];
+    const float times[3] = {0.10f, 0.25f, 0.40f};  // morning, noon, evening (tod, see Game::tod)
+    const char* names[3] = {"morning", "noon", "evening"};
+    for (int i = 0; i < 3; i++) {
+        g.dayT = (times[i] - 0.05f) * DAY_LEN;
+        g.shadowBoost = 2.6f;  // darker than the game, to see the shape of the shadow
+        g.p.pos = V2((COX + B.cx + BLD_W * 0.5f) * TS, (COY + B.cy + BLD_H + 9.f) * TS);  // the hunter waits out of view, south of the house
+        g.setCam(0, true);
+        g.camX = (int)((COX + B.cx + BLD_W * 0.5f) * TS) - LW / 2;  // the camera looks at the house itself
+        g.camY = (int)((COY + B.cy + 0.5f) * TS) - LH / 2;
+        g.render();
+        g.saveCanvas((dir + "/smith_" + names[i] + ".bmp").c_str());
+    }
+    // a small (1) and a large (2) rock standing clear of trees, the same three times of day (the large ones are in the other maps too)
+    for (int rc = 1; rc <= 2; rc++) {
+        const Prop* rock = nullptr;
+        for (int m : {B_HOME, B_MOUNTAIN, B_SNOW, B_DESERT, B_SWAMP}) {
+            if (g.world.mapId != m) g.loadMapWorld(m);
+            float best = 1e12f;  // the clear rock of this size nearest to where the hunter starts
+            for (const Prop& pr : g.world.props) {
+                if (rockClass(pr.kind) != rc) continue;
+                bool crowded = false;
+                for (const Prop& o : g.world.props)
+                    if (&o != &pr && (isTreeKind(o.kind) || o.kind >= P_BLD0) && fabsf(o.x - pr.x) < 7.f * TS && fabsf(o.y - pr.y) < 7.f * TS) { crowded = true; break; }
+                if (crowded) continue;
+                const float d = (pr.x - g.world.spawn.x) * (pr.x - g.world.spawn.x) + (pr.y - g.world.spawn.y) * (pr.y - g.world.spawn.y);
+                if (d < best) best = d, rock = &pr;
+            }
+            if (rock) break;
+        }
+        if (!rock) continue;
+        for (int i = 0; i < 3; i++) {
+            g.dayT = (times[i] - 0.05f) * DAY_LEN;
+            g.p.pos = V2(rock->x, rock->y + 9.f * TS);
+            g.setCam(0, true);
+            g.camX = (int)rock->x - LW / 2;
+            g.camY = (int)rock->y - LH / 2 - 8;
+            g.render();
+            g.saveCanvas((dir + "/rock" + std::to_string(rc) + "_" + names[i] + ".bmp").c_str());
+        }
+    }
+    // every oak variant (0..5) standing clear of other trees on grass, at noon: oakv{N}_noon.bmp (checks the oaks' shadow root)
+    {
+        if (g.world.mapId != B_HOME) g.loadMapWorld(B_HOME);
+        for (int b = 0; b < B_COUNT; b++) g.bw[b] = b == B_HOME ? 1.f : 0.f;
+        for (int var = 0; var < 6; var++) {
+            const Prop* oak = nullptr;
+            float best = 1e12f;
+            for (int pass = 0; pass < 2 && !oak; pass++)
+                for (const Prop& pr : g.world.props) {
+                    if (pr.kind != P_OAK0 && pr.kind != P_OAK1) continue;
+                    if (oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS)) != var) continue;
+                    bool bad = false;
+                    for (const Prop& o : g.world.props)
+                        if (&o != &pr && (isTreeKind(o.kind) || o.kind >= P_BLD0) && fabsf(o.x - pr.x) < (pass ? 3.f : 6.f) * TS && fabsf(o.y - pr.y) < (pass ? 3.f : 6.f) * TS) { bad = true; break; }
+                    for (int wy = -4; wy <= 6 && !bad; wy++)
+                        for (int wx = -6; wx <= 6; wx++)
+                            if (g.world.water((int)(pr.x / TS) + wx, (int)(pr.y / TS) + wy)) { bad = true; break; }
+                    if (bad) continue;
+                    const float d = (pr.x - g.world.spawn.x) * (pr.x - g.world.spawn.x) + (pr.y - g.world.spawn.y) * (pr.y - g.world.spawn.y);
+                    if (d < best) best = d, oak = &pr;
+                }
+            printf("oak variant %d: %s\n", var, oak ? "found" : "none clear");
+            if (!oak) continue;
+            g.dayT = (times[1] - 0.05f) * DAY_LEN;
+            g.shadowBoost = 1.f;
+            g.p.pos = V2(oak->x, oak->y + 9.f * TS);
+            g.setCam(0, true);
+            g.camX = (int)oak->x - LW / 2;
+            g.camY = (int)oak->y - LH / 2 - 8;
+            g.render();
+            g.render();
+            g.saveCanvas((dir + "/oakv" + std::to_string(var) + "_noon.bmp").c_str());
+        }
+    }
+    // creatures and the other biomes (the hunter, a deer, a rabbit and a wolf standing on open ground at seven times of day, the last two by
+    // moonlight; then the desert's palms and cacti): the shadows of everything that is not a tree, at the strength the game really uses
+    g.shadowBoost = 1.f;
+    const float tt[7] = {0.07f, 0.13f, 0.25f, 0.38f, 0.46f, 0.64f, 0.75f};
+    const char* nm[7] = {"dawn", "morning", "noon", "afternoon", "dusk", "moon_low", "moon_high"};
+    {
+        if (g.world.mapId != B_HOME) g.loadMapWorld(B_HOME);
+        V2 at = g.world.spawn;
+        float bestD = 1e12f;
+        for (int dy = -40; dy <= 40; dy += 4)
+            for (int dx = -40; dx <= 40; dx += 4) {  // the clear patch of ground (no prop within six tiles) nearest to the start
+                const V2 c((g.world.spawn.x / TS + dx) * TS, (g.world.spawn.y / TS + dy) * TS);
+                bool crowded = false;
+                for (const Prop& o : g.world.props)
+                    if (fabsf(o.x - c.x) < 6.f * TS && fabsf(o.y - c.y) < 6.f * TS) { crowded = true; break; }
+                if (!crowded && dx * dx + dy * dy < bestD) bestD = (float)(dx * dx + dy * dy), at = c;
+            }
+        g.animals.clear();
+        const int kinds[3] = {A_DEER, A_RABBIT, A_WOLF};
+        const V2 offs[3] = {V2(46, -14), V2(-40, 12), V2(-12, 30)};
+        for (int k = 0; k < 3; k++)
+            if (Animal* a = g.spawnAnimal(kinds[k], V2(at.x + offs[k].x, at.y + offs[k].y), 0, 0)) a->vel = V2(0, 0), a->face = k == 1 ? -1 : 1;
+        for (int i = 0; i < 7; i++) {
+            g.dayT = (tt[i] - 0.05f) * DAY_LEN;
+            g.p.pos = at;
+            g.setCam(0, true);
+            g.render();
+            g.render();
+            g.saveCanvas((dir + "/creatures_" + nm[i] + ".bmp").c_str());
+        }
+        g.animals.clear();
+        g.loadMapWorld(B_DESERT);
+        for (int b = 0; b < B_COUNT; b++) g.bw[b] = b == B_DESERT ? 1.f : 0.f;
+        const Prop* best = nullptr;
+        int bestN = -1;
+        for (const Prop& pr : g.world.props) {  // the spot with the most palms and cacti round it
+            if (pr.kind != P_PALM) continue;
+            int n = 0;
+            for (const Prop& o : g.world.props)
+                if ((o.kind == P_PALM || o.kind == P_CACTUS0 || o.kind == P_CACTUS1 || o.kind == P_COLUMN) && fabsf(o.x - pr.x) < 12.f * TS && fabsf(o.y - pr.y) < 8.f * TS) n++;
+            if (n > bestN) bestN = n, best = &pr;
+        }
+        if (best) {
+            for (int i : {1, 3}) {
+                g.dayT = (tt[i] - 0.05f) * DAY_LEN;
+                g.p.pos = V2(best->x, best->y + 6.f * TS);
+                g.setCam(0, true);
+                g.camX = (int)best->x - LW / 2;
+                g.camY = (int)best->y - LH / 2 - 8;
+                g.render();
+                g.render();
+                g.saveCanvas((dir + "/desert_" + nm[i] + ".bmp").c_str());
+            }
+        }
+    }
+    // the homestead: a house, a shed, walls, a well, a bench, a lamp and a barrel, in the morning and the afternoon
+    {
+        g.loadMapWorld(B_HOMESTEAD);
+        for (int b = 0; b < B_COUNT; b++) g.bw[b] = b == B_HOMESTEAD ? 1.f : 0.f;
+        for (int m : {M_WOOD, M_PLANK, M_STONE, M_BRANCH, M_ROPE, M_FIBER, M_IRONBAR, M_GREASE}) g.p.inv.addIgnoringWeight(itemMat(m), 200);
+        g.p.coins = 100000;
+        int ox = -1, oy = -1;
+        for (int ty = 100; ty < 150 && ox < 0; ty++)
+            for (int tx = 70; tx < 200 && ox < 0; tx++) {
+                bool ok = true;
+                for (int y = 0; y < 12 && ok; y++)
+                    for (int x = 0; x < 14 && ok; x++) ok = g.hsCanBuild(HP_FENCE, tx + x, ty + y, 0);
+                if (ok) ox = tx, oy = ty;
+            }
+        if (ox >= 0) {
+            int placed = 0;
+            placed += g.hsPlace(HP_HOUSE, ox + 1, oy + 1, 0);
+            placed += g.hsPlace(HP_SHED, ox + 8, oy + 1, 0);
+            placed += g.hsPlace(HP_WELL, ox + 12, oy + 6, 0);
+            for (int i = 0; i < 5; i++) placed += g.hsPlace(HP_WALL_WOOD, ox + 1 + i, oy + 8, 0);
+            placed += g.hsPlace(HP_BENCH, ox + 7, oy + 6, 0);
+            placed += g.hsPlace(HP_LAMP, ox + 9, oy + 9, 0);
+            placed += g.hsPlace(HP_BARREL, ox + 11, oy + 9, 0);
+            printf("homestead scene: %d pieces placed\n", placed);
+            for (int i : {1, 3}) {
+                g.dayT = (tt[i] - 0.05f) * DAY_LEN;
+                g.p.pos = V2((ox + 9) * TS, (oy + 12) * TS);
+                g.setCam(0, true);
+                g.camX = (ox + 7) * TS - LW / 2;
+                g.camY = (oy + 5) * TS - LH / 2;
+                g.render();
+                g.render();
+                g.saveCanvas((dir + "/homestead_" + nm[i] + ".bmp").c_str());
+            }
+        }
+    }
+    printf("smith shots: screenshots in %s\n", dir.c_str());
+}
 
 // ---- town tour (flag: --town DIR): screenshots of the central town from a grid of camera positions, for checking the layout
 static void townTour(Game& g, const std::string& dir) {
     g.newGame();
     g.state = ST_PLAY;
     g.helpT = 0;
-    g.dayT = 30;
+    g.dayT = DAY_LEN * 0.1f;
     g.animals.clear();
     int n = 0;
     for (int gy = 0; gy < 3; gy++)
@@ -632,20 +782,11 @@ static void spriteSheet(Game& g, const std::string& dir) {
         static const char* NAMES[HS_COUNT] = {"idle", "walk", "run", "aim", "throw", "gather", "swing", "use", "hurt", "death", "mine", "forage"};
         page((std::string("hunter_") + NAMES[st]).c_str(), hero, HS_MAXF, 28, 36);
     }
-    {  // the crawlers (the species without a full animation set): side, front and back views of the walk and the dead pose
-        std::vector<int> crawl;
-        for (int k = 0; k < A_COUNT; k++)
-            if (!animalClips(k)) crawl.push_back(k);
-        for (int pg = 0; pg * 6 < (int)crawl.size(); pg++) {
-            std::vector<const Spr*> list;
-            for (int i = pg * 6; i < std::min((int)crawl.size(), pg * 6 + 6); i++) {
-                const int k = crawl[i];
-                for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
-                for (int b = 0; b < 2; b++)
-                    for (int f : {0, 1, 4}) list.push_back(&g.A.animalNS[k][0][b][f]);
-            }
-            page(("animals" + std::to_string(pg)).c_str(), list, 9, 40, 50);
-        }
+    for (int pg = 0; pg * 12 < (int)A_COUNT; pg++) {
+        std::vector<const Spr*> list;
+        for (int k = pg * 12; k < std::min((int)A_COUNT, pg * 12 + 12); k++)
+            for (int f : {0, 1, 4}) list.push_back(&g.A.animal[k][0][f]);
+        page(("animals" + std::to_string(pg)).c_str(), list, 12, 33, 50);
     }
     // the animals with a full animation set: one page per species and state, a row per facing (S SE E NE N), a column per pose
     for (int kind : RICH_KINDS) {
@@ -689,7 +830,7 @@ static void spriteSheet(Game& g, const std::string& dir) {
 // and the new one in the same format so the two can be diffed: the start area must be unchanged.
 static void dumpCore(Game& g, const char* file) {
     const World& w = g.world;
-    const int X0 = 16, X1 = 74, Y0 = 4, Y1 = 56;  // interior, clear of the gates cut into the tree wall
+    const int X0 = 16, X1 = 74, Y0 = 4, Y1 = 56;  // interior of the original area
     std::ofstream f(file);
     for (int y = Y0; y < Y1; y++) {
         for (int x = X0; x < X1; x++) f << (char)('a' + w.tile[COY + y][COX + x]) << (w.solid[COY + y][COX + x] ? '#' : '.');
@@ -722,7 +863,7 @@ static void tour(Game& g, const std::string& dir) {
         g.render();
     };
     auto shot = [&](const std::string& name) { g.saveCanvas((dir + "/" + name + ".bmp").c_str()); };
-    static const char* nm[B_COUNT] = {"home", "desert", "swamp", "snow", "mountain"};
+    static const char* nm[B_COUNT] = {"home", "desert", "swamp", "snow", "mountain", "homestead"};
     for (int b = 0; b < B_COUNT; b++) {
         enterMap(g, b);
         g.showMap = true;
@@ -736,13 +877,13 @@ static void tour(Game& g, const std::string& dir) {
         int k = 0;
         for (auto& sp : spots) {
             g.p.pos = sp.second;
-            g.dayT = 60;  // midday
+            g.dayT = DAY_LEN * 0.2f;  // midday
             g.travelCd = 1e9f;  // a tour must not walk through a gate by accident
             g.setCam(0, true);
             frames(25);
             shot(sp.first);
             if (k == 1) {  // also a night view of each hub, for lanterns / fog / glows
-                g.dayT = 300.f * 0.6f;
+                g.dayT = DAY_LEN * 0.6f;
                 frames(20);
                 shot(sp.first + "_night");
             }
@@ -763,7 +904,7 @@ static void tour(Game& g, const std::string& dir) {
             const V2 c = portalPoint(g.world, MAPS[b].portals[gi]);
             const int side = MAPS[b].portals[gi].side;
             g.p.pos = c + (side == 0 ? V2(-70, 0) : side == 3 ? V2(70, 0) : side == 1 ? V2(0, -50) : V2(0, 50));
-            g.dayT = 60;
+            g.dayT = DAY_LEN * 0.2f;
             g.setCam(0, true);
             frames(25);
             shot(std::string(nm[b]) + "_gate_to_" + nm[MAPS[b].portals[gi].toMap]);
@@ -785,7 +926,7 @@ static void wildlife(Game& g, const std::string& dir) {
         {"swamp", {A_FROG, A_DUCK, A_MARSHDEER, A_MOCCASIN, A_GATOR, A_PANTHER}},
         {"snow", {A_ARCTICFOX, A_SNOWHARE, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR}},
         {"mountain", {A_GOAT, A_BIGHORN, A_EAGLE, A_MARMOT, A_MTLION}}};
-    g.dayT = 60;
+    g.dayT = DAY_LEN * 0.2f;
     for (auto& gr : grp)
         for (int form = 0; form < 2; form++) {
             g.render();
@@ -798,12 +939,7 @@ static void wildlife(Game& g, const std::string& dir) {
                     int k = gr.k[i];
                     int f = ANIMAL[k].forms > 1 ? form : 0;
                     float px = 58 + i * 48.f, py = 48 + t * 52.f;
-                    g.sprW(g.A.shadow[1], px, py, false, 0.6f);
-                    if (animalClips(k)) {  // species with a full set: the idle pose facing east
-                        ensureRichBank(g.ren, g.A, k, f, t);
-                        g.sprW(g.A.rich[k]->s[f + 2 * t][F_E][AN_IDLE][0], px, py);
-                    } else
-                        g.sprW(g.A.animal[k][f + 2 * t][(int)(g.timeAcc) & 3 ? 1 : 0], px, py);
+                    g.sprW(g.A.animal[k][f + 2 * t][(int)(g.timeAcc) & 3 ? 1 : 0], px, py);
                     if (t == 0) g.textC((int)px, 4, std::string(animalName(k, 0)).substr(0, 11), C_TEXT, 1, true);
                 }
             }
@@ -864,14 +1000,14 @@ static void wildlife(Game& g, const std::string& dir) {
         for (int k : {(int)A_COYOTE, (int)A_MTLION, (int)A_BIGHORN}) {
             for (int night = 0; night < 2; night++) {
                 g.animals.clear();
-                g.dayT = night ? 300.f * 0.6f : 60.f;
+                g.dayT = night ? DAY_LEN * 0.6f : DAY_LEN * 0.2f;
                 Animal* a = g.spawnAnimal(k, g.p.pos + V2(60, 0), 0, 0);
-                for (int f = 0; f < 90; f++) g.update(1.f / 60.f), g.p.hp = g.p.maxhp, g.dayT = night ? 300.f * 0.6f : 60.f;
+                for (int f = 0; f < 90; f++) g.update(1.f / 60.f), g.p.hp = g.p.maxhp, g.dayT = night ? DAY_LEN * 0.6f : DAY_LEN * 0.2f;
                 printf("probe %-14s %-5s player 60px away for 1.5s -> %s\n", animalName(k, 0).c_str(), night ? "night" : "day", stn[g.animals[0].st]);
                 (void)a;
             }
         }
-        g.dayT = 60;
+        g.dayT = DAY_LEN * 0.2f;
         int seen[5] = {0};
         enterMap(g, B_MOUNTAIN);
         g.respawnT = 4.f;
@@ -937,7 +1073,7 @@ int main(int argc, char** argv) {
     if (argc > 1) attachParentConsole();  // test and tool runs print into the terminal they were started from
 #endif
     bool headless = false;
-    std::string delveDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
+    std::string printsDir, smithDir, delveDir, forestDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
     bool wcheck = false, dtest = false, htest = false, soak = false;
     // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
@@ -952,9 +1088,9 @@ int main(int argc, char** argv) {
     };
     for (int i = 1; i < argc; i++) {
         if (!strcmp(argv[i], "--headless")) headless = true;
-        else if (takes(i, "--shots", shots) || takes(i, "--tour", tourDir) || takes(i, "--town", townDir) || takes(i, "--sprites", spriteDir) ||
+        else if (takes(i, "--prints", printsDir) || takes(i, "--smith", smithDir) || takes(i, "--shots", shots) || takes(i, "--tour", tourDir) || takes(i, "--town", townDir) || takes(i, "--sprites", spriteDir) ||
                  takes(i, "--export-sprites", exportDir) || takes(i, "--dumpcore", dumpFile) || takes(i, "--wildlife", wildDir) ||
-                 takes(i, "--delveshots", delveDir)) {}
+                 takes(i, "--delveshots", delveDir) || takes(i, "--forest", forestDir)) {}
         else if (!strcmp(argv[i], "--weapons")) wtest = true;
         else if (!strcmp(argv[i], "--selftest")) stest = true;
         else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
@@ -963,8 +1099,8 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--soak")) soak = true;
     }
     // The test suites and tool modes save, load and delete save files: they get their own folder, never the player's real save.
-    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() ||
-                         !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty();
+    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
+                         !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty() || !forestDir.empty() || !printsDir.empty();
     if (toolRun && !(getenv("WILDWOOD_SAVE_DIR") && *getenv("WILDWOOD_SAVE_DIR"))) {
         std::error_code ec;
         const std::string dir = (std::filesystem::temp_directory_path(ec) / "wildwood_test_save").string();
@@ -1036,6 +1172,184 @@ int main(int argc, char** argv) {
     }
     if (!spriteDir.empty()) {
         spriteSheet(g, spriteDir);
+        return 0;
+    }
+    if (!printsDir.empty()) {  // the hunter walks east from the meadow over a bank and into a lake while a deer runs ahead: one frame every 4 ticks, for the footprints gif
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.dayT = DAY_LEN * 0.1f;
+        g.animals.clear();
+        auto grassy = [&](int x, int y) { const uint8_t t = g.world.tile[y][x]; return t == T_GRASS || t == T_DARK || t == T_LEAF || t == T_NEEDLES || t == T_MOSS; };
+        int bx = -1, by = -1, runX = -1;
+        for (int y = 14; y < MH - 14 && runX < 0; y++)  // first choice: a long stretch of bank to walk along, grass behind it
+            for (int x = 20; x < MW - 28; x++) {
+                int c = 0;
+                bool ok = true;
+                for (int k = 0; k < 12 && ok; k++) { ok = !g.world.solid[y][x + k]; c += g.world.tile[y][x + k] == T_BANK; }
+                for (int k = -6; k < 0 && ok; k++) ok = !g.world.solid[y][x + k] && grassy(x + k, y);
+                if (ok && c >= 8) { runX = x; by = y; break; }
+            }
+        for (int y = 14; y < MH - 14 && bx < 0 && runX < 0; y++)  // otherwise: over the bank and into the lake
+            for (int x = 18; x < MW - 18; x++) {
+                if (g.world.tile[y][x] != T_LAKE_SHALLOW || g.world.tile[y][x + 1] != T_LAKE_MID || g.world.tile[y][x - 1] != T_BANK) continue;
+                bool ok = true;
+                for (int k = -8; k <= 0 && ok; k++) ok = !g.world.solid[y][x + k];
+                for (int k = -9; k <= -3 && ok; k++) ok = grassy(x + k, y);
+                for (int k = 1; k <= 3 && ok; k++) ok = !g.world.solid[y][x + k];
+                if (ok) { bx = x; by = y; break; }
+            }
+        if (runX >= 0) bx = runX + 8;
+        if (bx < 0) { printf("prints: no lake bank to walk from\n"); g.audio.shutdown(); return 1; }
+        g.p.pos = V2((runX >= 0 ? runX - 5 : bx - 9) * TS + 8.f, by * TS + 8.f);
+        g.p.coins = 0;
+        g.setCam(0, true);
+        if (Animal* d = g.spawnAnimal(A_DEER, V2((bx - 4) * TS + 8.f, by * TS + 8.f), 0, 0)) d->st = AS_FLEE;
+        int n = 0;
+        for (int f = 0; f < 420; f++) {
+            g.in.right = f < 330;  // the last second stands still: the trail fades
+            g.update(1.f / 60.f);
+            g.in.lPressed = g.in.lReleased = g.in.ePressed = false;
+            if (f % 60 == 0) printf("  tick %d: tile under hunter %d, hunter prints %d, all %d\n", f, (int)g.world.tileAt(g.p.pos.x, g.p.pos.y), g.footprintsActive(0), g.footprintsActive());
+            if (f % 4 == 0) {
+                g.render();
+                char nm[64];
+                snprintf(nm, sizeof nm, "/fp_%03d.bmp", n++);
+                g.saveCanvas((printsDir + nm).c_str());
+            }
+        }
+        g.in.right = false;
+        printf("prints: %d frames in %s\n", n, printsDir.c_str());
+        g.audio.shutdown();
+        return 0;
+    }
+    if (!forestDir.empty()) {  // one screenshot centred on a patch of each forest floor and of a stream
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.dayT = DAY_LEN * 0.1f;
+        g.animals.clear();
+        const char* names[4] = {"leaf", "needles", "moss", "stream"};
+        const uint8_t kinds[4] = {T_LEAF, T_NEEDLES, T_MOSS, T_SHALLOW};
+        for (int k = 0; k < 4; k++) {
+            int bx = -1, by = -1, best = -1000000;
+            for (int y = 12; y < MH - 12; y += 3)  // the 25x14-tile window with the most tiles of this floor
+                for (int x = 14; x < MW - 14; x += 3) {
+                    int c = 0;
+                    for (int yy = y - 7; yy <= y + 7; yy += 2)
+                        for (int xx = x - 12; xx <= x + 12; xx += 2) c += g.world.tile[yy][xx] == kinds[k];
+                    const int score = kinds[k] == T_SHALLOW ? (c < 6 ? -999 : -std::abs(c - 14)) : c;  // a stream: a typical stretch, not a confluence
+                    if (score > best && c > 0) { best = score; bx = x; by = y; }
+                }
+            if (bx < 0) continue;
+            g.p.pos = V2(bx * TS + 8.f, by * TS + 8.f);
+            g.setCam(0, true);
+            g.render();
+            g.saveCanvas((forestDir + "/forest_" + names[k] + ".bmp").c_str());
+        }
+        const char* gnames[GL_COUNT] = {"flowers", "oak", "stone", "fungi", "herbs", "camp"};
+        for (int k = 0; k < GL_COUNT; k++)
+            for (const Glade& gl : g.world.glades)
+                if (gl.kind == k) {
+                    g.p.pos = V2(gl.cx * TS + 8.f, gl.cy * TS + 8.f);
+                    g.setCam(0, true);
+                    g.render();
+                    g.saveCanvas((forestDir + "/glade_" + gnames[k] + ".bmp").c_str());
+                    break;
+                }
+        {  // a map of the whole home forest, 4 px per tile: ground colours, trees as dark dots, glades circled (overview.ppm)
+            const int Z = 4;
+            std::vector<unsigned char> px((size_t)MW * Z * MH * Z * 3);
+            auto put = [&](int x, int y, u32 c) {
+                if (x < 0 || y < 0 || x >= MW * Z || y >= MH * Z) return;
+                unsigned char* o = &px[((size_t)y * MW * Z + x) * 3];
+                o[0] = (c >> 16) & 255; o[1] = (c >> 8) & 255; o[2] = c & 255;
+            };
+            for (int y = 0; y < MH * Z; y++)
+                for (int x = 0; x < MW * Z; x++) put(x, y, World::miniTileColor(g.world.tile[y / Z][x / Z]) & 0xFFFFFF);
+            for (const Prop& pr : g.world.props)
+                if (isTreeKind(pr.kind)) {
+                    const int cx = (int)(pr.x / TS * Z), cy = (int)((pr.y - 1.f) / TS * Z);
+                    for (int dy = 0; dy < 3; dy++)
+                        for (int dx = 0; dx < 3; dx++) put(cx + dx - 1, cy + dy - 1, pr.kind == P_PINE ? 0x174a3a : (pr.kind == P_OAK0 || pr.kind == P_OAK1 ? 0x2a6a1e : 0x6a5a4a));
+                }
+            for (const Glade& gl : g.world.glades)
+                for (int a = 0; a < 360; a += 3) put((int)((gl.cx + cosf(a * 0.01745f) * gl.rx) * Z), (int)((gl.cy + sinf(a * 0.01745f) * gl.ry) * Z), 0xFFE060);
+            for (const FlowerField& fl : g.world.fields)
+                for (int a = 0; a < 360; a += 2) put((int)((fl.cx + cosf(a * 0.01745f) * fl.rx) * Z), (int)((fl.cy + sinf(a * 0.01745f) * fl.ry) * Z), 0xFF70C0);
+            FILE* f = fopen((forestDir + "/overview.ppm").c_str(), "wb");
+            if (f) {
+                fprintf(f, "P6\n%d %d\n255\n", MW * Z, MH * Z);
+                fwrite(px.data(), 1, px.size(), f);
+                fclose(f);
+            }
+        }
+        {  // the two fields behind the forest floor, as grey images (density.ppm: trees and thickets; moisture.ppm: wet and dry), for tuning
+            const char* fname[2] = {"density", "moisture"};
+            for (int k = 0; k < 2; k++) {
+                FILE* f = fopen((forestDir + "/" + fname[k] + ".ppm").c_str(), "wb");
+                if (!f) continue;
+                fprintf(f, "P6\n%d %d\n255\n", MW, MH);
+                for (int y = 0; y < MH; y++)
+                    for (int x = 0; x < MW; x++) {
+                        const float v = k == 0 ? fbm((x - COX) * 0.08f, (y - COY) * 0.08f, g.world.seed + 1) : fbm((x - COX) * 0.045f, (y - COY) * 0.045f, g.world.seed + 31);
+                        const unsigned char c = (unsigned char)(255.f * std::min(1.f, std::max(0.f, v)));
+                        fputc(c, f); fputc(c, f); fputc(c, f);
+                    }
+                fclose(f);
+            }
+        }
+        if (!g.world.fields.empty()) {  // one screenshot in the middle of the first flower field
+            const FlowerField& f = g.world.fields[0];
+            g.p.pos = V2(f.cx * TS + 8.f, f.cy * TS + 8.f);
+            g.setCam(0, true);
+            g.render();
+            g.saveCanvas((forestDir + "/field_flowers.bmp").c_str());
+        }
+        {  // the AI debug overlay (F3) at dusk, where most animals are within sight of one spot
+            g.dayT = DAY_LEN * 0.44f;
+            g.populate();
+            for (int i = 0; i < 240; i++) g.updateAnimals(0.1f);  // let the routines get going
+            int bx = 0, by = 0, best = -1;
+            for (auto& a : g.animals) {
+                int n = 0;
+                for (auto& o : g.animals) n += !o.dead && fabsf(o.pos.x - a.pos.x) < 190 && fabsf(o.pos.y - a.pos.y) < 100;
+                if (n > best) { best = n; bx = (int)a.pos.x; by = (int)a.pos.y; }
+            }
+            g.p.pos = V2(bx + 70.f, by + 20.f);
+            g.p.walking = true;
+            g.setCam(0, true);
+            g.debugAI = true;
+            g.render();
+            g.saveCanvas((forestDir + "/ai_debug.bmp").c_str());
+            g.debugAI = false;
+        }
+        {  // a wolf pack on its rounds at night, with the AI overlay on (the green lines run to the leader)
+            g.dayT = DAY_LEN * 0.7f;
+            g.animals.clear();
+            g.nextPack = 1;
+            g.populate();
+            int li = -1;
+            for (size_t i = 0; i < g.animals.size(); i++) if (g.animals[i].leader) { li = (int)i; break; }
+            if (li >= 0) {
+                for (int i = 0; i < 200; i++) g.updateAnimals(0.1f);  // let the pack get under way
+                for (size_t i = 0; i < g.animals.size(); i++) if (g.animals[i].leader) { li = (int)i; break; }
+                g.p.pos = g.animals[li].pos + V2(150.f, 40.f);
+                g.p.walking = true;
+                g.setCam(0, true);
+                g.debugAI = true;
+                g.render();
+                g.saveCanvas((forestDir + "/pack_debug.bmp").c_str());
+                g.debugAI = false;
+            }
+        }
+        printf("forest floors + glades + fields: screenshots in %s\n", forestDir.c_str());
+        g.audio.shutdown();
+        return 0;
+    }
+    if (!smithDir.empty()) {
+        smithShots(g, smithDir);
+        g.audio.shutdown();
         return 0;
     }
     if (!townDir.empty()) {

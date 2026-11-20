@@ -1,7 +1,10 @@
 // game_logic.cpp - the simulation core: start-up, new game, effects, biomes / weather / camera, the per-frame update.
 // (the rest of the simulation: game_player.cpp, game_animals.cpp, game_save.cpp, game_inventory.cpp)
 #include <cstdio>
+#include <chrono>
+#include <memory>
 #include <fstream>
+#include <random>
 #include <sstream>
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
@@ -18,13 +21,14 @@ bool Game::init(bool headless) {
         fprintf(stderr, "window failed: %s\n", SDL_GetError());
         return false;
     }
+    LS = readHiResSetting() ? 2 : 1;  // hi-res option (settings.txt): decides how the sprites and the canvas are built below
     if (!headless) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_ACCELERATED | SDL_RENDERER_PRESENTVSYNC);
     if (!ren) ren = SDL_CreateRenderer(win, -1, SDL_RENDERER_SOFTWARE);
     if (!ren) {
         fprintf(stderr, "renderer failed: %s\n", SDL_GetError());
         return false;
     }
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // the canvas is filtered when the window is not a whole multiple of it; sprites stay crisp ("0" again below)
+    if (LS > 1) SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // hi-res: the canvas is filtered when the window is not a whole multiple of it; sprites stay crisp
     canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW * LS, LH * LS);
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     buildAssets(ren, A);
@@ -33,7 +37,7 @@ bool Game::init(bool headless) {
     miniTex = toTex(ren, world.minimap());
     audio.init();
     SDL_ShowCursor(SDL_DISABLE);
-    for (int i = 0; i < 110; i++) flakes.push_back({wrng.range(0, LW), wrng.range(0, LH), 0, 0, wrng.range(0, 6.28f), wrng.range(0.f, 1.f)});
+    for (int i = 0; i < FLAKES_MAX; i++) flakes.push_back({wrng.range(0, LW), wrng.range(0, LH), 0, 0, wrng.range(0, 6.28f), wrng.range(0.f, 1.f)});
     for (int i = 0; i < 30; i++) flies.push_back({rng.range(0, LW), rng.range(0, LH), rng.range(0, 6.28f), rng.range(0.6f, 1.4f)});
     recoverSave(savePath());
     std::ifstream t(savePath());
@@ -54,6 +58,79 @@ void Game::shutdown() {
 }
 
 // ================================================================= helpers
+// A new game builds a new world: a random seed (kept in the save, so Continue gets the same world back), checked first: a seed is only
+// used when all five maps come out reachable (soundSeed). newGame() itself keeps the current seed, which is what the self-tests rely on.
+// RANDOM_WORLDS = false brings back the one fixed world (WORLD_SEED).
+void Game::beginNewGame() {
+    newGameAsk = false;
+    shapeWait = 3;  // a few frames of "SHAPING THE WORLD", then the work (buildNewWorld) runs from update()
+}
+
+// A seed is sound when each of its five overworld maps comes out of generation (which repairs what it can) with the hub, the
+// landmarks and the gates all reachable on foot.
+bool Game::soundSeed(uint32_t seed) const {
+    static std::unique_ptr<World> w;
+    if (!w) w.reset(new World());
+    // How much wood and how many resource nodes a map has, counted on the original world (WORLD_SEED) once: a new world has to come
+    // close to that, so no seed gives a bare map with hardly any trees or ore.
+    struct Stock { int trees = 0, nodes = 0; };
+    auto stock = [&](uint32_t sd, int m) {
+        w->generate(sd, m);
+        Stock st;
+        for (const Prop& pr : w->props) st.trees += isTreeKind(pr.kind);
+        st.nodes = (int)w->nodes.size();
+        return st;
+    };
+    static Stock base[B_COUNT];
+    static bool haveBase = false;
+    if (!haveBase) {
+        for (int m = 0; m < B_COUNT; m++)
+            if (m != B_HOMESTEAD) base[m] = stock(WORLD_SEED, m);
+        haveBase = true;
+    }
+    constexpr float MIN_SHARE = 0.7f;  // at least this share of the original world's trees and nodes
+    for (int m = 0; m < B_COUNT; m++) {
+        if (m == B_HOMESTEAD) continue;  // the Homestead is its own generator, the same for every seed
+        const Stock st = stock(seed, m);
+        if (w->repairLeft > 0) return false;                       // something the hunter needs is cut off and could not be opened
+        if (st.trees < (int)(base[m].trees * MIN_SHARE)) return false;  // too bare
+        if (st.nodes < (int)(base[m].nodes * MIN_SHARE)) return false;
+    }
+    return true;
+}
+
+void Game::buildNewWorld() {
+    constexpr bool RANDOM_WORLDS = true;
+    constexpr int TRIES = 6;  // seeds tried before falling back to the original world
+    const bool first = !hasSave;  // the how-to card is for the very first start only
+    worldSeed = WORLD_SEED;
+    if (RANDOM_WORLDS) {
+        std::random_device rd;
+        uint32_t s = (uint32_t)rd() ^ (uint32_t)std::chrono::steady_clock::now().time_since_epoch().count() * 2654435761u;
+        if (!s) s = WORLD_SEED;
+        for (int i = 0; i < TRIES; i++, s++)
+            if (soundSeed(s)) {
+                worldSeed = s;  // the seed that passed is the one the save keeps
+                break;
+            }
+    }
+    loadMapWorld(B_HOME);  // the new world (newGame alone would keep the map that is already loaded)
+    newGame();
+    if (first) helpT = 16;
+    state = ST_PLAY;
+    audio.play(S_CLICK);
+}
+
+// Pressing New Game with a saved game on disk asks first: the next save replaces it.
+void Game::requestNewGame() {
+    if (hasSave) {
+        newGameAsk = true;
+        newGameAskT = 0.35f;
+        audio.play(S_CLICK);
+    } else
+        beginNewGame();
+}
+
 void Game::newGame() {
     villagers.clear();
     villagersInit = false;
@@ -63,6 +140,7 @@ void Game::newGame() {
     endlessFloor = 1, endlessBest = endlessCheckpoint = 0;
     for (int i = 0; i < B_COUNT; i++) bossKills[i] = 0, bossCool[i] = 0.f, bossSeen[i] = false;
     bossLairMap = -1;
+    tracks.clear();
     fishing = Fishing();
     companion = Companion();
     parked = Parked();
@@ -103,7 +181,7 @@ void Game::newGame() {
     ftexts.clear();
     decals.clear();
     msgs.clear();
-    dayT = 30;
+    dayT = DAY_LEN * 0.1f;  // early morning
     kills = 0;
     for (int& b : bestKills) b = 0;
     for (int& b : bestMask) b = 0;
@@ -128,7 +206,7 @@ void Game::newGame() {
     setCam(0, true);
 }
 
-float Game::tod() const { return fmodf(dayT / 300.f + 0.05f, 1.f); }
+float Game::tod() const { return fmodf(dayT / DAY_LEN + 0.05f, 1.f); }
 float Game::daylight() const { return smoothf(-0.25f, 0.35f, sinf(tod() * 6.2832f)); }
 
 void Game::msg(const std::string& s, u32 col) {
@@ -183,6 +261,9 @@ void Game::climateMods(float& drain, float& regen) const {
             float heat = p.coolT > 0 ? 0.f : daylight() * (p.has(CG_DESERTWRAPS) ? 0.3f : 1.f);  // cactus water: the heat does not bother you
             drain = 1.f + 0.35f * heat;
             regen = 1.f - 0.35f * heat;
+            const float sand = galeNow() * (p.has(CG_DESERTWRAPS) ? 0.5f : 1.f);  // sandstorm: choking, wraps over the face help
+            drain += 0.25f * sand;
+            regen -= 0.20f * sand;
             break;
         }
         case B_SNOW: {
@@ -190,8 +271,8 @@ void Game::climateMods(float& drain, float& regen) const {
             if (p.has(CG_PARKA) || p.has(CG_FROSTWARD)) exposed = 0.f;
             else if (p.has(CG_WOLFCLOAK)) exposed *= 0.5f;
             if (p.warmT > 0 || warmthAt(p.pos) > 0.3f) exposed = 0.f;  // a warm brew or standing by a campfire
-            drain = 1.f + 0.25f * exposed;
-            regen = 1.f - 0.30f * exposed;
+            drain = 1.f + 0.25f * exposed + 0.35f * galeNow() * exposed;  // blizzard: the cold bites harder unless dressed warm or by a fire
+            regen = 1.f - 0.30f * exposed - 0.20f * galeNow() * exposed;
             break;
         }
         case B_MOUNTAIN:
@@ -200,6 +281,12 @@ void Game::climateMods(float& drain, float& regen) const {
             break;
         case B_SWAMP: drain = 1.1f; break;
         default: break;
+    }
+    // rain: soaked, you tire faster and recover slower, unless you stand by a fire
+    const float rain = rainK();
+    if (rain > 0.f && warmthAt(p.pos) < 0.3f) {
+        drain *= 1.f + 0.15f * rain;
+        regen *= 1.f - 0.25f * rain;
     }
 }
 
@@ -236,24 +323,51 @@ void Game::updateBiome(float dt) {
     }
 }
 
+// Tuning of the screen-space weather particles per climate (px/s). A particle's velocity is
+//   vx = driftX + swayX * sin(swayFx * t) + windX * max(0, wind - windMin) * (bySize ? 0.4 + size : 1)
+//   vy = driftY + fallSz * size + swayY * sin(swayFy * t + swayPhase)
+// and the climates are blended by biome weight. (How they look is up to drawBiomeFx in game_hud.cpp.)
+struct FlakeFx {
+    float driftX, swayX, swayFx;
+    float windX, windMin;
+    bool bySize;
+    float driftY, fallSz;
+    float swayY, swayFy, swayPhase;
+};
+static FlakeFx flakeFx(int biome) {
+    constexpr float COS = 1.5707963f;  // a quarter turn: sin(x + COS) = cos(x)
+    switch (biome) {
+        //                   driftX swayX swayFx windX windMin bySize driftY fallSz swayY swayFy swayPhase
+        case B_SNOW:     return {9.f,  10.f, 1.7f, 110.f, 0.3f, false, 22.f,  30.f,  0.f,  0.f,  0.f};   // falls and drifts; a blizzard drives it sideways
+        case B_DESERT:   return {30.f, 0.f,  0.f,  150.f, 0.f,  true,  4.f,   0.f,   6.f,  2.3f, 0.f};   // sand rides the wind: a sandstorm is a gale
+        case B_SWAMP:    return {0.f,  8.f,  2.1f, 0.f,   0.f,  false, 0.f,   0.f,   7.f,  1.6f, COS};   // gnats loiter
+        case B_MOUNTAIN: return {20.f, 0.f,  0.f,  70.f,  0.f,  false, -3.f,  0.f,   5.f,  1.1f, 0.f};   // gusty wind dust
+        default:         return {};
+    }
+}
+
 // screen-space weather: each biome has its own particle behaviour; velocities blend by biome weight
 void Game::updateWeather(float dt) {
-    for (auto& f : flakes) {
+    {  // ---- the wind: a calm breeze per climate, surging in gusts, hard in a storm and harder in a sandstorm / blizzard
+        const float base = bw[B_HOME] * 0.2f + bw[B_HOMESTEAD] * 0.2f + bw[B_SWAMP] * 0.15f + bw[B_DESERT] * 0.4f + bw[B_SNOW] * 0.4f + bw[B_MOUNTAIN] * 0.5f;
+        windGust = 0.5f + 0.5f * sinf(timeAcc * 0.35f) * (0.7f + 0.3f * sinf(timeAcc * 0.9f));
+        wind = clampf(base * (0.6f + 0.8f * windGust) + 0.5f * stormK + 1.0f * galeK, 0.f, 2.f);
+        windT += dt * (0.85f + 0.75f * wind);       // trees and grass sway faster in a gale (the clock never jumps: it is summed up)
+        rainDrift += dt * (20.f + 90.f * wind);     // the rain is carried further sideways the harder it blows
+        wet = rainK() > 0.5f ? std::min(1.f, wet + dt / 20.f) : std::max(0.f, wet - dt / 90.f);
+    }
+    const int nActive = std::min((int)flakes.size(), activeFlakes());
+    for (int fi = 0; fi < nActive; fi++) {
+        Flake& f = flakes[fi];
         float vx = 0, vy = 0;
-        float t = timeAcc * 0.6f + f.ph;
-        // snow: falls and drifts
-        vx += bw[B_SNOW] * (sinf(t * 1.7f) * 10.f + 9.f);
-        vy += bw[B_SNOW] * (22.f + f.sz * 30.f);
-        // desert: sand blown sideways in gusts
-        float gust = 0.5f + 0.5f * sinf(timeAcc * 0.35f + f.ph * 0.2f);
-        vx += bw[B_DESERT] * (45.f + 90.f * gust * (0.4f + f.sz));
-        vy += bw[B_DESERT] * (sinf(t * 2.3f) * 6.f + 4.f);
-        // swamp: gnats loiter
-        vx += bw[B_SWAMP] * sinf(t * 2.1f) * 8.f;
-        vy += bw[B_SWAMP] * cosf(t * 1.6f) * 7.f;
-        // mountains: gusty wind dust
-        vx += bw[B_MOUNTAIN] * (30.f + 55.f * gust);
-        vy += bw[B_MOUNTAIN] * (sinf(t * 1.1f) * 5.f - 3.f);
+        const float t = timeAcc * 0.6f + f.ph;
+        for (int b : {B_SNOW, B_DESERT, B_SWAMP, B_MOUNTAIN}) {  // each climate's weather, blended by how much of it the hunter stands in
+            const float w = bw[b];
+            if (w <= 0.f) continue;
+            const FlakeFx F = flakeFx(b);
+            vx += w * (F.driftX + F.swayX * sinf(t * F.swayFx) + F.windX * std::max(0.f, wind - F.windMin) * (F.bySize ? 0.4f + f.sz : 1.f));
+            vy += w * (F.driftY + F.fallSz * f.sz + F.swayY * sinf(t * F.swayFy + F.swayPhase));
+        }
         f.x += vx * dt;
         f.y += vy * dt;
         if (f.x > LW + 3) f.x = -3, f.y = wrng.range(0, LH);
@@ -370,7 +484,7 @@ void Game::checkWeaponSafetyNet(float dt) {
 
 void Game::updatePlay(float dt) {
     dayT += dt;
-    if (1 + (int)(dayT / 300.f) != lastDay) newDay(1 + (int)(dayT / 300.f));
+    if (1 + (int)(dayT / DAY_LEN) != lastDay) newDay(1 + (int)(dayT / DAY_LEN));
     updateLight(dt);  // storms and the lamp list (game_light.cpp)
     if (bldCd > 0) bldCd -= dt;
     if (helpT > 0) helpT -= dt;
@@ -397,6 +511,7 @@ void Game::updatePlay(float dt) {
     if (delve >= 0) updateDelve(dt);
     checkWeaponSafetyNet(dt);
     updateFx(dt);
+    updateFootprints(dt);
     updateWeather(dt);
     updateFishing(dt);
     updateCompanion(dt);
@@ -409,11 +524,16 @@ void Game::updatePlay(float dt) {
         respawnT = 4.f;
         int alive[A_COUNT] = {0};
         for (auto& a : animals)
-            if (!a.dead) alive[a.kind]++;
-        const float sh = seasonHerds();
-        int targets[4] = {(int)(HOME_HERDS[0] * sh + 0.5f), (int)(HOME_HERDS[1] * sh + 0.5f), (int)(HOME_HERDS[2] * sh + 0.5f), (int)((HOME_HERDS[3] + (int)(3 * (1.f - daylight()))) * sh + 0.5f)};
-        for (int k = 0; k < 4; k++)  // the original four species keep their home-area ring population
-            if (alive[k] < targets[k]) trySpawn(k, 230, true);
+            if (!a.dead && !a.leaving) alive[a.kind]++;
+        for (int k = 0; k < 4; k++) {  // the original four species follow the hour: wolves up at night, rabbits and deer down
+            const int target = std::max(0, (int)(homeTarget(k) * seasonHerds() + 0.5f));  // the season fills or thins the wilds
+            if (alive[k] < target) {
+                const int deficit = target - alive[k];
+                if (k == A_WOLF && deficit >= 3) spawnPack(std::min(deficit, 5), 230, true);  // wolves return in packs
+                else trySpawn(k, 230, true);
+            }
+            else if (alive[k] > target + 1) cullHome(k);
+        }
     }
     if (interior < 0 && delve < 0) streamSpawns(dt);
     checkPortals(dt);  // last: a trip replaces the world, so nothing above may run on it afterwards
@@ -443,7 +563,10 @@ void Game::updateAmbience() {
     float vol = 1.f;
     const int kind = ambienceFor(vol);
     vol *= cfg.amb / 10.f;  // settings: ambience volume
+    audio.setWind((0.65f + 0.7f * windGust) * (1.f + 0.5f * stormK + 1.0f * galeK));  // the wind in the bed gusts with the game's wind and howls in a storm / gale
     audio.setAmbience(kind, state == ST_PAUSE ? vol * 0.4f : vol);
+    const float rain = clampf(stormK, 0.f, 1.f) * 0.6f * cfg.amb / 10.f;  // the rain follows the storm (it fades with it when you go indoors)
+    audio.setRain(state == ST_PAUSE ? rain * 0.4f : rain);
 }
 
 void Game::playFootstep() {
@@ -453,7 +576,7 @@ void Game::playFootstep() {
         case T_FLOORW: s = S_STEP_WOOD; break;
         case T_SAND: case T_DUNE: s = S_STEP_SAND; break;
         case T_SNOW: case T_SNOWP: s = S_STEP_SNOW; break;
-        case T_MUD: case T_MURK: s = S_STEP_MUD; break;
+        case T_MUD: case T_MURK: case T_SHALLOW: case T_BANK: case T_LAKE_SHALLOW: case T_LAKE_MID: s = S_STEP_MUD; break;
         default: break;
     }
     audio.play(s, p.charging ? 0.12f : 0.22f);
@@ -461,7 +584,7 @@ void Game::playFootstep() {
 
 void Game::update(float dt) {
     timeAcc += dt;
-    if (state == ST_TITLE) audio.setAmbience(AMB_NONE, 0.f);
+    if (state == ST_TITLE) audio.setAmbience(AMB_NONE, 0.f), audio.setRain(0.f);
     else updateAmbience();
     switch (state) {
         case ST_TITLE: {
@@ -475,13 +598,17 @@ void Game::update(float dt) {
             cam.y = clampf(cam.y, 0, world.pixH() - LH);
             camX = (int)roundf(cam.x);
             camY = (int)roundf(cam.y);
-            if (in.enterPressed) {
-                const bool first = !hasSave;
-                newGame();
-                if (first) helpT = 16;
-                state = ST_PLAY;
-                audio.play(S_CLICK);
-            }
+            if (shapeWait > 0) {  // the shaping screen has been drawn: build the world now
+                if (--shapeWait == 0) buildNewWorld();
+            } else if (newGameAsk) {
+                newGameAskT -= dt;
+                if (in.escPressed) newGameAsk = false;
+                else if (in.enterPressed && newGameAskT <= 0) {
+                    newGameAsk = false;
+                    beginNewGame();
+                }
+            } else if (in.enterPressed)
+                requestNewGame();
             break;
         }
         case ST_PLAY:
@@ -523,7 +650,7 @@ void Game::update(float dt) {
             updateWorldMap(dt);
             break;
         case ST_SHOP:
-            // time stands still while trading (updatePlay, which advances dayT, is not called)
+            dayT += 0;  // time stands still while trading
             updateFx(dt);
             if (amtCtx != AMT_NONE) {  // the sell slider is open: it takes the keys
                 amountUpdate();
