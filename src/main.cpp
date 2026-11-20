@@ -413,6 +413,14 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.shopTab = 2;
             frames(3);
             shot("13c_orders.bmp");
+            g.shopTab = 1;  // the BUY list: hunting gear first, then the farm tools, seeds and hay further down
+            g.shopScroll = 0;
+            frames(3);
+            shot("13d_buy.bmp");
+            g.shopScroll = 9;
+            frames(3);
+            shot("13e_buy_farm.bmp");
+            g.shopScroll = 0;
             g.shopTab = 0;
             g.state = ST_PLAY;
             g.exitBuilding();

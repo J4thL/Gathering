@@ -96,6 +96,33 @@ inline Img plot(bool wet) {  // tilled soil: furrows with lit ridges
     if (wet) for (int i = 0; i < 6; i++) im.set(2 + (int)(nz(i, 1, 3) % 12), 2 + (int)(nz(i, 2, 3) % 12), HEX(0x8ab8e0));
     return im;
 }
+// A hole dug in the soil (16 x 16, opaque like a plot). mask = which sides have another hole next to them (N 1, E 2, S 4, W 8): the pit runs
+// through to those edges with no rim, so neighbouring holes join into one trench. water = the build-menu icon of a pond (the real pond is a
+// water tile of the world, drawn with the same look as every lake and stream).
+inline Img digHole(bool water, int mask) {
+    Img im(16, 16);
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++) {
+            u32 col = (x + y) % 5 == 0 ? HEX(0x6a4a2c) : HEX(0x7a5532);
+            if (nzf(x, y, 53) > 0.88f) col = drk(col);
+            im.set(x, y, col);
+        }
+    const bool N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
+    const int x0 = W ? 0 : 2, x1 = E ? 15 : 13, y0 = N ? 0 : 2, y1 = S ? 15 : 13;
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++) {
+            // round the corners that have no neighbour on either side
+            const bool cl = (x == x0 && !W), cr = (x == x1 && !E), ct = (y == y0 && !N), cb = (y == y1 && !S);
+            if ((cl || cr) && (ct || cb)) continue;
+            const bool rim = (cl || cr || ct || cb);
+            u32 col;
+            if (water) col = rim ? HEX(0x4a3a28) : (((x + y) & 7) == 0 ? HEX(0x8ec2ea) : HEX(0x4f90c4));
+            else col = rim ? HEX(0x40301f) : (y > (y0 + y1) / 2 ? HEX(0x1f1510) : HEX(0x33241a));
+            im.set(x, y, col);
+        }
+    if (!water && !N) for (int x = x0 + 2; x < x1 - 1; x++) im.set(x, 1, HEX(0x94683f));  // the lip of loose soil above the pit
+    return im;
+}
 inline Img roofTile() {  // overhead shingles (16 x 16), drawn over the player with some transparency
     Img im(16, 16);
     const u32 a = HEX(0xb4533a), b = HEX(0x8e3e2a), c = HEX(0xd2704e), d = HEX(0x5e2618);
@@ -575,6 +602,10 @@ inline Img iconTool(int k) {
         im.line(11, 8, 15, 4, HEX(0x7a8ca8)); im.line(11, 9, 15, 5, HEX(0x4a5a78)); im.rect(14, 3, 2, 2, HEX(0xb0c4de));
         im.rect(4, 3, 6, 1, HEX(0x4a5a78)); im.set(4, 4, HEX(0x4a5a78)); im.set(9, 4, HEX(0x4a5a78)); im.set(4, 5, HEX(0x4a5a78)); im.set(9, 5, HEX(0x4a5a78));
         im.set(15, 6, HEX(0x7ab8e0)); im.set(15, 8, HEX(0x7ab8e0));
+    } else if (k == TL_SHOVEL) {  // a long handle and a pointed steel blade at the top
+        im.line(3, 14, 10, 6, W1); im.line(4, 14, 11, 6, W2);
+        im.rect(10, 1, 5, 5, M1); im.rect(11, 6, 3, 1, M1); im.set(12, 7, M1);
+        im.rect(14, 1, 1, 5, M2); im.rect(10, 1, 5, 1, M2); im.rect(9, 5, 2, 2, W2);
     } else if (k == TL_ROD) {  // a long thin rod, a line and a red bobber
         im.line(2, 14, 12, 3, W1); im.line(3, 14, 13, 3, W2);
         im.line(13, 3, 14, 10, HEX(0xe8e8e8));
@@ -598,6 +629,8 @@ inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build m
         case HP_BRIDGE: im.blit(bridge(false), 4, 4); im.outline(OUT); break;
         case HP_ROOF: im.blit(roofTile(), 4, 4); im.outline(OUT); break;
         case HP_PLOT: im.blit(plot(false), 4, 4); im.outline(OUT); break;
+        case HP_HOLE: im.blit(digHole(false, 0), 4, 4); im.outline(OUT); break;
+        case HP_POND: im.blit(digHole(true, 0), 4, 4); im.outline(OUT); break;
         case HP_FENCE: im.blit(fence(false), 4, 3); break;
         case HP_GATE: im.blit(gate(false, false), 4, 3); break;
         case HP_DOOR: im.blit(door(false), 4, 0); break;
@@ -658,7 +691,7 @@ inline Img nodeSprite(int i) {
 // ------------------------------------------------------------------ the asset set
 struct HomeAssets {
     Spr wall[2][2];            // [wood / stone][capped / face only]
-    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2], roof;
+    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2], roof, hole[16];
     Spr fence[2], gate[2][2], door[2];   // [horizontal / vertical][closed / open]  (door: closed / open)
     Spr building[HP_COUNT][2]; // [kind][rot & 1]
     Spr greenhouse[2];
@@ -678,6 +711,7 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
         a.fence[v] = makeSpr(r, fence(v == 1), v ? 4 : 8, v ? 17 : 16);
         for (int o = 0; o < 2; o++) a.gate[v][o] = makeSpr(r, gate(v == 1, o == 1), v ? 4 : 8, v ? 17 : 16);
         a.plot[v] = makeSpr(r, plot(v == 1), 0, 0);
+        if (v == 0) for (int m = 0; m < 16; m++) a.hole[m] = makeSpr(r, digHole(false, m), 0, 0);
         a.door[v] = makeSpr(r, door(v == 1), 8, 23);
     }
     a.floorStone = makeSpr(r, floorStone(), 0, 0);

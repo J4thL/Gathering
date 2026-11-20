@@ -345,8 +345,7 @@ int homesteadTest(Game& g) {
             check(np && np->kind == HP_PLOT && g.hs.pieces.size() == n0 + 1, "left click with the hoe in hand tills the tile into a farm plot");
             g.state = ST_PLAY;
             g.hsToolUse();
-            check(g.state == ST_FARM && g.farmPieceId == (np ? np->id : -1), "clicking the empty plot with the hoe opens the seed menu");
-            g.state = ST_PLAY;
+            check(g.state == ST_PLAY && np && np->kind == HP_PLOT, "clicking the empty plot with the hoe does nothing (seeds are sown from the hotbar)");
             np = g.hsAt(tx, ty, HL_GROUND);
             // seeds are equipped on the hotbar like a tool and sow the plot they are clicked on
             const int seedId = itemMat(cropSeed(CR_CARROT));
@@ -588,7 +587,6 @@ int homesteadTest(Game& g) {
         g.state = ST_BUILD; shot("f_build_menu.bmp");
         g.state = ST_MARKET; shot("g_market.bmp");
         g.state = ST_ANIMAL; g.farmPieceId = -1; shot("h_animals.bmp");
-        g.state = ST_FARM; g.farmPieceId = g.hsAt(fx, fy, HL_GROUND) ? g.hsAt(fx, fy, HL_GROUND)->id : -1; shot("i_seeds.bmp");
         g.state = ST_PLAY;
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
         g.dayT = DAY_LEN * 0.7f;
@@ -678,6 +676,144 @@ int homesteadTest(Game& g) {
         for (int fr = 0; fr < 5; fr++) g.update(1.f / 60.f);
         check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.bestTool(TT_HOE) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.inv.count(itemTool(TL_HOE)) == 1, "a save from the previous tool system (tools outside the pack) still has working tools after loading and playing a few frames");
     }
+    printf("--- shovel: dig, pond, auto-watering\n");
+    {
+        check(g.ownsTool(TL_SHOVEL), "the starter kit includes a shovel");
+        int hx = -1, hy = -1;
+        for (int y = HS_PLAZA_Y + 8; y < HS_PLAZA_Y + 40 && hx < 0; y++)
+            for (int x = HS_PLAZA_X - 5; x < HS_PLAZA_X + 25; x++) {
+                bool free3 = true;
+                for (int dy = -3; dy <= 3 && free3; dy++)
+                    for (int dx = -3; dx <= 3; dx++) {
+                        const int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= MW || yy >= MH || !(tileGrassy(g.world.tile[yy][xx]) || g.world.tile[yy][xx] == T_DIRT) || g.hsAt(xx, yy, HL_GROUND) || g.hsAt(xx, yy, HL_OBJECT) || g.world.solid[yy][xx] || g.hsWaterTile(xx, yy)) { free3 = false; break; }
+                    }
+                for (auto& nd : g.world.nodes)
+                    if (free3 && std::abs((int)floorf(nd.x / TS) - x) <= 3 && std::abs((int)floorf(nd.y / TS) - y) <= 3) free3 = false;
+                if (free3) {  // (the shovel itself says whether the spot is allowed: plaza, edge...)
+                    g.p.pos = V2(x * TS + 8, (y + 1) * TS + 8);
+                    g.hsDig(x, y);
+                    if (g.hsAt(x, y, HL_GROUND)) { g.hsDig(x, y); hx = x; hy = y; break; }
+                }
+            }
+        check(hx >= 0, "a clear patch of ground for digging");
+        if (hx >= 0) {
+            g.p.pos = V2(hx * TS + 8, (hy + 1) * TS + 8);
+            const uint8_t soil = g.world.tile[hy][hx];
+            const size_t n0 = g.hs.pieces.size();
+            check(g.hsDig(hx, hy) && g.hsAt(hx, hy, HL_GROUND) && g.hsAt(hx, hy, HL_GROUND)->kind == HP_HOLE && g.hs.pieces.size() == n0 + 1, "the shovel digs a hole");
+            check(!g.world.blocked(hx * TS + 8, hy * TS + 8, 3.f), "a hole can be walked over");
+            g.hsDig(hx, hy);
+            check(!g.hsAt(hx, hy, HL_GROUND) && g.hs.pieces.size() == n0, "the shovel fills a hole back in");
+            g.hsDig(hx, hy);
+            g.hs.can = 2.f;
+            g.hsFillHole(*g.hsAt(hx, hy, HL_GROUND));
+            check(g.hsAt(hx, hy, HL_GROUND)->kind == HP_HOLE && g.hs.can == 2.f, "too little water in the can leaves the hole dry");
+            g.hs.can = CAN_CAPACITY;
+            g.hsFillHole(*g.hsAt(hx, hy, HL_GROUND));
+            check(g.hsAt(hx, hy, HL_GROUND)->kind == HP_POND && g.world.tile[hy][hx] == T_SHALLOW && g.hs.can == CAN_CAPACITY - HOLE_WATER, "water in a hole makes a pond (and costs water)");
+            // a plot next to the pond waters itself; one far away does not
+            check(g.hsNearWater(hx + 2, hy, PLOT_WATER_REACH) && !g.hsNearWater(hx + 3, hy + 3, PLOT_WATER_REACH), "the pond's reach for watering");
+            const bool hoe = g.bestTool(TT_HOE, nullptr) > 0;
+            if (hoe) {
+                g.p.pos = V2((hx + 2) * TS + 8, (hy + 3) * TS + 8);
+                check(g.hsPlace(HP_PLOT, hx + 2, hy, 0), "(a plot beside the pond)");
+                check(g.hsPlace(HP_PLOT, hx + 3, hy + 3, 0), "(a plot far from the pond)");
+                g.hsAt(hx + 2, hy, HL_GROUND)->water = 0;
+                g.hsAt(hx + 3, hy + 3, HL_GROUND)->water = 0;
+                g.hsTickCrops(0.5f);
+                check(g.hsAt(hx + 2, hy, HL_GROUND)->water >= 1.f, "tilled soil beside water is watered by itself");
+                check(g.hsAt(hx + 3, hy + 3, HL_GROUND)->water == 0.f, "tilled soil away from water stays dry");
+                g.hsDemolish(hx + 2, hy);
+                g.hsDemolish(hx + 3, hy + 3);
+            }
+            // a hole next to the pond floods by itself (a channel)
+            g.hsDig(hx + 1, hy);
+            for (int i = 0; i < 20; i++) g.hsTickCrops(0.5f);
+            check(g.hsAt(hx + 1, hy, HL_GROUND)->kind == HP_POND, "a hole beside water floods itself");
+            // a hole away from water stays a hole
+            g.hsDig(hx - 3, hy - 3);
+            for (int i = 0; i < 40; i++) g.hsTickCrops(0.5f);
+            check(g.hsAt(hx - 3, hy - 3, HL_GROUND)->kind == HP_HOLE, "a hole away from water stays dry");
+            // save / load keeps the ponds as water
+            g.save();
+            g.world.tile[hy][hx] = T_GRASS;
+            g.hsApplyWorld();
+            check(g.world.tile[hy][hx] == T_SHALLOW, "ponds are water again after loading");
+            g.hsDig(hx, hy);
+            check(!g.hsAt(hx, hy, HL_GROUND) && g.world.tile[hy][hx] == soil, "filling a pond in gives its soil back");
+            g.hsDig(hx + 1, hy);
+            g.hsDig(hx - 3, hy - 3);
+        }
+    }
+
+    printf("--- watering: once per crop, bare soil, rain, untilling\n");
+    {
+        int px = -1, py = -1;
+        for (int y = HS_PLAZA_Y + 8; y < HS_PLAZA_Y + 60 && px < 0; y++)
+            for (int x = HS_PLAZA_X - 10; x < HS_PLAZA_X + 30; x++) {
+                std::string why;
+                if (g.hsCanBuild(HP_PLOT, x, y, 0, &why) && !g.hsNearWater(x, y, PLOT_WATER_REACH)) { px = x; py = y; break; }
+            }
+        check(px >= 0, "a clear patch for a plot (no water within reach)");
+        if (px >= 0 && g.bestTool(TT_HOE, nullptr) > 0) {
+            g.p.pos = V2(px * TS + 8, (py + 1) * TS + 8);
+            std::string why;
+            const bool canB = g.hsCanBuild(HP_PLOT, px, py, 0, &why);
+            g.hsPlace(HP_PLOT, px, py, 0);
+            HPiece* pl = g.hsAt(px, py, HL_GROUND);
+            if (!pl) printf("   (cannot till: %s)\n", why.c_str());
+            check(canB && pl && pl->kind == HP_PLOT, "(a plot)");
+            if (pl) {
+                g.stormK = 0.f;
+                g.hs.can = CAN_CAPACITY;
+                check(g.hsWater(*pl) && pl->water >= 1.f, "bare tilled soil can be watered");
+                for (int i = 0; i < 100; i++) g.hsTickCrops(1.f);
+                check(pl->water <= 0.01f, "bare soil dries out again");
+                // sow it, water it once, and it stays wet until the crop is ripe
+                g.p.inv.add(itemMat(cropSeed(CR_CARROT)), 1);
+                check(g.hsPlant(*pl, CR_CARROT), "(sow)");
+                g.hsWater(*pl);
+                const float full = CROPS[CR_CARROT].stageSec * (CROP_STAGES - 1) + 5.f;
+                bool wetThrough = true;
+                for (float t = 0; t < full && pl->stage < CROP_STAGES - 1; t += 1.f) {
+                    g.hsTickCrops(1.f);
+                    if (pl->stage < CROP_STAGES - 1 && pl->water < 0.99f) wetThrough = false;
+                }
+                check(pl->stage >= CROP_STAGES - 1, "one watering grows the crop all the way");
+                check(wetThrough, "a planted plot stays watered while the crop grows");
+                check(pl->water <= 0.01f, "the soil is dry when the crop is fully grown");
+                g.hs.can = CAN_CAPACITY;
+                const float before = g.hs.can;
+                g.hsToolUse();  // (not aimed at it: only checks the call is safe)
+                check(g.hs.can == before, "nothing is spent when nothing is watered");
+                // the shovel: a planted plot cannot be untilled, an empty one can
+                const size_t n0 = g.hs.pieces.size();
+                g.hsDig(px, py);
+                check(g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0, "the shovel will not untill a planted plot");
+                pl = g.hsAt(px, py, HL_GROUND);
+                pl->crop = -1;
+                pl->stage = 0;
+                g.hsDig(px, py);
+                check(!g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0 - 1, "the shovel untills an empty plot");
+                // rain soaks bare soil (and not what is under a greenhouse - not tested here)
+                g.hsPlace(HP_PLOT, px, py, 0);
+                pl = g.hsAt(px, py, HL_GROUND);
+                pl->water = 0;
+                g.stormK = 1.f;
+                const int saveInterior = g.interior, saveDelve = g.delve;
+                g.interior = -1;
+                g.delve = -1;
+                for (int i = 0; i < 12; i++) g.hsTickCrops(1.f);
+                check(pl->water >= 1.f, "rain soaks a tilled plot with nothing planted");
+                g.stormK = 0.f;
+                g.interior = saveInterior;
+                g.delve = saveDelve;
+                g.hsDig(px, py);
+            }
+        }
+    }
+
     printf("--- mounts: baby drops, raising, riding\n");
     {
         if (!g.inHomestead()) {

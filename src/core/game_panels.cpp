@@ -165,54 +165,64 @@ void Game::drawShop() {
             save();
         }
     }
-    // ---------------- BUY
+    // ---------------- BUY: a scrolling list (hunting gear, then the farm's seeds, tools and hay)
     if (shopTab == 1) {
         struct Good {
-            const char* name;
-            const char* desc;
-            int price;
-            int kind;  // 0 flint x3, 1 bandage x1, 2 bandage x3, 3 bow, 4 crossbow, 5 arrows, 6 bolts
+            std::string name, desc;
+            int price, item, qty;
+            int kind;  // 0 ordinary, 1 a launcher (one is enough), 2 a farm tool (equipped when bought, one is enough)
+            int tool;
         };
-        static const Good goods[] = {{"FLINT KNIFE X3", "CHEAP THROWING KNIVES", FLINT_PACK_PRICE, 0},
-                                     {"BANDAGE X1", "HEALS 45 HP - PRESS Q", 15, 1},
-                                     {"BANDAGE X3", "SAVE A FEW COINS", 40, 2},
-                                     {"HUNTING BOW", "HOLD TO DRAW - NEEDS ARROWS", BOW_PRICE, 3},
-                                     {"CROSSBOW", "SLOW RELOAD, HITS HARD - NEEDS BOLTS", CROSSBOW_PRICE, 4},
-                                     {"ARROW X10", "FOR THE HUNTING BOW", AMMO[AM_ARROW].price * AMMO[AM_ARROW].pack, 5},
-                                     {"BOLT X6", "FOR THE CROSSBOW", AMMO[AM_BOLT].price * AMMO[AM_BOLT].pack, 6}};
-        constexpr int NG = sizeof(goods) / sizeof(goods[0]), PER = 3, PAGES = (NG + PER - 1) / PER;
-        for (int i = 0; i < PER; i++) {
-            int gi = shopPage * PER + i;
-            if (gi >= NG) break;
-            const Good& g = goods[gi];
-            int y = Y + 22 + i * 42;
-            panel(x0, y, cw, 38, HEX(0x3a2a1a));
-            const Spr& ic = g.kind == 0 ? A.wpnIcon[W_FLINT] : g.kind == 3 ? A.wpnIcon[W_BOW] : g.kind == 4 ? A.wpnIcon[W_CROSSBOW] : g.kind == 5 ? A.ammoIcon[AM_ARROW] : g.kind == 6 ? A.ammoIcon[AM_BOLT] : A.bandage;
-            icon(ic, x0 + 18, y + 19, 28);
-            text(x0 + 36, y + 6, g.name, C_GOLD);
-            text(x0 + 36, y + 15, g.desc, C_DIM);
-            // what the item is, and how many a purchase adds
-            static const int goodItem[7] = {ITEM_WPN0 + W_FLINT, ITEM_CONS0 + C_BANDAGE, ITEM_CONS0 + C_BANDAGE, ITEM_WPN0 + W_BOW,
-                                            ITEM_WPN0 + W_CROSSBOW, ITEM_AMMO0 + AM_ARROW, ITEM_AMMO0 + AM_BOLT};
-            const int goodQty[7] = {3, 1, 3, 1, 1, AMMO[AM_ARROW].pack, AMMO[AM_BOLT].pack};
-            const int gItem = goodItem[g.kind], gQty = goodQty[g.kind];
-            int owned = p.inv.count(gItem);
-            text(x0 + 36, y + 24, "OWNED " + S(owned), C_TEXT);
+        static std::vector<Good> goods;
+        if (goods.empty()) {
+            goods.push_back({"FLINT KNIFE X3", "THROWING KNIVES", FLINT_PACK_PRICE, ITEM_WPN0 + W_FLINT, 3, 0, -1});
+            goods.push_back({"BANDAGE X1", "HEALS 45 HP - PRESS Q", 15, ITEM_CONS0 + C_BANDAGE, 1, 0, -1});
+            goods.push_back({"BANDAGE X3", "SAVE A FEW COINS", 40, ITEM_CONS0 + C_BANDAGE, 3, 0, -1});
+            goods.push_back({"HUNTING BOW", "HOLD TO DRAW - NEEDS ARROWS", BOW_PRICE, ITEM_WPN0 + W_BOW, 1, 1, -1});
+            goods.push_back({"CROSSBOW", "HITS HARD - NEEDS BOLTS", CROSSBOW_PRICE, ITEM_WPN0 + W_CROSSBOW, 1, 1, -1});
+            goods.push_back({"ARROW X10", "FOR THE HUNTING BOW", AMMO[AM_ARROW].price * AMMO[AM_ARROW].pack, ITEM_AMMO0 + AM_ARROW, AMMO[AM_ARROW].pack, 0, -1});
+            goods.push_back({"BOLT X6", "FOR THE CROSSBOW", AMMO[AM_BOLT].price * AMMO[AM_BOLT].pack, ITEM_AMMO0 + AM_BOLT, AMMO[AM_BOLT].pack, 0, -1});
+            for (auto& tb : TOOL_BUY) goods.push_back({TOOLDEF[tb.tool].name, "FOR YOUR HOMESTEAD", tb.price, itemTool(tb.tool), 1, 2, tb.tool});
+            for (int c = 0; c < CR_COUNT; c++)
+                goods.push_back({std::string(CROPS[c].name) + " SEEDS", "RIPE IN " + std::to_string((int)(CROPS[c].stageSec * (CROP_STAGES - 1))) + "S", CROPS[c].seedPrice, itemMat(cropSeed(c)), 1, 0, -1});
+            goods.push_back({"HAY", "FEEDS ANY ANIMAL", HAY_PRICE, itemMat(M_HAY), 1, 0, -1});
+        }
+        const int NG = (int)goods.size(), VIS = 6, ROWH = 25;
+        shopScroll = std::max(0, std::min(NG - VIS, shopScroll));
+        auto clip = [&](std::string t, int maxW) {
+            while (!t.empty() && textW(t) > maxW) t.pop_back();
+            return t;
+        };
+        for (int i = 0; i < VIS && shopScroll + i < NG; i++) {
+            const Good& g = goods[shopScroll + i];
+            const int y = Y + 22 + i * ROWH;
+            panel(x0, y, cw, ROWH - 2, HEX(0x3a2a1a));
+            icon(itemIcon(g.item), x0 + 14, y + 11, 18);
+            text(x0 + 28, y + 3, clip(g.name, 118), C_GOLD);
+            text(x0 + 28, y + 13, clip(g.desc, 118), C_DIM);
+            const int owned = g.kind == 2 ? (ownsTool(g.tool) ? 1 : 0) : p.inv.count(g.item);
             const int price = buyPrice(g.price);  // reputation discount
-            chip(x0 + 90, y + 21, A.coin, p.coins, price);
-            const bool launcherOwned = (g.kind == 3 || g.kind == 4) && owned >= 1;
-            const bool full = launcherOwned || !p.inv.canAdd(gItem, gQty);
-            bool ok = p.coins >= price && !full;
-            const char* lab = launcherOwned ? "OWNED" : full ? (p.inv.blockReason(gItem, gQty) == 2 ? "HEAVY" : "FULL") : "BUY";
-            if (button(x0 + 186, y + 11, 48, 16, lab, ok, HEX(0x5d7a2e))) {
+            icon(A.coin, x0 + 152, y + 6, 8);
+            text(x0 + 158, y + 3, S(price), p.coins >= price ? C_GOLD : C_RED);
+            text(x0 + 148, y + 13, "OWN " + S(owned), C_DIM);
+            const bool oneIsEnough = g.kind != 0 && owned >= 1;
+            const bool full = oneIsEnough || !p.inv.canAdd(g.item, g.qty);
+            const bool ok = p.coins >= price && !full;
+            const char* lab = oneIsEnough ? "OWNED" : full ? (p.inv.blockReason(g.item, g.qty) == 2 ? "HEAVY" : "FULL") : "BUY";
+            if (button(x0 + 190, y + 3, 46, 16, lab, ok, HEX(0x5d7a2e))) {
                 p.coins -= price;
-                p.inv.add(gItem, gQty);
+                if (g.kind == 2) giveFarmTool(g.tool);  // a bought tool is equipped straight away
+                else p.inv.add(g.item, g.qty);
                 audio.play(S_COIN);
                 save();
             }
         }
-        if (button(x0, Y + 22 + PER * 42 - 2, 70, 12, shopPage + 1 < PAGES ? "MORE GOODS >" : "< BACK TO START", true, HEX(0x4a3a5e))) shopPage = (shopPage + 1) % PAGES;
-        text(x0 + 76, Y + 22 + PER * 42 + 1, "PAGE " + S(shopPage + 1) + "/" + S(PAGES), C_DIM, 1, false);
+        if (NG > VIS) {  // a thin scroll bar on the right edge of the list, and a hint
+            const int bh = VIS * ROWH - 2, th = std::max(8, bh * VIS / NG), ty = Y + 22 + (bh - th) * shopScroll / std::max(1, NG - VIS);
+            fillRect(x0 + cw + 3, Y + 22, 2, bh, HEX(0x2b1d12));
+            fillRect(x0 + cw + 3, ty, 2, th, C_GOLD);
+            text(x0, Y + 22 + VIS * ROWH + 1, S(shopScroll + 1) + "-" + S(std::min(NG, shopScroll + VIS)) + " OF " + S(NG) + "   WHEEL TO SCROLL", C_DIM, 1, false);
+        }
     }
     // ---------------- ORDERS: three crafted things the store wants today
     if (shopTab == 2) {
@@ -243,15 +253,15 @@ void Game::drawShop() {
 }
 
 // ================================================================= inventory screen
-// The equipment column of the pack: weapon in hand, worn bag, the six tools and the mount. Counts show how many of a piece are stacked in the
+// The equipment column of the pack: weapon in hand, worn bag, the seven tools and the mount. Counts show how many of a piece are stacked in the
 // pack; clicking the bag takes it off, clicking the mount mounts / dismounts / summons it (the same as its key).
 void Game::drawGearColumn(int x0, int y0) {
     struct GearSlot { int id; bool on; const char* lab; };
-    GearSlot gs[9];
+    GearSlot gs[10];
     int n = 0;
     gs[n++] = {itemWpn(p.sel), true, "WEAPON"};
     gs[n++] = {p.bag >= 0 ? itemPack(p.bag) : -1, p.bag >= 0, "BAG"};
-    static const char* TL[TT_COUNT] = {"AXE", "PICKAXE", "HOE", "CAN", "SICKLE", "ROD"};
+    static const char* TL[TT_COUNT] = {"AXE", "PICKAXE", "HOE", "CAN", "SICKLE", "ROD", "SHOVEL"};
     for (int t = 0; t < TT_COUNT; t++) gs[n++] = {p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, p.tool[t] >= 0, TL[t]};
     HAnimal* sm = saddledMount();
     const bool riding = riddenMount() != nullptr;
@@ -272,13 +282,13 @@ void Game::drawGearColumn(int x0, int y0) {
                 const std::string c = S(have);
                 text(x + 18 - textW(c), y + 10, c, C_TEXT, 1, false);
             }
-            if (gs[i].on) fillRect(x + 1, y + 15, 17, 1, riding && i == 8 ? C_GREEN : HEX(0x4a8ad0));
+            if (gs[i].on) fillRect(x + 1, y + 15, 17, 1, riding && i == 9 ? C_GREEN : HEX(0x4a8ad0));
         } else {
             textC(x + 10, y + 6, "-", HEX(0x6a5a44), 1, false);
         }
         if (over && in.uiClick) {
             if (i == 1 && p.bag >= 0) { in.uiClick = false; in.lPressed = false; unequipBag(); }
-            else if (i == 8) { in.uiClick = false; in.lPressed = false; toggleMount(); }
+            else if (i == 9) { in.uiClick = false; in.lPressed = false; toggleMount(); }
         }
     }
     // name of the hovered slot (or the mount's state), wrapped to the column
@@ -287,7 +297,7 @@ void Game::drawGearColumn(int x0, int y0) {
     if (hover >= 0) {
         a = gs[hover].id >= 0 ? item(gs[hover].id).name : std::string(gs[hover].lab);
         if (gs[hover].id < 0) b = "EMPTY";
-        else if (hover == 8) b = riding ? "RIDING - CLICK TO GET OFF" : parked.active ? "WAITING - CLICK TO MOUNT" : "CLICK TO CALL IT";
+        else if (hover == 9) b = riding ? "RIDING - CLICK TO GET OFF" : parked.active ? "WAITING - CLICK TO MOUNT" : "CLICK TO CALL IT";
         else if (hover == 1) b = "CLICK TO TAKE OFF";
     } else {
         a = sm ? (riding ? "RIDING" : parked.active ? "MOUNT WAITS" : "MOUNT AT HOME") : "NO MOUNT";
@@ -507,7 +517,7 @@ void Game::drawInventory() {
             } else if (D.kind == IK_TOOL) {
                 const ToolDef& T = TOOLDEF[D.ref];
                 wrap(D.blurb, C_DIM);
-                wrap(std::string(T.type == TT_AXE ? "CHOPS" : T.type == TT_HOE ? "TILLS AND DIGS" : T.type == TT_CAN ? "WATERS CROPS" : T.type == TT_SICKLE ? "CUTS GRAIN" : "MINES") + " TIER " + S(T.tier) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%", C_TEXT);
+                wrap(std::string(T.type == TT_AXE ? "CHOPS" : T.type == TT_HOE ? "TILLS AND DIGS" : T.type == TT_SHOVEL ? "DIGS AND FILLS" : T.type == TT_CAN ? "WATERS CROPS" : T.type == TT_SICKLE ? "CUTS GRAIN" : "MINES") + " TIER " + S(T.tier) + "  BONUS +" + S((int)lroundf(T.bonus * 100)) + "%", C_TEXT);
             } else {
                 wrap(D.blurb, C_DIM);
                 if (D.kind == IK_CONSUMABLE && p.hotSlotOf(sl.item) >= 0) wrap("EQUIPPED ON THE HOTBAR", C_GREEN);

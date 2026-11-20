@@ -145,7 +145,6 @@ void Game::drawMinimap() {
     // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
-            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
                 fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);

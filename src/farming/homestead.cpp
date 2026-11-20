@@ -65,6 +65,7 @@ void Game::hsSetSolid(const HPiece& pc, bool on) {
 void Game::hsApplyWorld() {
     for (auto& pc : hs.pieces) {
         if (pc.kind == HP_BRIDGE && pc.tx >= 0 && pc.ty >= 0 && pc.tx < MW && pc.ty < MH) world.tile[pc.ty][pc.tx] = T_DIRT;
+        if (pc.kind == HP_POND && pc.tx >= 0 && pc.ty >= 0 && pc.tx < MW && pc.ty < MH) world.tile[pc.ty][pc.tx] = T_SHALLOW;  // (pc.crop keeps the soil it was dug from)
         hsSetSolid(pc, true);
     }
 }
@@ -195,6 +196,7 @@ bool Game::hsDemolish(int tx, int ty) {
     const int id = pc->id, kind = pc->kind;
     hsSetSolid(*pc, false);
     if (kind == HP_BRIDGE) world.tile[pc->ty][pc->tx] = T_WATER;
+    if (kind == HP_POND) world.tile[pc->ty][pc->tx] = (uint8_t)(pc->crop >= 0 ? pc->crop : T_DIRT);
     for (auto& a : hs.animals)
         if (a.home == id) a.home = -1;  // the animals are not lost: they roam free
     int got = 0;
@@ -230,19 +232,23 @@ void Game::hsGiveStarter() {
         if (p.inv.add(item, n) < n) p.inv.addIgnoringWeight(item, n);
     };
     // the starter tools are equipped on the hotbar (a hunter who already owns one, equipped or not, is not given a second)
-    for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE})
+    for (int k : {(int)TL_HOE, (int)TL_CAN, (int)TL_SICKLE, (int)TL_SHOVEL})
         if (!ownsTool(k)) giveFarmTool(k);
     give(itemMat(M_SEED_WHEAT), 6);
     give(itemMat(M_SEED_CARROT), 6);
     give(itemMat(M_SEED_POTATO), 4);
     equipHotQuiet(itemMat(M_SEED_WHEAT));  // the wheat seeds are ready on the hotbar
-    msg("WELCOME HOME! A HOE, WATERING CAN, SICKLE AND SEEDS WERE LEFT FOR YOU", C_GOLD);
+    msg("WELCOME HOME! A HOE, WATERING CAN, SICKLE, SHOVEL AND SEEDS WERE LEFT FOR YOU", C_GOLD);
 }
 
 bool Game::hsEnter() {
     if (world.mapId != B_HOME || interior >= 0 || delve >= 0) return false;
     hs.visited = true;
     hsGiveStarter();
+    if (!ownsTool(TL_SHOVEL)) {  // a hunter whose homestead predates the shovel gets one too
+        giveFarmTool(TL_SHOVEL);
+        msg("A SHOVEL WAS LEFT FOR YOU - DIG HOLES AND FILL THEM WITH WATER", C_GOLD);
+    }
     if (!travelTo(B_HOMESTEAD, HS_PORTAL_X, HS_PORTAL_Y + 2)) return false;
     travelFade = 0;  // the portal has its own transition
     portalFx = 1.4f;
@@ -267,25 +273,117 @@ bool inGreenhouse(const Homestead& hs, const HPiece& plot) {
 }
 }  // namespace
 
+bool Game::hsWaterTile(int tx, int ty) const {
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return false;
+    const uint8_t t = world.tile[ty][tx];
+    return t == T_WATER || t == T_SHALLOW || t == T_LAKE_SHALLOW || t == T_LAKE_MID;
+}
+
+// water within reach of a tile: any water tile (a pond is one) or a well
+bool Game::hsNearWater(int tx, int ty, int reach) const {
+    for (int dy = -reach; dy <= reach; dy++)
+        for (int dx = -reach; dx <= reach; dx++)
+            if (hsWaterTile(tx + dx, ty + dy)) return true;
+    for (auto& w : hs.pieces)
+        if (w.kind == HP_WELL && w.tx + w.w() > tx - reach && w.tx < tx + 1 + reach && w.ty + w.h() > ty - reach && w.ty < ty + 1 + reach) return true;
+    return false;
+}
+
+void Game::hsMakePond(HPiece& pc) {
+    pc.kind = HP_POND;
+    pc.crop = world.tile[pc.ty][pc.tx];  // the soil it was dug from, for filling it in again
+    pc.growT = 0;
+    world.tile[pc.ty][pc.tx] = T_SHALLOW;
+    ftext(V2(pc.tx * (float)TS + 8.f, pc.ty * (float)TS), "A POND", C_BLUE);
+    audio.play(S_GATHER, 0.5f);
+}
+
 void Game::hsTickCrops(float dt) {
     const float rain = rainK();
+    std::vector<int> flood;
     for (auto& pc : hs.pieces) {
-        if (pc.kind != HP_PLOT || pc.crop < 0 || pc.crop >= CR_COUNT || pc.stage >= CROP_STAGES - 1) continue;
-        const CropDef& C = CROPS[pc.crop];
+        if (pc.kind == HP_HOLE) {  // a hole next to water floods itself: dig a channel to a lake or another pond
+            const bool wet = hsWaterTile(pc.tx - 1, pc.ty) || hsWaterTile(pc.tx + 1, pc.ty) || hsWaterTile(pc.tx, pc.ty - 1) || hsWaterTile(pc.tx, pc.ty + 1);
+            pc.growT = wet ? pc.growT + dt : 0.f;
+            if (pc.growT >= HOLE_FLOOD_SEC) flood.push_back(pc.id);
+            continue;
+        }
+        if (pc.kind != HP_PLOT) continue;
         const bool gh = inGreenhouse(hs, pc);
-        if (rain > 0.3f && !gh) pc.water = std::min(1.f, pc.water + dt * 0.03f * rain);  // a storm waters the open-air plots for free
-        if (pc.water <= 0.f) continue;  // dry soil: the crop waits
+        const bool growing = pc.crop >= 0 && pc.crop < CR_COUNT && pc.stage < CROP_STAGES - 1;
+        // One watering lasts the whole growth: only soil with nothing growing in it (bare, or a ripe crop waiting) dries out.
+        if (!growing && pc.water > 0.f) pc.water = std::max(0.f, pc.water - dt / PLOT_DRY_SEC);
+        const bool nearWater = hsNearWater(pc.tx, pc.ty, PLOT_WATER_REACH);
+        if (nearWater) pc.water = 1.f;                                                                    // soil beside water is always wet
+        else if (rain > 0.3f && !gh) pc.water = std::min(1.f, pc.water + dt * RAIN_SOAK_RATE * rain);   // a storm soaks the open-air plots, planted or not
+        if (!growing || pc.water <= 0.f) continue;  // nothing growing, or dry soil: the crop waits
+        const CropDef& C = CROPS[pc.crop];
         float grow = 1.f;
         if (gh) grow *= GREENHOUSE_GROWTH;
         if (pc.rich) grow *= 1.2f;
         pc.growT += dt * grow;
-        pc.water = std::max(0.f, pc.water - dt * C.thirst * (gh ? GREENHOUSE_THIRST : 1.f) / PLOT_DRY_SEC);
         if (pc.growT >= C.stageSec) {
             pc.growT -= C.stageSec;
             pc.stage++;
-            if (pc.stage >= CROP_STAGES - 1) pc.growT = 0;
+            if (pc.stage >= CROP_STAGES - 1) {  // fully grown: the soil is spent and dries out
+                pc.growT = 0;
+                if (!nearWater) pc.water = 0.f;
+            }
         }
     }
+    for (int id : flood)  // (one at a time per tick, so a channel fills in order, not all at once)
+        for (auto& pc : hs.pieces)
+            if (pc.id == id && pc.kind == HP_HOLE) { hsMakePond(pc); break; }
+}
+
+// The shovel: digs a hole in bare soil, and fills a hole or a pond back in (a pond gives its soil back).
+bool Game::hsDig(int tx, int ty) {
+    auto no = [&](const char* m) { p.farmT = 0; msg(m, C_RED); audio.play(S_ERROR, 0.5f); return true; };
+    HPiece* gp = hsAt(tx, ty, HL_GROUND);
+    if (gp && gp->kind == HP_PLOT && gp->crop >= 0) return no("A CROP IS PLANTED HERE - HARVEST IT FIRST");
+    if (gp && (gp->kind == HP_HOLE || gp->kind == HP_POND || gp->kind == HP_PLOT)) {  // fill a hole / pond in, or untill empty soil
+        const bool tilled = gp->kind == HP_PLOT;
+        if (gp->kind == HP_POND) world.tile[ty][tx] = (uint8_t)(gp->crop >= 0 ? gp->crop : T_DIRT);
+        const int id = gp->id;
+        hs.pieces.erase(std::remove_if(hs.pieces.begin(), hs.pieces.end(), [&](const HPiece& q) { return q.id == id; }), hs.pieces.end());
+        hsReindex();
+        ftext(V2((tx + .5f) * TS, ty * (float)TS), tilled ? "UNTILLED" : "FILLED IN", C_DIM);
+        audio.play(S_BREAK, 0.4f);
+        return true;
+    }
+    if (gp) return no("CANNOT DIG HERE");
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH || protectedTile(tx, ty, B_HOMESTEAD) || inPlaza(tx, ty)) return no("CANNOT DIG HERE");
+    const uint8_t t = world.tile[ty][tx];
+    if (tileDeep(t) || hsWaterTile(tx, ty)) return no("THAT IS ALREADY WATER");
+    if (!tileGrassy(t) && t != T_DIRT) return no("THE GROUND IS TOO HARD HERE");
+    if (hsAt(tx, ty, HL_OBJECT) || world.solid[ty][tx]) return no("SOMETHING IS IN THE WAY");
+    for (auto& n : world.nodes)
+        if ((int)floorf(n.x / TS) == tx && (int)floorf(n.y / TS) == ty) return no("A PLANT IS IN THE WAY");
+    if ((int)hs.pieces.size() >= H_MAX_PIECES) return no("TOO MANY BUILDINGS");
+    HPiece pc;
+    pc.id = hs.nextId++;
+    pc.kind = HP_HOLE;
+    pc.tx = tx;
+    pc.ty = ty;
+    pc.inv = Inventory(0, 1e9f);
+    hs.pieces.push_back(pc);
+    hsReindex();
+    ftext(V2((tx + .5f) * TS, ty * (float)TS), "DUG", C_TEXT);
+    audio.play(S_BREAK, 0.4f);
+    return true;
+}
+
+// The watering can on a hole: a pond (the water is gone from the can).
+bool Game::hsFillHole(HPiece& pc) {
+    if (hs.can < HOLE_WATER) {
+        p.farmT = 0;
+        msg("NEED MORE WATER - A POND TAKES " + std::to_string((int)HOLE_WATER) + " OF THE CAN, REFILL AT THE WATER", C_RED);
+        audio.play(S_ERROR, 0.6f);
+        return true;
+    }
+    hs.can -= HOLE_WATER;
+    hsMakePond(pc);
+    return true;
 }
 
 void Game::hsRefillCan() {
@@ -384,8 +482,8 @@ bool Game::hsHarvest(HPiece& pc) {
 }
 
 // Left click with the hoe, watering can or sickle in hand, on the tile under the cursor (within reach):
-//  hoe: tills bare soil into a farm plot, opens the seed menu on an empty plot, digs up a ripe root crop
-//  can: waters a growing crop, fills at the water's edge;  sickle: cuts a ripe crop
+//  hoe: tills bare soil into a farm plot, digs up a ripe root crop;  seeds: sow a tilled plot;  shovel: digs / fills holes, untills an empty plot
+//  can: waters tilled soil (planted or not), fills a hole into a pond, refills at the water's edge;  sickle: cuts a ripe crop
 bool Game::hsToolUse() {
     const int type = p.hand;
     if (type < 0 || (type < HAND_SEED0 && p.tool[type] < 0)) { p.hand = -1; return false; }
@@ -411,19 +509,17 @@ bool Game::hsToolUse() {
     switch (type) {
         case TT_HOE:
             if (ripe) return hsHarvest(*gp), true;
-            if (plot) {
-                if (gp->crop >= 0) return no("ALREADY PLANTED");
-                farmPieceId = gp->id;  // an empty plot: pick the seeds to sow
-                state = ST_FARM;
-                audio.play(S_CLICK);
-                return true;
-            }
+            if (plot) return no(gp->crop >= 0 ? "NOT RIPE YET" : "SELECT SEEDS ON THE HOTBAR TO PLANT");  // (seeds are sown from the hotbar, not with the hoe)
             return hsPlace(HP_PLOT, tx, ty, 0), true;  // (hsPlace explains a refusal: no soil, in the way, not enough wood...)
+        case TT_SHOVEL:
+            return hsDig(tx, ty);
         case TT_CAN:
-            if (plot && gp->crop >= 0 && !ripe) return hsWater(*gp), true;
-            if (world.water(tx, ty)) return hsRefillCan(), true;
+            if (gp && gp->kind == HP_HOLE) return hsFillHole(*gp);
+            if (ripe) return no("READY TO HARVEST");
+            if (plot) return hsWater(*gp), true;  // bare soil can be watered too
+            if (world.water(tx, ty) || (gp && gp->kind == HP_POND)) return hsRefillCan(), true;
             if (const HPiece* wl = hsAt(tx, ty, HL_OBJECT)) if (wl->kind == HP_WELL) return hsRefillCan(), true;
-            return no(plot ? (gp->crop < 0 ? "PLANT SEEDS FIRST" : "READY TO HARVEST") : "NOTHING TO WATER HERE");
+            return no("NOTHING TO WATER HERE");
         case TT_SICKLE:
             if (ripe) return hsHarvest(*gp), true;
             return no("NOTHING READY TO CUT HERE");
@@ -726,7 +822,7 @@ bool Game::hsFindTarget(HTarget2& t) {
         const int cx = (int)floorf(p.pos.x / TS), cy = (int)floorf(p.pos.y / TS);
         for (int dy = -1; dy <= 1; dy++)
             for (int dx = -1; dx <= 1; dx++)
-                if (world.water(cx + dx, cy + dy)) offer(6, 0, p.pos + V2(0, -24), 20.f, "FILL WATERING CAN");
+                if (world.water(cx + dx, cy + dy) || [&] { const HPiece* q = hsAt(cx + dx, cy + dy, HL_GROUND); return q && q->kind == HP_POND; }()) offer(6, 0, p.pos + V2(0, -24), 20.f, "FILL WATERING CAN");
     }
     return t.type != 0;
 }

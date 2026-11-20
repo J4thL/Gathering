@@ -239,7 +239,6 @@ void Game::render() {
         case ST_TITLE: drawTitle(); break;
         case ST_PLAY: drawHud(); drawHsHud(); drawPortalFx(); break;
         case ST_BUILD: drawHud(); drawBuildMenu(); break;
-        case ST_FARM: drawHud(); drawFarmMenu(); break;
         case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
         case ST_MARKET: drawHud(); drawMarket(); break;
         case ST_SHOP: {
