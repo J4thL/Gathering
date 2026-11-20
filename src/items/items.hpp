@@ -25,8 +25,8 @@ constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
 // gathering tools: axes cut trees, pickaxes break rock and ore; a higher tier is faster and gives more (see resources.hpp for what needs which tier)
-enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_ROD, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
-enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_ROD, TL_COUNT };
+enum ToolType { TT_AXE, TT_PICK, TT_HOE, TT_CAN, TT_SICKLE, TT_ROD, TT_SHOVEL, TT_COUNT };  // hoe, watering can and sickle are the farm tools (homestead.hpp)
+enum ToolId { TL_AXE1, TL_AXE2, TL_AXE3, TL_AXE4, TL_PICK1, TL_PICK2, TL_PICK3, TL_PICK4, TL_HOE, TL_CAN, TL_SICKLE, TL_ROD, TL_SHOVEL, TL_COUNT };
 struct ToolDef {
     const char* name;
     int type, tier;      // tier 1..4: stone, copper, iron, gilded
@@ -47,6 +47,7 @@ static const ToolDef TOOLDEF[TL_COUNT] = {
     {"WATERING CAN", TT_CAN, 1, 1.0f, 0.00f, "WATERS CROPS - REFILL AT A WELL OR THE WATER'S EDGE"},
     {"SICKLE", TT_SICKLE, 1, 1.0f, 0.00f, "CUTS WHEAT AND CORN"},
     {"FISHING ROD", TT_ROD, 1, 1.0f, 0.00f, "CAST AT ANY WATER - CLICK AGAIN WHEN THE BOBBER DIPS"},
+    {"SHOVEL", TT_SHOVEL, 1, 1.0f, 0.00f, "DIGS HOLES AT THE HOMESTEAD - POUR WATER IN FOR A POND"},
 };
 enum PlaceId { PL_CAMPFIRE, PL_CHEST, PL_COUNT };
 constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
@@ -219,7 +220,7 @@ inline int seedCropOf(int itemId) {
 }
 constexpr int HAND_SEED0 = TT_COUNT;  // Player::hand >= HAND_SEED0 (and < HAND_ITEM): seeds are in hand, crop = hand - HAND_SEED0
 constexpr int HAND_ITEM = 100;  // Player::hand: any other hotbar item is in hand (food, structure, material...): a click uses it
-inline bool isFarmToolType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE; }
+inline bool isFarmToolType(int type) { return type == TT_HOE || type == TT_CAN || type == TT_SICKLE || type == TT_SHOVEL; }
 // can this item go on the hotbar? Every slot is universal and takes every kind of item (weapons, ammunition, food, tools, materials, seeds,
 // structures, bags). What an item does in hand depends on its kind (Game::hotSelect / hotClick).
 inline bool hotAccepts(int /*slotKind*/, int itemId) { return itemValid(itemId); }

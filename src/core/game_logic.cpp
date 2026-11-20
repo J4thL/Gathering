@@ -693,6 +693,7 @@ void Game::update(float dt) {
             }
             if (in.tabPressed) shopTab = (shopTab + 1) % 3;
             if (shopTab == 0) sellScroll -= in.wheel;
+            else if (shopTab == 1) shopScroll -= in.wheel;
             if (in.selectKey >= 0 && in.selectKey < 3) shopTab = in.selectKey;
             break;
         case ST_CHEST:
@@ -702,7 +703,6 @@ void Game::update(float dt) {
             updateService(dt);
             break;
         case ST_BUILD: updateBuildMenu(dt); break;
-        case ST_FARM: updateFarmMenu(dt); break;
         case ST_ANIMAL: updateAnimalMenu(dt); break;
         case ST_MARKET: updateMarket(dt); break;
         case ST_PAUSE:

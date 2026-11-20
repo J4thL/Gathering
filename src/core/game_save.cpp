@@ -47,7 +47,7 @@ void Game::save() {
         // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
         f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
         f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nfarmtools";
-        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE, (int)TT_SHOVEL}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
         f << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";

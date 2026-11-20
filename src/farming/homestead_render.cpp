@@ -28,6 +28,12 @@ void Game::drawHomesteadGround() {
                 case HP_FOUNDATION: sprS(A.H.foundation, sx, sy); break;
                 case HP_BRIDGE: sprS(A.H.bridge[pc.rot & 1], sx, sy); break;
                 case HP_PLOT: sprS(A.H.plot[pc.water > 0.3f ? 1 : 0], sx, sy); break;
+                case HP_HOLE: {  // neighbouring holes join into one trench
+                    auto hole = [&](int dx, int dy) { const HPiece* q = hsAt(pc.tx + dx, pc.ty + dy, HL_GROUND); return q && q->kind == HP_HOLE; };
+                    sprS(A.H.hole[(hole(0, -1) ? 1 : 0) | (hole(1, 0) ? 2 : 0) | (hole(0, 1) ? 4 : 0) | (hole(-1, 0) ? 8 : 0)], sx, sy);
+                    break;
+                }
+                case HP_POND: break;  // a pond is a water tile: the world draws it like any other water, so ponds merge with each other and with lakes and streams
             }
         } else if (pc.kind == HP_PEN) {  // trampled dirt inside the paddock
             for (int y = pc.ty + 1; y < pc.ty + pc.h() - 1; y++)

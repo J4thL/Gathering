@@ -163,7 +163,7 @@ struct Player {
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
-    int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
+    int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
     int up[U_COUNT] = {0};
@@ -307,7 +307,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
 // seasons: a week of days each (a day is DAY_LEN seconds), spring first. They change how many animals roam, which pelts and fat a kill gives,
 // how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
@@ -389,7 +389,7 @@ struct Game {
     Rng rng{20261024};
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
-    int shopPage = 0;
+    int shopScroll = 0;  // first visible row of the General Store BUY list
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
     int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary, 4 = journal; selected slot
@@ -726,6 +726,11 @@ struct Game {
     bool hsLeave();
     void hsGiveStarter();
     bool homesteadInteract();
+    bool hsWaterTile(int tx, int ty) const;      // water you can draw from / that waters soil: a lake, a brook, a pond
+    bool hsNearWater(int tx, int ty, int reach) const;
+    bool hsDig(int tx, int ty);                  // the shovel on a tile: dig a hole, or fill a hole / pond back in
+    bool hsFillHole(HPiece& pc);                 // the watering can on a hole: a pond
+    void hsMakePond(HPiece& pc);
     bool hsToolUse();  // left click with a farm tool in hand: till / plant / water / harvest the tile under the cursor
     bool homesteadPrompt();
     struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
@@ -752,11 +757,9 @@ struct Game {
     int hsChestPiece = -1;
     void updateBuildMode();
     void updateBuildMenu(float dt);
-    void updateFarmMenu(float dt);
     void updateAnimalMenu(float dt);
     void updateMarket(float dt);
     void drawBuildMenu();
-    void drawFarmMenu();
     void drawAnimalMenu();
     void drawMarket();
     void drawHomesteadGround();                                       // floors, foundations, plots, pen yards
