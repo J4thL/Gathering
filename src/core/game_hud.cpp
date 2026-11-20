@@ -121,8 +121,8 @@ void Game::drawMinimap() {
     fillRect(vx + vw, vy, 1, vh + 1, wc);
     // shop and elder (home only), and the gates to the other maps in the colour of where they lead
     if (world.mapId == B_HOME) {
-        mapIcon(MI_HOUSE, mx(world.hut.x), my(world.hut.y), 5, C_GOLD);
-        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, mx(bldDoorX(k, COX)), my(bldBaseY(k, COY) - 8.f), 5, BUILDINGS[k].roof);
+        mapIcon(MI_COIN, mx(world.hut.x), my(world.hut.y), 5, C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) mapIcon(bldMapIcon(k), mx(bldDoorX(k, COX)), my(bldBaseY(k, COY) - 8.f), 5, BUILDINGS[k].roof);
         mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, mx(world.questGiver.x), my(world.questGiver.y), 5, C_BLUE);
     }
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {

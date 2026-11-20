@@ -407,6 +407,7 @@ void Game::updatePlayer(float dt) {
     }
     if (in.mountPressed) toggleMount();
     if (in.commandPressed) companionOrder();
+    updateMelee(dt);
     updateMount(dt, moving);
     if (in.bandage && P.hp < P.maxhp) {  // Q: the lightest healing item equipped on the hotbar first, strong medicine last
         static const int order[] = {C_BANDAGE, C_SALVE, C_JERKY, C_COOKED, C_POULTICE, C_TONIC, C_STEW, C_MEDICINE};

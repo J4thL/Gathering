@@ -222,10 +222,16 @@ int delveCheck(Game& g) {
     };
     long ores[RN_COUNT] = {0};
     std::vector<char> seen;
-    for (int id = 0; id < DV_COUNT; id++) {
+    // every dungeon level once, then a spread of Endless Depths floors (tier changes, mine-like and icy tiers, boss floors)
+    static const int ENDLESS_FLOORS[] = {2, 5, 10, 11, 20, 21, 31, 35, 40, 50, 100};
+    const int nEndless = (int)(sizeof(ENDLESS_FLOORS) / sizeof(int));
+    for (int pass = 0; pass < DV_COUNT + nEndless; pass++) {
+        const int id = pass < DV_COUNT ? pass : DV_ENDLESS;
         World w;
+        w.endlessFloor = pass < DV_COUNT ? 1 : ENDLESS_FLOORS[pass - DV_COUNT];
+        const bool eBossFloor = id == DV_ENDLESS && endlessBossFloor(w.endlessFloor);
         w.generateDelve(id);
-        if (id == DV_FROST3) for (int x = 64; x <= 66; x++) w.solid[92][x] = false;  // (the king's door is opened by the hunter)
+        if (id == DV_FROST3 || eBossFloor) for (int x = 64; x <= 66; x++) w.solid[92][x] = false;  // (the king's door is opened by the hunter)
         flood(w, w.spawn, seen);
         auto reach = [&](V2 v) { return v.x >= 0 && seen[(int)(v.y / TS) * MW + (int)(v.x / TS)]; };
         int mon = 0, chest = 0, trap = 0, unreach = 0, boss = 0;
@@ -246,20 +252,23 @@ int delveCheck(Game& g) {
                     if (seen[(ny + dy) * MW + nx + dx]) ok = true;
             if (!ok) { unreach++; if (getenv("DELVE_DEBUG")) printf("   node kind %d at %d,%d\n", n.kind, nx, ny); }
         }
-        printf("delve %d %-18s: %d monsters, %d chests, %d traps, %d nodes, %d boss, lights %d, exit %s, stairs down %s, up %s, %d unreachable\n", id, DELVE_NAME[id], mon, chest, trap,
+        printf("delve %d %-18s [floor %d]: %d monsters, %d chests, %d traps, %d nodes, %d boss, lights %d, exit %s, stairs down %s, up %s, %d unreachable\n", id, DELVE_NAME[id], w.endlessFloor, mon, chest, trap,
                (int)w.nodes.size(), boss, (int)w.lights.size(), reach(w.exitPos) ? "ok" : "NO", w.stairsDn.x < 0 ? "-" : (reach(w.stairsDn) ? "ok" : "NO"), w.stairsUp.x < 0 ? "-" : (reach(w.stairsUp) ? "ok" : "NO"), unreach);
         if (!reach(w.exitPos) || unreach) { printf("  PROBLEM: part of %s cannot be reached\n", DELVE_NAME[id]); bad++; }
-        if (id != DV_FROST3 && id != DV_MINE && w.stairsDn.x < 0) { printf("  PROBLEM: no way down from %s\n", DELVE_NAME[id]); bad++; }
-        if (id == DV_FROST3 && (boss != 1 || w.bossDoor.x < 0)) { printf("  PROBLEM: the throne room has no king or no door\n"); bad++; }
-        if (id == DV_FROST3) {  // the throne hall is behind the door: open the door tiles and the king must become reachable
+        if (id != DV_FROST3 && id != DV_MINE && !eBossFloor && w.stairsDn.x < 0) { printf("  PROBLEM: no way down from %s\n", DELVE_NAME[id]); bad++; }
+        if ((id == DV_FROST3 || eBossFloor) && (boss != 1 || w.bossDoor.x < 0)) { printf("  PROBLEM: the throne room has no king or no door\n"); bad++; }
+        if (id == DV_ENDLESS && !eBossFloor && boss != 0) { printf("  PROBLEM: an ordinary Endless Depths floor has a boss\n"); bad++; }
+        if (id == DV_FROST3 || eBossFloor) {  // the throne hall is behind the door: open the door tiles and the king must become reachable
             for (int x = 64; x <= 66; x++) w.solid[92][x] = false;
             flood(w, w.spawn, seen);
             if (!seen[(int)(w.bossPos.y / TS) * MW + (int)(w.bossPos.x / TS)]) { printf("  PROBLEM: the king cannot be reached even with the door open\n"); bad++; }
         }
-        if (mon < 4 && id != DV_FROST3) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
+        if (mon < 4 && id != DV_FROST3 && !eBossFloor) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
     }
     for (int k = RN_COAL; k < RN_BERRY; k++)
         if (!ores[k]) { printf("  PROBLEM: no %s in any delve\n", NODE_NAME[k]); bad++; }
+    for (int k : {RN_VOIDSTONE, RN_GLOWCAP})
+        if (!ores[k]) { printf("  PROBLEM: no %s in the Endless Depths\n", NODE_NAME[k]); bad++; }
     // the entrances on the overworld
     for (int m : {B_MOUNTAIN, B_SNOW}) {
         g.loadMapWorld(m);

@@ -60,6 +60,7 @@ void Game::newGame() {
     resetDelveRuntime();
     for (auto& d : delveMem) d = DelveMem();
     kingTier = 0;
+    endlessFloor = 1, endlessBest = endlessCheckpoint = 0;
     for (int i = 0; i < B_COUNT; i++) bossKills[i] = 0, bossCool[i] = 0.f, bossSeen[i] = false;
     bossLairMap = -1;
     fishing = Fishing();

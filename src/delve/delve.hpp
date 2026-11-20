@@ -8,11 +8,12 @@
 #pragma once
 #include <cstring>
 #include <queue>
+#include "delve/endless.hpp"
 
-enum DelveId { DV_MINE, DV_FROST0, DV_FROST1, DV_FROST2, DV_FROST3, DV_COUNT };
+enum DelveId { DV_MINE, DV_FROST0, DV_FROST1, DV_FROST2, DV_FROST3, DV_ENDLESS, DV_COUNT };
 constexpr int DELVE_MAP0 = B_COUNT + 8;  // keep clear of the town interiors (B_COUNT + BuildingKind)
-inline bool delveIsFrost(int id) { return id >= DV_FROST0; }
-inline const char* const DELVE_NAME[DV_COUNT] = {"ABANDONED MINE", "FROZEN ENTRANCE", "FROZEN HALLS", "ANCIENT CRYPT", "FROZEN THRONE"};
+inline bool delveIsFrost(int id) { return id >= DV_FROST0 && id <= DV_FROST3; }
+inline const char* const DELVE_NAME[DV_COUNT] = {"ABANDONED MINE", "FROZEN ENTRANCE", "FROZEN HALLS", "ANCIENT CRYPT", "FROZEN THRONE", "ENDLESS DEPTHS"};
 
 enum TrapKind { TR_SPIKE, TR_VENT };
 constexpr int DELVE_BOSS_CHEST = 31;  // chest id of the king's treasure (appears once he has fallen)
@@ -20,8 +21,14 @@ constexpr int DELVE_BOSS_CHEST = 31;  // chest id of the king's treasure (appear
 inline void World::generateDelve(int id) {
     if (id < 0 || id >= DV_COUNT) id = 0;
     mapId = DELVE_MAP0 + id;
-    const bool frost = delveIsFrost(id);
-    const int lvl = id - DV_FROST0;  // 0..3 for the dungeon
+    // the Endless Depths borrow the mine's look and the dungeon's levels: even tiers are mine-like, odd tiers icy, every tenth floor is the throne hall
+    const bool endless = id == DV_ENDLESS;
+    const int eFloor = endlessFloor, eTier = endlessTier(eFloor), eDep = 0;
+    const bool eBoss = endless && endlessBossFloor(eFloor);
+    const float edep = endless ? endlessDepth(eFloor) : 0.f;
+    (void)eDep;
+    const bool frost = endless ? (eBoss || eTier % 2 == 1) : delveIsFrost(id);
+    const int lvl = endless ? (eBoss ? 3 : (eTier / 2) % 2) : id - DV_FROST0;  // 0..3 for the dungeon
     props.clear();
     decor.clear();
     nodes.clear();
@@ -38,7 +45,7 @@ inline void World::generateDelve(int id) {
     const V2 away(-99999, -99999);
     village = hut = door = keeper = fire = questGiver = away;
     gate = stairsDn = stairsUp = bossPos = bossDoor = V2(-1, -1);
-    Rng r(WORLD_SEED * 131u + 977u + (uint32_t)id * 7919u);
+    Rng r(WORLD_SEED * 131u + 977u + (uint32_t)id * 7919u + (endless ? (uint32_t)eFloor * 104729u : 0u));
 
     static bool open[MH][MW], corr[MH][MW], railc[MH][MW], busy[MH][MW];  // static: too big for the stack
     memset(open, 0, sizeof(open));
@@ -215,7 +222,7 @@ inline void World::generateDelve(int id) {
     Room& R0 = rooms[0];
     const int ex = R0.x, ey = R0.cy();
     if (lvl == 3 && frost) {}  // (the throne level has its own entrance: the stairs up)
-    if (!frost || lvl == 0) {
+    if (endless || !frost || lvl == 0) {
         // the way out: a doorway on the west wall of the first room
         prop(P_EXIT, ex, ey, frost ? 1.f : 0.f, false, 8.f, 14.f);
         exitPos = V2(cx16(ex) + 14.f, ey * TS + 10.f);
@@ -231,7 +238,7 @@ inline void World::generateDelve(int id) {
     roomCenter = V2(R0.cx() * (float)TS, R0.cy() * (float)TS);
     busy[ey][ex] = true;
     for (int dy = -1; dy <= 1; dy++) for (int dx = 0; dx <= 3; dx++) busy[ey + dy][ex + dx] = true;  // keep the arrival clear
-    if (frost && lvl < 3) {  // stairs down in the deepest room
+    if ((frost && lvl < 3) || (endless && !eBoss)) {  // stairs down in the deepest room
         for (auto& R : rooms)
             if (R.kind == 2) {
                 stairsDn = V2(cx16(R.cx()), R.cy() * TS + 10.f);
@@ -307,15 +314,17 @@ inline void World::generateDelve(int id) {
                 if (d < 0.3f) k = roll < 0.55f ? MK_BAT : MK_SPIDER;
                 else if (d < 0.6f) k = roll < 0.3f ? MK_BAT : roll < 0.65f ? MK_SPIDER : roll < 0.9f ? MK_CAVEWOLF : MK_GOLEM;
                 else k = roll < 0.15f ? MK_BAT : roll < 0.4f ? MK_SPIDER : roll < 0.7f ? MK_CAVEWOLF : MK_GOLEM;
-                monster(k, R, d);
+                if (endless) monster(endlessMonster(eTier, eFloor, r.f()), R, edep + 0.08f * d, r.chance(endlessEliteChance(eTier)));
+                else monster(k, R, d);
             }
-            if (R.kind == 2) { monster(MK_GOLEM, R, 1.f, true); monster(MK_GOLEM, R, 1.f); }
+            if (R.kind == 2 && endless) { monster(endlessMonster(eTier, eFloor, r.f()), R, edep + 0.08f, true); }
+            else if (R.kind == 2) { monster(MK_GOLEM, R, 1.f, true); monster(MK_GOLEM, R, 1.f); }
             if (R.kind == 2) {  // the deepest chamber always holds a little of everything rare
                 for (int kind : {RN_GEM, RN_GEM, RN_CAVECRYSTAL, RN_GOLD, RN_SILVER}) { auto s = edgeSpot(R, 30, 2); if (s.first >= 0) node(kind, s.first, s.second); }
             }
             if (R.kind != 2 && r.chance(0.35f)) {  // an old miner's chest here and there
                 auto s = edgeSpot(R, 30, 2);
-                if (s.first >= 0) { dsp.push_back({DS_CHEST, d > 0.5f ? 1 : 0, cx16(s.first), s.second * TS + 14.f, (int)ri, d, false}); busy[s.second][s.first] = true; }
+                if (s.first >= 0) { dsp.push_back({DS_CHEST, endless ? std::min(2, eTier + (d > 0.5f ? 1 : 0)) : (d > 0.5f ? 1 : 0), cx16(s.first), s.second * TS + 14.f, (int)ri, d, false}); busy[s.second][s.first] = true; }
             }
             // ore: rarer metals lie deeper and are less common; every deposit sits against a wall, away from the corridors
             const W table[7] = {{RN_COAL, 30, 0.f}, {RN_COPPER, 26, 0.f}, {RN_ORE, 20, 0.15f}, {RN_SILVER, 11, 0.35f}, {RN_GOLD, 8, 0.5f}, {RN_CAVECRYSTAL, 6, 0.55f}, {RN_GEM, 3, 0.75f}};
@@ -359,9 +368,10 @@ inline void World::generateDelve(int id) {
                 if (lvl == 0) k = roll < 0.6f ? MK_ICESKEL : MK_FROSTWOLF;
                 else if (lvl == 1) k = roll < 0.3f ? MK_ICESKEL : roll < 0.5f ? MK_FROSTWOLF : roll < 0.75f ? MK_ICEGOLEM : MK_MAGE;
                 else { k = roll < 0.3f ? MK_KNIGHT : roll < 0.55f ? MK_MAGE : roll < 0.8f ? MK_ICESKEL : MK_ICEGOLEM; elite = r.chance(0.3f); }
-                monster(k, R, gdepth(R), elite);
+                if (endless) monster(endlessMonster(eTier, eFloor, r.f()), R, edep + 0.08f * R.depth, r.chance(endlessEliteChance(eTier)));
+                else monster(k, R, gdepth(R), elite);
             }
-            if (lvl == 2 && R.kind == 2) { monster(MK_KNIGHT, R, gdepth(R), true); monster(MK_KNIGHT, R, gdepth(R), true); }
+            if (lvl == 2 && R.kind == 2 && !endless) { monster(MK_KNIGHT, R, gdepth(R), true); monster(MK_KNIGHT, R, gdepth(R), true); }
             // pillars in pairs, statues, crystals, icicles, bones
             if (R.w >= 10 && R.h >= 8 && lvl < 2) {
                 for (int x = R.x + 2; x < R.x + R.w - 2; x += 4) {
@@ -394,11 +404,37 @@ inline void World::generateDelve(int id) {
                 for (int i = 0; i < nI; i++) { auto s = edgeSpot(R, 20, 2); if (s.first >= 0) node(RN_ETERNALICE, s.first, s.second); }
             }
             // chests: basic ones on the first level, better below, locked treasure rooms in the crypt
-            const int tier = lvl == 0 ? 0 : (lvl == 1 ? 1 : 2);
+            const int tier = endless ? std::min(2, eTier) : (lvl == 0 ? 0 : (lvl == 1 ? 1 : 2));
             const bool wantChest = lvl == 2 ? R.kind == 3 || R.kind == 2 : r.chance(0.42f) || R.kind == 2;
             if (wantChest) {
                 auto s = edgeSpot(R, 30, 2);
                 if (s.first >= 0) { dsp.push_back({DS_CHEST, tier, cx16(s.first), s.second * TS + 14.f, (int)ri, gdepth(R), false}); busy[s.second][s.first] = true; }
+            }
+        }
+        if (endless) {  // finds that grow nowhere else: void stone (a pick of tier 4 and Mining 30) and glowing caps
+            // (a node never touches anything already standing there, so chests and doorways cannot be walled in)
+            auto lone = [&](const std::pair<int, int>& s) {
+                for (int dy = -1; dy <= 1; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if ((dx || dy) && busy[s.second + dy][s.first + dx]) return false;
+                return true;
+            };
+            auto spot = [&]() -> std::pair<int, int> {
+                for (int t = 0; t < 8; t++) {
+                    auto s = edgeSpot(R, 20, 2);
+                    if (s.first >= 0 && lone(s)) return s;
+                }
+                return {-1, -1};
+            };
+            int nv = r.chance(std::min(0.6f, 0.18f + 0.05f * eTier + 0.25f * d)) ? 1 : 0;
+            if (R.kind == 2) nv += 1 + std::min(eTier, 2);
+            for (int i = 0; i < nv; i++) { auto s = spot(); if (s.first >= 0) node(RN_VOIDSTONE, s.first, s.second); }
+            const int ng = r.irange(0, 2) + (area > 100 ? 1 : 0);
+            for (int i = 0; i < ng; i++) {
+                auto s = spot();
+                if (s.first < 0) continue;
+                node(RN_GLOWCAP, s.first, s.second);
+                light(cx16(s.first), s.second * TS, 46, 2);
             }
         }
         if (R.kind == 2 && !frost) {  // the deepest part of the mine: a richer vein and a chest of old pay
@@ -442,8 +478,8 @@ inline void World::generateDelve(int id) {
             prop(P_BRAZIER, B.cx() - 6, y, (float)(y % 3), true, 8.f, 14.f); light(cx16(B.cx() - 6), y * TS, 90, 1);
             prop(P_BRAZIER, B.cx() + 6, y, (float)((y + 1) % 3), true, 8.f, 14.f); light(cx16(B.cx() + 6), y * TS, 90, 1);
         }
-        for (int i = 0; i < 4; i++) monster(i % 2 ? MK_KNIGHT : MK_MAGE, B, 0.8f, i == 0);
-        monster(MK_ICEGOLEM, B, 0.85f);
+        for (int i = 0; i < 4; i++) monster(i % 2 ? MK_KNIGHT : MK_MAGE, B, endless ? edep : 0.8f, i == 0);
+        monster(MK_ICEGOLEM, B, endless ? edep + 0.05f : 0.85f);
         // the door: three tiles wide in the vertical corridor; solid until the hunter opens it (delve.cpp)
         bossDoor = V2(cx16(65), 92 * TS + 15.f);
         prop(P_BOSSDOOR, 65, 92, 0.f, false, 8.f, 15.f);
@@ -466,6 +502,33 @@ inline void World::generateDelve(int id) {
         dsp.push_back({DS_CHEST, 3, cx16(65), (C.y + 6) * TS + 14.f, DELVE_BOSS_CHEST, 1.f, false});
         // ice crystals along the throne hall's walls
         for (int i = 0; i < 6; i++) { auto s = edgeSpot(C, 30, 1); if (s.first >= 0) { prop(P_ICECRYSTAL, s.first, s.second, (float)r.irange(0, 2), true); light(cx16(s.first), s.second * TS, 60, 1); } }
+    }
+
+    // the Endless Depths are random, so make sure nothing is walled in: drop chests, monsters and nodes the hunter could never reach
+    if (endless && !eBoss) {
+        std::vector<char> seen((size_t)MW * MH, 0);
+        std::vector<int> q;
+        const int sx0 = (int)(spawn.x / TS), sy0 = (int)(spawn.y / TS);
+        q.push_back(sy0 * MW + sx0);
+        seen[sy0 * MW + sx0] = 1;
+        for (size_t h = 0; h < q.size(); h++) {
+            const int c = q[h], x = c % MW, y = c / MW;
+            const int DX[4] = {1, -1, 0, 0}, DY[4] = {0, 0, 1, -1};
+            for (int k = 0; k < 4; k++) {
+                const int nx = x + DX[k], ny = y + DY[k];
+                if (nx < 1 || ny < 1 || nx >= MW - 1 || ny >= MH - 1 || seen[ny * MW + nx] || solidTile(nx, ny)) continue;
+                seen[ny * MW + nx] = 1;
+                q.push_back(ny * MW + nx);
+            }
+        }
+        dsp.erase(std::remove_if(dsp.begin(), dsp.end(), [&](const DSpawn& s) { return !seen[(int)(s.y / TS) * MW + (int)(s.x / TS)]; }), dsp.end());
+        nodes.erase(std::remove_if(nodes.begin(), nodes.end(), [&](const ResNode& n) {
+            const int nx = (int)(n.x / TS), ny = (int)(n.y / TS);
+            for (int dy = -1; dy <= 1; dy++)
+                for (int dx = -1; dx <= 1; dx++)
+                    if (seen[(ny + dy) * MW + nx + dx]) return false;
+            return true;
+        }), nodes.end());
     }
 
     // ---------------------------------------------------------------- 7. camera anchor and a clean-up of the props list

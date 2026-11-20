@@ -18,6 +18,7 @@
 #include "world/spawns.hpp"
 #include "combat/monsters.hpp"
 #include "combat/effects.hpp"
+#include "combat/melee.hpp"
 #include "animals/bosses.hpp"
 #include "farming/homestead.hpp"
 
@@ -36,7 +37,7 @@ struct Input {
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false, melee = false;  // melee: right mouse button or the melee key is held  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -126,6 +127,10 @@ struct Player {
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
+    float meleeT = 0, meleeDur = 0.4f, meleeHold = 0, meleeComboT = 0;  // melee swing (combat/melee.hpp)
+    int meleeStep = 0;
+    bool meleeHeavy = false, meleeStruck = false, meleePrev = false;
+    V2 meleeAim;
     float rollT = 0, rollCd = 0;  // dodge-roll: seconds left rolling / until the next roll is allowed
     V2 rollDir;
     int coins = 0;
@@ -456,10 +461,19 @@ struct Game {
     V2 bossLair; int bossLairMap = -1;
     V2 bossLairPos();
     Animal* liveBoss();
+    int meleeWeapon() const;
+    bool startMelee(bool heavy);
+    void meleeStrike();
+    void updateMelee(float dt);
+    void drawMelee();
     void updateBosses(float dt);
     void bossKilled(Animal& a);
     void drawBossTelegraph();
     void drawWildBossBar();
+    int endlessFloor = 1, endlessBest = 0, endlessCheckpoint = 0;  // Endless Depths: the floor now, the deepest reached, the last boss floor beaten (delve/endless.hpp)
+    bool endlessDescend();                                          // take the stairs down to the next floor
+    void endlessBossKilled(const Monster& m);
+    std::string delveBossName() const;
     int kingTier = 0;                  // how many times the Frostbound King has fallen (0..KING_TIERS): each return is stronger and pays more
     std::vector<Monster> mons;
     std::vector<Hazard> hazards;
@@ -885,7 +899,8 @@ struct Game {
     void drawPause();
     void drawReticle();
     void drawMinimap();
-    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR };
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR, MI_ANVIL, MI_LEATHER, MI_TOOLS, MI_COIN, MI_FLOWER, MI_SCISSORS };
+    static int bldMapIcon(int bldKind);  // the icon that says what a town building does
     void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void drawWorldMap();             // the full-map screen (M), game_map.cpp
     void updateWorldMap(float dt);

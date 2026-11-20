@@ -663,6 +663,83 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.animals.clear();
             g.p.sk = keepSk;
         }
+        // melee: tap = quick swing, three swings in a row = combo finisher, hold = heavy swing; reach and arc matter; swinging costs stamina
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.in = Input();
+            check(meleeDef(W_AXE).dmgMul > meleeDef(W_FLINT).dmgMul && meleeDef(W_AXE).dur > meleeDef(W_FLINT).dur, "axes hit harder and slower than knives");
+            check(meleeDef(W_SPEAR).reach > meleeDef(W_AXE).reach && meleeDef(W_SPEAR).arcDeg < meleeDef(W_AXE).arcDeg, "spears reach farther through a narrower arc");
+            g.p.aim = V2(1, 0);
+            auto tap = [&](float hold) {  // press, hold, release (as the input does), then let the swing play out
+                g.in.melee = true;
+                for (float t = 0; t < hold; t += 0.02f) g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                for (int i = 0; i < 80; i++) g.updateMelee(0.02f);
+            };
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(22, 0), 0, 0);
+            Animal* far = g.spawnAnimal(A_DEER, g.p.pos + V2(160, 0), 0, 0);
+            Animal* behind = g.spawnAnimal(A_DEER, g.p.pos + V2(-22, 0), 0, 0);
+            check(d && far && behind, "(setup) animals in front, behind and far");
+            if (d && far && behind) {
+                d->hp = d->maxhp = behind->hp = behind->maxhp = far->hp = far->maxhp = 5000;
+                g.p.stamina = 100.f;
+                tap(0.05f);
+                check(d->hp < 5000, "a quick swing hurts an animal in front of the hunter");
+                check(far->hp == 5000 && behind->hp == 5000, "it misses animals that are too far or behind");
+                check(g.p.stamina < 100.f, "swinging costs stamina");
+                // combo: three quick swings inside the window; the third deals more
+                g.p.meleeComboT = 0.f;
+                std::vector<int> dealt;
+                for (int i = 0; i < 3; i++) {
+                    const int before = d->hp;
+                    g.p.cd = 0.f;
+                    g.p.stamina = 100.f;
+                    g.in.melee = true;
+                    g.updateMelee(0.02f);
+                    g.in.melee = false;
+                    g.updateMelee(0.02f);
+                    for (int k = 0; k < 40 && g.p.meleeT > 0; k++) g.updateMelee(0.02f);
+                    dealt.push_back(before - d->hp);
+                    d->pos = g.p.pos + V2(22, 0);
+                    d->kb = V2();
+                    d->stunT = 0;
+                }
+                check(g.p.meleeStep == 2 && dealt[2] > dealt[0] * 1.2f, "the third swing of a combo is a stronger finisher");
+                // heavy: held long enough
+                g.p.meleeComboT = 0.f;
+                g.p.cd = 0.f;
+                g.p.stamina = 100.f;
+                d->hp = 5000;
+                d->pos = g.p.pos + V2(22, 0);
+                const int hq = d->hp;
+                g.in.melee = true;
+                for (float t = 0; t < MELEE_HEAVY_HOLD + 0.05f; t += 0.02f) g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                check(g.p.meleeHeavy && g.p.meleeT > 0, "holding the button builds a heavy swing");
+                for (int k = 0; k < 20 && !g.p.meleeStruck; k++) g.updateMelee(0.02f);
+                check(hq - d->hp > dealt[0] * 1.8f && d->stunT > 0, "the heavy swing hits much harder and stuns");
+                // too tired
+                for (int k = 0; k < 60; k++) g.updateMelee(0.02f);
+                g.p.cd = 0.f;
+                g.p.stamina = 1.f;
+                const int hp1 = d->hp;
+                g.in.melee = true;
+                g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                check(g.p.meleeT <= 0 && d->hp == hp1, "a winded hunter cannot swing");
+            }
+            g.animals.clear();
+            g.in = Input();
+            g.p.sk = keepSk;
+            g.p.stamina = 100.f;
+        }
         // tracking: animals leave fading prints; the Tracking skill widens and lengthens them; reading a fresh print pays XP
         {
             const SkillSet keepSk = g.p.sk;

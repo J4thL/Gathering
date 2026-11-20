@@ -191,12 +191,14 @@ void Game::drawDelveDark() {
 
 // ------------------------------------------------------------------ HUD pieces
 void Game::drawBossBar() {
+    if (delve == DV_ENDLESS && (bossIdx < 0 || bossIdx >= (int)mons.size() || mons[bossIdx].state == MN_DEAD || !mons[bossIdx].awake) && !p.dead)
+        textC(LW / 2, 3, "FLOOR " + S(endlessFloor) + "   TIER " + S(endlessTier(endlessFloor) + 1) + "   BEST " + S(endlessBest), HEX(0xc59aff), 1, true);
     if (bossIdx < 0 || bossIdx >= (int)mons.size()) return;
     const Monster& m = mons[bossIdx];
     if (m.state == MN_DEAD || !m.awake) return;
     const int w = 220, x = LW / 2 - w / 2, y = 6;
     panel(x - 4, y - 2, w + 8, 24, HEX(0x1c2a3c));
-    textC(LW / 2, y + 1, "THE FROSTBOUND KING", HEX(0xcfeeff), 1, true);
+    textC(LW / 2, y + 1, "THE " + delveBossName(), HEX(0xcfeeff), 1, true);
     bar(x, y + 10, w, 7, (float)m.hp / m.maxhp, m.phase == 3 ? HEX(0xe05a5a) : (m.phase == 2 ? HEX(0xe0a03a) : HEX(0x5ab8ff)), HEX(0x14202e));
     fillRect(x + w * 2 / 3, y + 10, 1, 7, HEX(0x0c141e));  // where the phases change
     fillRect(x + w / 3, y + 10, 1, 7, HEX(0x0c141e));
@@ -209,12 +211,13 @@ void Game::drawDelveBanner() {
     if (out < 0.35f) return;
     const std::string name = DELVE_NAME[delve];
     std::string sub;
-    if (delve == DV_MINE) sub = "DARK - FALLING ROCKS - BRING A PICKAXE";
+    if (delve == DV_ENDLESS) sub = "FLOOR " + S(endlessFloor) + "  -  " + (endlessBossFloor(endlessFloor) ? std::string("BOSS FLOOR") : "TIER " + S(endlessTier(endlessFloor) + 1));
+    else if (delve == DV_MINE) sub = "DARK - FALLING ROCKS - BRING A PICKAXE";
     else if (delve == DV_FROST3) sub = "THE KING AWAITS BEYOND THE DOOR";
     else sub = "LEVEL " + S(delve - DV_FROST0 + 1) + " OF 4";
     const int w = std::max(textW(name, 2), textW(sub)) + 24, h = 33;
     const int x = LW / 2 - w / 2, y = 14 - (int)((1.f - k) * 40);
-    const u32 col = delveIsFrost(delve) ? HEX(0x9fdcff) : HEX(0xe0a060);
+    const u32 col = delve == DV_ENDLESS ? HEX(0xc59aff) : delveIsFrost(delve) ? HEX(0x9fdcff) : HEX(0xe0a060);
     panel(x, y, w, h, HEX(0x2b1d12));
     fillRect(x + 2, y + 2, w - 4, 2, col);
     textC(LW / 2, y + 8, name, col, 2);

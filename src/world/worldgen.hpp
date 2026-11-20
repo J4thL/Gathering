@@ -261,6 +261,9 @@ inline void World::generateMap(int map) {
         addP(P_RUINWALL, hx - 1, hy - 7, 3);
         addP(P_RUINWALL, hx + 7, hy - 1, 3);
         lanterns.push_back({hx * TS + 8.f, hy * TS - 6.f, 0.7f});  // a brazier in the middle of the plaza
+        // the Endless Depths: a worn stair sinking into the plaza floor (delve/endless.hpp)
+        props.push_back({P_STAIRS, hx * TS + 8.f, (hy + 2) * TS + 14.f, 1.f});
+        gate = V2(hx * TS + 8.f, (hy + 2) * TS + 10.f);
         // oasis
         const float cx = 120, cy = 40, rx = 5.5f, ry = 3.8f;
         addLandmark("OASIS", B_DESERT, cx, cy + 6);

@@ -16,7 +16,7 @@ std::vector<std::string> splitLines(const std::string& s) {
         if (!l.empty()) out.push_back(l);
     return out;
 }
-const int ARMOR_NEED[DV_COUNT] = {0, 0, 2, 4, 5};  // armour tier needed to enter each level (the dungeon's first level is open to anyone)
+const int ARMOR_NEED[DV_COUNT] = {0, 0, 2, 4, 5, ENDLESS_ARMOR_NEED};  // armour tier needed to enter each level (the dungeon's first level is open to anyone)
 }
 
 bool Game::delveReq(int id, std::string* why) const {
@@ -102,6 +102,11 @@ bool Game::enterDelve(int id) {
     }
     ensureMonsterArt();
     stashOutside();
+    if (id == DV_ENDLESS) {  // a new descent starts below the last boss beaten; every floor starts fresh
+        endlessFloor = endlessStartFloor(endlessCheckpoint);
+        delveMem[id] = DelveMem{};
+        world.endlessFloor = endlessFloor;
+    }
     world.generateDelve(id);
     initHarvest();
     delve = id;
@@ -164,6 +169,13 @@ bool Game::leaveDelve() {
 }
 
 // stairs: the dungeon's levels are maps of their own; the hunter arrives beside the opposite staircase
+bool Game::endlessDescend() {
+    if (delve != DV_ENDLESS) return false;
+    endlessFloor++;
+    endlessBest = std::max(endlessBest, endlessFloor);
+    return delveGo(DV_ENDLESS, true);
+}
+
 bool Game::delveGo(int id, bool down) {
     if (delve < 0 || id < 0 || id >= DV_COUNT || p.dead) return false;
     std::string why;
@@ -183,6 +195,10 @@ bool Game::delveGo(int id, bool down) {
     ftexts.clear();
     items.clear();
     decals.clear();
+    if (id == DV_ENDLESS) {
+        delveMem[id] = DelveMem{};
+        world.endlessFloor = endlessFloor;
+    }
     world.generateDelve(id);
     initHarvest();
     delve = id;
@@ -191,7 +207,7 @@ bool Game::delveGo(int id, bool down) {
     dm.visited = true;
     spawnDelve();
     const V2 at = down ? world.stairsUp : world.stairsDn;
-    p.pos = freeSpot((int)floorf((at.x + (down ? 18.f : 18.f)) / TS), (int)floorf(at.y / TS));
+    p.pos = id == DV_ENDLESS ? world.spawn : freeSpot((int)floorf((at.x + (down ? 18.f : 18.f)) / TS), (int)floorf(at.y / TS));
     p.kb = V2();
     p.iceV = V2();
     p.charging = false;
@@ -238,8 +254,8 @@ int Game::delveNear(V2* at) const {
 }
 
 static const char* chestName(int tier) {
-    static const char* N[4] = {"OLD CHEST", "IRON-BOUND CHEST", "ANCIENT CHEST", "THE KING'S TREASURE"};
-    return N[std::max(0, std::min(3, tier))];
+    static const char* N[5] = {"OLD CHEST", "IRON-BOUND CHEST", "ANCIENT CHEST", "THE KING'S TREASURE", "THE WARDEN'S HOARD"};
+    return N[std::max(0, std::min(4, tier))];
 }
 
 void Game::openDelveChest(int i) {
@@ -297,6 +313,17 @@ void Game::openDelveChest(int i) {
             if (rng.chance(0.4f)) give(itemMat(M_GEM), 1);
             if (rng.chance(0.25f)) give(itemMat(M_RARECRYSTAL), 1);
             break;
+        case 4: {  // the Depth Warden's hoard: grows with the floor
+            const int lv = endlessFloor / ENDLESS_BOSS_EVERY;
+            coins = 500 + 250 * lv;
+            give(itemMat(M_RELIC), rnd(2, 3) + lv / 2);
+            give(itemMat(M_VOIDSHARD), rnd(2, 4) + lv);
+            give(itemMat(M_GLOWCAP), rnd(2, 4));
+            give(itemMat(M_GEM), rnd(1, 3));
+            give(itemMat(M_RARECRYSTAL), rnd(1, 3));
+            give(itemMat(M_STEELBAR), rnd(1, 2));
+            break;
+        }
         default:  // the king's hoard
             coins = 800;
             give(itemCarry(CG_CROWN), 1);
@@ -307,6 +334,13 @@ void Game::openDelveChest(int i) {
             give(itemMat(M_SILVERBAR), 3);
             break;
     }
+    if (delve == DV_ENDLESS && c.tier < 4) {  // floor chests: richer with every tier, and they hold the Depths' own finds
+        const int et = endlessTier(endlessFloor);
+        coins = (int)(coins * (1.f + 0.25f * et));
+        if (rng.chance(std::min(0.6f, 0.25f + 0.03f * et))) give(itemMat(M_RELIC), 1);
+        if (rng.chance(0.4f)) give(itemMat(M_GLOWCAP), rnd(1, 2));
+        if (c.tier >= 1 && rng.chance(0.35f)) give(itemMat(M_VOIDSHARD), 1);
+    }
     p.coins += coins;
     ftext(c.pos + V2(0, -24), "+" + S(coins) + " COINS", C_GOLD, 1.3f);
     msg(std::string("OPENED THE ") + chestName(c.tier) + ": +" + S(coins) + " COINS", C_GOLD);
@@ -314,7 +348,7 @@ void Game::openDelveChest(int i) {
     puff(c.pos + V2(0, -8), 10, c.tier >= 2 ? HEX(0xdff6ff) : HEX(0xffe08a));
     DelveMem& dm = delveMem[delve];
     dm.chests |= 1u << c.id;
-    if (c.id != DELVE_BOSS_CHEST && dm.chestT <= 0) dm.chestT = 1800.f;  // the room's chests refill after a while
+    if (c.id != DELVE_BOSS_CHEST && dm.chestT <= 0 && delve != DV_ENDLESS) dm.chestT = 1800.f;  // the room's chests refill after a while
     dchests.erase(dchests.begin() + i);
     bldCd = 0.4f;
 }
@@ -324,9 +358,9 @@ bool Game::delveInteract() {
     V2 at;
     const int k = delveNear(&at);
     switch (k) {
-        case 1: return enterDelve(world.mapId == B_SNOW ? DV_FROST0 : DV_MINE);
+        case 1: return enterDelve(world.mapId == B_SNOW ? DV_FROST0 : world.mapId == B_DESERT ? DV_ENDLESS : DV_MINE);
         case 2: return leaveDelve();
-        case 3: return delveGo(delve + 1, true);
+        case 3: return delve == DV_ENDLESS ? endlessDescend() : delveGo(delve + 1, true);
         case 4: return delveGo(delve - 1, false);
         case 5:
             for (Prop& pr : world.props)
@@ -350,14 +384,16 @@ bool Game::delvePrompt() {
     float dy = -30.f;
     switch (k) {
         case 1: {
-            const int id = world.mapId == B_SNOW ? DV_FROST0 : DV_MINE;
+            const int id = world.mapId == B_SNOW ? DV_FROST0 : world.mapId == B_DESERT ? DV_ENDLESS : DV_MINE;
             label = std::string("ENTER ") + DELVE_NAME[id];
+            if (id == DV_ENDLESS) label += " - FLOOR " + S(endlessStartFloor(endlessCheckpoint));
             break;
         }
-        case 2: label = delve == DV_MINE || delve == DV_FROST0 ? "LEAVE" : "GO BACK"; break;
+        case 2: label = delve == DV_ENDLESS ? "LEAVE - RETURN AT FLOOR " + S(endlessStartFloor(endlessCheckpoint)) : delve == DV_MINE || delve == DV_FROST0 ? "LEAVE" : "GO BACK"; break;
         case 3: {
             std::string why;
-            if (delveReq(delve + 1, &why)) label = std::string("DESCEND TO ") + DELVE_NAME[delve + 1];
+            if (delve == DV_ENDLESS) label = "DESCEND TO FLOOR " + S(endlessFloor + 1);
+            else if (delveReq(delve + 1, &why)) label = std::string("DESCEND TO ") + DELVE_NAME[delve + 1];
             else label = why;
             break;
         }

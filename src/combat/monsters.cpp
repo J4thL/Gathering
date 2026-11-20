@@ -32,8 +32,9 @@ Monster* Game::spawnMonster(int kind, V2 pos, float depth, bool elite, int id) {
     m.depth = depth;
     m.elite = elite;
     const bool boss = (D.flags & MF_BOSS) != 0;
-    const float hpK = boss ? 1.f + 0.4f * kingTier : (1.f + 1.2f * depth) * (elite ? 1.8f : 1.f);
-    const float dmK = boss ? 1.f + 0.25f * kingTier : (1.f + 0.8f * depth) * (elite ? 1.25f : 1.f);
+    const bool deep = delve == DV_ENDLESS;  // the Endless Depths' boss scales with its floor instead of the king's tier
+    const float hpK = boss ? (deep ? endlessBossHp(endlessFloor) : 1.f + 0.4f * kingTier) : (1.f + 1.2f * depth) * (elite ? 1.8f : 1.f);
+    const float dmK = boss ? (deep ? endlessBossDmg(endlessFloor) : 1.f + 0.25f * kingTier) : (1.f + 0.8f * depth) * (elite ? 1.25f : 1.f);
     m.maxhp = m.hp = std::max(1, (int)(D.hp * hpK));
     m.dmg = D.dmg * dmK;
     m.spd = D.spd * (elite ? 1.1f : 1.f);
@@ -196,6 +197,15 @@ void Game::dropLoot(const Monster& m) {
         float c = d.chance * (m.elite ? 1.5f : 1.f);
         if (boss || rng.chance(std::min(1.f, c))) drop(d.mat, rng.irange(d.lo, d.hi));
     }
+    if (delve == DV_ENDLESS) {  // the Depths' own treasures: relics, void shards and glowcaps fall from what lives there
+        const int tier = endlessTier(endlessFloor);
+        if (boss) { drop(M_RELIC, 2 + endlessFloor / ENDLESS_BOSS_EVERY); drop(M_VOIDSHARD, 3 + tier); }
+        else {
+            if (rng.chance(std::min(0.5f, (0.05f + 0.012f * tier) * (m.elite ? 3.f : 1.f)))) drop(M_RELIC, 1);
+            if (rng.chance(std::min(0.6f, (0.07f + 0.01f * tier) * (m.elite ? 2.f : 1.f)))) drop(M_VOIDSHARD, 1);
+            if (rng.chance(0.10f)) drop(M_GLOWCAP, 1);
+        }
+    }
     if (m.elite && !boss) drop(M_ICESHARD + (rng.chance(0.5f) ? 0 : 0), 1);
     if (m.elite && delve == DV_FROST2) drop(M_CRYPTKEY, 1);  // the crypt's elites carry the keys to the locked treasure rooms
     const int coins = (int)(D.coins * (1.f + m.depth) * (m.elite ? 2.f : 1.f) * rng.range(0.7f, 1.3f));
@@ -204,6 +214,41 @@ void Game::dropLoot(const Monster& m) {
         ftext(m.pos + V2(0, -28), "+" + S(coins) + " COINS", C_GOLD, 1.0f);
         audio.play(S_COIN, 0.5f);
     }
+}
+
+std::string Game::delveBossName() const {
+    return delve == DV_ENDLESS ? "DEPTH WARDEN OF FLOOR " + S(endlessFloor) : std::string("FROSTBOUND KING");
+}
+
+// the Endless Depths' boss falls: coins, a checkpoint, a rich chest, and the way down opens
+void Game::endlessBossKilled(const Monster& m) {
+    const int lv = endlessFloor / ENDLESS_BOSS_EVERY;
+    grantXp(SK_DEFENSE, 400);
+    grantXp(SK_HUNTING, 500 * lv);
+    const int bonus = 400 + 250 * lv;
+    p.coins += bonus;
+    endlessCheckpoint = std::max(endlessCheckpoint, endlessFloor);
+    endlessBest = std::max(endlessBest, endlessFloor);
+    bossIdx = -1;
+    hazards.clear();
+    mprojs.clear();
+    for (Monster& o : mons)  // its summons crumble with it
+        if (o.state != MN_DEAD && o.kind != MK_KING) { o.hp = 0; o.state = MN_DEAD; o.deadT = 0; }
+    DChest c;
+    c.pos = V2(world.bossPos.x, world.bossPos.y - 60.f);
+    for (const DSpawn& s : world.dsp)
+        if (s.type == DS_CHEST && s.id == DELVE_BOSS_CHEST) c.pos = V2(s.x, s.y);
+    c.tier = 4;
+    c.id = DELVE_BOSS_CHEST;
+    c.locked = false;
+    dchests.push_back(c);
+    // the stairs down appear in the throne hall
+    world.stairsDn = V2(world.bossPos.x + 56.f, world.bossPos.y);
+    world.props.push_back({P_STAIRS, world.stairsDn.x, world.stairsDn.y + 4.f, 0.f});
+    world.lights.push_back({world.stairsDn.x, world.stairsDn.y, 90, 1});
+    msg("THE " + delveBossName() + " HAS FALLEN!  +" + S(bonus) + " COINS", C_GOLD);
+    msg("FLOOR " + S(endlessFloor) + " IS YOUR CHECKPOINT - THE STAIRS DOWN ARE OPEN", C_GOLD);
+    (void)m;
 }
 
 void Game::killMonster(Monster& m) {
@@ -221,7 +266,8 @@ void Game::killMonster(Monster& m) {
     const int xp = (int)(D.xp * xpK);
     grantXp(SK_HUNTING, xp);
     grantXp(SK_RANGED, std::max(1, xp / 2));
-    if (boss) {
+    if (boss && delve == DV_ENDLESS) endlessBossKilled(m);
+    else if (boss) {
         grantXp(SK_DEFENSE, 400);
         if (kingTier > 0) {  // a stronger return is worth more
             const int bonus = KING_TIER_COINS * kingTier;
@@ -447,7 +493,7 @@ void Game::updateMonsters(float dt) {
             const float sight = D.aggro * (p.nightT > 0 ? 1.f : 1.f);
             if (!p.dead && d < sight && (d < sight * 0.45f || lineClear(m.pos, p.pos, -1, -1))) {
                 m.awake = true;
-                if (boss) { bossBanT = 4.f; audio.play(S_FELL, 0.8f); msg(kingTier > 0 ? "THE FROSTBOUND KING RISES STRONGER! TIER " + S(kingTier) : std::string("THE FROSTBOUND KING RISES!"), C_BLUE); }
+                if (boss) { bossBanT = 4.f; audio.play(S_FELL, 0.8f); msg(delve == DV_ENDLESS ? "THE " + delveBossName() + " AWAKENS!" : kingTier > 0 ? "THE FROSTBOUND KING RISES STRONGER! TIER " + S(kingTier) : std::string("THE FROSTBOUND KING RISES!"), C_BLUE); }
                 if (m.state == MN_IDLE) m.state = MN_CHASE;
                 // a pack wakes together
                 if (D.flags & MF_PACK)
