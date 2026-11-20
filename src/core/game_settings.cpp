@@ -13,7 +13,7 @@ std::string Game::settingsPath() {
 void Game::saveSettings() {
     std::ofstream f(settingsPath(), std::ios::trunc);
     if (!f) return;
-    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires " << (cfg.hiRes ? 1 : 0) << "\n";
+    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires " << (cfg.hiRes ? 1 : 0) << "\nwindow " << winW << ' ' << winH << "\nfullscreen " << (fullscreen ? 1 : 0) << "\n";
     for (int i = 0; i < K_COUNT; i++) f << "key " << i << ' ' << (int)cfg.key[i] << "\n";
 }
 
@@ -28,6 +28,20 @@ bool Game::readHiResSetting() {
         if (ss >> k >> a && k == "hires") return a != 0;
     }
     return false;
+}
+
+// The window size and fullscreen choice, read before the window is made (see init). Values out of range are ignored.
+void Game::readWindowSetting(int& w, int& h, bool& fs) {
+    std::ifstream f(settingsPath());
+    std::string line;
+    while (std::getline(f, line)) {
+        std::istringstream ss(line);
+        std::string k;
+        ss >> k;
+        long long a = 0, b = 0;
+        if (k == "window" && ss >> a >> b && a >= 400 && a <= 16384 && b >= 225 && b <= 16384) { w = (int)a; h = (int)b; }
+        else if (k == "fullscreen" && ss >> a) fs = a != 0;
+    }
 }
 
 void Game::loadSettings() {

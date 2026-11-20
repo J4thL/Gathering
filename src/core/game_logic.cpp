@@ -16,7 +16,21 @@ bool Game::init(bool headless) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
         return false;
     }
-    win = SDL_CreateWindow("WILDWOOD HUNTER", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, 1200, 675, SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
+    // the window: the size it had last time (settings.txt), or 1200x675 the first time, shrunk to fit the screen's usable area
+    int ww = 1200, wh = 675;
+    bool wantFs = false;
+    if (!headless) {
+        readWindowSetting(ww, wh, wantFs);
+        SDL_Rect ub;
+        if (SDL_GetDisplayUsableBounds(0, &ub) == 0 && ub.w > 0 && ub.h > 80) {
+            const float fit = std::min(1.f, std::min((float)ub.w / ww, (float)(ub.h - 40) / wh));  // (40: room for the title bar)
+            ww = std::max(400, (int)(ww * fit));
+            wh = std::max(225, (int)(wh * fit));
+        }
+    }
+    winW = ww;
+    winH = wh;
+    win = SDL_CreateWindow("WILDWOOD HUNTER", SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED, ww, wh, SDL_WINDOW_RESIZABLE | SDL_WINDOW_SHOWN);
     if (!win) {
         fprintf(stderr, "window failed: %s\n", SDL_GetError());
         return false;
@@ -30,6 +44,20 @@ bool Game::init(bool headless) {
     }
     if (LS > 1) SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // hi-res: the canvas is filtered when the window is not a whole multiple of it; sprites stay crisp
     canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW * LS, LH * LS);
+    if (!canvas && LS > 1) {  // this graphics driver refused the hi-res canvas: fall back to the normal one instead of crashing
+        fprintf(stderr, "hi-res canvas failed (%s): using the normal resolution\n", SDL_GetError());
+        LS = 1;
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
+        canvas = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
+    }
+    if (!canvas) {
+        fprintf(stderr, "canvas failed: %s\n", SDL_GetError());
+        return false;
+    }
+    if (wantFs) {
+        fullscreen = true;
+        SDL_SetWindowFullscreen(win, SDL_WINDOW_FULLSCREEN_DESKTOP);
+    }
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");
     buildAssets(ren, A);
     world.generate(WORLD_SEED);
@@ -49,6 +77,7 @@ bool Game::init(bool headless) {
 
 void Game::shutdown() {
     if (state != ST_TITLE) save();
+    saveSettings();  // (window size and fullscreen are part of them)
     audio.shutdown();
     if (miniTex) SDL_DestroyTexture(miniTex);
     if (canvas) SDL_DestroyTexture(canvas);
