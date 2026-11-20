@@ -128,10 +128,10 @@ void Game::drawDelveDark() {
     constexpr int CS = 4;
     constexpr int GW = LW / CS, GH = (LH + CS - 1) / CS;
     if (!darkTex) {
-        const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+        const std::string old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) ? SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) : "0";  // a copy: SDL frees its own string when the hint changes
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // smooth up-scaling: the light fades instead of showing blocks
         darkTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, GW, GH);
-        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old.c_str());
         if (darkTex) SDL_SetTextureBlendMode(darkTex, SDL_BLENDMODE_BLEND);
     }
     if (!darkTex) return;
