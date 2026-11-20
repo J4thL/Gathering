@@ -13,7 +13,7 @@ std::string Game::settingsPath() {
 void Game::saveSettings() {
     std::ofstream f(settingsPath(), std::ios::trunc);
     if (!f) return;
-    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires " << (cfg.hiRes ? 1 : 0) << "\nwindow " << winW << ' ' << winH << "\nfullscreen " << (fullscreen ? 1 : 0) << "\n";
+    f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires2 " << (cfg.hiRes ? 1 : 0) << "\nwindow " << winW << ' ' << winH << "\nfullscreen " << (fullscreen ? 1 : 0) << "\n";
     for (int i = 0; i < K_COUNT; i++) f << "key " << i << ' ' << (int)cfg.key[i] << "\n";
 }
 
@@ -25,9 +25,9 @@ bool Game::readHiResSetting() {
         std::istringstream ss(line);
         std::string k;
         long long a = 0;
-        if (ss >> k >> a && k == "hires") return a != 0;
+        if (ss >> k >> a && k == "hires2") return a != 0;
     }
-    return false;
+    return !getenv("WILDWOOD_SAVE_DIR");  // no choice made yet: hi-res is on for a real run (tests and tools set WILDWOOD_SAVE_DIR and keep the plain canvas)
 }
 
 // The window size and fullscreen choice, read before the window is made (see init). Values out of range are ignored.
@@ -55,7 +55,7 @@ void Game::loadSettings() {
         if (k == "sfx" && ss >> a) cfg.sfx = (int)std::max(0LL, std::min(10LL, a));
         else if (k == "amb" && ss >> a) cfg.amb = (int)std::max(0LL, std::min(10LL, a));
         else if (k == "muted" && ss >> a) audio.muted = a != 0;
-        else if (k == "hires" && ss >> a) cfg.hiRes = a != 0;
+        else if (k == "hires2" && ss >> a) cfg.hiRes = a != 0;
         else if (k == "key" && ss >> a >> b && a >= 0 && a < K_COUNT && !keyReserved((SDL_Scancode)b) && b > 0 && b < SDL_NUM_SCANCODES) cfg.key[a] = (SDL_Scancode)b;
     }
     // a hand-edited file must not bind one key to two actions
