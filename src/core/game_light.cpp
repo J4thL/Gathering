@@ -185,10 +185,10 @@ SDL_Texture* makeCloudTex(SDL_Renderer* ren) {
             const float n = 0.50f * vnoise(u, v, 4, 11) + 0.30f * vnoise(u, v, 8, 23) + 0.20f * vnoise(u, v, 16, 37);
             px[(size_t)y * N + x] = ((uint32_t)(smooth01(0.47f, 0.72f, n) * 255.f) << 24) | 0x00FFFFFFu;
         }
-    const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+    const std::string old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) ? SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) : "0";  // a copy: SDL frees its own string when the hint changes
     SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
     SDL_Texture* t = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STATIC, N, N);
-    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+    SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old.c_str());
     if (t) {
         SDL_UpdateTexture(t, nullptr, px.data(), N * 4);
         SDL_SetTextureBlendMode(t, SDL_BLENDMODE_BLEND);
@@ -264,12 +264,12 @@ void Game::drawGroundShadows() {
     // ---- the layers
     SDL_Texture* prevTarget = SDL_GetRenderTarget(ren);
     if (!shadowTex) {
-        const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+        const std::string old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) ? SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) : "0";  // a copy: SDL frees its own string when the hint changes
         SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");  // linear: the layer is shrunk below
         shadowTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, LW, LH);
         shadowSoftTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_RGBA8888, SDL_TEXTUREACCESS_TARGET, LW / 2, LH / 2);
         shadowModTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_TARGET, LW / 2, LH / 2);
-        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+        SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old.c_str());
         if (shadowTex) SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_BLEND);
         if (shadowSoftTex) SDL_SetTextureBlendMode(shadowSoftTex, SDL_BLENDMODE_BLEND);
         if (shadowModTex) SDL_SetTextureBlendMode(shadowModTex, SDL_BLENDMODE_MOD);
@@ -799,10 +799,10 @@ void Game::drawLighting(float night) {
     const float baseA = outdoors ? dark * 150.f : 0.f;
     if (baseA * (1.f - 0.9f * flash) > 2.f) {
         if (!darkTex) {
-            const char* old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY);
+            const std::string old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) ? SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) : "0";  // a copy: SDL frees its own string when the hint changes
             SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
             darkTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, GW, GH);
-            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old ? old : "0");
+            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old.c_str());
             if (darkTex) SDL_SetTextureBlendMode(darkTex, SDL_BLENDMODE_BLEND);
         }
         if (darkTex) {
