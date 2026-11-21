@@ -278,7 +278,7 @@ bool Game::hotClick() {
         return true;
     }
     if (D.kind == IK_CONSUMABLE) return useConsumable(D.ref);
-    if (D.kind == IK_PLACEABLE) return placeStructure(D.ref);
+    if (D.kind == IK_PLACEABLE) return placeStructureAtCursor(D.ref);
     if (D.kind == IK_TOOL && TOOLDEF[D.ref].type == TT_ROD) return fishClick();
     for (int s = 0; s < p.bagCap(); s++)  // anything else: what the pack's action button would do (wear a bag, explain a material...)
         if (p.inv.slots[s].item == id && !p.inv.slots[s].empty()) return useSlot(s);

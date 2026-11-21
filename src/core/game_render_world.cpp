@@ -476,7 +476,6 @@ void Game::renderWorld(bool) {
                 case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
                 // ---- the mine and the frozen dungeon
                 case P_HPORTAL: sprW(A.H.portal[((int)(timeAcc * 6.f)) & 3], pr.x, pr.y); break;
-                case P_HMARKET: sprW(A.H.market, pr.x, pr.y); break;
                 case P_MINEGATE: sprW(A.D.mineGate, pr.x, pr.y); break;
                 case P_FROSTGATE: sprW(A.D.frostGate, pr.x, pr.y); break;
                 case P_BEAM: break;  // drawn over the heads (below)
@@ -661,6 +660,7 @@ void Game::renderWorld(bool) {
     }
     drawHsRoofs();
     drawHsOverlay();
+    drawPlaceGhost();
     // projectiles
     for (auto& pr : projs) {
         float ang = (pr.angle + pr.spin * (pr.travelled / pr.speed)) * 57.2958;

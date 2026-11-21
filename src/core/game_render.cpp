@@ -240,7 +240,6 @@ void Game::render() {
         case ST_PLAY: drawHud(); drawHsHud(); drawPortalFx(); break;
         case ST_BUILD: drawHud(); drawBuildMenu(); break;
         case ST_ANIMAL: drawHud(); drawAnimalMenu(); break;
-        case ST_MARKET: drawHud(); drawMarket(); break;
         case ST_SHOP: {
             drawHud();
             const bool modal = amtCtx != AMT_NONE, clk = in.uiClick;  // the sell slider takes every click while open

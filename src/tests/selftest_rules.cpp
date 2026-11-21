@@ -244,7 +244,7 @@ void testGameRules(SelfTest& t) {
         check(g.p.mat(M_STONE) == stoneBeforeSell - 5 && fabsf(wBeforeSell - g.p.inv.totalWeight() - 10.f) < 1e-3f, "selling 5 stone reduces the weight by 10 kg at once");
         g.p.inv.clear();
         g.p.inv.add(itemPlace(PL_CHEST), 1);
-        check(g.placeStructure(PL_CHEST) && g.structs.size() >= 1, "(setup) a chest is placed");
+        check(placeAtCursor(g, PL_CHEST) && g.structs.size() >= 1, "(setup) a chest is placed");
         g.chestOpen = (int)g.structs.size() - 1;
         g.p.inv.add(itemMat(M_STONE), 24);  // 48 kg
         int ss = -1;
@@ -454,7 +454,7 @@ void testGameRules(SelfTest& t) {
         check(g.amtCtx == Game::AMT_NONE && !g.in.escPressed && g.p.mat(M_STONE) == 13, "Esc closes only the slider and changes nothing");
         g.p.inv.clear();
         g.p.inv.add(itemPlace(PL_CHEST), 1);
-        g.placeStructure(PL_CHEST);
+        placeAtCursor(g, PL_CHEST);
         g.chestOpen = (int)g.structs.size() - 1;
         g.p.inv.add(itemMat(M_WOOD), 9);
         g.amountOpen(Game::AMT_CHEST, 0, 1);

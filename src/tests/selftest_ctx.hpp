@@ -74,3 +74,18 @@ void testWorldRules(SelfTest& t);  // gathering, structures, consumables, gear, 
 void testSkillsAndTrophies(SelfTest& t);  // skill bonuses, skill XP, trophies and skills
 void testTownAndFeedback(SelfTest& t);  // town NPCs, HUD feedback, wildlife and audio
 void testWeather(SelfTest& t);  // the weather schedule, the weather state machine and its effects
+
+// Puts a campfire / chest down the way a player does: the cursor over a free tile within reach, then a click (Game::placeStructureAtCursor).
+inline bool placeAtCursor(Game& g, int kind) {
+    const int px = (int)(g.p.pos.x / TS), py = (int)(g.p.pos.y / TS);
+    for (int r = 1; r <= 4; r++)
+        for (int dy = -r; dy <= r; dy++)
+            for (int dx = -r; dx <= r; dx++) {
+                const int tx = px + dx, ty = py + dy;
+                if (!g.placeCheck(tx, ty)) continue;
+                g.in.mx = (int)(tx * TS + 8 - g.camX);
+                g.in.my = (int)(ty * TS + 8 - g.camY);
+                return g.placeStructureAtCursor(kind);
+            }
+    return false;
+}

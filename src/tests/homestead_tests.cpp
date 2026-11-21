@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include "core/game.hpp"
 
 namespace {
@@ -585,7 +586,6 @@ int homesteadTest(Game& g) {
         shot("e_ghost.bmp");
         g.bm.on = false;
         g.state = ST_BUILD; shot("f_build_menu.bmp");
-        g.state = ST_MARKET; shot("g_market.bmp");
         g.state = ST_ANIMAL; g.farmPieceId = -1; shot("h_animals.bmp");
         g.state = ST_PLAY;
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
@@ -921,6 +921,71 @@ int homesteadTest(Game& g) {
             check(common == 0 && legend == 1, "an ordinary carcass is gone after its time; a legendary one is still there");
         } else
             check(false, "spawned the test deer");
+    }
+    {
+        printf("--- stage: no homestead store, farm babies, cursor placing, 100-slot chests, new gear\n");
+        if (!g.inHomestead()) g.hsEnter();
+        g.state = ST_PLAY;
+        bool stall = false;
+        for (auto& pr : g.world.props) stall |= pr.kind == P_HMARKET_RETIRED;
+        check(!stall, "the homestead has no market stall any more");
+        // farm babies: stackable items bought at the General Store, set down at the homestead
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemFarmBaby(DA_COW), 4);
+        check(g.p.inv.usedSlots() == 1 && item(itemFarmBaby(DA_COW)).stack > 1, "baby farm animals stack in one slot");
+        const int a0 = (int)g.hs.animals.size();
+        const int sl = [&] { for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty()) return i; return -1; }();
+        check(sl >= 0 && g.useSlot(sl) && (int)g.hs.animals.size() == a0 + 1 && g.p.inv.count(itemFarmBaby(DA_COW)) == 3, "using one sets a baby down at the homestead");
+        const HAnimal& calf = g.hs.animals.back();
+        check(calf.kind == DA_COW && !calf.adult(DOMS[DA_COW]), "...a baby cow that grows up");
+        std::set<std::string> keys;
+        bool uniq = true;
+        for (int i = 0; i < ITEM_COUNT; i++) uniq &= keys.insert(itemKey(i)).second;
+        check(uniq, "every item has its own save key");
+        // placing with the cursor
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemPlace(PL_CHEST), 1);
+        g.structs.clear();
+        stand(g, V2((HS_PLAZA_X + 3) * TS + 8.f, (HS_PLAZA_Y + 4) * TS + 8.f));
+        g.camX = g.p.pos.x - LW / 2; g.camY = g.p.pos.y - LH / 2;
+        const int ftx = (int)(g.p.pos.x / TS) + 12, fty = (int)(g.p.pos.y / TS);
+        std::string why;
+        check(!g.placeCheck(ftx, fty, &why) && why.find("FAR") != std::string::npos, "a tile out of reach cannot be built on");
+        bool placed = false;
+        for (int dx = -3; dx <= 3 && !placed; dx++)
+            for (int dy = -3; dy <= 3 && !placed; dy++) {
+                const int tx = (int)(g.p.pos.x / TS) + dx, ty = (int)(g.p.pos.y / TS) + dy;
+                if (!g.placeCheck(tx, ty)) continue;
+                g.in.mx = (int)(tx * TS + 8 - g.camX); g.in.my = (int)(ty * TS + 8 - g.camY);
+                placed = g.placeStructureAtCursor(PL_CHEST);
+                check(placed && g.structs.size() == 1 && g.structs[0].tx == tx && g.structs[0].ty == ty, "a chest goes down on the tile under the cursor");
+            }
+        check(placed, "(setup) a free tile was found near the hunter");
+        // the chest: 100 slots, a weight limit, split stacks
+        if (placed) {
+            Inventory& ch = g.structs[0].inv;
+            check(ch.capacity() == 100, "a chest always has 100 slots");
+            const int n = ch.add(itemMat(M_STONE), 1000);
+            check(n > 0 && n < 1000 && ch.totalWeight() <= CHEST_KG + 0.01f, "the weight limit stops a chest filling up with stone");
+            ch.clear();
+            g.chestOpen = 0; g.hsChestPiece = -1; g.state = ST_CHEST;
+            g.p.inv.clear();
+            g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 10);
+            g.chestMove(1, 0, 4);
+            check(g.p.inv.count(itemMat(M_WOOD)) == 6 && g.structs[0].inv.count(itemMat(M_WOOD)) == 4, "part of a stack can be moved into the chest");
+            g.state = ST_PLAY; g.chestOpen = -1;
+        }
+        // new gear and meals stack and work
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemCarry(CG_FARMBOOTS), 5);
+        g.p.inv.addIgnoringWeight(itemCarry(CG_PORTERBELT), 1);
+        check(g.p.inv.usedSlots() == 2, "carried gear stacks");
+        g.p.syncPack();
+        check(g.p.carryLimit() >= BASE_CARRY_KG + 25, "the porter's belt raises the carrying limit");
+        g.p.hp = 10.f;
+        g.p.inv.addIgnoringWeight(itemCons(C_OMELET), 2);
+        check(g.useConsumable(C_OMELET) && g.p.hp > 10.f && g.p.inv.count(itemCons(C_OMELET)) == 1, "a farm omelet heals");
+        g.p.hp = g.p.maxhp = 100000.f;
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

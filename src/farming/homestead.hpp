@@ -81,7 +81,7 @@ struct CropDef {
     int seedsLo, seedsHi;  // seeds that come back with the harvest
     int tool;           // ToolType needed to harvest it (-1 = bare hands)
     int xp;             // farming XP
-    int seedPrice;      // coins for one seed at the Homestead Market
+    int seedPrice;      // coins for one seed at the General Store
     bool regrow;        // strawberries and tomatoes bear again after being picked (back to stage 3)
 };
 static const CropDef CROPS[CR_COUNT] = {
@@ -112,8 +112,9 @@ constexpr int PLOT_WATER_REACH = 2;          // tilled soil this near water (til
 // ---------------------------------------------------------------- domestic animals
 enum DomKind { DA_CHICKEN, DA_COW, DA_SHEEP, DA_PIG, DA_GOAT, DA_DUCK, DA_RABBIT, DA_COUNT };
 // A raised wild animal (a mount, mounts.hpp) is one more kind of homestead animal: it lives, eats and grows like the others but looks like its
-// species (HAnimal::species / tier). It is not sold at the market and does not breed. DA_COUNT stays the number of farm animals.
+// species (HAnimal::species / tier). It is not sold in the shop and does not breed. DA_COUNT stays the number of farm animals.
 constexpr int DA_MOUNT = DA_COUNT;
+static_assert(FARM_BABIES == DA_COUNT, "every farm animal has a baby item (items/items.hpp)");
 struct DomDef {
     const char* name;
     const char* babyName;
@@ -121,7 +122,7 @@ struct DomDef {
     int product;         // Mat the adult makes (-1 none)
     float prodSec;       // seconds per product (at full happiness)
     const char* prodName;
-    int price;           // coins at the market (selling back pays half)
+    int price;           // coins at the General Store (selling back pays half)
     bool small;          // fits the coop
     float speed;         // walking speed px/s
     float size;          // sprite scale (1 = a calf-sized cow)

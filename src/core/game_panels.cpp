@@ -186,6 +186,8 @@ void Game::drawShop() {
             for (int c = 0; c < CR_COUNT; c++)
                 goods.push_back({std::string(CROPS[c].name) + " SEEDS", "RIPE IN " + std::to_string((int)(CROPS[c].stageSec * (CROP_STAGES - 1))) + "S", CROPS[c].seedPrice, itemMat(cropSeed(c)), 1, 0, -1});
             goods.push_back({"HAY", "FEEDS ANY ANIMAL", HAY_PRICE, itemMat(M_HAY), 1, 0, -1});
+            for (int k = 0; k < DA_COUNT; k++)  // baby farm animals: carried home in the pack, set down at the homestead
+                goods.push_back({std::string("BABY ") + DOMS[k].name, std::string(DOMS[k].prodName ? DOMS[k].prodName : "") + (DOMS[k].small ? " - COOP OK" : " - BARN OR PEN"), DOMS[k].price, itemFarmBaby(k), 1, 0, -1});
         }
         const int NG = (int)goods.size(), VIS = 6, ROWH = 25;
         shopScroll = std::max(0, std::min(NG - VIS, shopScroll));

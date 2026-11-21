@@ -217,6 +217,9 @@ void testWorldRules(SelfTest& t) {
             for (int r = 0; r < RECIPE_N; r++)
                 if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
             for (int m : {M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER}) producible[m] = true;  // bought at the flower shop
+            for (int m : {M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY, M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
+                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE})
+                producible[m] = true;  // grown, raised on the homestead or caught with a rod
             int unmakeable = 0;
             for (int r = 0; r < RECIPE_N; r++)
                 for (int k = 0; k < 3; k++)
@@ -237,7 +240,7 @@ void testWorldRules(SelfTest& t) {
             g.interior = -1;
             g.craftAnywhere = true;
             check(g.craft(rCamp) && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 1 && g.p.mat(M_STONE) == 3, "a campfire is crafted from wood and stone");
-            check(g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1 && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 0, "the campfire is placed");
+            check(placeAtCursor(g, PL_CAMPFIRE) && g.structs.size() == 1 && g.p.inv.count(itemPlace(PL_CAMPFIRE)) == 0, "the campfire is placed");
             check(g.nearFire(), "standing by the placed campfire counts as a fire");
             g.craftAnywhere = false;
             g.interior = BLD_SMITH;
@@ -288,7 +291,7 @@ void testWorldRules(SelfTest& t) {
             g.p.inv.add(itemMat(M_WOOD), 5);
             g.p.inv.add(itemMat(M_WOOD), 0);
             g.p.inv.add(itemPlace(PL_CHEST), 1);
-            check(g.placeStructure(PL_CHEST) && g.structs.size() == 2, "a chest is placed");
+            check(placeAtCursor(g, PL_CHEST) && g.structs.size() == 2, "a chest is placed");
             g.chestOpen = 1;
             int woodSlot = -1;
             for (int i = 0; i < g.p.bagCap(); i++)
@@ -731,7 +734,7 @@ void testWorldRules(SelfTest& t) {
         g.questIdx = 2;
         g.dayT = 77;
         const long packBefore = packTotal();
-        check(g.world.mapId == B_HOME && g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the home map");
+        check(g.world.mapId == B_HOME && placeAtCursor(g, PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the home map");
         const int homeTx = g.structs[0].tx, homeTy = g.structs[0].ty;
         g.p.inv.add(itemPlace(PL_CAMPFIRE), 0);
         const long packMid = packTotal();
@@ -741,7 +744,7 @@ void testWorldRules(SelfTest& t) {
         check(packTotal() == packMid && g.p.coins == 500 && (int)g.p.hp == 55 && g.p.sk.s[SK_HUNTING].xp == 300 && g.questIdx == 2 && g.dayT == 77.f, "pack, coins, health, skills, quest and time are unchanged by a trip");
         check(g.structs.empty(), "the home campfire is not in the desert (maps do not mix)");
         g.travelCd = 0;
-        check(g.placeStructure(PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the desert");
+        check(placeAtCursor(g, PL_CAMPFIRE) && g.structs.size() == 1, "(setup) a campfire is placed in the desert");
         const int dTx = g.structs[0].tx, dTy = g.structs[0].ty;
         const long packNow = packTotal();  // (the placed campfire left the pack)
         check(g.world.landmarks.size() == 4 && g.landmarksFound() == 0, "the desert has its own four landmarks, none found yet");
