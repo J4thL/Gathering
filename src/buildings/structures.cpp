@@ -1,7 +1,7 @@
 // structures.cpp - things the hunter places in the world: campfires and storage chests.
 //
 // A campfire is a crafting station (smelting, cooking), a warm spot (no cold drain, slow healing) and a light at night.
-// A chest holds 20 more slots of items; it is opened with E and can only be picked up again when it is empty.
+// A chest holds 100 more slots of items (up to CHEST_KG of weight); it is opened with E and can only be picked up again when it is empty.
 // Structures block movement (their tile is solid) and are saved with the game (struct / cslot lines).
 #include <algorithm>
 #include <sstream>
@@ -25,34 +25,97 @@ bool Game::canPlaceAt(int tx, int ty) const {
     return true;
 }
 
-// Place one campfire / chest on the free tile in front of the hunter (or beside them when the front is blocked).
-bool Game::placeStructure(int kind) {
-    if ((int)structs.size() >= MAX_STRUCTS) {
-        msg("TOO MANY STRUCTURES - PICK ONE UP FIRST", C_RED);
+// ---- placing: like the farm tools, a campfire / chest goes on the tile under the cursor (within PLACE_REACH of the hunter).
+// An item used from the pack or its hotbar key starts the placing mode (ghost under the cursor, click to put it down, right click / Esc
+// to cancel); a placeable held in hand is put down by a plain click.
+bool Game::placeCheck(int tx, int ty, std::string* why) {
+    auto no = [&](const char* w) {
+        if (why) *why = w;
+        return false;
+    };
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return no("OUT OF THE MAP");
+    if ((int)structs.size() >= MAX_STRUCTS) return no("TOO MANY STRUCTURES - PICK ONE UP FIRST");
+    const V2 c(tx * TS + 8.f, ty * TS + 8.f);
+    if (dist(p.pos, c) > PLACE_REACH) return no("TOO FAR - STEP CLOSER");
+    if (inHomestead() && (hsAt(tx, ty, HL_OBJECT) || hsAt(tx, ty, HL_GROUND))) return no("SOMETHING IS BUILT HERE");
+    if (!canPlaceAt(tx, ty)) return no("NO ROOM HERE");
+    return true;
+}
+
+bool Game::placeStructureAt(int kind, int tx, int ty) {
+    std::string why;
+    if (!placeCheck(tx, ty, &why)) {
+        msg(why, C_RED);
         audio.play(S_ERROR);
         return false;
     }
-    V2 f = p.dir == 0 ? V2(0, 1) : p.dir == 1 ? V2(0, -1) : (p.flip ? V2(-1, 0) : V2(1, 0));
-    const V2 side(-f.y, f.x);
-    const V2 tries[6] = {f * 18, f * 18 + side * 12, f * 18 - side * 12, side * 18, side * -18, f * -18};
-    for (const V2& o : tries) {
-        int tx = (int)floorf((p.pos.x + o.x) / TS), ty = (int)floorf((p.pos.y + o.y) / TS);
-        if (!canPlaceAt(tx, ty)) continue;
-        if (p.inv.remove(itemPlace(kind), 1) < 1) return false;
-        Structure s;
-        s.kind = kind;
-        s.tx = tx;
-        s.ty = ty;
-        structs.push_back(s);
-        world.solid[ty][tx] = true;
-        audio.play(kind == PL_CAMPFIRE ? S_SMELT : S_CRAFT, 0.7f);
-        harvestChips(s.pos() + V2(0, -4), HEX(kind == PL_CAMPFIRE ? 0xf0953a : 0x8a5a2c), 8, 1.f);
-        msg(kind == PL_CAMPFIRE ? "CAMPFIRE LIT - CRAFT AND SMELT BESIDE IT" : "CHEST PLACED - E TO OPEN", C_GOLD);
-        return true;
+    if (p.inv.remove(itemPlace(kind), 1) < 1) return false;
+    Structure s;
+    s.kind = kind;
+    s.tx = tx;
+    s.ty = ty;
+    structs.push_back(s);
+    world.solid[ty][tx] = true;
+    audio.play(kind == PL_CAMPFIRE ? S_SMELT : S_CRAFT, 0.7f);
+    harvestChips(s.pos() + V2(0, -4), HEX(kind == PL_CAMPFIRE ? 0xf0953a : 0x8a5a2c), 8, 1.f);
+    msg(kind == PL_CAMPFIRE ? "CAMPFIRE LIT - CRAFT AND SMELT BESIDE IT" : "CHEST PLACED - E TO OPEN", C_GOLD);
+    return true;
+}
+
+bool Game::placeStructureAtCursor(int kind) {
+    return placeStructureAt(kind, (int)floorf((in.mx + camX) / TS), (int)floorf((in.my + camY) / TS));
+}
+
+// Pack / hotbar use: switch the placing mode on for this item (or off again when it is already on).
+bool Game::placeStructure(int kind) {
+    if (pl.on && pl.kind == kind) {
+        pl.on = false;
+        return false;
     }
-    msg("NO ROOM HERE - FIND OPEN GROUND", C_RED);
-    audio.play(S_ERROR);
-    return false;
+    if (interior >= 0) {
+        msg("NOTHING CAN BE PLACED INDOORS", C_RED);
+        audio.play(S_ERROR);
+        return false;
+    }
+    pl.on = true;
+    pl.kind = kind;
+    msg("CLICK WHERE TO PUT IT - RIGHT CLICK OR ESC CANCELS", C_DIM);
+    return true;
+}
+
+void Game::updatePlacing() {
+    if (!pl.on) return;
+    if (p.dead || interior >= 0 || p.inv.count(itemPlace(pl.kind)) <= 0) {
+        pl.on = false;
+        return;
+    }
+    const bool click = in.lPressed;
+    in.lPressed = in.l = in.lReleased = false;  // the mouse belongs to the ghost: no weapon throws
+    in.uiClick = false;
+    if (in.rPressed) {
+        in.rPressed = false;
+        pl.on = false;
+        return;
+    }
+    pl.tx = (int)floorf((in.mx + camX) / TS);
+    pl.ty = (int)floorf((in.my + camY) / TS);
+    pl.valid = placeCheck(pl.tx, pl.ty, &pl.why);
+    if (click && placeStructureAt(pl.kind, pl.tx, pl.ty) && p.inv.count(itemPlace(pl.kind)) <= 0) pl.on = false;  // the last one is down
+}
+
+// The ghost under the cursor while a placeable is being placed or held in hand.
+void Game::drawPlaceGhost() {
+    int kind = pl.on ? pl.kind : -1;
+    if (kind < 0 && p.hand == HAND_ITEM && p.hotSel >= 0 && p.hotSel < HOT_N && p.hot[p.hotSel] >= 0 && item(p.hot[p.hotSel]).kind == IK_PLACEABLE) kind = item(p.hot[p.hotSel]).ref;
+    if (kind < 0 || state != ST_PLAY) return;
+    const int tx = (int)floorf((in.mx + camX) / TS), ty = (int)floorf((in.my + camY) / TS);
+    std::string why;
+    const bool ok = placeCheck(tx, ty, &why);
+    fillRect(tx * TS - camX, ty * TS - camY, TS, TS, ok ? RGBA(70, 220, 90, 90) : RGBA(230, 60, 50, 100));
+    const V2 c(tx * TS + 8.f, ty * TS + 12.f);
+    if (kind == PL_CAMPFIRE) sprW(A.R.campfire[(int)(timeAcc * 9) % 3], c.x, c.y, false, 0.65f);
+    else sprW(A.R.chest, c.x, c.y, false, 0.65f);
+    if (!ok) text(LW / 2 - textW(why) / 2, LH - 22, why, C_RED);
 }
 
 Structure* Game::structNear(float r, int kind) {
@@ -222,7 +285,8 @@ bool Game::chestMove(int fromPack, int slot, int n) {
     const int want = n < 0 ? from.slots[slot].n : std::min(n, from.slots[slot].n);
     int moved = moveStack(from.slots[slot], to, want);
     if (moved < want) {
-        msg(fromPack ? "CHEST FULL" : "BAG FULL", C_RED);
+        const bool heavy = to.blockReason(from.slots[slot].item, 1, from.slots[slot].q) == 2;
+        msg(fromPack ? (heavy ? "CHEST TOO HEAVY" : "CHEST FULL") : (heavy ? "TOO HEAVY TO CARRY" : "BAG FULL"), C_RED);
         audio.play(S_ERROR);
     }
     if (moved > 0) audio.play(S_CLICK, 0.5f);
@@ -260,7 +324,9 @@ void Game::drawChest() {
     const int cy = Y + 34;
     const int cgx = X + 8, cgy = cy + 12;                       // chest grid
     const int pgx = X + W - 8 - PK_COLS * CELL, pgy = cy + 12;  // pack grid
-    text(cgx, cy + 2, "STORED " + S(ch.inv.usedSlots()) + "/" + S(ch.inv.capacity()), C_TEXT);
+    const float cw = ch.inv.totalWeight(), cmax = ch.inv.weightCap();  // the hard limit of the chest (100 slots, CHEST_KG)
+    const bool hsStore = ch.inv.maxWeight > 1e6f;                  // storage buildings of the homestead have no weight limit
+    text(cgx, cy + 2, "STORED " + S(ch.inv.usedSlots()) + "/" + S(ch.inv.capacity()) + (hsStore ? "" : "  " + kgNum(cw) + "/" + kgNum(cmax) + "KG"), !hsStore && cw >= cmax - 0.5f ? C_RED : C_TEXT);
     text(pgx, cy + 2, "PACK " + S(p.bagUsed()) + "/" + S(cap), p.bagUsed() >= cap ? C_RED : C_TEXT);
     auto cell = [&](Inventory& inv, int i, int gx, int gy, int cols, bool toPack) {
         int x = gx + (i % cols) * CELL, y = gy + (i / cols) * CELL;

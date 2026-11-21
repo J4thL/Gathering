@@ -80,6 +80,26 @@ bool Game::useConsumable(int c) {
             p.nightT = 300.f;
             ftext(p.pos + V2(0, -24), "NIGHTSIGHT!", C_BLUE, 1.2f);
             break;
+        case C_OMELET:
+            if (!heal(60)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_BREAD:
+            if (!heal(40)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_CHOWDER:
+            if (!heal(100)) return false;
+            p.warmT = std::max(p.warmT, 120.f);
+            ftext(p.pos + V2(0, -34), "WARM!", C_ORANGE, 1.2f);
+            break;
+        case C_PIE:
+            if (!heal(50)) return false;
+            p.swiftT = 60.f;
+            ftext(p.pos + V2(0, -34), "SPRY!", C_GREEN, 1.2f);
+            break;
         default: return false;
     }
     p.inv.takeBest(id);
@@ -127,6 +147,18 @@ bool Game::useSlot(int slot) {
             p.inv.removeQ(id, tier, 1);
             hsAddAnimal(DA_MOUNT, p.pos + V2(frng.range(-14, 14), 18), true, -1, D.ref, tier);
             msg(std::string("YOU SET THE BABY ") + ANIMAL[D.ref].name + " DOWN - FEED IT AND IT WILL GROW", C_GREEN);
+            audio.play(S_CLICK);
+            return true;
+        }
+        case IK_FARMBABY: {  // a bought baby farm animal: set it down at the homestead, on the tile under the cursor when that is within reach
+            if (!inHomestead()) { msg("RAISE IT AT YOUR HOMESTEAD", C_DIM); return false; }
+            if ((int)hs.animals.size() >= H_MAX_ANIMALS) { msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED); audio.play(S_ERROR); return false; }
+            V2 at = p.pos + V2(frng.range(-14, 14), 18);
+            const V2 cur(in.mx + camX, in.my + camY);
+            if (state == ST_PLAY && dist(cur, p.pos) <= PLACE_REACH && !world.solidTile((int)floorf(cur.x / TS), (int)floorf(cur.y / TS))) at = cur;
+            p.inv.remove(id, 1);
+            hsAddAnimal(D.ref, at, true, -1);
+            msg(std::string("A BABY ") + DOMS[D.ref].name + " JOINS YOUR HOMESTEAD - ASSIGN IT A HOME", C_GREEN);
             audio.play(S_CLICK);
             return true;
         }

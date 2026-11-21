@@ -321,6 +321,7 @@ void Game::hsTickCrops(float dt) {
         float grow = 1.f;
         if (gh) grow *= GREENHOUSE_GROWTH;
         if (pc.rich) grow *= 1.2f;
+        if (p.has(CG_STRAWHAT)) grow *= 1.15f;
         pc.growT += dt * grow;
         if (pc.growT >= C.stageSec) {
             pc.growT -= C.stageSec;
@@ -791,10 +792,6 @@ bool Game::hsFindTarget(HTarget2& t) {
         if (d < 34.f) offer(8, 0, world.hportal + V2(0, -30), d - 20.f, world.mapId == B_HOME ? "ENTER HOMESTEAD PORTAL" : "RETURN TO TOWN");
     }
     if (!inHomestead()) return t.type != 0;
-    if (world.hmarket.x > -9999.f) {
-        const float d = dist(p.pos, world.hmarket);
-        if (d < 34.f) offer(7, 0, world.hmarket + V2(0, -34), d - 14.f, "HOMESTEAD MARKET");
-    }
     for (auto& pc : hs.pieces) {
         const HPieceDef& D = HPDEF[pc.kind];
         const V2 c((pc.tx + pc.w() / 2.f) * TS, (pc.ty + pc.h() / 2.f) * TS);
@@ -839,11 +836,6 @@ bool Game::homesteadInteract() {
         case 8:
             if (world.mapId == B_HOME) hsEnter();
             else hsLeave();
-            return true;
-        case 7:
-            state = ST_MARKET;
-            marketScroll = 0;
-            audio.play(S_CLICK);
             return true;
         case 1:
             if (HPiece* pc = hsPiece(t.id)) hsFarmPlot(*pc);

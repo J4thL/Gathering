@@ -521,6 +521,7 @@ void Game::updatePlay(float dt) {
     if (bagWarn > 0) bagWarn -= dt;
     updateHomestead(dt);
     if (bm.on && inHomestead()) updateBuildMode();
+    updatePlacing();
     if (delve < 0) updateBiome(dt);
     updatePlayer(dt);
     updateHarvest(dt);
@@ -646,6 +647,10 @@ void Game::update(float dt) {
                 bm.on = false;
                 break;
             }
+            if (in.escPressed && pl.on) {
+                pl.on = false;
+                break;
+            }
             if (in.escPressed) {
                 state = ST_PAUSE;
                 break;
@@ -704,7 +709,6 @@ void Game::update(float dt) {
             break;
         case ST_BUILD: updateBuildMenu(dt); break;
         case ST_ANIMAL: updateAnimalMenu(dt); break;
-        case ST_MARKET: updateMarket(dt); break;
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
             break;

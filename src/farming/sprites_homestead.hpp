@@ -1,5 +1,5 @@
 // sprites_homestead.hpp - the art of the Homestead, drawn in code like everything else: building pieces, crops in five growth stages, the
-// portal and the market stall, and the icons of the new materials and tools. Top-down 3/4 view like the town, light from the top-left,
+// portal, and the icons of the new materials and tools. Top-down 3/4 view like the town, light from the top-left,
 // lit tops and shaded undersides, one pixel dark contour. (The farm animals are in dom_art.hpp; they use the 3D model renderer.)
 #pragma once
 #include "core/data.hpp"
@@ -440,7 +440,7 @@ inline Img crop(int c, int stage) {
     return im;
 }
 
-// ------------------------------------------------------------------ the portal (4 swirl frames, 48 x 60) and the market stall (56 x 46)
+// ------------------------------------------------------------------ the portal (4 swirl frames, 48 x 60) 
 inline Img portal(int frame) {
     Img im(48, 60);
     const Pal P = stonePal();
@@ -477,31 +477,6 @@ inline Img portal(int frame) {
     }
     im.rect(21, 0, 6, 6, P.M); im.rect(21, 0, 6, 1, P.L);  // keystone with a gem
     im.set(23, 2, HEX(0xffd8ff)); im.set(24, 3, HEX(0xc070ff)); im.set(23, 3, HEX(0xc070ff));
-    im.outline(OUT);
-    return im;
-}
-inline Img market() {
-    Img im(60, 50);
-    // counter and back shelves
-    im.rect(4, 22, 52, 22, HEX(0x8a5a30)); im.rect(4, 22, 52, 2, HEX(0xb07a42));
-    for (int x = 4; x < 56; x += 6) im.rect(x, 24, 1, 20, HEX(0x6a4426));
-    im.rect(2, 40, 56, 5, HEX(0xb07a42)); im.rect(2, 40, 56, 1, HEX(0xd9a866)); im.rect(2, 44, 56, 1, HEX(0x5a371c));
-    // goods on the counter: crates of produce, a sack of seeds, a hanging sign
-    auto crate = [&](int x, u32 a, u32 b) { im.rect(x, 33, 12, 8, HEX(0x6a4426)); im.rect(x, 33, 12, 1, HEX(0xb07a42)); for (int i = 0; i < 4; i++) im.ellipseShaded(x + 2.5f + i * 2.4f, 33.f, 1.9f, 1.9f, lit(a), a, b); };
-    crate(7, HEX(0xe03a2a), HEX(0x9a1a14)); crate(21, HEX(0xf08a2a), HEX(0xb85a14)); crate(35, HEX(0x8ad868), HEX(0x4a9a3a)); crate(47, HEX(0xf2d040), HEX(0xb08a20));
-    // awning: striped cloth on two posts
-    im.rect(2, 8, 3, 36, HEX(0x6a4426)); im.rect(55, 8, 3, 36, HEX(0x6a4426));
-    for (int y = 0; y < 12; y++)
-        for (int x = 0; x < 60; x++) {
-            const int stripe = ((x + y / 2) / 5) % 2;
-            u32 c = stripe ? HEX(0xf4f0ea) : HEX(0x3a9a5a);
-            if (y == 11) c = drk(c);
-            if (y == 0) c = lit(c);
-            if (y >= 9 && (x % 5) > 2) continue;  // scalloped hem
-            im.set(x, 6 + y, c);
-        }
-    im.rect(14, 19, 32, 8, HEX(0x5a371c)); im.rect(15, 20, 30, 6, HEX(0xc89a58));
-    im.text(17, 21, "MARKET", HEX(0x3a2210));
     im.outline(OUT);
     return im;
 }
@@ -591,6 +566,57 @@ inline Img iconMat(int m) {
     im.outline(OUT);
     return im;
 }
+// the face of a baby farm animal (inventory icon, 16 x 16 scaled to 8 x 8): body and head in the species' own colours
+inline Img iconFarmBaby(int k) {
+    struct C { u32 body, light, dark, beak; };
+    static const C CL[DA_COUNT] = {
+        {HEX(0xf2dc5a), HEX(0xfff0a0), HEX(0xb89a28), HEX(0xe8892a)},  // chick
+        {HEX(0xf4efe6), HEX(0xffffff), HEX(0x6a4a34), HEX(0xe8a0a0)},  // calf
+        {HEX(0xeee6d2), HEX(0xfffaf0), HEX(0x5a4a40), HEX(0x9a8a7a)},  // lamb
+        {HEX(0xf0a8a8), HEX(0xffd0d0), HEX(0xb06a6a), HEX(0xd87a7a)},  // piglet
+        {HEX(0xd8d0c0), HEX(0xf4efe4), HEX(0x6a5a4a), HEX(0x9a8a7a)},  // kid
+        {HEX(0xf6e46a), HEX(0xfff4a8), HEX(0xb89a28), HEX(0xf09a2a)},  // duckling
+        {HEX(0xb89a7a), HEX(0xe0cfb4), HEX(0x6a5040), HEX(0xe8a0a0)}}; // kit
+    const C& c = CL[k];
+    Img im(16, 16);
+    if (k == DA_COW || k == DA_SHEEP || k == DA_GOAT || k == DA_RABBIT) {  // ears / horns
+        const float ex = k == DA_RABBIT ? 5.f : 3.f;
+        im.ellipse(8.f - ex, k == DA_RABBIT ? 3.f : 5.f, 1.3f, k == DA_RABBIT ? 3.f : 1.8f, c.dark);
+        im.ellipse(8.f + ex, k == DA_RABBIT ? 3.f : 5.f, 1.3f, k == DA_RABBIT ? 3.f : 1.8f, c.dark);
+    }
+    if (k == DA_PIG) { im.ellipse(4.5f, 5.f, 1.8f, 1.8f, c.dark); im.ellipse(11.5f, 5.f, 1.8f, 1.8f, c.dark); }
+    im.ellipse(8.f, 9.5f, 6.0f, 5.4f, c.body);
+    im.ellipse(8.f, 7.6f, 4.2f, 2.4f, c.light);
+    if (k == DA_COW) im.ellipse(5.f, 8.f, 1.8f, 1.6f, c.dark);
+    im.set(5, 8, HEX(0x20140c)); im.set(10, 8, HEX(0x20140c));
+    const int by = (k == DA_CHICKEN || k == DA_DUCK) ? 10 : 11;
+    for (int x = 7; x <= 8; x++) im.set(x, by, c.beak);
+    if (k == DA_DUCK) im.set(7, by + 1, c.beak), im.set(8, by + 1, c.beak);
+    im.outline(OUT);
+    return im;
+}
+
+// the farm's carried gear: straw hat, farmer's boots, porter's belt (k = 0..2)
+inline Img iconFarmCarry(int k) {
+    Img im(16, 16);
+    if (k == 0) {
+        im.ellipse(8.f, 10.f, 7.2f, 2.8f, HEX(0xe8c86a));
+        im.ellipse(8.f, 7.f, 4.0f, 3.6f, HEX(0xf2d880));
+        im.rect(4, 8, 8, 1, HEX(0xb04a3a));
+        im.rect(5, 5, 2, 1, HEX(0xfff0b0));
+    } else if (k == 1) {
+        im.rect(4, 3, 5, 8, HEX(0x8a5a30)); im.rect(4, 3, 1, 8, HEX(0xb07a44));
+        im.rect(4, 10, 9, 3, HEX(0x6a4220)); im.rect(12, 9, 1, 1, HEX(0x6a4220));
+        im.rect(4, 5, 5, 1, HEX(0xe8c86a)); im.set(6, 8, HEX(0xc8a060));
+    } else {
+        im.rect(2, 6, 12, 4, HEX(0x7a4a26)); im.rect(2, 6, 12, 1, HEX(0xa8703c));
+        im.rect(6, 5, 4, 6, HEX(0xd8b84a)); im.rect(7, 6, 2, 4, HEX(0x7a4a26));
+        im.set(3, 8, HEX(0x3a2210)); im.set(12, 8, HEX(0x3a2210));
+    }
+    im.outline(OUT);
+    return im;
+}
+
 inline Img iconTool(int k) {
     Img im(16, 16);
     const u32 W1 = HEX(0xb07a42), W2 = HEX(0x84552c), M1 = HEX(0xc4c8d4), M2 = HEX(0x8a90a4);
@@ -697,9 +723,9 @@ struct HomeAssets {
     Spr greenhouse[2];
     Spr well, scarecrow;
     Spr crop[CR_COUNT][CROP_STAGES];
-    Spr portal[4], market, node[2];
+    Spr portal[4], node[2];
     Spr pieceIcon[HP_COUNT];
-    Spr matIcon[M_COUNT], toolIcon[TL_COUNT];  // only the homestead's entries are filled
+    Spr matIcon[M_COUNT], toolIcon[TL_COUNT], babyIcon[DA_COUNT], carryIcon[3];  // only the homestead's entries are filled
     bool ok = false;
 };
 inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
@@ -734,10 +760,11 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
     for (int c = 0; c < CR_COUNT; c++)
         for (int s = 0; s < CROP_STAGES; s++) a.crop[c][s] = makeSpr(r, crop(c, s), 9, 23);
     for (int f = 0; f < 4; f++) a.portal[f] = makeSpr(r, portal(f), 24, 57);
-    a.market = makeSpr(r, market(), 30, 46);
     for (int i = 0; i < 2; i++) a.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
     for (int k = 0; k < HP_COUNT; k++) a.pieceIcon[k] = makeSpr(r, iconPiece(k), 12, 12);
     for (int m = M_BERRY; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, iconMat(m), 8, 8);
+    for (int k = 0; k < 3; k++) a.carryIcon[k] = makeSpr(r, iconFarmCarry(k), 8, 8);
+    for (int k = 0; k < DA_COUNT; k++) a.babyIcon[k] = makeSpr(r, iconFarmBaby(k), 8, 8);
     for (int k = TL_HOE; k < TL_COUNT; k++) a.toolIcon[k] = makeSpr(r, iconTool(k), 8, 8);
     a.ok = true;
 }

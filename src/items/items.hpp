@@ -12,15 +12,15 @@
 #include <string>
 #include "core/data.hpp"
 
-enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED, IK_BABY };
-[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR", "BABY ANIMAL"};
-static_assert(sizeof(ITEM_KIND_NAME) / sizeof(ITEM_KIND_NAME[0]) == IK_BABY + 1, "every item kind needs a display name");
+enum ItemKind { IK_MATERIAL, IK_THROWN, IK_LAUNCHER, IK_AMMO, IK_CONSUMABLE, IK_BACKPACK, IK_TOOL, IK_PLACEABLE, IK_CARRIED, IK_BABY, IK_FARMBABY };
+[[maybe_unused]] static const char* ITEM_KIND_NAME[] = {"MATERIAL", "THROWN WEAPON", "LAUNCHER", "AMMUNITION", "CONSUMABLE", "BACKPACK", "GATHERING TOOL", "PLACEABLE", "CARRIED GEAR", "BABY ANIMAL", "BABY FARM ANIMAL"};
+static_assert(sizeof(ITEM_KIND_NAME) / sizeof(ITEM_KIND_NAME[0]) == IK_FARMBABY + 1, "every item kind needs a display name");
 
 // ---- id space: contiguous ranges, in the order of the legacy enums
 constexpr int ITEM_MAT0 = 0;
 constexpr int ITEM_WPN0 = ITEM_MAT0 + M_COUNT;
 constexpr int ITEM_AMMO0 = ITEM_WPN0 + W_COUNT;
-enum ConsumableId { C_BANDAGE, C_SALVE, C_TONIC, C_COOKED, C_BREW, C_CACTUSWATER, C_POULTICE, C_MEDICINE, C_JERKY, C_STEW, C_VIGOR, C_NIGHTSIGHT, C_COUNT };
+enum ConsumableId { C_BANDAGE, C_SALVE, C_TONIC, C_COOKED, C_BREW, C_CACTUSWATER, C_POULTICE, C_MEDICINE, C_JERKY, C_STEW, C_VIGOR, C_NIGHTSIGHT, C_OMELET, C_BREAD, C_CHOWDER, C_PIE, C_COUNT };
 constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
@@ -54,11 +54,14 @@ constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
 constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 // Carried gear works while it is in the pack (like a tool: no equip step, it just has to be on you). Each takes a pack slot.
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
-                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_COUNT };  // CG_LANTERN..CG_HEART: mine and dungeon gear
+                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_STRAWHAT, CG_FARMBOOTS, CG_PORTERBELT, CG_COUNT };  // CG_LANTERN..CG_HEART: mine and dungeon gear
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
 // a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
 constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
-constexpr int ITEM_COUNT = ITEM_BABY0 + A_COUNT;
+constexpr int FARM_BABIES = 7;  // the farm animals of the Homestead (DA_COUNT in farming/homestead.hpp): bought at the General Store as babies
+constexpr int ITEM_FBABY0 = ITEM_BABY0 + A_COUNT;
+constexpr int ITEM_COUNT = ITEM_FBABY0 + FARM_BABIES;
+constexpr int itemFarmBaby(int k) { return ITEM_FBABY0 + k; }
 constexpr int itemBaby(int kind) { return ITEM_BABY0 + kind; }
 constexpr int itemCarry(int c) { return ITEM_CARRY0 + c; }
 constexpr int itemTool(int t) { return ITEM_TOOL0 + t; }
@@ -138,6 +141,10 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         t[ITEM_CONS0 + C_STEW] = {"HUNTER'S STEW", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 85 HP AND RESTORES STAMINA", C_STEW, 0};
         t[ITEM_CONS0 + C_VIGOR] = {"VELVET TONIC", IK_CONSUMABLE, STACK_CONS, 0, 2, "HEALS 55 HP, FULL STAMINA, 15% FASTER FOR 90 SECONDS", C_VIGOR, 0};
         t[ITEM_CONS0 + C_NIGHTSIGHT] = {"NIGHTSIGHT TONIC", IK_CONSUMABLE, STACK_CONS, 0, 2, "THE NIGHT LOOKS LIKE DUSK FOR 5 MINUTES", C_NIGHTSIGHT, 0};
+        t[ITEM_CONS0 + C_OMELET] = {"FARM OMELET", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 60 HP AND RESTORES STAMINA", C_OMELET, 0};
+        t[ITEM_CONS0 + C_BREAD] = {"WHEAT BREAD", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 40 HP AND RESTORES STAMINA", C_BREAD, 0};
+        t[ITEM_CONS0 + C_CHOWDER] = {"FISH CHOWDER", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 100 HP AND WARMS YOU FOR 2 MINUTES", C_CHOWDER, 0};
+        t[ITEM_CONS0 + C_PIE] = {"BERRY PIE", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 50 HP, 15% FASTER FOR 60 SECONDS", C_PIE, 0};
         static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK", "EXPEDITION PACK"};
         static const float pw[PK_COUNT] = {1.0f, 1.5f, 2.0f, 2.5f};
         for (int k = 0; k < PK_COUNT; k++) {
@@ -163,14 +170,22 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"CROWN OF THE FROSTBOUND KING", "CARRIED: +15% DAMAGE DEALT, -10% DAMAGE TAKEN", 3},
             {"THE FROZEN HEART", "CARRIED: SLOWLY MENDS YOUR WOUNDS, A LITTLE EVERY MOMENT", 3},
             {"SADDLEBAGS", "CARRIED: YOUR MOUNT CARRIES 50% MORE WEIGHT WHILE YOU RIDE", 1},
+            {"STRAW HAT", "CARRIED: HOMESTEAD CROPS GROW 15% FASTER", 0},
+            {"FARMER'S BOOTS", "CARRIED: 10% FASTER ON FOOT", 1},
+            {"PORTER'S BELT", "CARRIED: +25 KG CARRYING LIMIT", 1},
         };
         for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
         for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, STACK_GEAR, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
+        {  // farm babies: the price is the animal's price at the General Store (set from DOMS by the shop), they cannot be sold
+            static const char* const BN[FARM_BABIES] = {"CHICK", "CALF", "LAMB", "PIGLET", "KID", "DUCKLING", "KIT"};
+            for (int k = 0; k < FARM_BABIES; k++)
+                t[itemFarmBaby(k)] = {std::string("BABY ") + BN[k], IK_FARMBABY, STACK_GEAR, 0, 0, "RAISE IT AT YOUR HOMESTEAD - FEED IT AND IT GROWS UP", k, 0, 2.0f};
+        }
         // weights: one table per category (materials / weapons above); the rest by kind
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)].weight = matWeight(m);
         for (int w = 0; w < W_COUNT; w++) t[itemWpn(w)].weight = wpnWeight(w);
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)].weight = 0.05f;
-        static const float cw[C_COUNT] = {0.1f, 0.2f, 0.4f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.3f, 0.6f, 0.3f, 0.3f};
+        static const float cw[C_COUNT] = {0.1f, 0.2f, 0.4f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.3f, 0.6f, 0.3f, 0.3f, 0.4f, 0.3f, 0.6f, 0.5f};
         for (int c = 0; c < C_COUNT; c++) t[ITEM_CONS0 + c].weight = cw[c];
         for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : TOOLDEF[k].type == TT_PICK ? 2.5f + 0.25f * TOOLDEF[k].tier : 1.5f;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
@@ -183,8 +198,8 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
 inline const ItemDef& item(int id) { return itemTable()[id]; }
 // only crafted things have a quality: raw and processed materials never do (their icons get no border)
 // gear: the things that are one-off results of a craft (a launcher, a tool, a bag, carried gear): never doubled by a skill bonus
-inline bool itemIsGear(int id) { return id >= 0 && (item(id).kind == IK_LAUNCHER || item(id).kind == IK_TOOL || item(id).kind == IK_BACKPACK || item(id).kind == IK_CARRIED || item(id).kind == IK_BABY); }
-inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL && item(id).kind != IK_BABY; }  // (a baby's q is its rarity tier)
+inline bool itemIsGear(int id) { return id >= 0 && (item(id).kind == IK_LAUNCHER || item(id).kind == IK_TOOL || item(id).kind == IK_BACKPACK || item(id).kind == IK_CARRIED || item(id).kind == IK_BABY || item(id).kind == IK_FARMBABY); }
+inline bool itemHasQuality(int id) { return id >= 0 && item(id).kind != IK_MATERIAL && item(id).kind != IK_BABY && item(id).kind != IK_FARMBABY; }  // (a baby's q is its rarity tier)
 inline bool itemValid(int id) { return id >= 0 && id < ITEM_COUNT; }
 
 // ---- recipes in terms of items

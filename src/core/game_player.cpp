@@ -207,7 +207,7 @@ void Game::updatePlayer(float dt) {
     V2 mv((in.right ? 1.f : 0.f) - (in.left ? 1.f : 0.f), (in.down ? 1.f : 0.f) - (in.up ? 1.f : 0.f));
     bool moving = mv.len() > 0.1f;
     if (moving) mv = mv.norm();
-    float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f);
+    float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f) * (P.has(CG_FARMBOOTS) ? 1.10f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
     {
         float ts = tileSpeed(groundT);

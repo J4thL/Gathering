@@ -1077,7 +1077,7 @@ struct Assets {
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadowSoft, blood[3], vignette;
     DelveAssets D;
-    hart::HomeAssets H;  // the Homestead: building pieces, crops, portal and market (sprites_homestead.hpp)
+    hart::HomeAssets H;  // the Homestead: building pieces, crops and portal (sprites_homestead.hpp)
     DomBank Dom;    // the farm animals of the Homestead: built on first entry (buildDomBank)
     MonsterBank M;  // the delve creatures: built on first entry (buildMonsterBank)  // the Abandoned Mine and the Frozen Dungeon (sprites_delve.hpp)
     TileBlend blend;  // soft borders between ground tiles (tile_edges.hpp)
@@ -1213,7 +1213,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         im.outline(OUT);
         a.babyIcon[k] = makeSpr(r, im, 8, 8);
     }
-    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
+    for (int c = 0; c < CG_STRAWHAT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
         Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));

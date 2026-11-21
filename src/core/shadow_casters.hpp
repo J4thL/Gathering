@@ -163,7 +163,6 @@ inline const std::vector<PropShadow>& propShadowTable() {
         pWide(P_ICEHUT, SPR_P(c.A.B.icehut)),
         pWide(P_RUINWALL, SPR_P(c.A.B.ruinwall)),
         pWide(P_ARCH, SPR_P(c.A.B.arch)),
-        pWide(P_HMARKET, SPR_P(c.A.H.market)),
         pWide(P_LOG, SPR_P(c.A.B.log), 0.7f, 0.9f),
         pWide(P_BENCH, SPR_P(c.A.T.bench), 0.7f, 0.9f),
         pWide(P_WELL, SPR_P(c.A.T.well), 0.8f, 0.8f),

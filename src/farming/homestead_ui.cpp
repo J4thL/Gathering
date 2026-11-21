@@ -1,4 +1,4 @@
-// homestead_ui.cpp - the Homestead's menus and the build-mode input: build menu, seed menu, animal management, market stall.
+// homestead_ui.cpp - the Homestead's menus and the build-mode input: build menu, animal management.
 #include <algorithm>
 #include <cmath>
 #include "core/game.hpp"
@@ -255,67 +255,4 @@ void Game::drawAnimalMenu() {
         if (n == 0) msg("EVERYONE IS FED (OR YOU HAVE NO FEED)", C_DIM);
     }
     textC(PX + PW - 90, PY + PH - 9, "WHEEL SCROLL  E / ESC CLOSE", C_DIM, 1, false);
-}
-
-// ================================================================= market stall
-
-void Game::updateMarket(float dt) {
-    updateFx(dt);
-    marketScroll -= in.wheel;
-    if (in.tabPressed) marketTab = (marketTab + 1) % 2, marketScroll = 0;
-    if (in.escPressed || in.ePressed) {
-        state = ST_PLAY;
-        save();
-        audio.play(S_CLICK);
-    }
-}
-
-void Game::drawMarket() {
-    frame(*this, "HOMESTEAD MARKET");
-    text(PX + PW - 70, PY + 7, S(p.coins) + " COINS", C_GOLD);
-    static const char* TABS[2] = {"ANIMALS", "SELL"};  // seeds, tools and hay are sold at the General Store now
-    for (int t = 0; t < 2; t++)
-        if (button(PX + 8 + t * 62, PY + 20, 60, 14, TABS[t], true, marketTab == t ? HEX(0x7a5a2a) : UI_BTN)) marketTab = t, marketScroll = 0;
-    struct Row { std::string name, note; int price, have, kind, id; const Spr* ic; };
-    std::vector<Row> rows;
-    if (marketTab == 0)
-        for (int k = 0; k < DA_COUNT; k++) rows.push_back({DOMS[k].name, std::string(DOMS[k].prodName ? DOMS[k].prodName : "") + (DOMS[k].small ? "  COOP OK" : "  NEEDS BARN OR PEN"), DOMS[k].price, 0, 1, k, &A.matIcon[DOMS[k].product]});
-    else
-        for (int m : {(int)M_BERRY, (int)M_WHEAT, (int)M_CARROT, (int)M_POTATO, (int)M_CABBAGE, (int)M_CORN, (int)M_TOMATO, (int)M_PUMPKIN, (int)M_STRAWBERRY, (int)M_EGG, (int)M_DUCKEGG, (int)M_MILK, (int)M_WOOL, (int)M_TRUFFLE, (int)M_HAY})
-            if (p.mat(m) > 0) rows.push_back({MAT_NAME[m], "SELL THE WHOLE STACK", MAT_PRICE[m], p.mat(m), 4, m, &A.matIcon[m]});
-    const int rowH = 18, vis = 8, top = PY + 38;
-    marketScroll = std::max(0, std::min((int)rows.size() - vis, marketScroll));
-    if (rows.empty()) text(PX + 10, top + 8, marketTab == 1 ? "NOTHING TO SELL - HARVEST SOMETHING FIRST" : "SOLD OUT", C_DIM);
-    for (int r = 0; r < vis && r + marketScroll < (int)rows.size(); r++) {
-        const Row& w = rows[r + marketScroll];
-        const int y = top + r * rowH;
-        panel(PX + 6, y, PW - 12, rowH - 1, HEX(0x33241a));
-        icon(*w.ic, PX + 18, y + 8, 14);
-        text(PX + 30, y + 2, w.name, C_TEXT);
-        text(PX + 30, y + 10, w.note, C_DIM, 1, false);
-        if (w.kind != 1) text(PX + 200, y + 6, "OWN " + S(w.have), C_DIM);
-        const bool sell = w.kind == 4;
-        const int total = sell ? w.price * w.have : w.price;
-        const bool can = sell || p.coins >= w.price;
-        if (button(PX + PW - 84, y + 2, 72, 13, (sell ? "SELL +" : "BUY ") + S(total), can, sell ? HEX(0x5d7a2e) : UI_BTN)) {
-            if (w.kind == 1) {
-                if ((int)hs.animals.size() >= H_MAX_ANIMALS) msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED);
-                else {
-                    float x0, y0, x1, y1;
-                    HAnimal tmp;
-                    hsYard(tmp, x0, y0, x1, y1);
-                    hsAddAnimal(w.id, V2(frng.range(x0, x1), frng.range(y0, y1)), false, -1);
-                    p.coins -= w.price;
-                    msg(std::string("A ") + DOMS[w.id].name + " JOINS YOUR HOMESTEAD - ASSIGN IT A HOME", C_GREEN);
-                    audio.play(S_COIN, 0.6f);
-                }
-            } else {
-                const int n = p.inv.remove(itemMat(w.id), w.have);
-                p.coins += n * w.price;
-                audio.play(S_COIN);
-                msg("SOLD " + S(n) + " " + w.name + " FOR " + S(n * w.price), C_GOLD);
-            }
-        }
-    }
-    textC(PX + PW / 2, PY + PH - 12, "TAB / CLICK TABS  WHEEL SCROLL  E / ESC CLOSE", C_DIM, 1, false);
 }

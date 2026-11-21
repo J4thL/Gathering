@@ -120,6 +120,19 @@ static const Recipe RECIPES[] = {
     {RK_ITEM, itemMat(M_STEELBAR), 1, {M_IRONBAR, M_COAL, -1}, {1, 3, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 20},
     {RK_ITEM, itemMat(M_STEELBAR), 3, {M_IRONBAR, M_VOIDSHARD, -1}, {2, 1, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 26},  // void shard: dungeon-only
     {RK_ITEM, itemCons(C_TONIC), 3, {M_GLOWCAP, M_HERB, -1}, {1, 1, 0}, RC_MEDICINE, STN_ANY, SK_ALCHEMY, 12},  // glowcap: dungeon-only
+    // ---- the farm's kitchen and wardrobe: eggs, milk, grain, fish and berries become meals; straw, leather and hay become gear
+    {RK_ITEM, itemCons(C_OMELET), 2, {M_EGG, M_HERB, M_MILK}, {2, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 4},
+    {RK_ITEM, itemCons(C_BREAD), 3, {M_WHEAT, M_EGG, -1}, {3, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 3},
+    {RK_ITEM, itemCons(C_CHOWDER), 2, {M_TROUT, M_POTATO, M_MILK}, {1, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 9},
+    {RK_ITEM, itemCons(C_CHOWDER), 2, {M_BASS, M_POTATO, M_MILK}, {1, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 9},
+    {RK_ITEM, itemCons(C_PIE), 2, {M_STRAWBERRY, M_WHEAT, M_EGG}, {3, 2, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 7},
+    {RK_ITEM, itemCons(C_PIE), 2, {M_BERRY, M_WHEAT, M_EGG}, {4, 2, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 6},
+    {RK_ITEM, itemCons(C_COOKED), 2, {M_CATFISH, M_HERB, -1}, {1, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 2},
+    {RK_ITEM, itemCons(C_COOKED), 2, {M_PIKE, M_HERB, -1}, {1, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 2},
+    {RK_ITEM, itemCons(C_BANDAGE), 3, {M_WOOL, M_HERB, -1}, {2, 1, 0}, RC_MEDICINE, STN_ANY, SK_CRAFTING, 3},
+    {RK_ITEM, itemCarry(CG_STRAWHAT), 1, {M_WHEAT, M_FIBER, M_ROPE}, {6, 4, 1}, RC_ARMOR, STN_ANY, SK_CRAFTING, 5},
+    {RK_ITEM, itemCarry(CG_FARMBOOTS), 1, {M_LEATHER, M_ROPE, M_HAY}, {3, 1, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 14},
+    {RK_ITEM, itemCarry(CG_PORTERBELT), 1, {M_LEATHER, M_IRONBAR, M_ROPE}, {3, 1, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 18},
     {RK_ITEM, itemCarry(CG_GEMRING), 1, {M_RELIC, M_GOLDBAR, -1}, {1, 1, 0}, RC_ARMOR, STN_SHOP, SK_SMITHING, 34},  // relic: dungeon-only
     {RK_ITEM, itemCarry(CG_LANTERN), 1, {M_IRONBAR, M_GREASE, M_RARECRYSTAL}, {1, 2, 1}, RC_TOOLS, STN_SHOP, SK_SMITHING, 12},
     {RK_WEAPON, W_SILVERDAGGER, 2, {M_SILVERBAR, M_BONEFRAG, M_FIBER}, {1, 2, 1}, RC_WEAPONS, STN_SHOP, SK_SMITHING, 18},

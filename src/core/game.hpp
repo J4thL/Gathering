@@ -188,7 +188,7 @@ struct Player {
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
-    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank(); }  // kg (+ the hunter rank)
+    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank() + (has(CG_PORTERBELT) ? 25 : 0); }  // kg (+ the hunter rank)
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
@@ -296,18 +296,20 @@ struct HTarget {
     float dist = 0;
     int key() const { return valid ? (node ? (1 << 28) : 0) | idx : -1; }
 };
-constexpr int CHEST_SLOTS = 20, MAX_STRUCTS = 16;
+constexpr int CHEST_SLOTS = 100, MAX_STRUCTS = 16;
+constexpr float CHEST_KG = 400.f;       // what a chest holds in weight (100 slots always; the weight is the limit)
+constexpr float PLACE_REACH = 72.f;     // how far from the hunter the cursor can put a campfire / chest down
 constexpr int INV_COLS = 10;  // the pack screen draws its 100 slots as 10 columns x 10 rows
 // things the hunter builds: campfires (smelting, cooking, warmth, light) and storage chests
 struct Structure {
     int kind = PL_CAMPFIRE;
     int tx = 0, ty = 0;
-    Inventory inv{CHEST_SLOTS, 1e9f};  // chests only (a chest has no weight limit)
+    Inventory inv{CHEST_SLOTS, CHEST_KG / OVERLOAD_MAX};  // chests only: 100 slots and a hard weight limit of CHEST_KG
     V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_ANIMAL, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
 
 // seasons: a week of days each (a day is DAY_LEN seconds), spring first. They change how many animals roam, which pelts and fat a kill gives,
 // how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
@@ -683,7 +685,12 @@ struct Game {
         int kind = HP_FENCE, rot = 0, tx = 0, ty = 0, cat = 0, scroll = 0;
         std::string why;
     } bm;
-    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0, hsTileHit = -1;
+    struct PlaceMode {  // placing a campfire / chest with the cursor (structures.cpp)
+        bool on = false, valid = false;
+        int kind = PL_CAMPFIRE, tx = 0, ty = 0;
+        std::string why;
+    } pl;
+    int farmPieceId = -1, animSelId = -1, animScroll = 0, hsTileHit = -1;
     float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
     bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
@@ -758,10 +765,8 @@ struct Game {
     void updateBuildMode();
     void updateBuildMenu(float dt);
     void updateAnimalMenu(float dt);
-    void updateMarket(float dt);
     void drawBuildMenu();
     void drawAnimalMenu();
-    void drawMarket();
     void drawHomesteadGround();                                       // floors, foundations, plots, pen yards
     void drawHsPiece(const HPiece& pc, int sub, float alpha = 1.f);   // one object-layer piece (sub: ring tile of a pen)
     void drawHsCrop(const HPiece& pc);
@@ -847,7 +852,12 @@ struct Game {
     void drawHarvestPrompt();
     std::string harvestVerb(int res) const;
     // ---- structures (structures.cpp)
-    bool placeStructure(int kind);
+    bool placeStructure(int kind);                        // pack / hotbar use: starts the placing mode
+    bool placeStructureAt(int kind, int tx, int ty);      // puts one down on that tile (range and room are checked)
+    bool placeStructureAtCursor(int kind);
+    bool placeCheck(int tx, int ty, std::string* why = nullptr);
+    void updatePlacing();
+    void drawPlaceGhost();
     bool structInteract(float dt);
     void drawStructPrompt();
     bool canPlaceAt(int tx, int ty) const;
