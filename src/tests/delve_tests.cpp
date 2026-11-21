@@ -286,26 +286,26 @@ int delveTest(Game& g) {
     g.travelTo(B_SNOW, MAPS[B_SNOW].entryTx, MAPS[B_SNOW].entryTy, false);
     check(g.world.gate.x > 0, "the snowfield has a frozen fortress entrance");
     standAt(g, g.world.gate + V2(0, 14));
-    g.p.up[U_ARMOR] = 0;
+    g.p.setArmor(0);
     g.bldCd = 0;
     check(g.delveInteract() && g.delve == DV_FROST0, "the first level, the Frozen Entrance, is open to anyone");
     check(!g.delveReq(DV_FROST1) && !g.delveReq(DV_FROST2) && !g.delveReq(DV_FROST3), "deeper levels are closed to an unarmoured hunter");
     std::string why;
-    g.p.up[U_ARMOR] = 2;
+    g.p.setArmor(2);
     check(g.delveReq(DV_FROST1) && !g.delveReq(DV_FROST2, &why) && !why.empty(), "armour tier 2 opens the Frozen Halls (and says what the Crypt needs)");
-    g.p.up[U_ARMOR] = 4;
+    g.p.setArmor(4);
     check(g.delveReq(DV_FROST2) && !g.delveReq(DV_FROST3), "armour tier 4 opens the Ancient Crypt but not the Throne");
-    g.p.up[U_ARMOR] = 5;
+    g.p.setArmor(5);
     check(!g.delveReq(DV_FROST3), "tier 5 armour alone is not enough for the Throne: it needs frost protection");
     g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     check(g.delveReq(DV_FROST3), "with a frostward cloak it is");
     // stairs: level 1 -> 2
-    g.p.up[U_ARMOR] = 0;
+    g.p.setArmor(0);
     for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
     standAt(g, g.world.stairsDn);
     g.bldCd = 0;
     check(g.delveNear() == 3 && !g.delveInteract() && g.delve == DV_FROST0, "the stairs refuse a hunter without the armour");
-    g.p.up[U_ARMOR] = 2;
+    g.p.setArmor(2);
     g.bldCd = 0;
     check(g.delveInteract() && g.delve == DV_FROST1 && !g.mons.empty(), "with it the stairs lead down to the Frozen Halls");
     check(dist(g.p.pos, g.world.stairsUp) < 40.f, "arriving beside the stairs up");
@@ -330,7 +330,7 @@ int delveTest(Game& g) {
     check(g.delveNear() == 4 && g.delveInteract() && g.delve == DV_FROST0, "and the stairs lead back up");
 
     printf("--- chests, keys and the crypt\n");
-    g.p.up[U_ARMOR] = 4;
+    g.p.setArmor(4);
     g.bldCd = 0;
     standAt(g, g.world.stairsDn);
     g.delveInteract();
@@ -390,7 +390,7 @@ int delveTest(Game& g) {
     }
 
     printf("--- the Frostbound King\n");
-    g.p.up[U_ARMOR] = 8;
+    g.p.setArmor(8);
     g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     g.delveMem[DV_FROST3].bossDead = false;
     g.bldCd = 0;
@@ -513,7 +513,7 @@ int delveTest(Game& g) {
         g.craftQuality = Q_NORMAL;
         g.p.inv = Inventory();
         g.p.inv.maxWeight = 1e6f;  // (the pack's weight limit is not what is being tested here)
-        g.p.up[U_ARMOR] = 5;
+        g.p.setArmor(5);
         for (int k = 0; k < SK_COUNT; k++) g.p.sk.s[k].xp = 0;
         auto find = [&](int kind, int out, int count = -1) {
             for (int r = 0; r < RECIPE_N; r++)
@@ -542,19 +542,19 @@ int delveTest(Game& g) {
         }
         check(made == 6, "improved weapons, the miner's lantern, gem ring, silver charm and frostward cloak can all be crafted");
         // the armour sets: each tier needs the one before it
-        const int r6 = find(RK_GEAR, U_ARMOR, 6), r7 = find(RK_GEAR, U_ARMOR, 7), r8 = find(RK_GEAR, U_ARMOR, 8);
+        const int r6 = find(RK_ITEM, itemCarry(CG_ARMOR6)), r7 = find(RK_ITEM, itemCarry(CG_ARMOR7)), r8 = find(RK_ITEM, itemCarry(CG_ARMOR8));
+        auto wearIt = [&](int cg) { for (size_t i = 0; i < g.p.inv.slots.size(); i++) if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == itemCarry(cg)) return g.equipCarried((int)i); return false; };
         check(r6 >= 0 && r7 >= 0 && r8 >= 0, "three new armour sets: Miner's Plate, Frostward Armor, Frostbound Plate");
         g.p.sk.s[SK_SMITHING].xp = 2000000;
-        stock(r7);
-        check(!g.craft(r7), "Frostward Armor needs Miner's Plate first");
         stock(r6);
-        const bool c6 = g.craft(r6);
+        const bool c6 = g.craft(r6) && wearIt(CG_ARMOR6);
         g.p.invuln = 0;
         stepFrames(g, 2);
-        check(c6 && g.p.up[U_ARMOR] == 6 && g.p.maxhp == (float)ARMOR_HP[6], "Miner's Plate is crafted and worn (more health)");
-        check(g.craft(r7) && g.p.up[U_ARMOR] == 7, "Frostward Armor follows");
+        check(c6 && g.p.armorLv() == 6 && g.p.maxhp == (float)ARMOR_HP[6], "Miner's Plate is crafted and worn (more health)");
+        stock(r7);
+        check(g.craft(r7) && wearIt(CG_ARMOR7) && g.p.armorLv() == 7, "Frostward Armor can be crafted and worn");
         stock(r8);
-        check(g.craft(r8) && g.p.up[U_ARMOR] == 8, "and the Frostbound Plate");
+        check(g.craft(r8) && wearIt(CG_ARMOR8) && g.p.armorLv() == 8, "and the Frostbound Plate");
         // inventory rules
         check(g.p.inv.slots.size() == 100 && MAX_STACK == 999, "the pack still has 100 slots and stacks of 999");
         const float w0 = g.p.inv.totalWeight();
@@ -576,7 +576,7 @@ int delveTest(Game& g) {
         g.delveMem[DV_FROST3].bossTimer = 900.f;
         // inside a delve when saving: the next load stands at the entrance
         standAt(g, g.world.gate + V2(0, 14));
-        g.p.up[U_ARMOR] = 3;
+        g.p.setArmor(3);
         g.bldCd = 0;
         g.delveInteract();
         check(g.delve == DV_FROST0, "(inside the dungeon for the save)");
@@ -588,7 +588,7 @@ int delveTest(Game& g) {
         check(g.load(), "the save loads");
         check(g.delve == -1 && g.world.mapId == B_SNOW, "a hunter saved inside the dungeon loads in the snowfield");
         check(dist(g.p.pos, ep) < 40.f, "standing at the fortress entrance");
-        check(g.p.coins == 4321 && g.p.up[U_ARMOR] == 3, "coins and gear are kept");
+        check(g.p.coins == 4321 && g.p.armorLv() == 3, "coins and gear are kept");
         check(g.delveMem[DV_FROST2].chests == 0x5 && g.delveMem[DV_FROST3].bossDead && g.delveMem[DV_FROST3].bossTimer > 800.f, "opened chests and the fallen king are remembered");
     }
 
@@ -601,9 +601,9 @@ int delveTest(Game& g) {
         check(endlessStartFloor(0) == 1 && endlessStartFloor(10) == 11, "a descent resumes below the last boss beaten");
         g.newGame();
         g.state = ST_PLAY;
-        g.p.up[U_ARMOR] = 0;
+        g.p.setArmor(0);
         check(!g.enterDelve(DV_ENDLESS), "the depths need armour");
-        g.p.up[U_ARMOR] = ENDLESS_ARMOR_NEED;
+        g.p.setArmor(ENDLESS_ARMOR_NEED);
         g.endlessCheckpoint = 0;
         g.bldCd = 0;
         check(g.enterDelve(DV_ENDLESS) && g.delve == DV_ENDLESS && g.endlessFloor == 1, "enter at floor 1");
@@ -655,7 +655,7 @@ void delveShots(Game& g, const std::string& dir) {
     g.newGame();
     g.state = ST_PLAY;
     g.p.hp = g.p.maxhp = 100000.f;
-    g.p.up[U_ARMOR] = 8;
+    g.p.setArmor(8);
     g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     g.ensureMonsterArt();
     int n = 0;

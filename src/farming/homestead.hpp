@@ -10,6 +10,7 @@
 #include <vector>
 #include "animals/mounts.hpp"
 #include "items/inventory.hpp"
+#include "farming/machines.hpp"
 
 // ---------------------------------------------------------------- pieces
 enum HPKind {
@@ -18,11 +19,12 @@ enum HPKind {
     HP_BRIDGE, HP_WELL, HP_CAMPFIRE, HP_PLOT, HP_BENCH, HP_PLANTER, HP_BARREL, HP_SCARECROW, HP_SIGN, HP_LAMP, HP_TORCH,  // outdoor structures and decoration
     HP_TROPHY,  // trophy wall: shows the trophies the hunter has earned (appended last so older saves keep their piece numbers)
     HP_HOLE, HP_POND,  // dug with the shovel: a hole in the ground, and a hole filled with water (appended: older saves keep their numbers)
+    HP_MILL, HP_DAIRY, HP_KETTLE, HP_SMOKER, HP_OVEN, HP_SAWMILL, HP_SMELTER,  // production machines (machines.hpp), in the order of MACHINES[]
     HP_COUNT
 };
 enum HPLayer { HL_GROUND, HL_OBJECT, HL_ROOF };
-enum HPCat { HC_BASIC, HC_BUILDING, HC_OUTDOOR, HC_COUNT };
-[[maybe_unused]] static const char* HCAT_NAME[HC_COUNT] = {"BASIC", "BUILDINGS", "OUTDOOR"};
+enum HPCat { HC_BASIC, HC_BUILDING, HC_OUTDOOR, HC_MACHINE, HC_COUNT };
+[[maybe_unused]] static const char* HCAT_NAME[HC_COUNT] = {"BASIC", "BUILDINGS", "OUTDOOR", "MACHINES"};
 enum HPSolid { HS_NONE, HS_ALL, HS_RING };  // none, the whole footprint, only the outer ring of tiles (a pen)
 
 struct HPieceDef {
@@ -67,6 +69,13 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"TROPHY WALL", 4, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_ROPE, -1}, {6, 1, 0}, 0, 0, 0, "SHOWS EVERY TROPHY YOU HAVE EARNED"},
     {"DUG HOLE", 1, 1, HL_GROUND, HS_NONE, -1, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "A HOLE - POUR WATER IN IT, OR NEXT TO WATER IT FLOODS"},   // cat -1: never in the build menu
     {"POND", 1, 1, HL_GROUND, HS_NONE, -1, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "WADE IN IT - WATERS TILLED SOIL NEARBY"},
+    {"GRAIN MILL", 3, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_STONE, M_ROPE}, {12, 6, 2}, 0, 0, 0, "E: WHEAT AND CORN BECOME FLOUR"},
+    {"DAIRY PRESS", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_IRONBAR, -1}, {8, 1, 0}, 0, 0, 0, "E: MILK BECOMES BUTTER AND CHEESE"},
+    {"PRESERVING KETTLE", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_WOOD}, {6, 2, 4}, 0, 0, 40.f, "E: BERRIES MAKE JAM, VEGETABLES PICKLES"},
+    {"SMOKEHOUSE", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_STONE, M_ROPE}, {10, 6, 1}, 0, 0, 35.f, "E: SMOKE MEAT INTO COOKED MEAT AND JERKY"},
+    {"BAKERY OVEN", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_PLANK}, {14, 1, 4}, 0, 0, 60.f, "E: BREAD, OMELETS AND PIES"},
+    {"SAWMILL", 4, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_IRONBAR, M_ROPE}, {14, 3, 2}, 0, 0, 0, "E: LOGS BECOME PLANKS, FIBER BECOMES ROPE"},
+    {"SMELTER", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_PLANK}, {16, 2, 4}, 0, 0, 80.f, "E: ORE AND WOOD BECOME BARS"},
 };
 constexpr int H_MAX_PIECES = 900;
 
@@ -159,6 +168,8 @@ struct HPiece {
     int crop = -1, stage = 0;        // farm plots
     float growT = 0, water = 0;      // seconds into the current stage; 0..1 how wet the soil is
     Inventory inv{0, 1e9f};          // storage buildings
+    int mrec = -1, mq = 0, mdone = 0;  // production machines (machines.hpp): the chosen recipe, batches still to make, batches finished and waiting
+    float mt = 0;                      // seconds into the batch being made
     int w() const { return (rot & 1) ? HPDEF[kind].h : HPDEF[kind].w; }
     int h() const { return (rot & 1) ? HPDEF[kind].w : HPDEF[kind].h; }
     bool covers(int x, int y) const { return x >= tx && x < tx + w() && y >= ty && y < ty + h(); }

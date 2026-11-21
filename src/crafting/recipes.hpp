@@ -62,16 +62,16 @@ static const Recipe RECIPES[] = {
     {RK_ITEM, itemMat(M_IRONBAR), 1, {M_IRON, M_WOOD, -1}, {2, 2, 0}, RC_MATERIALS, STN_FIRE, SK_SMITHING, 1},
     {RK_ITEM, itemMat(M_GOLDBAR), 1, {M_GOLD, M_WOOD, -1}, {3, 2, 0}, RC_MATERIALS, STN_FIRE, SK_SMITHING, 1},
 
-    // ---- gear: worn at once (armor and boots replace the shop's coin-cost upgrades with a material-only route)
-    {RK_GEAR, U_ARMOR, 1, {M_HIDE, M_FIBER, -1}, {5, 2, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
-    {RK_GEAR, U_ARMOR, 2, {M_FUR, M_HIDE, M_ROPE}, {4, 4, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 1},
-    {RK_GEAR, U_ARMOR, 3, {M_SCALE, M_HIDE, M_IRONBAR}, {6, 4, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 1},
-    {RK_GEAR, U_BOOTS, 1, {M_HIDE, M_FIBER, -1}, {3, 1, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
-    {RK_GEAR, U_BOOTS, 2, {M_FUR, M_HIDE, M_ROPE}, {3, 2, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 1},
+    // ---- armor and boots: ordinary crafted items, as many as you like, worn in the BODY / FEET slots from the pack
+    {RK_ITEM, itemCarry(CG_ARMOR1), 1, {M_HIDE, M_FIBER, -1}, {5, 2, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
+    {RK_ITEM, itemCarry(CG_ARMOR2), 1, {M_FUR, M_HIDE, M_ROPE}, {4, 4, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 1},
+    {RK_ITEM, itemCarry(CG_ARMOR3), 1, {M_SCALE, M_HIDE, M_IRONBAR}, {6, 4, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 1},
+    {RK_ITEM, itemCarry(CG_BOOTS1), 1, {M_HIDE, M_FIBER, -1}, {3, 1, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
+    {RK_ITEM, itemCarry(CG_BOOTS2), 1, {M_FUR, M_HIDE, M_ROPE}, {3, 2, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 1},
     // higher tiers: leatherwork-gated, built from processed leather and the animals' exclusive trophies
-    {RK_GEAR, U_BOOTS, 3, {M_LEATHER, M_RABBITFOOT, M_SNOWFOOT}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 18},
-    {RK_GEAR, U_ARMOR, 4, {M_LEATHER, M_GREASE, M_IRONBAR}, {6, 2, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 30},
-    {RK_GEAR, U_ARMOR, 5, {M_LEATHER, M_FUR, M_CLAW}, {5, 6, 3}, RC_ARMOR, STN_SHOP, SK_LEATHER, 45},
+    {RK_ITEM, itemCarry(CG_BOOTS3), 1, {M_LEATHER, M_RABBITFOOT, M_SNOWFOOT}, {3, 2, 2}, RC_ARMOR, STN_FIRE, SK_LEATHER, 18},
+    {RK_ITEM, itemCarry(CG_ARMOR4), 1, {M_LEATHER, M_GREASE, M_IRONBAR}, {6, 2, 2}, RC_ARMOR, STN_SHOP, SK_LEATHER, 30},
+    {RK_ITEM, itemCarry(CG_ARMOR5), 1, {M_LEATHER, M_FUR, M_CLAW}, {5, 6, 3}, RC_ARMOR, STN_SHOP, SK_LEATHER, 45},
     // bags: crafted, then worn (equip from the pack); each one only raises the carrying-weight limit
     {RK_ITEM, itemPack(PK_SATCHEL), 1, {M_HIDE, M_FIBER, -1}, {4, 2, 0}, RC_ARMOR, STN_ANY, SK_LEATHER, 1},
     {RK_ITEM, itemPack(PK_TRAPPER), 1, {M_HIDE, M_FUR, M_ROPE}, {6, 3, 1}, RC_ARMOR, STN_FIRE, SK_LEATHER, 10},
@@ -149,9 +149,9 @@ static const Recipe RECIPES[] = {
     {RK_ITEM, itemCarry(CG_SILVERCHARM), 1, {M_SILVERBAR, M_SPIDERFANG, M_SILK}, {2, 2, 2}, RC_ARMOR, STN_SHOP, SK_SMITHING, 22},
     {RK_ITEM, itemCarry(CG_GEMRING), 1, {M_GOLDBAR, M_GEM, M_RARECRYSTAL}, {1, 2, 1}, RC_ARMOR, STN_SHOP, SK_SMITHING, 30},
     {RK_ITEM, itemCarry(CG_FROSTWARD), 1, {M_LEATHER, M_FROSTFANG, M_ICESHARD}, {3, 2, 3}, RC_ARMOR, STN_SHOP, SK_LEATHER, 32},
-    {RK_GEAR, U_ARMOR, 6, {M_STEELBAR, M_CAVEPELT, M_GOLEMCORE}, {4, 3, 2}, RC_ARMOR, STN_SHOP, SK_SMITHING, 36},
-    {RK_GEAR, U_ARMOR, 7, {M_STEELBAR, M_FROSTRUNE, M_ICEBONE}, {5, 3, 4}, RC_ARMOR, STN_SHOP, SK_SMITHING, 48},
-    {RK_GEAR, U_ARMOR, 8, {M_STEELBAR, M_KNIGHTPLATE, M_ETERNALICE}, {6, 4, 4}, RC_ARMOR, STN_SHOP, SK_SMITHING, 60},
+    {RK_ITEM, itemCarry(CG_ARMOR6), 1, {M_STEELBAR, M_CAVEPELT, M_GOLEMCORE}, {4, 3, 2}, RC_ARMOR, STN_SHOP, SK_SMITHING, 36},
+    {RK_ITEM, itemCarry(CG_ARMOR7), 1, {M_STEELBAR, M_FROSTRUNE, M_ICEBONE}, {5, 3, 4}, RC_ARMOR, STN_SHOP, SK_SMITHING, 48},
+    {RK_ITEM, itemCarry(CG_ARMOR8), 1, {M_STEELBAR, M_KNIGHTPLATE, M_ETERNALICE}, {6, 4, 4}, RC_ARMOR, STN_SHOP, SK_SMITHING, 60},
     {RK_ITEM, itemCons(C_NIGHTSIGHT), 1, {M_BATWING, M_EXTRACT, -1}, {2, 1, 0}, RC_MEDICINE, STN_FIRE, SK_ALCHEMY, 22},
     // ---- the flower shop's cut flowers tied into bouquets (a trade good worth more than the flowers cost)
     {RK_ITEM, itemMat(M_BOUQUET), 1, {M_ROSE, M_TULIP, M_LAVENDER}, {1, 1, 1}, RC_MATERIALS, STN_ANY, SK_CRAFTING, 1},
@@ -194,7 +194,6 @@ inline int itemSellBase(int id) {
         std::vector<int> t(ITEM_COUNT, 0);
         for (int r = 0; r < RECIPE_N; r++) {
             const Recipe& R = RECIPES[r];
-            if (R.kind == RK_GEAR) continue;
             const int out = recipeItem(R);
             int v = 0;
             for (int i = 0; i < 3; i++)
@@ -207,13 +206,8 @@ inline int itemSellBase(int id) {
     return id >= 0 && id < ITEM_COUNT ? table[id] : 0;
 }
 
-// the name a recipe's result goes by (gear has no item: it is the upgrade level's name)
-inline std::string recipeName(const Recipe& R) {
-    if (R.kind == RK_GEAR) {
-        return gearName(R.out, R.count);
-    }
-    return item(recipeItem(R)).name;
-}
+// the name a recipe's result goes by
+inline std::string recipeName(const Recipe& R) { return item(recipeItem(R)).name; }
 
 // Which town building a recipe is made in: smithing at the blacksmith, leatherwork at the leatherworks, all the rest at the workshop.
 inline int recipeBuilding(const Recipe& R) { return R.skill == SK_SMITHING ? BLD_SMITH : R.skill == SK_LEATHER ? BLD_TANNER : BLD_WORKSHOP; }

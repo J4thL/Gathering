@@ -396,7 +396,7 @@ int worldCheck(Game& g) {
                 V2 at;
                 if (!findPatch(g.world, c.tile, at, c.tile == T_MUD ? 2 : 4)) continue;
                 g.dayT = DAY_LEN * 0.2f;  // midday
-                g.p.up[U_ARMOR] = armor;
+                g.p.setArmor(armor);
                 g.p.pos = at;
                 g.in.right = true;
                 g.in.sprint = true;

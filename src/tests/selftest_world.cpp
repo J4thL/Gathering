@@ -180,7 +180,7 @@ void testWorldRules(SelfTest& t) {
             const int rCopperBar = recipeFor(RK_ITEM, itemMat(M_COPPERBAR), M_COPPER);
             const int rRope = recipeFor(RK_ITEM, itemMat(M_ROPE), M_FIBER);
             const int rCuAxe = recipeFor(RK_ITEM, itemTool(TL_AXE2), M_WOOD);
-            const int rArmor1 = recipeFor(RK_GEAR, U_ARMOR, M_HIDE, 1), rArmor2 = recipeFor(RK_GEAR, U_ARMOR, M_FUR, 2);
+            const int rArmor1 = recipeFor(RK_ITEM, itemCarry(CG_ARMOR1), M_HIDE), rArmor2 = recipeFor(RK_ITEM, itemCarry(CG_ARMOR2), M_FUR);
             const int rIronAxe = recipeFor(RK_ITEM, itemTool(TL_AXE3), M_WOOD);
             check(rCamp >= 0 && rCopperBar >= 0 && rRope >= 0 && rCuAxe >= 0 && rArmor1 >= 0 && rArmor2 >= 0 && rIronAxe >= 0, "the key recipes are all in the table");
             check(g.craftBlock(rCamp) == "MISSING MATERIALS", "a recipe without its materials says so");
@@ -196,7 +196,7 @@ void testWorldRules(SelfTest& t) {
                         ok = ok && R.mat[k] < M_COUNT && R.n[k] > 0;
                     }
                 ok = ok && ing > 0;
-                if (R.kind != RK_GEAR && R.kind != RK_BANDAGE) ok = ok && recipeItem(R) > 0 && recipeItem(R) < ITEM_COUNT;
+                if (R.kind != RK_BANDAGE) ok = ok && recipeItem(R) > 0 && recipeItem(R) < ITEM_COUNT;
                 if (!ok) {
                     badRecipes++;
                     printf("    bad recipe #%d\n", r);
@@ -271,10 +271,20 @@ void testWorldRules(SelfTest& t) {
             g.p.inv.add(itemMat(M_FUR), 4);
             g.p.inv.add(itemMat(M_HIDE), 12);
             g.p.inv.add(itemMat(M_FIBER), 2);
-            check(g.craftBlock(rArmor2) == "MAKE THE PREVIOUS LEVEL FIRST", "armor level 2 needs level 1 first");
-            check(g.craft(rArmor1) && g.p.up[U_ARMOR] == 1, "hide armor is worn at once");
-            check(g.craft(rArmor2) && g.p.up[U_ARMOR] == 2, "then the second level");
-            check(g.craftBlock(rArmor1) == "YOU WEAR BETTER ALREADY" || g.craftBlock(rArmor1) == "MISSING MATERIALS", "an older armor level cannot be crafted again");
+            auto wearItem = [&](int id) {
+                for (size_t i = 0; i < g.p.inv.slots.size(); i++)
+                    if (!g.p.inv.slots[i].empty() && g.p.inv.slots[i].item == id) return g.equipCarried((int)i);
+                return false;
+            };
+            check(g.craftBlock(rArmor2) != "MAKE THE PREVIOUS LEVEL FIRST", "armor has no 'previous level' lock any more");
+            check(g.craft(rArmor1) && g.p.inv.count(itemCarry(CG_ARMOR1)) == 1 && g.p.armorLv() == 0, "crafted armor lands in the pack: it only counts once it is worn");
+            check(wearItem(itemCarry(CG_ARMOR1)) && g.p.armorLv() == 1 && g.p.inv.count(itemCarry(CG_ARMOR1)) == 0, "wearing it takes it out of the pack");
+            check(g.craft(rArmor2) && wearItem(itemCarry(CG_ARMOR2)) && g.p.armorLv() == 2 && g.p.inv.count(itemCarry(CG_ARMOR1)) == 1, "a better piece swaps the old one back into the pack");
+            g.p.inv.add(itemMat(M_HIDE), 20);
+            g.p.inv.add(itemMat(M_FIBER), 6);
+            check(g.craft(rArmor1) && g.craft(rArmor1) && g.p.inv.count(itemCarry(CG_ARMOR1)) == 3, "any piece can be crafted again and again");
+            check(g.unequipCarried(EQ_BODY) && g.p.armorLv() == 0 && g.p.inv.count(itemCarry(CG_ARMOR2)) == 1, "armor comes off again (its health bonus with it)");
+            check(wearItem(itemCarry(CG_BOOTS1)) == false, "no boots yet: nothing to wear");
             // consumables
             g.p.inv.clear();
             g.p.hp = g.p.maxhp - 50;
@@ -415,7 +425,7 @@ void testWorldRules(SelfTest& t) {
         // gear tiers
         g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         bool tiers = true;
-        for (int u = 0; u < 4; u++) tiers = tiers && (u == U_BAG || std::string(gearName(u, UP_MAX[u])).size() > 0);  // bags are items now
+        for (int u = 0; u < 4; u++) tiers = tiers && (u == U_BAG || u == U_TOOL || std::string(gearName(u, UP_MAX[u])).size() > 0);  // bags are items, the tool upgrade is gone
         check(tiers, "every gear line's top level has a name");
         g.newGame();
         g.state = ST_PLAY;

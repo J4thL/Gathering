@@ -248,22 +248,6 @@ void Game::spend(int coins, int m1, int n1, int m2, int n2) {
     if (m1 >= 0) p.inv.remove(itemMat(m1), n1);
     if (m2 >= 0) p.inv.remove(itemMat(m2), n2);
 }
-bool Game::buyUpgrade(int u) {
-    if (u == U_BAG) return false;  // bags are crafted and worn, not bought
-    int lv = p.up[u];
-    if (lv >= 2) return false;
-    const UpLevel& L = UPS[u].lv[lv];
-    if (!canAfford(L.coins, L.m1, L.n1, L.m2, L.n2)) {
-        audio.play(S_ERROR);
-        return false;
-    }
-    spend(L.coins, L.m1, L.n1, L.m2, L.n2);
-    p.up[u]++;
-    audio.play(S_CRAFT);
-    msg(std::string("UPGRADED: ") + L.name, C_GOLD);
-    save();
-    return true;
-}
 void Game::sellMat(int m, int n) {
     n = std::min(n, p.mat(m));
     if (n <= 0) return;

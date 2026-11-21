@@ -121,6 +121,65 @@ void Game::drawBuildMenu() {
     textC(PX + PW / 2 + 40, PY + PH - 17, "TAB CATEGORY  WHEEL SCROLL  ESC CLOSE", C_DIM, 1, false);
 }
 
+// ================================================================= production machines (machines.hpp)
+
+void Game::updateMachineMenu(float dt) {
+    updateFx(dt);
+    if (in.escPressed || in.ePressed) {
+        state = ST_PLAY;
+        machPieceId = -1;
+        save();
+        audio.play(S_CLICK);
+    }
+}
+
+void Game::drawMachineMenu() {
+    HPiece* pc = hsPiece(machPieceId);
+    if (!pc || pc->kind < HP_MILL || pc->kind >= HP_COUNT) {
+        state = ST_PLAY;
+        return;
+    }
+    const MachineDef& M = MACHINES[pc->kind - HP_MILL];
+    frame(*this, HPDEF[pc->kind].name);
+    text(PX + 8, PY + 22, "PICK A RECIPE AND LOAD IT FROM YOUR PACK", C_DIM, 1, false);
+    text(PX + PW - 84, PY + 22, S(pc->mq + pc->mdone) + "/" + S(MACH_MAX_BATCH) + " BATCHES", C_DIM, 1, false);
+    const int rowH = 30, top = PY + 34;
+    for (int r = 0; r < M.nrec; r++) {
+        const MRecipe& R = M.rec[r];
+        const int y = top + r * rowH;
+        const bool active = pc->mrec == r && (pc->mq > 0 || pc->mdone > 0);
+        int can = 99;
+        for (int i = 0; i < 2; i++)
+            if (R.in[i] >= 0) can = std::min(can, p.inv.count(itemMat(R.in[i])) / R.n[i]);
+        panel(PX + 6, y, PW - 12, rowH - 2, active ? HEX(0x4a3a1e) : HEX(0x33241a));
+        icon(itemIcon(machOutItem(R)), PX + 20, y + 13, 18);
+        text(PX + 34, y + 4, S(R.outN) + " " + item(machOutItem(R)).name, can > 0 ? C_TEXT : C_DIM);
+        std::string from = MAT_NAME[R.in[0]];
+        if (R.in[1] >= 0) from += std::string(" + ") + MAT_NAME[R.in[1]];
+        text(PX + 34, y + 15, from + "  " + S((int)R.sec) + "S", C_DIM, 1, false);
+        int cx = PX + 196;
+        for (int i = 0; i < 2; i++)
+            if (R.in[i] >= 0) cx = chip(cx, y + 7, A.matIcon[R.in[i]], p.mat(R.in[i]), R.n[i]);
+        const bool free = !((pc->mq > 0 || pc->mdone > 0) && pc->mrec != r) && pc->mq + pc->mdone < MACH_MAX_BATCH;
+        if (button(PX + PW - 100, y + 7, 40, 13, "LOAD", free && can > 0)) hsMachineLoad(*pc, r, 1);
+        if (button(PX + PW - 56, y + 7, 40, 13, "MAX", free && can > 0)) hsMachineLoad(*pc, r, MACH_MAX_BATCH);
+    }
+    const int sy = top + 4 * rowH + 2;
+    panel(PX + 6, sy, PW - 12, 34, HEX(0x2a1c14));
+    if (pc->mrec >= 0 && pc->mrec < M.nrec && (pc->mq > 0 || pc->mdone > 0)) {
+        const MRecipe& R = M.rec[pc->mrec];
+        text(PX + 12, sy + 4, std::string("MAKING ") + item(machOutItem(R)).name + "   LEFT " + S(pc->mq) + "   READY " + S(pc->mdone * R.outN), C_TEXT);
+        const float f = pc->mq > 0 ? std::max(0.f, std::min(1.f, pc->mt / R.sec)) : 1.f;
+        fillRect(PX + 12, sy + 16, 200, 6, HEX(0x1c1410));
+        fillRect(PX + 12, sy + 16, (int)(200 * f), 6, pc->mq > 0 ? HEX(0xe0a040) : HEX(0x6cc04a));
+        text(PX + 12, sy + 25, pc->mq > 0 ? "WORKS WHILE YOU ARE AT THE HOMESTEAD" : "ALL DONE - COLLECT IT", C_DIM, 1, false);
+    } else {
+        text(PX + 12, sy + 12, "IDLE - LOAD A RECIPE", C_DIM);
+    }
+    if (button(PX + PW - 106, sy + 10, 90, 14, "COLLECT", pc->mdone > 0, HEX(0x3a6a2a))) hsMachineCollect(*pc);
+    textC(PX + PW / 2, PY + PH - 12, "E OR ESC: CLOSE", C_DIM, 1, false);
+}
+
 // ================================================================= animal management
 
 void Game::updateAnimalMenu(float dt) {

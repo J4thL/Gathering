@@ -10,9 +10,9 @@ void Game::hurtPlayer(float dmg, V2 from, int srcKind) {
     if (p.invuln > 0 || p.dead) return;
     dmg *= 1.f - skillBonus(SK_DEFENSE);
     if (p.has(CG_VENOMWRAPS) && (srcKind == A_RATTLER || srcKind == A_MOCCASIN)) dmg *= 0.65f;  // snake-proof wraps
-    int d = std::max(1, (int)ceilf(dmg * (1.f - std::min(0.9f, ARMOR_RED[p.up[U_ARMOR]] * qualityDef(p.armorQ).stat))));
+    int d = std::max(1, (int)ceilf(dmg * (1.f - std::min(0.9f, ARMOR_RED[p.armorLv()] * qualityDef(p.armorQ()).stat))));
     p.hp -= d;
-    if (p.hp > 0 && p.up[U_ARMOR] > 0) grantXp(SK_DEFENSE, std::max(1, d / 8));  // surviving a hit in armor
+    if (p.hp > 0 && p.armorLv() > 0) grantXp(SK_DEFENSE, std::max(1, d / 8));  // surviving a hit in armor
     p.invuln = 0.85f;
     p.sinceHurt = 0;
     V2 dir = (p.pos - from).norm();
@@ -116,7 +116,7 @@ void Game::gatherStep(Animal& c) {
     p.inv.add(itemMat(m), 1);
     int extra = 0;
     const bool skinPiece = m == M_HIDE || m == M_FUR || m == M_SCALE || isTrophy(m);
-    if (rng.chance(TOOL_BONUS[p.up[U_TOOL]] + skillBonus(skinPiece ? SK_SKINNING : SK_BUTCHERING)) && p.inv.canAdd(itemMat(m), 1)) {
+    if (rng.chance(skillBonus(skinPiece ? SK_SKINNING : SK_BUTCHERING)) && p.inv.canAdd(itemMat(m), 1)) {
         p.inv.add(itemMat(m), 1);
         extra = 1;
     }
@@ -136,9 +136,10 @@ void Game::gatherStep(Animal& c) {
 
 void Game::updatePlayer(float dt) {
     Player& P = p;
-    float newMax = (float)ARMOR_HP[P.up[U_ARMOR]];
-    if (newMax > P.maxhp) P.hp += newMax - P.maxhp;
+    float newMax = (float)ARMOR_HP[P.armorLv()];
+    if (newMax > P.maxhp) P.hp += newMax - P.maxhp;  // putting armor on adds its health at once, taking it off removes it again
     P.maxhp = newMax;
+    if (P.hp > P.maxhp) P.hp = P.maxhp;
     if (P.dead) {
         P.deadT += dt;
         updateHunterAnim(dt, false, false, false, false, -1, 0);
@@ -207,7 +208,7 @@ void Game::updatePlayer(float dt) {
     V2 mv((in.right ? 1.f : 0.f) - (in.left ? 1.f : 0.f), (in.down ? 1.f : 0.f) - (in.up ? 1.f : 0.f));
     bool moving = mv.len() > 0.1f;
     if (moving) mv = mv.norm();
-    float spd = 70.f * (1.f + (BOOT_MUL[P.up[U_BOOTS]] - 1.f) * qualityDef(P.bootsQ).stat) * (P.swiftT > 0 ? 1.15f : 1.f) * (P.has(CG_FARMBOOTS) ? 1.10f : 1.f);
+    float spd = 70.f * (1.f + (BOOT_MUL[P.bootsLv()] - 1.f) * qualityDef(P.bootsQ()).stat) * (P.swiftT > 0 ? 1.15f : 1.f) * (P.has(CG_FARMBOOTS) ? 1.10f : 1.f);
     const uint8_t groundT = world.tileAt(P.pos.x, P.pos.y);
     {
         float ts = tileSpeed(groundT);
@@ -391,10 +392,10 @@ void Game::updatePlayer(float dt) {
     if (wantGather) {
         P.gathering = true;
         float need = ANIMAL[c->kind].gatherTime;
-        P.gatherT += dt * TOOL_SPEED[P.up[U_TOOL]];
+        P.gatherT += dt;
         P.gatherSfx -= dt;
         if (P.gatherSfx <= 0) {
-            P.gatherSfx = 0.17f / TOOL_SPEED[P.up[U_TOOL]];
+            P.gatherSfx = 0.17f;
             puff(c->pos + V2(rng.range(-5, 5), -3), 1, HEX(0xd8c8a8));
         }
         if (P.gatherT >= need) {

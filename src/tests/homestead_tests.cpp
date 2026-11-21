@@ -590,6 +590,7 @@ int homesteadTest(Game& g) {
         g.state = ST_PLAY;
         {   // a field of every crop: stages 0..4 across, three plots of each in a row, to check the bed shapes and the crop art
             bool placed = false;
+            V2 fieldPlot(0, 0);
             for (int ty0 = py - 14; ty0 < py + 14 && !placed; ty0++)
                 for (int tx0 = px - 14; tx0 < px + 14 && !placed; tx0++) {
                     bool free = true;
@@ -606,9 +607,20 @@ int homesteadTest(Game& g) {
                             if (pc) { pc->crop = c; pc->stage = st; pc->water = (st % 2) ? 5.f : 0.f; }
                         }
                     g.p.pos = V2((tx0 + 6) * TS, (ty0 + 8) * TS);
+                    fieldPlot = V2((tx0 + 3) * TS + 8, (ty0 + 3) * TS + 8);
                 }
             g.dayT = DAY_LEN * 0.3f;
             steps(g, 3); shot("i_field.bmp");
+            // the cursor says what the tool in hand would do: watering a growing plot (green) and a hoe over a planted plot (red)
+            g.p.tool[TT_CAN] = TL_CAN; g.p.hand = TT_CAN;
+            g.p.pos = fieldPlot + V2(0, 24);
+            g.setCam(0, true);
+            g.in.mx = fieldPlot.x - g.camX; g.in.my = fieldPlot.y - g.camY;
+            shot("i2_cursor_can.bmp");
+            g.p.tool[TT_HOE] = TL_HOE; g.p.hand = TT_HOE;
+            shot("i3_cursor_hoe.bmp");
+            g.p.hand = -1;
+            g.in.my = 200;
         }
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
         g.dayT = DAY_LEN * 0.7f;
@@ -943,6 +955,105 @@ int homesteadTest(Game& g) {
             check(common == 0 && legend == 1, "an ordinary carcass is gone after its time; a legendary one is still there");
         } else
             check(false, "spawned the test deer");
+    }
+    {
+        printf("--- stage: production machines\n");
+        if (!g.inHomestead()) g.hsEnter();
+        g.state = ST_PLAY;
+        stock(g);
+        g.p.inv.addIgnoringWeight(itemMat(M_IRONBAR), 40);
+        int mx = 0, my = 0;
+        check(findSpot(g, 22, 4, mx, my, 70, 100), "room for a row of machines");
+        const int kinds[7] = {HP_MILL, HP_DAIRY, HP_KETTLE, HP_SMOKER, HP_OVEN, HP_SAWMILL, HP_SMELTER};
+        const int wid[7] = {3, 2, 2, 2, 2, 4, 2};
+        int x = mx;
+        HPiece* mp[7] = {};
+        bool placedAll = true;
+        for (int i = 0; i < 7; i++) {
+            if (!g.hsPlace(kinds[i], x, my, 0)) placedAll = false;
+            mp[i] = g.hsAt(x, my, HL_OBJECT);
+            x += wid[i];
+        }
+        check(placedAll && mp[0] && mp[6], "all seven machines can be built (their own MACHINES build tab)");
+        bool cat = true;
+        for (int k : kinds) cat = cat && HPDEF[k].cat == HC_MACHINE && MACHINES[k - HP_MILL].nrec >= 2;
+        check(cat, "they are listed under MACHINES and have recipes");
+        if (mp[0] && mp[1] && mp[4] && mp[5] && mp[6]) {
+            HPiece& mill = *mp[0];
+            give(g, M_WHEAT, 9);
+            const int w0 = g.p.mat(M_WHEAT), f0 = g.p.mat(M_FLOUR);
+            check(g.hsMachineLoad(mill, 0, 2) == 2 && g.p.mat(M_WHEAT) == w0 - 6 && mill.mq == 2, "loading two batches takes the ingredients");
+            check(g.hsMachineLoad(mill, 1, 1) == 0, "another recipe waits until the machine is empty");
+            g.hsTickMachines(10.f);
+            check(mill.mdone == 0 && mill.mq == 2, "a batch takes its time");
+            g.hsTickMachines(11.f);
+            check(mill.mdone == 1 && mill.mq == 1, "the first batch finishes after 20 seconds");
+            g.hsTickMachines(60.f);
+            check(mill.mdone == 2 && mill.mq == 0, "the machine stops when its queue is empty");
+            check(g.hsMachineCollect(mill) && g.p.mat(M_FLOUR) == f0 + 4 && mill.mdone == 0 && mill.mrec == -1, "collecting hands over the flour and frees the machine");
+            give(g, M_CORN, 3);
+            check(g.hsMachineLoad(mill, 1, 5) == 1, "a different recipe can be loaded once it is empty (only what the pack holds)");
+            g.p.inv.remove(itemMat(M_WHEAT), g.p.mat(M_WHEAT));
+            check(g.hsMachineLoad(mill, 0, 1) == 0, "no ingredients: refused");
+            give(g, M_CORN, 80);
+            g.hsTickMachines(1000.f);
+            g.hsMachineCollect(mill);
+            check(g.hsMachineLoad(mill, 1, 50) == MACH_MAX_BATCH, "a machine holds at most " + std::to_string(MACH_MAX_BATCH) + " batches");
+            // a consumable result: bread from the oven
+            HPiece& oven = *mp[4];
+            give(g, M_FLOUR, 6);
+            const int b0 = g.p.inv.count(itemCons(C_BREAD));
+            check(g.hsMachineLoad(oven, 0, 3) == 3, "the oven takes flour");
+            g.hsTickMachines(200.f);
+            check(g.hsMachineCollect(oven) && g.p.inv.count(itemCons(C_BREAD)) == b0 + 6, "and bakes bread (2 per batch)");
+            // E collects when there is nothing more to load; otherwise the menu opens
+            HPiece& saw = *mp[5];
+            give(g, M_WOOD, 6);
+            g.hsMachineLoad(saw, 0, 1);
+            stand(g, V2((saw.tx + saw.w() / 2.f) * TS, (saw.ty + saw.h()) * TS + 6.f));
+            Game::HTarget2 t;
+            check(g.hsFindTarget(t) && t.type == 10, "E near a machine offers to use it");
+            check(g.homesteadInteract() && g.state == ST_MACHINE && g.machPieceId == saw.id, "E opens the machine menu");
+            g.state = ST_PLAY;
+            if (const char* dir = getenv("HS_SHOTS")) {  // the machines at work, their menu and the MACHINES build tab
+                auto shot = [&](const char* name) {
+                    g.helpT = 0; g.portalFx = 0; g.msgs.clear(); g.ftexts.clear();
+                    g.setCam(0, true);
+                    g.render();
+                    g.saveCanvas((std::string(dir) + "/" + name).c_str());
+                };
+                printf("shot state: map %d interior %d delve %d fade %.2f dead %d\n", (int)g.world.mapId, g.interior, g.delve, g.travelFade, (int)g.p.dead);
+                g.travelFade = 0; g.interior = -1; g.delve = -1;
+                g.dayT = DAY_LEN * 0.3f;
+                g.hsMachineLoad(*mp[1], 0, 0);
+                give(g, M_MILK, 10); give(g, M_STRAWBERRY, 9); give(g, M_MEAT, 6); give(g, M_FLOUR, 4);
+                g.hsMachineLoad(*mp[1], 1, 2); g.hsMachineLoad(*mp[2], 0, 2); g.hsMachineLoad(*mp[3], 0, 2); g.hsMachineLoad(*mp[4], 0, 1);
+                g.hsMachineLoad(*mp[0], 0, 1);
+                stand(g, V2((mx + 9) * TS, (my + 6) * TS));
+                g.hsTickMachines(3.f);
+                g.in.mx = 200; g.in.my = 200;
+                shot("m1_machines.bmp");
+                g.machPieceId = mp[2]->id; g.state = ST_MACHINE;
+                g.in.mx = 100; g.in.my = 60;
+                shot("m2_menu.bmp");
+                g.bm.cat = HC_MACHINE; g.state = ST_BUILD;
+                shot("m3_buildtab.bmp");
+                g.state = ST_PLAY;
+            }
+            // saving keeps the work in progress
+            HPiece& smelter = *mp[6];
+            give(g, M_IRON, 4);
+            g.hsMachineLoad(smelter, 1, 2);
+            g.hsTickMachines(55.f);
+            const int sid = smelter.id, smq = smelter.mq, smd = smelter.mdone;
+            const float smt = smelter.mt;
+            g.save();
+            g.newGame();
+            check(g.load(), "the save loads");
+            HPiece* sm2 = g.hsPiece(sid);
+            check(sm2 && sm2->mrec == 1 && sm2->mq == smq && sm2->mdone == smd && fabsf(sm2->mt - smt) < 0.01f, "a machine's recipe, queue, finished batches and progress survive a save");
+            g.state = ST_PLAY;
+        }
     }
     {
         printf("--- stage: no homestead store, farm babies, cursor placing, 100-slot chests, new gear\n");

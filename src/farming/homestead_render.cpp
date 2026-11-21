@@ -87,6 +87,9 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
             sprW(A.H.building[pc.kind][pc.rot & 1], x0 + w / 2, y0 + h, false, alpha);
             if (pc.kind == HP_WORKSHOP && alpha >= 1.f) sprW(A.fire[(int)(timeAcc * 9) % 3], x0 + w - 10, y0 + h - 4);
             break;
+        case HP_MILL: case HP_DAIRY: case HP_KETTLE: case HP_SMOKER: case HP_OVEN: case HP_SAWMILL: case HP_SMELTER:
+            sprW(A.H.machine[pc.kind - HP_MILL][pc.rot & 1][pc.mq > 0 && alpha >= 1.f ? ((int)(timeAcc * 4.f + pc.id) & 1) : 0], x0 + w / 2, y0 + h, false, alpha);
+            break;
         case HP_GREENHOUSE: sprW(A.H.greenhouse[pc.rot & 1], x0 + 1, y0 + h, false, alpha); break;
         case HP_WELL: sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;
         case HP_CAMPFIRE: sprW(A.R.campfire[(int)(timeAcc * 9 + pc.id) % 3], x0 + 8, y0 + 14, false, alpha); break;

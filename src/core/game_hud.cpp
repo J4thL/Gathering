@@ -399,6 +399,7 @@ void Game::drawReticle() {
     tick(mx, my - g - 3, 1, 3);
     tick(mx, my + g + 1, 1, 3);
     fillRect(mx, my, 1, 1, col);
+    drawCursorAction(mx, my, over);
     if (p.charging) {
         int n = (int)(p.charge * 24);
         for (int i = 0; i < n; i++) {
@@ -406,4 +407,75 @@ void Game::drawReticle() {
             fillRect(mx + (int)roundf(cosf(a) * 10) , my + (int)roundf(sinf(a) * 10), 1, 1, p.charge >= 1 ? C_GOLD : HEX(0xffffff));
         }
     }
+}
+
+// The small chip beside the crosshair that says what a click or E would do right here: the farm tool or seed in hand (green when the
+// tile takes it, red when it does not or is out of reach), the weapon over an animal, or the tool / hand for the resource or farm
+// object under the cursor. Nothing is shown when there is nothing to do.
+void Game::drawCursorAction(int mx, int my, bool overAnimal) {
+    if (state != ST_PLAY || p.dead || interior >= 0 || delve >= 0) return;
+    const Spr* ic = nullptr;
+    std::string lab;
+    int verdict = 0;  // 0 none, 1 can, -1 cannot
+    const V2 mw(in.mx + camX, in.my + camY);
+    if (p.hand >= 0 && p.hand != HAND_ITEM && inHomestead()) {
+        const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
+        const bool far = dist(p.pos, V2((tx + .5f) * TS, (ty + .5f) * TS)) > 46.f;
+        const HPiece* gp = tx >= 0 && ty >= 0 && tx < MW && ty < MH ? hsAt(tx, ty, HL_GROUND) : nullptr;
+        const bool plot = gp && gp->kind == HP_PLOT;
+        const bool ripe = plot && gp->crop >= 0 && gp->stage >= CROP_STAGES - 1;
+        bool ok = true;
+        if (p.hand >= HAND_SEED0) {
+            const int crop = p.hand - HAND_SEED0;
+            ic = &A.matIcon[cropSeed(crop)];
+            ok = plot && gp->crop < 0 && p.inv.count(itemMat(cropSeed(crop))) > 0;
+            lab = "SOW";
+        } else if (p.tool[p.hand] >= 0) {
+            ic = &A.R.toolIcon[p.tool[p.hand]];
+            switch (p.hand) {
+                case TT_HOE: ok = ripe || (!plot && hsCanBuild(HP_PLOT, tx, ty, 0)); lab = ripe ? "HARVEST" : plot ? "TILLED" : "TILL"; break;
+                case TT_SHOVEL: lab = "DIG"; break;
+                case TT_CAN: {
+                    const HPiece* wl = hsAt(tx, ty, HL_OBJECT);
+                    const bool source = world.water(tx, ty) || (gp && gp->kind == HP_POND) || (wl && wl->kind == HP_WELL);
+                    ok = (gp && gp->kind == HP_HOLE) || (plot && !ripe) || source;
+                    lab = source ? "REFILL" : "WATER";
+                    break;
+                }
+                case TT_SICKLE: ok = ripe; lab = "CUT"; break;
+                default: break;
+            }
+        }
+        if (ic) verdict = far ? -1 : ok ? 1 : -1;
+        if (far && ic) lab = "TOO FAR";
+    } else if (overAnimal && p.hand < 0) {
+        ic = &A.wpnIcon[p.sel];
+        lab = "ATTACK";
+        verdict = 1;
+    } else if (p.hand < 0) {
+        HTarget t;
+        if (findHarvest(t) && dist(mw, t.pos) < 20.f) {  // E would gather it
+            const int tool = RES[t.res].tool;
+            const int ti = tool >= 0 ? p.tool[tool] : -1;
+            if (ti >= 0) ic = &A.R.toolIcon[ti];
+            lab = "E " + harvestVerb(t.res);
+            verdict = tool >= 0 && bestTool(tool, nullptr) < RES[t.res].minTier ? -1 : 1;
+        } else if (inHomestead()) {
+            HTarget2 h;
+            if (hsFindTarget(h) && h.type != 0 && dist(mw, h.pos) < 24.f) lab = h.key + " " + h.label, verdict = 1;
+        }
+    }
+    if (lab.empty() && !ic) return;
+    const int bx = mx + 9, by = my + 7;
+    const u32 edge = verdict < 0 ? HEX(0xd8443f) : HEX(0x6cc04a);
+    int w = 0;
+    if (!lab.empty()) w = textW(lab) + 4;
+    const int cw = (ic ? 13 : 0) + w;
+    panel(bx, by, cw + 2, 13, HEX(0x1c1410));
+    fillRect(bx, by, cw + 2, 1, edge);
+    fillRect(bx, by + 12, cw + 2, 1, edge);
+    fillRect(bx, by, 1, 13, edge);
+    fillRect(bx + cw + 1, by, 1, 13, edge);
+    if (ic) icon(*ic, bx + 7, by + 6, 10);
+    if (!lab.empty()) text(bx + (ic ? 14 : 3), by + 3, lab, verdict < 0 ? C_RED : C_TEXT, 1, false);
 }

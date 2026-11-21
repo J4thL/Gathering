@@ -26,7 +26,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.newGame();
         g.state = ST_PLAY;
         g.p.sk.s[SK_DEFENSE].xp = SkillState::capXp();
-        g.p.up[U_ARMOR] = 0;
+        g.p.setArmor(0);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(100, V2(0, 0), A_WOLF);
@@ -61,7 +61,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.hurtPlayer(10, V2(0, 0), A_WOLF);
         check(g.p.sk.s[SK_DEFENSE].xp == bd, "no Defense XP while dead");
         g.p.dead = false;
-        g.p.up[U_ARMOR] = 1;
+        g.p.setArmor(1);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(40, V2(0, 0), A_WOLF);

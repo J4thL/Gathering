@@ -151,7 +151,7 @@ struct Player {
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
-    int armorQ = 0, bootsQ = 0, bagQ = 0;  // quality of the worn armor, boots and bag (items/quality.hpp)
+    int bagQ = 0;  // quality of the worn bag (items/quality.hpp)
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
@@ -162,14 +162,14 @@ struct Player {
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
-    int worn[EQ_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // worn carried gear (item ids) by EqSlot: like the bag it is out of the pack while worn
-    int wornQ[EQ_COUNT] = {0, 0, 0, 0, 0, 0, 0};
+    int worn[EQ_COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1};  // worn carried gear (item ids) by EqSlot: like the bag it is out of the pack while worn
+    int wornQ[EQ_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
     bool toolManual[TT_COUNT] = {false, false, false, false, false, false, false};  // axe / pickaxe: true = the hunter chose (or took off) the tool, false = the best one in the pack is used
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
     int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
-    int up[U_COUNT] = {0};
+    int up[U_COUNT] = {0};  // legacy: only read from old saves, which are turned into worn armor / boots / a worn bag on load
     SkillSet sk;  // skill XP (skills.hpp); saved as "skill <key> <xp>" lines
     float gatherT = 0;
     float impactT = 0;    // > 0 for a moment after a harvest swing lands: the hunter shows the recovery pose
@@ -192,6 +192,13 @@ struct Player {
             if (worn[i] == itemCarry(carried)) return true;
         return false;
     }
+    // the armor and boots are whatever is worn in the BODY / FEET slots (0 = none): tier 1-8 / 1-3 and their quality
+    int armorLv() const { return worn[EQ_BODY] >= 0 && item(worn[EQ_BODY]).kind == IK_CARRIED ? armorLevelOf(item(worn[EQ_BODY]).ref) : 0; }
+    int bootsLv() const { return worn[EQ_FEET] >= 0 && item(worn[EQ_FEET]).kind == IK_CARRIED ? bootsLevelOf(item(worn[EQ_FEET]).ref) : 0; }
+    int armorQ() const { return armorLv() > 0 ? wornQ[EQ_BODY] : 0; }
+    int bootsQ() const { return bootsLv() > 0 ? wornQ[EQ_FEET] : 0; }
+    void setArmor(int lv, int q = 0) { worn[EQ_BODY] = lv > 0 ? itemCarry(CG_ARMOR1 + std::min(8, lv) - 1) : -1; wornQ[EQ_BODY] = lv > 0 ? q : 0; }  // wear armor tier lv (0 = none)
+    void setBoots(int lv, int q = 0) { worn[EQ_FEET] = lv > 0 ? itemCarry(CG_BOOTS1 + std::min(3, lv) - 1) : -1; wornQ[EQ_FEET] = lv > 0 ? q : 0; }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
@@ -316,7 +323,7 @@ struct Structure {
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_ANIMAL, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_ANIMAL, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP, ST_MACHINE };  // the Homestead's menus (homestead_ui.cpp)
 
 // seasons: a week of days each (a day is DAY_LEN seconds), spring first. They change how many animals roam, which pelts and fat a kill gives,
 // how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
@@ -706,6 +713,7 @@ struct Game {
         std::string why;
     } pl;
     float gtSyncT = 0;
+    int machPieceId = -1;  // the production machine whose menu is open
     int farmPieceId = -1, animSelId = -1, animScroll = 0, hsTileHit = -1;
     float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
@@ -739,6 +747,11 @@ struct Game {
     void hsReindex();                                                 // rebuild hsGrid after the piece list changed
     void hsApplyWorld();                                              // the pieces' solid tiles and bridges on the freshly generated map
     HPiece* hsPiece(int id);
+    void hsTickMachines(float dt);
+    int hsMachineLoad(HPiece& pc, int rec, int batches);  // batches actually loaded (0 = refused, the reason is shown)
+    bool hsMachineCollect(HPiece& pc);
+    void updateMachineMenu(float dt);
+    void drawMachineMenu();
     HPiece* hsAt(int tx, int ty, int layer);
     bool hsCanBuild(int kind, int tx, int ty, int rot, std::string* why = nullptr);
     bool hsPlace(int kind, int tx, int ty, int rot);
@@ -978,7 +991,6 @@ struct Game {
     bool buyFlower(int m, int n);
     bool applyLook(const HunterLook& l);      // redraw the hunter's real sprites with this look
     void drawCraftService();            // blacksmith / leatherworks / workshop
-    void drawUpgradeRows(int x0, int Y, int cw, const int* list, int n);
     // quest giver
     bool nearQuestGiver() const;
     bool questReady() const { return questActive && questProg >= quest.goal; }
@@ -989,7 +1001,6 @@ struct Game {
     // shop actions
     bool canAfford(int coins, int m1, int n1, int m2, int n2) const;
     void spend(int coins, int m1, int n1, int m2, int n2);
-    bool buyUpgrade(int u);
     void sellMat(int m, int n);
     int sellable(int item, int q) const;           // how many pieces of that quality the shop will take (a tool: never the best one)
     void sellItem(int item, int q, int n);         // sell crafted things at their quality price
@@ -1041,6 +1052,7 @@ struct Game {
     void drawTitle();
     void drawPause();
     void drawReticle();
+    void drawCursorAction(int mx, int my, bool overAnimal);  // the action chip beside the crosshair
     void drawMinimap();
     enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR, MI_ANVIL, MI_LEATHER, MI_TOOLS, MI_COIN, MI_FLOWER, MI_SCISSORS };
     static int bldMapIcon(int bldKind);  // the icon that says what a town building does
