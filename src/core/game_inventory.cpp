@@ -100,6 +100,21 @@ bool Game::useConsumable(int c) {
             p.swiftT = 60.f;
             ftext(p.pos + V2(0, -34), "SPRY!", C_GREEN, 1.2f);
             break;
+        case C_VEGSTEW:
+            if (!heal(80)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_RATATOUILLE:
+            if (!heal(90)) return false;
+            p.swiftT = 90.f;
+            ftext(p.pos + V2(0, -34), "SPRY!", C_GREEN, 1.2f);
+            break;
+        case C_BEETSOUP:
+            if (!heal(120)) return false;
+            p.warmT = std::max(p.warmT, 180.f);
+            ftext(p.pos + V2(0, -34), "WARM!", C_ORANGE, 1.2f);
+            break;
         default: return false;
     }
     p.inv.takeBest(id);
@@ -165,8 +180,10 @@ bool Game::useSlot(int slot) {
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
             if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
-            msg("TOOLS WORK AUTOMATICALLY - THE BEST ONE IN YOUR PACK IS USED", C_DIM);
+            if (TOOLDEF[D.ref].type == TT_AXE || TOOLDEF[D.ref].type == TT_PICK) return equipGatherTool(slot);
+            msg("EQUIP THE ROD ON THE HOTBAR TO FISH", C_DIM);
             return false;
+        case IK_CARRIED: return equipCarried(slot);
         case IK_PLACEABLE:
             if (placeStructure(D.ref)) {
                 state = ST_PLAY;  // close the pack so the new structure is visible

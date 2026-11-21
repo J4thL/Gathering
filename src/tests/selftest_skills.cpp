@@ -488,9 +488,9 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.updateCompanion(0.1f, true);
             const int base = mountCarry(A_WOLF, 1);
             check(g.mountKgNow(m) == base, "(setup) a mount's own carry weight without saddlebags");
-            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1);
+            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1); g.migrateWornGear();
             check(g.mountKgNow(m) == (int)lroundf(base * 1.5f), "saddlebags in the pack add half again to the mount's carry weight");
-            g.p.inv.remove(itemCarry(CG_SADDLEBAG), 1);
+            for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
             // breeding
             g.hs.animals.clear();
             g.hsAddAnimal(DA_MOUNT, V2(500, 500), false, -1, A_WOLF, 1);

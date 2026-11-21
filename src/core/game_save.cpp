@@ -48,6 +48,10 @@ void Game::save() {
         f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
         f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nfarmtools";
         for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE, (int)TT_SHOVEL}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        f << "\nworn";
+        for (int i = 0; i < EQ_COUNT; i++) f << ' ' << (p.worn[i] >= 0 ? itemKey(p.worn[i]) : std::string("-")) << ':' << p.wornQ[i];
+        f << "\ngtools";
+        for (int t : {(int)TT_AXE, (int)TT_PICK}) f << ' ' << (p.toolManual[t] ? (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-")) : std::string("auto"));
         f << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
@@ -134,7 +138,8 @@ bool Game::load() {
     };
     std::string bagKey = "-", hotKeys[HOT_N];
     bool sawBag = false, sawHotbar = false, sawFarm = false;
-    std::vector<std::string> farmKeys;
+    std::vector<std::string> farmKeys, wornKeys, gtoolKeys;
+    bool sawWorn = false;
     struct DropLine { std::string key; int n, x, y, q; float age; };
     std::vector<DropLine> dropLines[B_COUNT];
     struct SlotLine {
@@ -187,6 +192,13 @@ bool Game::load() {
             sawFarm = true;
             std::string key;
             while (ss >> key) farmKeys.push_back(key);
+        } else if (k == "worn") {
+            sawWorn = true;
+            std::string key;
+            while (ss >> key) wornKeys.push_back(key);
+        } else if (k == "gtools") {
+            std::string key;
+            while (ss >> key) gtoolKeys.push_back(key);
         } else if (k == "hotbar") {
             sawHotbar = true;
             for (int i = 0; i < HOT_N; i++) {
@@ -382,6 +394,27 @@ bool Game::load() {
             if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
                 p.tool[TOOLDEF[k].type] = k;
             }
+    // worn carried gear ("key:quality" per EqSlot) and the chosen axe / pickaxe; an older save wore its carried gear from the pack
+    for (int i = 0; i < EQ_COUNT; i++) p.worn[i] = -1, p.wornQ[i] = 0;
+    for (int i = 0; i < EQ_COUNT && i < (int)wornKeys.size(); i++) {
+        const size_t c = wornKeys[i].rfind(':');
+        const int id = itemFromKey(c == std::string::npos ? wornKeys[i] : wornKeys[i].substr(0, c));
+        if (id >= 0 && item(id).kind == IK_CARRIED) {
+            p.worn[i] = id;
+            p.wornQ[i] = c == std::string::npos ? 0 : std::max(0, std::min(Q_COUNT - 1, atoi(wornKeys[i].c_str() + c + 1)));
+        }
+    }
+    if (!sawWorn) migrateWornGear();
+    p.syncPack();
+    for (int t = 0; t < TT_COUNT; t++) p.toolManual[t] = false;
+    for (int i = 0; i < 2 && i < (int)gtoolKeys.size(); i++) {
+        const int t = i == 0 ? TT_AXE : TT_PICK;
+        if (gtoolKeys[i] == "auto") continue;
+        p.toolManual[t] = true;
+        const int id = gtoolKeys[i] == "-" ? -1 : itemFromKey(gtoolKeys[i]);
+        p.tool[t] = id >= 0 && item(id).kind == IK_TOOL && TOOLDEF[item(id).ref].type == t ? item(id).ref : -1;
+    }
+    syncGatherTools();
     applyLook(lookLoaded);
     refreshQuest();
     // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is

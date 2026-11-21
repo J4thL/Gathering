@@ -162,6 +162,9 @@ struct Player {
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
+    int worn[EQ_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // worn carried gear (item ids) by EqSlot: like the bag it is out of the pack while worn
+    int wornQ[EQ_COUNT] = {0, 0, 0, 0, 0, 0, 0};
+    bool toolManual[TT_COUNT] = {false, false, false, false, false, false, false};  // axe / pickaxe: true = the hunter chose (or took off) the tool, false = the best one in the pack is used
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
     int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
@@ -184,7 +187,11 @@ struct Player {
     int wpn(int w) const { return inv.count(itemWpn(w)); }
     int ammo(int a) const { return inv.count(itemAmmo(a)); }
     int bandages() const { return inv.count(ITEM_CONS0 + C_BANDAGE); }
-    bool has(int carried) const { return inv.count(itemCarry(carried)) > 0; }  // carried gear is active while it is in the pack
+    bool has(int carried) const {  // carried gear is active only while it is worn
+        for (int i = 0; i < EQ_COUNT; i++)
+            if (worn[i] == itemCarry(carried)) return true;
+        return false;
+    }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
@@ -611,7 +618,15 @@ struct Game {
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
-    void drawGearColumn(int x0, int y0);
+    bool equipCarried(int slot, int into = -1);        // wear the carried gear in this pack slot (what it replaces goes back into the pack)
+    bool unequipCarried(int eq);        // take the gear worn in this EqSlot off
+    bool equipGatherTool(int slot);     // axe / pickaxe: use this one
+    bool unequipGatherTool(int type);
+    void syncGatherTools();             // axe / pickaxe follow the best one in the pack until the hunter chooses
+    void migrateWornGear();             // old saves: gear that lay in the pack is worn
+    struct DollHover { int what = -1, idx = 0, id = -1, q = 0; const char* lab = ""; } dh;  // the worn slot under the cursor (pack screen)
+    void drawPaperDoll(int x, int y, int w, bool dropNow, int dragSlot);  // the equipment page of the pack (game_panels.cpp)
+    void dollTakeOff();
     bool equipFarmTool(int slot);       // equip the farming tool in this pack slot: it goes on the hotbar like a weapon and stays in the pack
     bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off the hotbar (it stays in the pack)
     void giveFarmTool(int toolId);      // add a tool to the pack and equip it (starter / bought tools)
@@ -690,6 +705,7 @@ struct Game {
         int kind = PL_CAMPFIRE, tx = 0, ty = 0;
         std::string why;
     } pl;
+    float gtSyncT = 0;
     int farmPieceId = -1, animSelId = -1, animScroll = 0, hsTileHit = -1;
     float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()

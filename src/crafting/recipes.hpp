@@ -120,6 +120,15 @@ static const Recipe RECIPES[] = {
     {RK_ITEM, itemMat(M_STEELBAR), 1, {M_IRONBAR, M_COAL, -1}, {1, 3, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 20},
     {RK_ITEM, itemMat(M_STEELBAR), 3, {M_IRONBAR, M_VOIDSHARD, -1}, {2, 1, 0}, RC_MATERIALS, STN_SHOP, SK_SMITHING, 26},  // void shard: dungeon-only
     {RK_ITEM, itemCons(C_TONIC), 3, {M_GLOWCAP, M_HERB, -1}, {1, 1, 0}, RC_MEDICINE, STN_ANY, SK_ALCHEMY, 12},  // glowcap: dungeon-only
+    // ---- farm products, made at a campfire from the farm's crops and animals
+    {RK_ITEM, itemMat(M_FLOUR), 2, {M_WHEAT, -1, -1}, {3, 0, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 2},
+    {RK_ITEM, itemMat(M_BUTTER), 1, {M_MILK, -1, -1}, {2, 0, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 3},
+    {RK_ITEM, itemMat(M_CHEESE), 1, {M_MILK, M_HERB, -1}, {3, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 6},
+    {RK_ITEM, itemMat(M_JAM), 2, {M_STRAWBERRY, M_BERRY, -1}, {4, 2, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 5},
+    {RK_ITEM, itemMat(M_PICKLES), 2, {M_CUCUMBER, M_HERB, -1}, {3, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 5},
+    {RK_ITEM, itemCons(C_VEGSTEW), 2, {M_LEEK, M_TURNIP, M_POTATO}, {1, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 8},
+    {RK_ITEM, itemCons(C_RATATOUILLE), 2, {M_EGGPLANT, M_TOMATO, M_PEPPER}, {1, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 11},
+    {RK_ITEM, itemCons(C_BEETSOUP), 2, {M_BEET, M_BUTTER, M_CHEESE}, {2, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 13},
     // ---- the farm's kitchen and wardrobe: eggs, milk, grain, fish and berries become meals; straw, leather and hay become gear
     {RK_ITEM, itemCons(C_OMELET), 2, {M_EGG, M_HERB, M_MILK}, {2, 1, 1}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 4},
     {RK_ITEM, itemCons(C_BREAD), 3, {M_WHEAT, M_EGG, -1}, {3, 1, 0}, RC_SURVIVAL, STN_FIRE, SK_COOKING, 3},

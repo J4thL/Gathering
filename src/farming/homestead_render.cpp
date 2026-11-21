@@ -27,7 +27,11 @@ void Game::drawHomesteadGround() {
                 case HP_FLOOR_STONE: sprS(A.H.floorStone, sx, sy); break;
                 case HP_FOUNDATION: sprS(A.H.foundation, sx, sy); break;
                 case HP_BRIDGE: sprS(A.H.bridge[pc.rot & 1], sx, sy); break;
-                case HP_PLOT: sprS(A.H.plot[pc.water > 0.3f ? 1 : 0], sx, sy); break;
+                case HP_PLOT: {  // neighbouring plots join into one bed
+                    auto plotAt = [&](int dx, int dy) { const HPiece* q = hsAt(pc.tx + dx, pc.ty + dy, HL_GROUND); return q && q->kind == HP_PLOT; };
+                    sprS(A.H.plot[pc.water > 0.3f ? 1 : 0][(plotAt(0, -1) ? 1 : 0) | (plotAt(1, 0) ? 2 : 0) | (plotAt(0, 1) ? 4 : 0) | (plotAt(-1, 0) ? 8 : 0)], sx, sy);
+                    break;
+                }
                 case HP_HOLE: {  // neighbouring holes join into one trench
                     auto hole = [&](int dx, int dy) { const HPiece* q = hsAt(pc.tx + dx, pc.ty + dy, HL_GROUND); return q && q->kind == HP_HOLE; };
                     sprS(A.H.hole[(hole(0, -1) ? 1 : 0) | (hole(1, 0) ? 2 : 0) | (hole(0, 1) ? 4 : 0) | (hole(-1, 0) ? 8 : 0)], sx, sy);

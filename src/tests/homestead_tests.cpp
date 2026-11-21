@@ -281,7 +281,7 @@ int homesteadTest(Game& g) {
         int woodSlot = -1;
         for (int s = 0; s < g.p.bagCap(); s++) if (g.p.inv.slots[s].item == itemMat(M_WOOD)) woodSlot = s;
         const int used1 = g.p.inv.usedSlots();
-        check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1 && g.p.tool[TT_AXE] < 0 && g.p.tool[TT_PICK] < 0, "an axe, a material or an empty slot cannot be equipped as a farming tool");
+        check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1, "an axe, a material or an empty slot cannot be equipped as a farming tool");
         g.p.inv.remove(itemTool(TL_AXE1), 1);
         // equipping the equipped tool again is refused: one hoe on the hotbar, no duplicate
         g.p.inv.addIgnoringWeight(itemTool(TL_HOE), 1);  // (the test pack may be at its weight limit)
@@ -588,6 +588,28 @@ int homesteadTest(Game& g) {
         g.state = ST_BUILD; shot("f_build_menu.bmp");
         g.state = ST_ANIMAL; g.farmPieceId = -1; shot("h_animals.bmp");
         g.state = ST_PLAY;
+        {   // a field of every crop: stages 0..4 across, three plots of each in a row, to check the bed shapes and the crop art
+            bool placed = false;
+            for (int ty0 = py - 14; ty0 < py + 14 && !placed; ty0++)
+                for (int tx0 = px - 14; tx0 < px + 14 && !placed; tx0++) {
+                    bool free = true;
+                    for (int dy = 0; dy < 10 && free; dy++)
+                        for (int dx = 0; dx < 14 && free; dx++) free = g.hsCanBuild(HP_PLOT, tx0 + dx, ty0 + dy, 0);
+                    if (!free) continue;
+                    placed = true;
+                    for (int c = 0; c < CR_COUNT; c++)
+                        for (int st = 0; st < 5; st++) {
+                            const int tx = tx0 + st + (c < 7 ? 0 : 7), ty = ty0 + (c % 7) + (c < 7 ? 0 : 0) - 0;
+                            if (c >= 7 && st > 4) continue;
+                            if (!g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
+                            HPiece* pc = g.hsAt(tx, ty, HL_GROUND);
+                            if (pc) { pc->crop = c; pc->stage = st; pc->water = (st % 2) ? 5.f : 0.f; }
+                        }
+                    g.p.pos = V2((tx0 + 6) * TS, (ty0 + 8) * TS);
+                }
+            g.dayT = DAY_LEN * 0.3f;
+            steps(g, 3); shot("i_field.bmp");
+        }
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
         g.dayT = DAY_LEN * 0.7f;
         steps(g, 3); shot("j_night.bmp");
@@ -981,10 +1003,53 @@ int homesteadTest(Game& g) {
         g.p.inv.addIgnoringWeight(itemCarry(CG_PORTERBELT), 1);
         check(g.p.inv.usedSlots() == 2, "carried gear stacks");
         g.p.syncPack();
+        g.migrateWornGear();
         check(g.p.carryLimit() >= BASE_CARRY_KG + 25, "the porter's belt raises the carrying limit");
         g.p.hp = 10.f;
         g.p.inv.addIgnoringWeight(itemCons(C_OMELET), 2);
         check(g.useConsumable(C_OMELET) && g.p.hp > 10.f && g.p.inv.count(itemCons(C_OMELET)) == 1, "a farm omelet heals");
+        // ---- equipping: carried gear works only while worn; axe / pickaxe follow the best one until chosen
+        g.p.inv.clear();
+        for (int e = 0; e < EQ_COUNT; e++) g.p.worn[e] = -1;
+        g.p.inv.addIgnoringWeight(itemCarry(CG_STRAWHAT), 1);
+        g.p.inv.addIgnoringWeight(itemCarry(CG_FARMBOOTS), 2);
+        auto slotOfItem = [&](int id) { for (int i = 0; i < g.p.bagCap(); i++) if (g.p.inv.slots[i].item == id) return i; return -1; };
+        check(!g.p.has(CG_STRAWHAT) && !g.p.has(CG_FARMBOOTS), "carried gear in the pack does nothing");
+        check(g.equipCarried(slotOfItem(itemCarry(CG_STRAWHAT))) && g.p.has(CG_STRAWHAT) && g.p.inv.count(itemCarry(CG_STRAWHAT)) == 0, "wearing takes it out of the pack");
+        check(g.equipCarried(slotOfItem(itemCarry(CG_FARMBOOTS))) && g.p.has(CG_FARMBOOTS) && g.p.inv.count(itemCarry(CG_FARMBOOTS)) == 1, "one of a stack is worn");
+        check(g.unequipCarried(EQ_HEAD) && !g.p.has(CG_STRAWHAT) && g.p.inv.count(itemCarry(CG_STRAWHAT)) == 1, "taking it off puts it back in the pack");
+        g.p.inv.addIgnoringWeight(itemCarry(CG_WADERS), 1);  // the same slot: it replaces the boots
+        check(g.equipCarried(slotOfItem(itemCarry(CG_WADERS))) && g.p.has(CG_WADERS) && !g.p.has(CG_FARMBOOTS) && g.p.inv.count(itemCarry(CG_FARMBOOTS)) == 2, "a piece for a taken slot swaps with the one worn");
+        // the worn gear survives a save and a load
+        g.save();
+        for (int e = 0; e < EQ_COUNT; e++) g.p.worn[e] = -1;
+        check(g.load() && g.p.has(CG_WADERS), "worn gear is saved");
+        // axe and pickaxe
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemTool(TL_AXE1), 1);
+        g.syncGatherTools();
+        check(g.p.tool[TT_AXE] == TL_AXE1 && g.bestTool(TT_AXE) > 0, "the best axe in the pack is used");
+        check(g.unequipGatherTool(TT_AXE) && g.bestTool(TT_AXE) == 0, "an axe taken off cannot chop");
+        g.syncGatherTools();
+        check(g.p.tool[TT_AXE] < 0, "...and stays off");
+        check(g.equipGatherTool(slotOfItem(itemTool(TL_AXE1))) && g.bestTool(TT_AXE) > 0, "it can be put back on");
+        // ---- the second row of crops and the farm products
+        {
+            bool ok = CR_COUNT == 14;
+            std::set<std::string> nm;
+            for (int c = 0; c < CR_COUNT; c++) {
+                ok &= seedMatCrop(cropSeed(c)) == c && seedCropOf(itemMat(cropSeed(c))) == c && item(itemMat(cropProduce(c))).kind == IK_MATERIAL;
+                ok &= nm.insert(item(itemMat(cropProduce(c))).name).second && nm.insert(item(itemMat(cropSeed(c))).name).second;
+                ok &= CROPS[c].seedPrice > 0 && CROPS[c].stageSec > 0;
+            }
+            check(ok, "every crop has its own seed, produce, name and price");
+            g.p.inv.clear();
+            g.p.inv.addIgnoringWeight(itemMat(M_CUCUMBER), 3);
+            g.p.inv.addIgnoringWeight(itemMat(M_HERB), 1);
+            bool recipe = false;
+            for (int r = 0; r < (int)(sizeof(RECIPES) / sizeof(RECIPES[0])); r++) recipe |= RECIPES[r].kind == RK_ITEM && RECIPES[r].out == itemMat(M_PICKLES);
+            check(recipe && item(itemMat(M_CHEESE)).price > item(itemMat(M_MILK)).price, "farm products have recipes and are worth more than what goes in");
+        }
         g.p.hp = g.p.maxhp = 100000.f;
     }
     if (hadSave) {

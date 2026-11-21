@@ -50,6 +50,96 @@ bool Game::unequipBag() {
     return true;
 }
 
+// ---- carried gear: worn in EqSlots, out of the pack while worn (so, like the bag, it weighs nothing)
+bool Game::equipCarried(int slot, int into) {
+    if (slot < 0 || slot >= p.bagCap() || p.inv.slots[slot].empty()) return false;
+    const int id = p.inv.slots[slot].item;
+    if (item(id).kind != IK_CARRIED) return false;
+    const int q = p.inv.slots[slot].q;
+    int eq = CG_SLOT[item(id).ref];
+    if (eq == EQ_ACC1) eq = p.worn[EQ_ACC1] < 0 ? EQ_ACC1 : p.worn[EQ_ACC2] < 0 ? EQ_ACC2 : EQ_ACC1;
+    if (into == EQ_ACC1 || into == EQ_ACC2) { if (CG_SLOT[item(id).ref] == EQ_ACC1) eq = into; }
+    p.inv.removeQ(id, q, 1);
+    if (p.worn[eq] >= 0) p.inv.addIgnoringWeight(p.worn[eq], 1, p.wornQ[eq]);  // the old piece goes back (its slot was just freed)
+    p.worn[eq] = id;
+    p.wornQ[eq] = q;
+    p.syncPack();
+    msg("WEARING " + item(id).name, C_GOLD);
+    audio.play(S_CLICK);
+    return true;
+}
+
+bool Game::unequipCarried(int eq) {
+    if (eq < 0 || eq >= EQ_COUNT || p.worn[eq] < 0) return false;
+    if (p.inv.slotRoom(p.worn[eq], p.wornQ[eq]) < 1) {
+        msg("NO FREE SLOT TO PUT IT IN", C_RED);
+        audio.play(S_ERROR);
+        return false;
+    }
+    const int id = p.worn[eq];
+    p.inv.addIgnoringWeight(id, 1, p.wornQ[eq]);
+    p.worn[eq] = -1;
+    p.wornQ[eq] = 0;
+    p.syncPack();
+    msg(item(id).name + " TAKEN OFF", C_DIM);
+    audio.play(S_CLICK);
+    return true;
+}
+
+// Old saves kept carried gear in the pack, where it worked: wear it (one piece per slot, the best quality first).
+void Game::migrateWornGear() {
+    for (int k = 0; k < CG_COUNT; k++) {
+        const int id = itemCarry(k);
+        while (p.inv.count(id) > 0) {
+            int eq = CG_SLOT[k];
+            if (eq == EQ_ACC1 && p.worn[EQ_ACC1] >= 0) eq = EQ_ACC2;
+            if (p.worn[eq] >= 0) break;
+            const int q = p.inv.bestQuality(id);
+            p.inv.removeQ(id, q, 1);
+            p.worn[eq] = id;
+            p.wornQ[eq] = q;
+        }
+    }
+    p.syncPack();
+}
+
+// ---- axe and pickaxe: the best one in the pack is used until the hunter picks one (or takes it off)
+void Game::syncGatherTools() {
+    for (int t : {(int)TT_AXE, (int)TT_PICK}) {
+        if (p.toolManual[t]) {
+            if (p.tool[t] >= 0 && p.inv.count(itemTool(p.tool[t])) <= 0) p.toolManual[t] = false;  // it left the pack: back to the best one
+            else continue;
+        }
+        int best = -1, tier = 0;
+        for (int k = 0; k < TL_COUNT; k++)
+            if (TOOLDEF[k].type == t && TOOLDEF[k].tier > tier && p.inv.count(itemTool(k)) > 0) tier = TOOLDEF[k].tier, best = k;
+        p.tool[t] = best;
+    }
+}
+
+bool Game::equipGatherTool(int slot) {
+    if (slot < 0 || slot >= p.bagCap() || p.inv.slots[slot].empty()) return false;
+    const int id = p.inv.slots[slot].item;
+    if (item(id).kind != IK_TOOL) return false;
+    const int k = item(id).ref, type = TOOLDEF[k].type;
+    if (type != TT_AXE && type != TT_PICK) return false;
+    p.tool[type] = k;
+    p.toolManual[type] = true;
+    msg(item(id).name + " EQUIPPED", C_GOLD);
+    audio.play(S_CLICK);
+    return true;
+}
+
+bool Game::unequipGatherTool(int type) {
+    if ((type != TT_AXE && type != TT_PICK) || p.tool[type] < 0) return false;
+    const int id = itemTool(p.tool[type]);
+    p.tool[type] = -1;
+    p.toolManual[type] = true;
+    msg(item(id).name + " TAKEN OFF", C_DIM);
+    audio.play(S_CLICK);
+    return true;
+}
+
 // Farming tools (hoe, watering can, sickle) are equipped like weapons: the tool stays in the pack and sits on a hotbar slot (any slot),
 // and p.tool[type] names the one the farm code uses (bestTool() ignores farm tools that are only lying in the pack).
 bool Game::ownsTool(int toolId) const {

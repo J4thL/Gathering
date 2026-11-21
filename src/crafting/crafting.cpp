@@ -307,8 +307,8 @@ void Game::drawStationCraft(int X, int Y, int W, int H) {
     }
     if (maxScroll > 0) {  // scrollbar beside the grid
         const int sbx = gx + COLS * CELL, sbh = rows * CELL - 1, th = std::max(8, sbh * rows / (((int)list.size() + COLS - 1) / COLS));
-        fillRect(sbx, gy, 3, sbh, HEX(0x4a2a22));
-        fillRect(sbx, gy + (sbh - th) * craftScroll / maxScroll, 3, th, HEX(0xf5d9a8));
+        fillRect(sbx, gy, 3, sbh, HEX(0x6b665c));
+        fillRect(sbx, gy + (sbh - th) * craftScroll / maxScroll, 3, th, HEX(0xeeeae0));
     }
     if (list.empty()) textC(gx + COLS * CELL / 2, gy + 20, craftOnly ? "NOTHING TO MAKE" : "NO RECIPES", C_DIM, 1, false);
     // ---- the picked recipe: ingredients and CREATE (middle), description (right)
