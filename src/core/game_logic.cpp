@@ -522,6 +522,7 @@ void Game::updatePlay(float dt) {
     updateHomestead(dt);
     if (bm.on && inHomestead()) updateBuildMode();
     updatePlacing();
+    if ((gtSyncT -= dt) <= 0) gtSyncT = 0.25f, syncGatherTools();
     if (delve < 0) updateBiome(dt);
     updatePlayer(dt);
     updateHarvest(dt);

@@ -313,6 +313,19 @@ inline Img mkIconCons(int c) {
             im.rect(4, 8, 8, 1, HEX(0xe8b870)); im.rect(4, 10, 8, 1, HEX(0xe8b870));
             im.rect(6, 7, 1, 4, HEX(0xe8b870)); im.rect(9, 7, 1, 4, HEX(0xe8b870));
             break;
+        case C_VEGSTEW:  // a bowl of stew with greens and a carrot
+            im.ellipse(8, 10, 6.4f, 3.8f, HEX(0x7a4a26)); im.ellipse(8, 9, 5.4f, 2.8f, HEX(0xc88a4a));
+            im.set(6, 9, HEX(0x6ab84a)); im.set(9, 8, HEX(0xf08a2a)); im.set(10, 10, HEX(0xf4f8e8)); im.set(7, 8, HEX(0xe8cc94));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(8, 2, HEX(0xeef6ff));
+            break;
+        case C_RATATOUILLE:  // a plate of sliced vegetables in a ring
+            im.ellipse(8, 10, 6.8f, 3.8f, HEX(0xe8e2d4));
+            for (int i = 0; i < 6; i++) im.ellipse(4.5f + i * 1.4f, 9.5f - (i % 2), 1.6f, 1.6f, i % 3 == 0 ? HEX(0x8a3ab8) : i % 3 == 1 ? HEX(0xe03a2a) : HEX(0xf2c84a));
+            break;
+        case C_BEETSOUP:  // a pink creamy bowl
+            im.ellipse(8, 10, 6.4f, 3.8f, HEX(0x8a5a2c)); im.ellipse(8, 9, 5.4f, 2.8f, HEX(0xd8506a)); im.ellipse(8, 9, 2.4f, 1.0f, HEX(0xf8e0e4));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(7, 2, HEX(0xeef6ff));
+            break;
         default:  // cactus water: a green gourd flask with a droplet
             im.rect(7, 2, 2, 3, HEX(0xb89a5a));
             im.ellipseShaded(8, 10, 5.f, 4.8f, HEX(0x8ad46a), HEX(0x4a9a4c), HEX(0x2f7a3a));

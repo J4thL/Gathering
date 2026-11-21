@@ -81,19 +81,39 @@ inline Img bridge(bool vert) {
         }
     return im;
 }
-inline Img plot(bool wet) {  // tilled soil: furrows with lit ridges
+// Tilled soil: one patch of dark, speckled earth with a rounded edge. mask = which sides have another plot next to them (N 1, E 2, S 4, W 8):
+// the edge (a dark outline and a lighter rim) is drawn only on the open sides, so a field of plots reads as one big rounded bed. wet = watered.
+inline Img plot(bool wet, int mask = 0) {
     Img im(16, 16);
-    const u32 a = wet ? HEX(0x3c2818) : HEX(0x7a5532), b = wet ? HEX(0x2c1c10) : HEX(0x5e3f25), c = wet ? HEX(0x543a24) : HEX(0x94683f);
+    const u32 soil = wet ? HEX(0x6a4428) : HEX(0x8f5e36), dark = wet ? HEX(0x543620) : HEX(0x75492a), light = wet ? HEX(0x7e5232) : HEX(0xa77044);
+    const u32 rim = wet ? HEX(0x8a5c3a) : HEX(0xb98250), line = HEX(0x4a2c18);
+    const bool oN = !(mask & 1), oE = !(mask & 2), oS = !(mask & 4), oW = !(mask & 8);
     for (int y = 0; y < 16; y++)
         for (int x = 0; x < 16; x++) {
-            const int f = y % 4;
-            u32 col = f == 0 ? c : f == 3 ? b : a;
-            if (nzf(x, y, 41) > 0.9f) col = f < 2 ? lit(col) : drk(col);
+            // depth from the nearest open edge; the corners between two open sides are cut round
+            int d = 99;
+            if (oN) d = std::min(d, y);
+            if (oS) d = std::min(d, 15 - y);
+            if (oW) d = std::min(d, x);
+            if (oE) d = std::min(d, 15 - x);
+            if (oN && oW) d = std::min(d, x + y - 1);
+            if (oN && oE) d = std::min(d, (15 - x) + y - 1);
+            if (oS && oW) d = std::min(d, x + (15 - y) - 1);
+            if (oS && oE) d = std::min(d, (15 - x) + (15 - y) - 1);
+            if (d < 0) continue;  // outside the rounded corner: ground shows
+            u32 col;
+            if (d == 0) col = line;
+            else if (d == 1) col = rim;
+            else {
+                col = soil;
+                const float n = nzf(x, y, 41);
+                if (n > 0.93f) col = light;
+                else if (n < 0.14f) col = dark;
+                if ((x + y * 2) % 7 == 0 && n > 0.5f) col = dark;  // a few small clods
+            }
             im.set(x, y, col);
         }
-    for (int x = 0; x < 16; x++) { im.set(x, 0, wet ? HEX(0x6a4a30) : HEX(0xb58554)); }
-    im.rect(0, 15, 16, 1, HEX(0x40301f)); im.rect(0, 0, 1, 16, wet ? HEX(0x4a3420) : HEX(0x6a4a2c)); im.rect(15, 0, 1, 16, HEX(0x3a2a1a));
-    if (wet) for (int i = 0; i < 6; i++) im.set(2 + (int)(nz(i, 1, 3) % 12), 2 + (int)(nz(i, 2, 3) % 12), HEX(0x8ab8e0));
+    if (wet) for (int i = 0; i < 5; i++) im.set(3 + (int)(nz(i, 1, 3) % 10), 3 + (int)(nz(i, 2, 3) % 10), HEX(0x8ab8e0));
     return im;
 }
 // A hole dug in the soil (16 x 16, opaque like a plot). mask = which sides have another hole next to them (N 1, E 2, S 4, W 8): the pit runs
@@ -431,6 +451,32 @@ inline Img crop(int c, int stage) {
             for (int i = 0; i < 4; i++) leaf(9, 21, 5 + i % 2 * 2, 0.4f + i * 0.9f, i % 2 ? G1 : G2);
             if (stage >= 3) { const float r = stage == 3 ? 3.5f : 6.f; im.ellipseShaded(9, 19, r + 1.f, r * 0.8f, stage == 4 ? HEX(0xffa84a) : HEX(0xa8c868), stage == 4 ? HEX(0xf08a2a) : HEX(0x78a848), stage == 4 ? HEX(0xb85a14) : HEX(0x507a30)); if (stage == 4) { im.line(9, 14, 9, 22, HEX(0xc86a1a)); im.line(6, 15, 6, 21, HEX(0xc86a1a)); im.line(12, 15, 12, 21, HEX(0xc86a1a)); im.rect(8, 12, 2, 3, HEX(0x5a8a30)); } }
             break;
+        case CR_EGGPLANT:
+            for (int i = 0; i < 6; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.4f + i * 0.45f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 2; i++) { const int x = 6 + i * 6, y = 17 + i; im.ellipseShaded(x, y, 1.9f, stage == 4 ? 3.2f : 2.0f, stage == 4 ? HEX(0xa86ad8) : HEX(0x8aa868), stage == 4 ? HEX(0x6a2a9a) : HEX(0x5a8a48), stage == 4 ? HEX(0x3a1260) : HEX(0x3a6a30)); im.rect(x - 1, y - 4, 3, 1, G1); }
+            break;
+        case CR_TURNIP:
+            for (int i = 0; i < 5; i++) leaf(9, 20, H - 3 - (i % 2) * 2, 0.5f + i * 0.5f, i % 2 ? G1 : G2);
+            if (stage >= 3) im.ellipseShaded(9, 21, stage == 4 ? 3.6f : 2.2f, stage == 4 ? 2.8f : 1.6f, HEX(0xfff4ff), HEX(0xe0a8e8), HEX(0xa05ab8));
+            break;
+        case CR_PEPPER:
+            for (int i = 0; i < 6; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.35f + i * 0.5f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 4; i++) { const int x = 5 + (i % 2) * 7, y = 22 - H / 2 - 1 + i * 2; im.ellipseShaded(x, y, 1.1f, 2.4f, stage == 4 ? HEX(0xff6a4a) : HEX(0xa8d868), stage == 4 ? HEX(0xd8281a) : HEX(0x6ab84a), stage == 4 ? HEX(0x8a1008) : HEX(0x3a8a2a)); }
+            break;
+        case CR_CUCUMBER:
+            im.line(5, 22, 5, 22 - H - 3, HEX(0x8a5a30)); im.line(13, 22, 13, 22 - H - 3, HEX(0x8a5a30)); im.line(5, 22 - H - 3, 13, 22 - H - 3, HEX(0x8a5a30));  // the trellis
+            for (int i = 0; i < 5; i++) leaf(9, 21 - i * H / 6, 4, 0.3f + (i % 2) * 2.4f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 3; i++) { const int x = 7 + (i % 2) * 4, y = 22 - H / 2 + i * 3; im.ellipseShaded(x, y, 1.4f, stage == 4 ? 3.0f : 2.0f, stage == 4 ? HEX(0x8ad858) : HEX(0xb8d878), HEX(0x4a9a3a), HEX(0x2a6a22)); if (stage == 3 && i == 1) im.set(x, y - 3, HEX(0xf2d040)); }
+            break;
+        case CR_BEET:
+            for (int i = 0; i < 5; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.5f + i * 0.5f, i % 2 ? HEX(0x6a2a3a) : G2);
+            for (int i = 0; i < 3; i++) im.line(9, 21, 9 + (i - 1) * 2, 21 - H + 3, HEX(0xb8283a));
+            if (stage >= 3) im.ellipseShaded(9, 22, stage == 4 ? 3.4f : 2.0f, stage == 4 ? 2.6f : 1.6f, HEX(0xd8506a), HEX(0xa8183a), HEX(0x5a0a1e));
+            break;
+        case CR_LEEK:
+            for (int i = 0; i < 5; i++) im.line(7 + i, 22, 6 + i * 3 / 2 + (i % 2), 22 - H - (i % 3), i % 2 ? G2 : G3);
+            im.rect(7, 18, 5, 5, stage == 4 ? HEX(0xf4f8e8) : HEX(0xc8e8a0)); im.rect(7, 18, 1, 5, HEX(0xffffff));
+            break;
         case CR_STRAWBERRY:
             for (int i = 0; i < 5; i++) leaf(9, 21, 4 + (i % 2) * 2, 0.3f + i * 0.65f, i % 2 ? G1 : G3);
             if (stage >= 3) for (int i = 0; i < 4; i++) { const int x = 5 + i * 3, y = 19 + (i % 2); if (stage == 4) { im.ellipseShaded(x, y, 1.6f, 2.0f, HEX(0xff6a7a), HEX(0xe0283a), HEX(0x8a1020)); im.set(x - 1, y - 1, HEX(0xfff0c0)); } else { im.set(x, y, HEX(0xf8f8ff)); im.set(x + 1, y, HEX(0xf2d040)); } }
@@ -490,9 +536,10 @@ inline Img iconMat(int m) {
         im.set(7, 9, HEX(0x241a14)); im.set(9, 10, HEX(0x241a14));
         im.outline(OUT);
     };
-    if (m >= M_SEED0 && m < M_SEED0 + CROP_N) {
-        static const u32 lab[CROP_N] = {HEX(0xe8c040), HEX(0xf08a2a), HEX(0xc09a5a), HEX(0x6ab84a), HEX(0xf2d040), HEX(0xe03a2a), HEX(0xf08a2a), HEX(0xe0283a)};
-        seedPacket(lab[m - M_SEED0]);
+    if (seedMatCrop(m) >= 0) {
+        static const u32 lab[CROP_N] = {HEX(0xe8c040), HEX(0xf08a2a), HEX(0xc09a5a), HEX(0x6ab84a), HEX(0xf2d040), HEX(0xe03a2a), HEX(0xf08a2a), HEX(0xe0283a),
+                                        HEX(0x8a3ab8), HEX(0xe8d0f0), HEX(0xe0382a), HEX(0x4a9a3a), HEX(0xa8183a), HEX(0xd8f0b0)};
+        seedPacket(lab[seedMatCrop(m)]);
         return im;
     }
     switch (m) {
@@ -528,6 +575,46 @@ inline Img iconMat(int m) {
         case M_STRAWBERRY:
             im.ellipseShaded(8, 9, 4.5f, 5.5f, HEX(0xff7a8a), HEX(0xe0283a), HEX(0x8a1020)); im.rect(6, 3, 5, 2, HEX(0x4a9a3a)); im.set(8, 2, HEX(0x6ab84a));
             for (int i = 0; i < 4; i++) im.set(6 + (i % 2) * 3, 7 + i * 2 / 1 % 5, HEX(0xfff0c0));
+            break;
+        case M_EGGPLANT:
+            im.ellipseShaded(8, 9, 4.2f, 5.6f, HEX(0xa86ad8), HEX(0x6a2a9a), HEX(0x3a1260)); im.rect(6, 2, 5, 3, HEX(0x4a9a3a)); im.set(5, 3, HEX(0x6ab84a)); im.set(7, 7, HEX(0xd8b0f0));
+            break;
+        case M_TURNIP:
+            im.ellipseShaded(8, 10, 5.2f, 4.2f, HEX(0xfff4ff), HEX(0xe0a8e8), HEX(0xa05ab8)); im.line(8, 6, 8, 2, HEX(0x6ab84a)); im.line(8, 6, 5, 3, HEX(0x4a9a3a)); im.line(8, 6, 11, 3, HEX(0x4a9a3a));
+            im.rect(5, 6, 6, 2, HEX(0xc87ad0));
+            break;
+        case M_PEPPER:
+            im.ellipseShaded(8, 9, 3.2f, 5.6f, HEX(0xff6a4a), HEX(0xd8281a), HEX(0x8a1008)); im.rect(7, 2, 3, 3, HEX(0x4a9a3a)); im.set(7, 7, HEX(0xffc0a8));
+            break;
+        case M_CUCUMBER:
+            im.ellipseShaded(8, 8, 2.8f, 6.2f, HEX(0x8ad858), HEX(0x4a9a3a), HEX(0x2a6a22)); for (int i = 0; i < 4; i++) im.set(7 + (i % 2) * 2, 4 + i * 2, HEX(0xc8f0a0));
+            break;
+        case M_BEET:
+            im.ellipseShaded(8, 10, 4.8f, 4.2f, HEX(0xd8506a), HEX(0xa8183a), HEX(0x5a0a1e)); im.line(8, 6, 8, 2, HEX(0xb8283a)); im.line(8, 6, 5, 3, HEX(0x6a2a3a)); im.line(8, 6, 11, 3, HEX(0x6a8a3a)); im.set(6, 9, HEX(0xf08a9a));
+            break;
+        case M_LEEK:
+            for (int i = 0; i < 3; i++) im.line(6 + i * 2, 8, 4 + i * 4, 1, i % 2 ? HEX(0x6ab84a) : HEX(0x4a9a3a));
+            im.rect(6, 8, 5, 6, HEX(0xf4f8e8)); im.rect(6, 8, 1, 6, HEX(0xffffff)); im.rect(6, 8, 5, 2, HEX(0xc8e8a0)); im.rect(6, 14, 5, 1, HEX(0xe8d0a8));
+            break;
+        case M_FLOUR:
+            im.rect(4, 5, 8, 10, HEX(0xe8dcc0)); im.rect(4, 5, 8, 2, HEX(0xc8b890)); im.rect(4, 5, 1, 10, HEX(0xfff4d8)); im.rect(5, 9, 6, 3, HEX(0xf8f4e8));
+            im.set(7, 10, HEX(0xc8a43a)); im.set(8, 10, HEX(0xf2d868)); im.set(9, 10, HEX(0xc8a43a));
+            break;
+        case M_BUTTER:
+            im.rect(3, 7, 10, 6, HEX(0xffe880)); im.rect(3, 7, 10, 2, HEX(0xfff4b0)); im.rect(3, 12, 10, 1, HEX(0xd8b84a)); im.rect(3, 9, 1, 3, HEX(0xf2d868));
+            im.rect(4, 5, 8, 2, HEX(0xdce8f0));
+            break;
+        case M_CHEESE:
+            im.rect(2, 8, 12, 6, HEX(0xf2c84a)); im.rect(2, 8, 12, 1, HEX(0xffe888));
+            for (int x = 3; x < 13; x++) im.set(x, 7 - (x - 3) / 4, HEX(0xf8d860));
+            im.set(5, 10, HEX(0xb88a20)); im.set(9, 11, HEX(0xb88a20)); im.set(11, 9, HEX(0xb88a20)); im.rect(2, 13, 12, 1, HEX(0xc89a30));
+            break;
+        case M_JAM:
+            im.rect(4, 6, 8, 8, HEX(0x8a2a5a)); im.rect(4, 6, 2, 8, HEX(0xb04a7a)); im.rect(3, 4, 10, 3, HEX(0xe8d8a8)); im.rect(3, 4, 10, 1, HEX(0xfff0c8)); im.rect(5, 9, 6, 3, HEX(0xf0e0c0));
+            break;
+        case M_PICKLES:
+            im.rect(4, 4, 8, 10, HEX(0xc8e8d8)); im.rect(4, 4, 1, 10, HEX(0xf0fff8)); im.rect(3, 2, 10, 3, HEX(0xb89a5a));
+            for (int i = 0; i < 3; i++) im.ellipseShaded(6 + i * 2, 9, 1.2f, 3.2f, HEX(0x8ad858), HEX(0x4a9a3a), HEX(0x2a6a22));
             break;
         case M_EGG:
             im.ellipseShaded(8, 9, 4.2f, 5.2f, HEX(0xfff4e0), HEX(0xf0dcc0), HEX(0xc0a888)); im.set(6, 6, HEX(0xffffff));
@@ -717,7 +804,7 @@ inline Img nodeSprite(int i) {
 // ------------------------------------------------------------------ the asset set
 struct HomeAssets {
     Spr wall[2][2];            // [wood / stone][capped / face only]
-    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2], roof, hole[16];
+    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2][16], roof, hole[16];
     Spr fence[2], gate[2][2], door[2];   // [horizontal / vertical][closed / open]  (door: closed / open)
     Spr building[HP_COUNT][2]; // [kind][rot & 1]
     Spr greenhouse[2];
@@ -736,7 +823,7 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
         a.bridge[v] = makeSpr(r, bridge(v == 1), 0, 0);
         a.fence[v] = makeSpr(r, fence(v == 1), v ? 4 : 8, v ? 17 : 16);
         for (int o = 0; o < 2; o++) a.gate[v][o] = makeSpr(r, gate(v == 1, o == 1), v ? 4 : 8, v ? 17 : 16);
-        a.plot[v] = makeSpr(r, plot(v == 1), 0, 0);
+        for (int m = 0; m < 16; m++) a.plot[v][m] = makeSpr(r, plot(v == 1, m), 0, 0);
         if (v == 0) for (int m = 0; m < 16; m++) a.hole[m] = makeSpr(r, digHole(false, m), 0, 0);
         a.door[v] = makeSpr(r, door(v == 1), 8, 23);
     }

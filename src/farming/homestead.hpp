@@ -71,7 +71,7 @@ static const HPieceDef HPDEF[HP_COUNT] = {
 constexpr int H_MAX_PIECES = 900;
 
 // ---------------------------------------------------------------- crops
-enum CropId { CR_WHEAT, CR_CARROT, CR_POTATO, CR_CABBAGE, CR_CORN, CR_TOMATO, CR_PUMPKIN, CR_STRAWBERRY, CR_COUNT };
+enum CropId { CR_WHEAT, CR_CARROT, CR_POTATO, CR_CABBAGE, CR_CORN, CR_TOMATO, CR_PUMPKIN, CR_STRAWBERRY, CR_EGGPLANT, CR_TURNIP, CR_PEPPER, CR_CUCUMBER, CR_BEET, CR_LEEK, CR_COUNT };
 static_assert(CR_COUNT == CROP_N, "crops and the produce / seed materials share one order");
 constexpr int CROP_STAGES = 5;  // 0 seed, 1 sprout, 2 growing, 3 flowering/almost, 4 ripe
 struct CropDef {
@@ -93,9 +93,15 @@ static const CropDef CROPS[CR_COUNT] = {
     {"TOMATO", 58, 3, 5, 1, 2, -1, 8, 8, true},
     {"PUMPKIN", 95, 1, 1, 2, 4, TT_AXE, 16, 12, false},
     {"STRAWBERRY", 70, 3, 6, 1, 2, -1, 10, 10, true},
+    {"EGGPLANT", 80, 1, 3, 1, 2, TT_HOE, 14, 10, true},
+    {"TURNIP", 28, 2, 3, 1, 1, TT_HOE, 4, 3, false},
+    {"PEPPER", 60, 2, 4, 1, 2, TT_HOE, 10, 8, true},
+    {"CUCUMBER", 50, 2, 4, 1, 2, TT_HOE, 8, 6, true},
+    {"BEET", 38, 2, 3, 1, 2, TT_HOE, 6, 5, false},
+    {"LEEK", 48, 2, 3, 1, 2, TT_HOE, 7, 6, false},
 };
-inline int cropProduce(int c) { return M_CROP0 + c; }
-inline int cropSeed(int c) { return M_SEED0 + c; }
+inline int cropProduce(int c) { return cropProduceMat(c); }
+inline int cropSeed(int c) { return cropSeedMat(c); }
 // Watering: one watering lasts a crop's whole growth (the soil dries again when the crop is ripe). Bare tilled soil dries slowly,
 // and rain soaks every open-air plot.
 constexpr float PLOT_DRY_SEC = 100.f;        // a watered plot with nothing planted dries after this long

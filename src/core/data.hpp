@@ -29,14 +29,22 @@ enum Mat {
     M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,  // seeds (same order)
     M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,                                                              // animal products and feed
     M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,                                                               // fish: caught with a rod (fishing.cpp)
+    M_EGGPLANT, M_TURNIP, M_PEPPER, M_CUCUMBER, M_BEET, M_LEEK,                                                      // the second row of crops: produce
+    M_SEED_EGGPLANT, M_SEED_TURNIP, M_SEED_PEPPER, M_SEED_CUCUMBER, M_SEED_BEET, M_SEED_LEEK,                       // ... and their seeds (same order)
+    M_FLOUR, M_BUTTER, M_CHEESE, M_JAM, M_PICKLES,                                                                   // farm products made from crops and animal goods (recipes.hpp)
     M_VOIDSHARD, M_GLOWCAP, M_RELIC,                                                                                   // found only in the Endless Depths (delve/endless)
     M_COUNT
 };
-constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N = 8;  // crop i: produce M_CROP0 + i, seed M_SEED0 + i
+constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N0 = 8, M_CROP1 = M_EGGPLANT, M_SEED1 = M_SEED_EGGPLANT, CROP_N = 14;
+// crop i (0..CROP_N-1): the first eight are the original run, the rest the second row (their materials sit after the fish)
+constexpr int cropProduceMat(int c) { return c < CROP_N0 ? M_CROP0 + c : M_CROP1 + (c - CROP_N0); }
+constexpr int cropSeedMat(int c) { return c < CROP_N0 ? M_SEED0 + c : M_SEED1 + (c - CROP_N0); }
+// the crop a seed material sows (-1 when m is not a seed)
+constexpr int seedMatCrop(int m) { return m >= M_SEED0 && m < M_SEED0 + CROP_N0 ? m - M_SEED0 : m >= M_SEED1 && m < M_SEED1 + (CROP_N - CROP_N0) ? CROP_N0 + m - M_SEED1 : -1; }
 constexpr int M_CARCASS_N = M_CLAW + 1;  // the ORIGINAL carcass materials (a contiguous block); trophies and fat come from carcasses too
 constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_COUGARFANG - M_RABBITFOOT + 1;
 inline bool isTrophy(int m) { return m >= M_TROPHY0 && m < M_TROPHY0 + M_TROPHY_N; }
-inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE) || m == M_STEELBAR || m == M_SILVERBAR; }  // made by crafting: SELL EVERYTHING keeps these
+inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE) || m == M_STEELBAR || m == M_SILVERBAR || (m >= M_FLOUR && m <= M_PICKLES); }  // made by crafting: SELL EVERYTHING keeps these
 inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m <= M_FAT); }  // can appear in a carcass (hunting) rather than on the land
 [[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {
     "RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER", "FEATHER", "HORN", "SCALE", "CLAW",
@@ -59,6 +67,9 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "WHEAT SEEDS", "CARROT SEEDS", "POTATO EYES", "CABBAGE SEEDS", "CORN SEEDS", "TOMATO SEEDS", "PUMPKIN SEEDS", "STRAWBERRY RUNNERS",
     "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY",
     "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE",
+    "EGGPLANT", "TURNIP", "HOT PEPPER", "CUCUMBER", "BEETROOT", "LEEK",
+    "EGGPLANT SEEDS", "TURNIP SEEDS", "PEPPER SEEDS", "CUCUMBER SEEDS", "BEET SEEDS", "LEEK SEEDS",
+    "FLOUR", "BUTTER", "CHEESE", "BERRY JAM", "PICKLES",
     "VOID SHARD", "GLOWCAP", "ANCIENT RELIC"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
@@ -80,6 +91,8 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        1, 1, 1, 1, 1, 1, 2, 2,
                                        4, 5, 6, 10, 30, 2,
                                        12, 14, 18, 16, 20, 26,
+                                       12, 6, 9, 8, 8, 9, 1, 1, 1, 1, 1, 1,
+                                       9, 16, 30, 24, 20,
                                        70, 30, 160};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -112,6 +125,9 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS",
     "A QUICK RIVER FISH - FOOD AND TRADE", "A GREEN LAKE FISH - FOOD AND TRADE", "A WHISKERED BOTTOM-FEEDER - FOOD AND TRADE", "SLIPPERY AND RICH - FOOD AND TRADE",
     "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH",
+    "A GLOSSY PURPLE FRUIT - STEWS AND TRADE", "A SWEET WHITE ROOT - QUICK TO GROW", "A FIERY FRUIT - STEWS AND TRADE", "CRISP AND COOL - GOOD PICKLED", "A DEEP RED ROOT - EARTHY AND SWEET", "A MILD, SWEET ONION - SOUPS AND STEWS",
+    "PLANT IN TILLED SOIL - GROWS INTO EGGPLANTS", "PLANT IN TILLED SOIL - GROWS INTO TURNIPS", "PLANT IN TILLED SOIL - GROWS INTO HOT PEPPERS", "PLANT IN TILLED SOIL - GROWS INTO CUCUMBERS", "PLANT IN TILLED SOIL - GROWS INTO BEETS", "PLANT IN TILLED SOIL - GROWS INTO LEEKS",
+    "GROUND WHEAT - MADE AT THE CAMPFIRE", "CHURNED FROM FRESH MILK - RICH AND SMOOTH", "AGED MILK CURD - A FARM FAVOURITE", "BERRIES BOILED SWEET - KEEPS FOR MONTHS", "CUCUMBERS CURED IN BRINE AND HERBS",
     "A SHARD OF DARKNESS FROM THE ENDLESS DEPTHS - FOUND NOWHERE ELSE", "A GLOWING FUNGUS OF THE DEEP - FOUND ONLY IN THE ENDLESS DEPTHS", "A TREASURE OF A LOST AGE - FOUND ONLY IN THE ENDLESS DEPTHS"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
@@ -128,6 +144,9 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,
                                           M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
                                           M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,
+                                          M_EGGPLANT, M_TURNIP, M_PEPPER, M_CUCUMBER, M_BEET, M_LEEK,
+                                          M_SEED_EGGPLANT, M_SEED_TURNIP, M_SEED_PEPPER, M_SEED_CUCUMBER, M_SEED_BEET, M_SEED_LEEK,
+                                          M_FLOUR, M_BUTTER, M_CHEESE, M_JAM, M_PICKLES,
                                           M_VOIDSHARD, M_GLOWCAP, M_RELIC};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.

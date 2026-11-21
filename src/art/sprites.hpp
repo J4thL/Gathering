@@ -11,6 +11,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 // result wraps exactly as the old signed multiply did in practice, so every pattern stays pixel-for-pixel the same.
 inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)((uint32_t)y * 19349663u); }
 #include "art/sprites_res.hpp"
+#include "art/sprites_tabs.hpp"
 #include "art/sprites_trophy.hpp"
 #include "art/sprites_gear.hpp"
 #include "delve/sprites_delve.hpp"
@@ -1074,6 +1075,7 @@ struct Assets {
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]: the side view (west = mirror)
     Spr animalNS[A_COUNT][8][2][5];  // the crawlers' front (0) and back (1) views, same indexing
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], babyIcon[A_COUNT], bandage;
+    Spr tabIcon[TI_COUNT];  // the pack's main and category tab icons (sprites_tabs.hpp)
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadowSoft, blood[3], vignette;
     DelveAssets D;
@@ -1215,6 +1217,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     }
     for (int c = 0; c < CG_STRAWHAT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
+    for (int k = 0; k < TI_COUNT; k++) a.tabIcon[k] = makeSpr(r, mkTabIcon(k), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
         Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);

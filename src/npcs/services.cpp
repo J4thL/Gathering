@@ -82,7 +82,7 @@ void Game::drawCraftService() {
     const int X = 8, Y = 12, W = 384, H = 201;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
-    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
+    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x6b665c));
     text(X + 8, Y + 7, std::string("CRAFT - ") + BUILDINGS[svc].name, C_GOLD);
     {
         std::string c = S(p.coins);
@@ -102,7 +102,7 @@ void Game::drawCraftService() {
     if (hasUp) {
         const char* tabs[2] = {"CRAFT", "UPGRADE"};
         for (int i = 0; i < 2; i++)
-            if (button(X + 6, Y + 22 + i * 22, 58, 19, tabs[i], true, svcTab == i ? HEX(0xffeec8) : HEX(0x5a4028))) svcTab = i;
+            if (button(X + 6, Y + 22 + i * 22, 58, 19, tabs[i], true, svcTab == i ? HEX(0xf6f3ea) : HEX(0x5a4028))) svcTab = i;
     } else {
         text(X + 8, Y + 24, "TODAY'S", C_DIM, 1, false);
         text(X + 8, Y + 33, "WORK", C_DIM, 1, false);

@@ -6,8 +6,8 @@
 // A 1..maxv slider bar at (tx, ty) tw wide: draws the track, fill and knob; a press on it starts a drag that sets val (drag is the caller's flag).
 void Game::sliderBar(int tx, int ty, int tw, int& val, int maxv, bool& drag) {
     const bool usable = maxv > 1;
-    fillRect(tx - 1, ty - 1, tw + 2, 6, packSkin ? HEX(0x4a2a22) : HEX(0x1a120b));
-    if (packSkin) fillRect(tx, ty, tw, 4, HEX(0xe0a878));
+    fillRect(tx - 1, ty - 1, tw + 2, 6, packSkin ? HEX(0x6b665c) : HEX(0x1a120b));
+    if (packSkin) fillRect(tx, ty, tw, 4, HEX(0xd9d5ca));
     else fillRect(tx, ty, tw, 4, HEX(0x1a120b));
     const float frac = usable ? (val - 1) / (float)(maxv - 1) : 0.f;
     if (usable) fillRect(tx, ty, (int)(tw * frac), 4, HEX(0x8ec2f0));

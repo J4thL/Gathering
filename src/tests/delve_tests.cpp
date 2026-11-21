@@ -297,11 +297,11 @@ int delveTest(Game& g) {
     check(g.delveReq(DV_FROST2) && !g.delveReq(DV_FROST3), "armour tier 4 opens the Ancient Crypt but not the Throne");
     g.p.up[U_ARMOR] = 5;
     check(!g.delveReq(DV_FROST3), "tier 5 armour alone is not enough for the Throne: it needs frost protection");
-    g.p.inv.add(itemCarry(CG_FROSTWARD), 1);
+    g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     check(g.delveReq(DV_FROST3), "with a frostward cloak it is");
     // stairs: level 1 -> 2
     g.p.up[U_ARMOR] = 0;
-    g.p.inv.remove(itemCarry(CG_FROSTWARD), 1);
+    for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
     standAt(g, g.world.stairsDn);
     g.bldCd = 0;
     check(g.delveNear() == 3 && !g.delveInteract() && g.delve == DV_FROST0, "the stairs refuse a hunter without the armour");
@@ -391,7 +391,7 @@ int delveTest(Game& g) {
 
     printf("--- the Frostbound King\n");
     g.p.up[U_ARMOR] = 8;
-    g.p.inv.add(itemCarry(CG_FROSTWARD), 1);
+    g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     g.delveMem[DV_FROST3].bossDead = false;
     g.bldCd = 0;
     // find the stairs down of level 3 -> 4
@@ -465,6 +465,7 @@ int delveTest(Game& g) {
             if (g.dchests[i].tier == 3) { standBeside(g, g.dchests[i].pos); break; }
         g.bldCd = 0;
         g.delveInteract();
+        g.migrateWornGear();
         check(g.p.has(CG_CROWN) && g.p.has(CG_HEART) && g.p.wpn(W_FROSTBRAND) == 1, "the chest holds the Crown, the Frozen Heart and the Frostbrand");
         // the crown
         g.p.inv.add(itemWpn(W_JAVELIN), 3);
@@ -560,6 +561,8 @@ int delveTest(Game& g) {
         g.p.inv.add(itemMat(M_GEM), 10);
         check(g.p.inv.totalWeight() > w0 && item(itemMat(M_GEM)).weight > 0, "the new materials have weight");
         // gem ring effect
+        for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
+        g.migrateWornGear();
         check(g.p.has(CG_GEMRING), "(the gem ring is carried)");
         // skills: combat and gathering XP were paid by the earlier sections
         check(g.p.sk.s[SK_MINING].xp >= 0, "(skills are tracked)");
@@ -653,7 +656,7 @@ void delveShots(Game& g, const std::string& dir) {
     g.state = ST_PLAY;
     g.p.hp = g.p.maxhp = 100000.f;
     g.p.up[U_ARMOR] = 8;
-    g.p.inv.add(itemCarry(CG_FROSTWARD), 1);
+    g.p.inv.add(itemCarry(CG_FROSTWARD), 1); g.migrateWornGear();
     g.ensureMonsterArt();
     int n = 0;
     auto shot = [&](const char* name) {

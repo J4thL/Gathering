@@ -218,7 +218,8 @@ void testWorldRules(SelfTest& t) {
                 if (RECIPES[r].kind == RK_ITEM && item(RECIPES[r].out).kind == IK_MATERIAL) producible[item(RECIPES[r].out).ref] = true;
             for (int m : {M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER}) producible[m] = true;  // bought at the flower shop
             for (int m : {M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY, M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
-                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE})
+                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,
+                          M_EGGPLANT, M_TURNIP, M_PEPPER, M_CUCUMBER, M_BEET, M_LEEK})
                 producible[m] = true;  // grown, raised on the homestead or caught with a rod
             int unmakeable = 0;
             for (int r = 0; r < RECIPE_N; r++)
@@ -370,41 +371,41 @@ void testWorldRules(SelfTest& t) {
     {
         g.newGame();
         g.state = ST_PLAY;
-        g.p.inv.clear();
+        g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         float dr = 1, rg = 1;
         g.curBiome = B_DESERT;
         g.dayT = 0.5f;
         g.climateMods(dr, rg);
         const float plainHeat = dr;
-        g.p.inv.add(itemCarry(CG_DESERTWRAPS), 1);
+        g.p.inv.add(itemCarry(CG_DESERTWRAPS), 1); g.migrateWornGear();
         g.climateMods(dr, rg);
         check(plainHeat > 1.f && dr < plainHeat && dr >= 1.f, "desert wraps cut the heat drain while carried");
-        g.p.inv.clear();
+        g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         g.curBiome = B_SNOW;
         g.p.warmT = 0;
         g.climateMods(dr, rg);
         const float cold = dr;
-        g.p.inv.add(itemCarry(CG_WOLFCLOAK), 1);
+        g.p.inv.add(itemCarry(CG_WOLFCLOAK), 1); g.migrateWornGear();
         g.climateMods(dr, rg);
         const float cloak = dr;
-        g.p.inv.add(itemCarry(CG_PARKA), 1);
+        g.p.inv.add(itemCarry(CG_PARKA), 1); g.equipCarried([&] { for (int i = 0; i < g.p.bagCap(); i++) if (g.p.inv.slots[i].item == itemCarry(CG_PARKA)) return i; return -1; }());  // a cloak replaces the one worn
         g.climateMods(dr, rg);
         check(cold > cloak && cloak > dr && dr == 1.f, "the wolf cloak halves the cold and the parka removes it");
-        g.p.inv.clear();
+        g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         g.curBiome = B_MOUNTAIN;
         g.climateMods(dr, rg);
         const float thin = dr;
-        g.p.inv.add(itemCarry(CG_HARNESS), 1);
+        g.p.inv.add(itemCarry(CG_HARNESS), 1); g.migrateWornGear();
         g.climateMods(dr, rg);
         check(dr < thin, "the climbing harness eases thin air");
         // snake wraps: only snake bites are softened
-        g.p.inv.clear();
+        g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         g.p.hp = g.p.maxhp = 200;
         g.hurtPlayer(20, V2(0, 0), A_RATTLER);
         const float plain = 200 - g.p.hp;
         g.p.hp = 200;
         g.p.invuln = 0;
-        g.p.inv.add(itemCarry(CG_VENOMWRAPS), 1);
+        g.p.inv.add(itemCarry(CG_VENOMWRAPS), 1); g.migrateWornGear();
         g.hurtPlayer(20, V2(0, 0), A_RATTLER);
         const float wrapped = 200 - g.p.hp;
         g.p.hp = 200;
@@ -412,7 +413,7 @@ void testWorldRules(SelfTest& t) {
         g.hurtPlayer(20, V2(0, 0), A_WOLF);
         check(wrapped < plain && 200 - g.p.hp == plain, "venom wraps soften snake bites but not other attacks");
         // gear tiers
-        g.p.inv.clear();
+        g.p.inv.clear(); for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
         bool tiers = true;
         for (int u = 0; u < 4; u++) tiers = tiers && (u == U_BAG || std::string(gearName(u, UP_MAX[u])).size() > 0);  // bags are items now
         check(tiers, "every gear line's top level has a name");

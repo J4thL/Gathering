@@ -20,7 +20,7 @@ static_assert(sizeof(ITEM_KIND_NAME) / sizeof(ITEM_KIND_NAME[0]) == IK_FARMBABY 
 constexpr int ITEM_MAT0 = 0;
 constexpr int ITEM_WPN0 = ITEM_MAT0 + M_COUNT;
 constexpr int ITEM_AMMO0 = ITEM_WPN0 + W_COUNT;
-enum ConsumableId { C_BANDAGE, C_SALVE, C_TONIC, C_COOKED, C_BREW, C_CACTUSWATER, C_POULTICE, C_MEDICINE, C_JERKY, C_STEW, C_VIGOR, C_NIGHTSIGHT, C_OMELET, C_BREAD, C_CHOWDER, C_PIE, C_COUNT };
+enum ConsumableId { C_BANDAGE, C_SALVE, C_TONIC, C_COOKED, C_BREW, C_CACTUSWATER, C_POULTICE, C_MEDICINE, C_JERKY, C_STEW, C_VIGOR, C_NIGHTSIGHT, C_OMELET, C_BREAD, C_CHOWDER, C_PIE, C_VEGSTEW, C_RATATOUILLE, C_BEETSOUP, C_COUNT };
 constexpr int ITEM_CONS0 = ITEM_AMMO0 + AM_COUNT;
 enum PackId { PK_SATCHEL, PK_TRAPPER, PK_EXPLORER, PK_EXPEDITION, PK_COUNT };  // bags: crafted, worn in the bag slot, each raises the carrying-weight limit
 constexpr int ITEM_PACK0 = ITEM_CONS0 + C_COUNT;
@@ -55,6 +55,12 @@ constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 // Carried gear works while it is in the pack (like a tool: no equip step, it just has to be on you). Each takes a pack slot.
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
                  CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_STRAWHAT, CG_FARMBOOTS, CG_PORTERBELT, CG_COUNT };  // CG_LANTERN..CG_HEART: mine and dungeon gear
+// Where carried gear is worn (the paper doll of the pack). Gear only works while it is worn; two accessory slots take any "charm".
+enum EqSlot { EQ_HEAD, EQ_BODY, EQ_BELT, EQ_FEET, EQ_BACK, EQ_ACC1, EQ_ACC2, EQ_COUNT };
+static const char* const EQ_NAME[EQ_COUNT] = {"HEAD", "BODY", "BELT", "FEET", "BACK", "CHARM", "CHARM"};
+// the slot each CarriedId goes to (EQ_ACC1 = either accessory slot), in CarriedId order
+constexpr int CG_SLOT[17] = {EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_FEET, EQ_BELT, EQ_BACK, EQ_ACC1, EQ_ACC1, EQ_BODY, EQ_ACC1, EQ_HEAD, EQ_ACC1, EQ_BACK, EQ_HEAD, EQ_FEET, EQ_BELT};
+static_assert(sizeof(CG_SLOT) / sizeof(CG_SLOT[0]) == CG_COUNT, "every carried gear needs a slot");
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
 // a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
 constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
@@ -114,6 +120,8 @@ inline float matWeight(int m) {
         0.01f, 0.01f, 0.02f, 0.01f, 0.01f, 0.01f, 0.02f, 0.01f,
         /*EGG*/ 0.06f, /*DUCKEGG*/ 0.08f, /*MILK*/ 1.0f, /*WOOL*/ 0.4f, /*TRUFFLE*/ 0.15f, /*HAY*/ 0.5f,
         /*TROUT*/ 0.8f, /*BASS*/ 1.0f, /*CATFISH*/ 1.8f, /*EEL*/ 0.7f, /*CHAR*/ 0.6f, /*PIKE*/ 1.6f,
+        /*NEW CROPS*/ 0.3f, 0.3f, 0.1f, 0.3f, 0.3f, 0.2f, 0.01f, 0.01f, 0.01f, 0.01f, 0.01f, 0.01f,
+        /*FLOUR*/ 0.5f, /*BUTTER*/ 0.4f, /*CHEESE*/ 0.8f, /*JAM*/ 0.4f, /*PICKLES*/ 0.5f,
         /*VOIDSHARD*/ 0.4f, /*GLOWCAP*/ 0.1f, /*RELIC*/ 0.5f};
     return W[m];
 }
@@ -145,6 +153,9 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         t[ITEM_CONS0 + C_BREAD] = {"WHEAT BREAD", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 40 HP AND RESTORES STAMINA", C_BREAD, 0};
         t[ITEM_CONS0 + C_CHOWDER] = {"FISH CHOWDER", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 100 HP AND WARMS YOU FOR 2 MINUTES", C_CHOWDER, 0};
         t[ITEM_CONS0 + C_PIE] = {"BERRY PIE", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 50 HP, 15% FASTER FOR 60 SECONDS", C_PIE, 0};
+        t[ITEM_CONS0 + C_VEGSTEW] = {"VEGETABLE STEW", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 80 HP AND RESTORES STAMINA", C_VEGSTEW, 0};
+        t[ITEM_CONS0 + C_RATATOUILLE] = {"RATATOUILLE", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 90 HP, 15% FASTER FOR 90 SECONDS", C_RATATOUILLE, 0};
+        t[ITEM_CONS0 + C_BEETSOUP] = {"CREAMY BEET SOUP", IK_CONSUMABLE, STACK_CONS, 0, 1, "HEALS 120 HP AND WARMS YOU FOR 3 MINUTES", C_BEETSOUP, 0};
         static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK", "EXPEDITION PACK"};
         static const float pw[PK_COUNT] = {1.0f, 1.5f, 2.0f, 2.5f};
         for (int k = 0; k < PK_COUNT; k++) {
@@ -185,7 +196,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)].weight = matWeight(m);
         for (int w = 0; w < W_COUNT; w++) t[itemWpn(w)].weight = wpnWeight(w);
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)].weight = 0.05f;
-        static const float cw[C_COUNT] = {0.1f, 0.2f, 0.4f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.3f, 0.6f, 0.3f, 0.3f, 0.4f, 0.3f, 0.6f, 0.5f};
+        static const float cw[C_COUNT] = {0.1f, 0.2f, 0.4f, 0.5f, 0.5f, 0.4f, 0.2f, 0.3f, 0.3f, 0.6f, 0.3f, 0.3f, 0.4f, 0.3f, 0.6f, 0.5f, 0.5f, 0.5f, 0.5f};
         for (int c = 0; c < C_COUNT; c++) t[ITEM_CONS0 + c].weight = cw[c];
         for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : TOOLDEF[k].type == TT_PICK ? 2.5f + 0.25f * TOOLDEF[k].tier : 1.5f;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
@@ -231,7 +242,7 @@ constexpr int HOT_KIND[HOT_N] = {HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY, HK_ANY,
 inline int seedCropOf(int itemId) {
     if (!itemValid(itemId)) return -1;
     const ItemDef& D = item(itemId);
-    return D.kind == IK_MATERIAL && D.ref >= M_SEED0 && D.ref < M_SEED0 + CROP_N ? D.ref - M_SEED0 : -1;
+    return D.kind == IK_MATERIAL ? seedMatCrop(D.ref) : -1;
 }
 constexpr int HAND_SEED0 = TT_COUNT;  // Player::hand >= HAND_SEED0 (and < HAND_ITEM): seeds are in hand, crop = hand - HAND_SEED0
 constexpr int HAND_ITEM = 100;  // Player::hand: any other hotbar item is in hand (food, structure, material...): a click uses it

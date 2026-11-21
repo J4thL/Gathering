@@ -57,8 +57,11 @@ int Game::bestTool(int type, int* toolIdx) const {
         if (toolIdx) *toolIdx = bi;
         return best;
     }
-    for (int k = 0; k < TL_COUNT; k++)
-        if (TOOLDEF[k].type == type && TOOLDEF[k].tier > best && p.inv.count(itemTool(k)) > 0) best = TOOLDEF[k].tier, bi = k;
+    if ((type == TT_AXE || type == TT_PICK) && p.toolManual[type]) {  // the hunter's own choice (or nothing, when it was taken off)
+        if (p.tool[type] >= 0 && p.inv.count(itemTool(p.tool[type])) > 0) best = TOOLDEF[p.tool[type]].tier, bi = p.tool[type];
+    } else
+        for (int k = 0; k < TL_COUNT; k++)
+            if (TOOLDEF[k].type == type && TOOLDEF[k].tier > best && p.inv.count(itemTool(k)) > 0) best = TOOLDEF[k].tier, bi = k;
     if (toolIdx) *toolIdx = bi;
     return best;
 }

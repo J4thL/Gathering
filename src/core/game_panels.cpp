@@ -255,131 +255,214 @@ void Game::drawShop() {
 }
 
 // ================================================================= inventory screen
-// The equipment column of the pack: weapon in hand, worn bag, the seven tools and the mount. Counts show how many of a piece are stacked in the
-// pack; clicking the bag takes it off, clicking the mount mounts / dismounts / summons it (the same as its key).
-void Game::drawGearColumn(int x0, int y0) {
-    struct GearSlot { int id; bool on; const char* lab; };
-    GearSlot gs[10];
+// The paper doll on the right page of the pack: the worn carried gear around a silhouette (head, body, belt, feet / bag, back, two
+// charms), then the weapon in hand, the seven tools and the mount. Clicking a worn piece takes it off; a stack dragged from the grid
+// onto a matching slot wears it. What is under the cursor is left in `dh` for the details card.
+static bool dollAccepts(int what, int idx, int id) {
+    const ItemDef& D = item(id);
+    switch (what) {
+        case 0: return D.kind == IK_CARRIED && (CG_SLOT[D.ref] == idx || (CG_SLOT[D.ref] == EQ_ACC1 && idx == EQ_ACC2));
+        case 1: return D.kind == IK_BACKPACK;
+        case 2: return D.kind == IK_TOOL && TOOLDEF[D.ref].type == idx;
+        case 3: return D.kind == IK_THROWN || D.kind == IK_LAUNCHER;
+        default: return false;
+    }
+}
+
+void Game::dollTakeOff() {
+    switch (dh.what) {
+        case 0: unequipCarried(dh.idx); break;
+        case 1: unequipBag(); break;
+        case 2: {
+            if (dh.idx == TT_AXE || dh.idx == TT_PICK) unequipGatherTool(dh.idx);
+            else if (isFarmType(dh.idx)) unequipFarmTool(dh.idx);
+            else if (p.hotSlotOf(dh.id) >= 0) unequipHot(p.hotSlotOf(dh.id));
+            break;
+        }
+        case 3:
+            if (p.hotSlotOf(dh.id) >= 0) unequipHot(p.hotSlotOf(dh.id));
+            break;
+        default: break;
+    }
+}
+
+void Game::drawPaperDoll(int x, int y, int w, bool dropNow, int dragSlot) {
+    struct DS { int what, idx, x, y, w, h; int id, q; bool on; const char* lab; };
+    DS ds[24];
     int n = 0;
-    gs[n++] = {itemWpn(p.sel), true, "WEAPON"};
-    gs[n++] = {p.bag >= 0 ? itemPack(p.bag) : -1, p.bag >= 0, "BAG"};
-    static const char* TL[TT_COUNT] = {"AXE", "PICKAXE", "HOE", "CAN", "SICKLE", "ROD", "SHOVEL"};
-    for (int t = 0; t < TT_COUNT; t++) gs[n++] = {p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, p.tool[t] >= 0, TL[t]};
+    const int cw = 22, chh = 20, gap = 21;
+    const int xl = x, xr = x + w - cw;
+    static const int LEFT[4] = {EQ_HEAD, EQ_BODY, EQ_BELT, EQ_FEET};
+    static const int RIGHT[3] = {EQ_BACK, EQ_ACC1, EQ_ACC2};
+    for (int i = 0; i < 4; i++) {
+        const int e = LEFT[i];
+        ds[n++] = {0, e, xl, y + i * gap, cw, chh, p.worn[e], p.wornQ[e], p.worn[e] >= 0, EQ_NAME[e]};
+    }
+    ds[n++] = {1, 0, xr, y, cw, chh, p.bag >= 0 ? itemPack(p.bag) : -1, 0, p.bag >= 0, "BAG"};
+    for (int i = 0; i < 3; i++) {
+        const int e = RIGHT[i];
+        ds[n++] = {0, e, xr, y + (i + 1) * gap, cw, chh, p.worn[e], p.wornQ[e], p.worn[e] >= 0, EQ_NAME[e]};
+    }
+    // the weapon, the seven tools and the mount in one row under the doll
+    static const char* TL[TT_COUNT] = {"AX", "PK", "HO", "CN", "SK", "RD", "SV"};
+    const int ry = y + 4 * gap + 2, rw = w / 9;
+    ds[n++] = {3, 0, x, ry, rw - 1, 19, itemWpn(p.sel), 0, true, "WP"};
+    for (int t = 0; t < TT_COUNT; t++) ds[n++] = {2, t, x + (t + 1) * rw, ry, rw - 1, 19, p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, 0, p.tool[t] >= 0, TL[t]};
     HAnimal* sm = saddledMount();
     const bool riding = riddenMount() != nullptr;
-    gs[n++] = {sm ? itemBaby(sm->species) : -1, riding || parked.active, "MOUNT"};
-    text(x0, y0 + 1, "GEAR", C_DIM, 1, false);
-    int hover = -1;
+    ds[n++] = {4, 0, x + 8 * rw, ry, rw - 1, 19, sm ? itemBaby(sm->species) : -1, 0, riding || parked.active, "MT"};
+    // the silhouette between the two columns
+    {
+        const int cx = x + w / 2, top = y + 1;
+        const u32 sil = HEX(0xcbc6ba), sil2 = HEX(0xc1bcaf);
+        fillRect(cx - 5, top, 10, 13, sil); fillRect(cx - 6, top + 2, 12, 9, sil);
+        fillRect(cx - 2, top + 13, 4, 4, sil2);
+        fillRect(cx - 12, top + 17, 24, 3, sil); fillRect(cx - 10, top + 20, 20, 24, sil);
+        fillRect(cx - 16, top + 19, 5, 26, sil2); fillRect(cx + 11, top + 19, 5, 26, sil2);
+        fillRect(cx - 9, top + 44, 8, 33, sil); fillRect(cx + 1, top + 44, 8, 33, sil);
+    }
+    dh = DollHover();
     for (int i = 0; i < n; i++) {
-        const int x = x0 + (i % 2) * 20, y = y0 + 9 + (i / 2) * 18;
-        const bool over = inRect(x, y, 19, 17);
-        if (over) hover = i;
-        panel(x, y, 19, 17, over ? HEX(0x4a3624) : HEX(0x33241a));
-        const int id = gs[i].id;
-        if (id >= 0) {
-            if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(x, y, 19, 17, p.inv.bestQuality(id));
-            icon(itemIcon(id), x + 10, y + 8, 12);
-            const int have = p.inv.count(id);
-            if (have > 1) {
-                const std::string c = S(have);
-                text(x + 18 - textW(c), y + 10, c, C_TEXT, 1, false);
-            }
-            if (gs[i].on) fillRect(x + 1, y + 15, 17, 1, riding && i == 9 ? C_GREEN : HEX(0x4a8ad0));
+        const DS& d = ds[i];
+        const bool over = inRect(d.x, d.y, d.w, d.h);
+        const bool accepts = dragSlot >= 0 && !p.inv.slots[dragSlot].empty() && dollAccepts(d.what, d.idx, p.inv.slots[dragSlot].item);
+        panel(d.x, d.y, d.w, d.h, accepts ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
+        if (d.id >= 0) {
+            if (itemHasQuality(d.id) && d.what == 0) qualityFrame(d.x, d.y, d.w, d.h, d.q);
+            icon(itemIcon(d.id), d.x + d.w / 2, d.y + d.h / 2, d.w >= 20 ? 13 : 11);
+            if (d.what == 4) fillRect(d.x + 1, d.y + d.h - 2, d.w - 2, 1, riding ? C_GREEN : HEX(0x4a8ad0));
         } else {
-            textC(x + 10, y + 6, "-", HEX(0x6a5a44), 1, false);
+            textC(d.x + d.w / 2, d.y + d.h / 2 - 3, d.lab, HEX(0x8a8476), 1, false);
         }
-        if (over && in.uiClick) {
-            if (i == 1 && p.bag >= 0) { in.uiClick = false; in.lPressed = false; unequipBag(); }
-            else if (i == 9) { in.uiClick = false; in.lPressed = false; toggleMount(); }
-        }
-    }
-    // name of the hovered slot (or the mount's state), wrapped to the column
-    const int ty = y0 + 9 + 5 * 18 + 3;
-    std::string a, b;
-    if (hover >= 0) {
-        a = gs[hover].id >= 0 ? item(gs[hover].id).name : std::string(gs[hover].lab);
-        if (gs[hover].id < 0) b = "EMPTY";
-        else if (hover == 9) b = riding ? "RIDING - CLICK TO GET OFF" : parked.active ? "WAITING - CLICK TO MOUNT" : "CLICK TO CALL IT";
-        else if (hover == 1) b = "CLICK TO TAKE OFF";
-    } else {
-        a = sm ? (riding ? "RIDING" : parked.active ? "MOUNT WAITS" : "MOUNT AT HOME") : "NO MOUNT";
-    }
-    auto line = [&](const std::string& s, int yy, u32 col) {
-        size_t pos = 0;
-        while (pos < s.size() && yy < y0 + 9 + 5 * 18 + 40) {
-            size_t len = std::min<size_t>(10, s.size() - pos);
-            if (pos + len < s.size()) {
-                size_t sp = s.rfind(' ', pos + len);
-                if (sp != std::string::npos && sp > pos) len = sp - pos;
+        if (over) {
+            dh.what = d.what;
+            dh.idx = d.idx;
+            dh.id = d.id;
+            dh.q = d.q;
+            dh.lab = d.lab;
+            if (in.uiClick) {
+                in.uiClick = false;
+                in.lPressed = false;
+                if (d.what == 4) toggleMount();
+                else if (d.id >= 0) dollTakeOff();
+                else {
+                    msg(std::string("NOTHING WORN ON THE ") + d.lab, C_DIM);
+                    audio.play(S_ERROR, 0.4f);
+                }
             }
-            text(x0, yy, s.substr(pos, len), col, 1, false);
-            yy += 8;
-            pos += len;
-            while (pos < s.size() && s[pos] == ' ') pos++;
+            if (dropNow && accepts) {  // a stack dragged here from the grid is worn / equipped
+                if (d.what == 0) equipCarried(dragSlot, d.idx);
+                else useSlot(dragSlot);
+            }
         }
-        return yy;
-    };
-    const int e = line(a, ty, hover >= 0 ? C_GOLD : C_DIM);
-    if (!b.empty()) line(b, e, C_DIM);
+    }
 }
 
 void Game::drawInventory() {
-    constexpr int COLS = INV_COLS, CELL = 16;
-    SkinScope skin(packSkin);  // the tan and copper look of the reference, for everything drawn in the pack
+    constexpr int COLS = INV_COLS, CELL = 14;
+    SkinScope skin(packSkin);  // the grey paper and ink look of the book, for everything drawn in the pack
     fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
-    const int X = invTab == 0 ? 4 : 24, Y = 12, W = invTab == 0 ? 392 : 352, H = invTab == 0 ? 212 : 200;  // the backpack page is taller: the category filters sit in a second row
-    panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, HEX(0xe0a878));
-    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
-    text(X + 8, Y + 7, "PACK", C_GOLD);
-    const int cap = p.bagCap(), used = p.bagUsed();
-    textC(X + W / 2, Y + 7, "I / ESC CLOSE  TAB NEXT PAGE", C_DIM, 1, false);
+    const int X = invTab == 0 ? 4 : 24, Y = 12, W = invTab == 0 ? 392 : 352, H = invTab == 0 ? 212 : 200;
+    // ---- the book: a leather cover, two pages and the spine
     {
-        std::string cs = S(p.coins);
-        text(X + W - 10 - textW(cs), Y + 7, cs, C_GOLD);
-        icon(A.coin, X + W - 16 - textW(cs), Y + 10, 8);
-    }
-    {
-        static const char* tabs[5] = {"BACKPACK", "CRAFTING", "SKILLS", "BESTIARY", "JOURNAL"};
-        int tx = X + 8;
-        for (int i = 0; i < 5; i++) {
-            const int w = textW(tabs[i]) + 10;
-            if (button(tx, Y + 20, w, 13, tabs[i], true, invTab == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invTab = i;
-            tx += w + 2;
+        const u32 cover = HEX(0x4a3a30), coverHi = HEX(0x6a5646), page = HEX(0xd9d5ca), pageEdge = HEX(0xb4afa2);
+        fillRect(X + 1, Y, W - 2, H, cover);
+        fillRect(X, Y + 1, W, H - 2, cover);
+        fillRect(X + 1, Y + 1, W - 2, 1, coverHi);
+        const int pw = (W - 12) / 2;
+        const int lx = X + 5, rx = X + W - 5 - pw, py0 = Y + 4, ph0 = H - 8;
+        if (invTab == 0) {
+            fillRect(lx - 1, py0 - 1, pw + 2, ph0 + 2, pageEdge);
+            fillRect(rx - 1, py0 - 1, pw + 2, ph0 + 2, pageEdge);
+            fillRect(lx, py0, pw, ph0, page);
+            fillRect(rx, py0, pw, ph0, page);
+            for (int i = 0; i < 6; i++) {  // the spine: the pages darken toward the fold
+                const u32 sh = HEX((u32)(0xd9 - i * 9) << 16 | (u32)(0xd5 - i * 9) << 8 | (u32)(0xca - i * 9));
+                fillRect(lx + pw - 1 - i, py0, 1, ph0, sh);
+                fillRect(rx + i, py0, 1, ph0, sh);
+            }
+        } else {
+            fillRect(X + 4, Y + 3, W - 8, H - 6, pageEdge);
+            fillRect(X + 5, Y + 4, W - 10, H - 8, page);
         }
     }
-    // category filter for the grid: items outside the chosen category are dimmed (the grid itself never moves)
+    const int cap = p.bagCap(), used = p.bagUsed();
+    // ---- the main tabs along the top (icons); the coins sit at the right
+    {
+        static const int TI[5] = {TI_PACK, TI_CRAFT, TI_SKILLS, TI_BEASTS, TI_JOURNAL};
+        static const char* NM[5] = {"BACKPACK", "CRAFTING", "SKILLS", "BESTIARY", "JOURNAL"};
+        text(X + 6, 4, "TAB", C_DIM, 1, false);
+        int tx = X + 24;
+        for (int i = 0; i < 5; i++) {
+            const bool on = invTab == i, over = inRect(tx, 0, 24, 14);
+            panel(tx, on ? 0 : 1, 24, on ? 15 : 13, on ? HEX(0xf6f3ea) : over ? HEX(0xe4e0d6) : HEX(0xb4afa2));
+            icon(A.tabIcon[TI[i]], tx + 12, on ? 7 : 7, 11, on ? 1.f : 0.75f);
+            if (over && in.uiClick) {
+                in.uiClick = false;
+                in.lPressed = false;
+                invTab = i;
+                audio.play(S_CLICK, 0.5f);
+            }
+            if (over) text(X + 24 + 5 * 26 + 4, 4, NM[i], C_GOLD, 1, false);
+            tx += 26;
+        }
+        std::string cs = S(p.coins);
+        text(X + W - 10 - textW(cs), 4, cs, C_GOLD);
+        icon(A.coin, X + W - 16 - textW(cs), 7, 8);
+        text(X + W - 70 - textW(cs), 4, "ESC CLOSE", C_DIM, 1, false);
+    }
+    // category filter for the grid: only the items of the chosen category are listed (the stacks keep their slots)
     auto filterOf = [](int id) {
         switch (item(id).kind) {
             case IK_MATERIAL: return 1;
             case IK_THROWN: case IK_LAUNCHER: case IK_AMMO: return 2;
             case IK_TOOL: return 3;
-            default: return 4;
+            case IK_BACKPACK: case IK_CARRIED: return 4;
+            default: return 5;
         }
     };
-    if (invTab == 0) {
-        static const char* fl[5] = {"ALL", "MATERIALS", "WEAPONS", "TOOLS", "SUPPLIES"};
-        int fx = X + 8;
-        for (int i = 0; i < 5; i++) {
-            int w = textW(fl[i]) + 10;
-            if (button(fx, Y + 34, w, 13, fl[i], true, invFilter == i ? HEX(0xffeec8) : HEX(0x4a3a2a))) invFilter = i;
-            fx += w + 2;
-        }
-    }
     if (invTab != 3) trophyOpen = false;
     if (invTab != 2) skillSel = -1;  // the perk choices close when you leave the SKILLS tab
-    const int cy = invTab == 0 ? Y + 50 : Y + 38;
+    const int cy = invTab == 0 ? Y + 10 : Y + 24;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
     auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };
 
     if (invTab == 0) {
-        // ---- the 100-slot grid (10 x 10): always exactly 100 slots, bags never change it
-        constexpr int GEARW = 42;  // the equipment column left of the grid
-        const int gx = X + 8 + GEARW, gy = cy;
-        drawGearColumn(X + 8, cy);
+        // ---- left page: the category tabs down the side, the 100-slot grid (10 x 10: bags never change it) and the weight
+        static const int SUBI[6] = {TI_ALL, TI_MATS, TI_WEAPONS, TI_TOOLS, TI_GEAR, TI_SUPPLIES};
+        static const char* SUBN[6] = {"ALL ITEMS", "MATERIALS", "WEAPONS", "TOOLS", "GEAR", "SUPPLIES"};
+        const int gx = X + 31, gy = cy + 12, ax = gx, aw = 150;
+        for (int i = 0; i < 6; i++) {
+            const bool on = invFilter == i;
+            const int sx = X + 6 + (on ? 0 : -2), sy = gy + i * 22, sw = on ? 24 : 20;
+            const bool over = inRect(X + 4, sy, 24, 20);
+            panel(sx, sy, sw, 20, on ? HEX(0xf6f3ea) : over ? HEX(0xe4e0d6) : HEX(0xb4afa2));
+            icon(A.tabIcon[SUBI[i]], sx + 10, sy + 10, 12, on ? 1.f : 0.75f);
+            if (over && in.uiClick) {
+                in.uiClick = false;
+                in.lPressed = false;
+                invFilter = i;
+                audio.play(S_CLICK, 0.5f);
+            }
+        }
+        text(gx, cy + 3, SUBN[invFilter], C_GOLD, 1, false);
+        {
+            const std::string us = "SLOTS " + S(used) + "/" + S(cap);
+            text(gx + aw - textW(us), cy + 3, us, used >= cap ? C_RED : C_DIM, 1, false);
+        }
+        // the cells shown: every slot (ALL) or just the stacks of the chosen category, packed together
+        std::vector<int> view(cap, -1);
+        {
+            int vn = 0;
+            for (int i = 0; i < cap; i++)
+                if (invFilter == 0) view[vn++] = i;
+                else if (!p.inv.slots[i].empty() && filterOf(p.inv.slots[i].item) == invFilter) view[vn++] = i;
+        }
         int hover = -1;
-        for (int i = 0; i < cap; i++) {
-            int x = gx + (i % COLS) * CELL, y = gy + (i / COLS) * CELL;
+        for (int vi = 0; vi < cap; vi++) {
+            const int i = view[vi];
+            if (i < 0) continue;
+            int x = gx + (vi % COLS) * CELL, y = gy + (vi / COLS) * CELL;
             if (inRect(x, y, CELL - 1, CELL - 1)) hover = i;
             if (hover == i && in.uiClick) {
                 // shortcuts: double click, or shift + click, uses / equips the stack (like a right click)
@@ -419,19 +502,21 @@ void Game::drawInventory() {
             }
         }
         if (invDrag >= 0 && in.l && std::abs(in.mx - invDragX) + std::abs(in.my - invDragY) > 3) invDragMoved = true;
-        // a drag released over another grid slot moves / merges / swaps; over a hotbar or tool slot it equips (handled with those slots)
+        // a drag released over another grid slot moves / merges / swaps; over a hotbar or doll slot it equips (handled with those slots)
         const bool dropNow = invDrag >= 0 && invDragMoved && !in.l;
-        if (dropNow && hover >= 0 && hover != invDrag) {
+        if (dropNow && hover >= 0 && hover != invDrag && invFilter == 0) {
             if (p.inv.moveSlot(invDrag, hover, p.inv.slots[invDrag].n) > 0) {
                 invSel = hover;
                 audio.play(S_CLICK, 0.5f);
             }
         }
-        for (int i = 0; i < cap; i++) {
-            int x = gx + (i % COLS) * CELL, y = gy + (i / COLS) * CELL;
+        for (int vi = 0; vi < cap; vi++) {
+            const int i = view[vi];
+            int x = gx + (vi % COLS) * CELL, y = gy + (vi / COLS) * CELL;
+            const bool sel = i >= 0 && i == invSel;
+            panel(x, y, CELL - 1, CELL - 1, sel ? HEX(0x6a4a2a) : hover == i && i >= 0 ? HEX(0x4a3624) : HEX(0x33241a));
+            if (i < 0) continue;
             const Slot& sl = p.inv.slots[i];
-            bool sel = i == invSel;
-            panel(x, y, CELL - 1, CELL - 1, sel ? HEX(0x6a4a2a) : hover == i ? HEX(0x4a3624) : HEX(0x33241a));
             if (sel) {  // a bright green frame, like the reference's selected slot
                 fillRect(x, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
                 fillRect(x + CELL - 2, y + 1, 1, CELL - 3, HEX(0x3f9a2a));
@@ -440,7 +525,7 @@ void Game::drawInventory() {
             }
             if (!sl.empty()) {
                 if (itemHasQuality(sl.item) && !sel) qualityFrame(x, y, CELL - 1, CELL - 1, sl.q);
-                icon(iconOf(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 11, (invFilter == 0 || filterOf(sl.item) == invFilter) ? 1.f : 0.25f);
+                icon(iconOf(sl.item), x + (CELL - 1) / 2, y + (CELL - 1) / 2 - 1, 11);
                 if (sl.n > 1) {
                     std::string n = S(sl.n);
                     text(x + CELL - 1 - textW(n), y + CELL - 7, n, C_TEXT);
@@ -448,26 +533,28 @@ void Game::drawInventory() {
                 if (p.hotSlotOf(sl.item) >= 0) fillRect(x + 2, y + 2, 2, 2, C_GREEN);  // equipped on the hotbar
             }
         }
-        // ---- carrying weight, worn bag, slots
-        const int dx = gx + COLS * CELL + 8, dw = X + W - 8 - dx;
+        // ---- carrying weight (under the grid)
         const float tw = p.inv.totalWeight(), mw = p.inv.maxWeight;
         const float frac = std::max(0.f, std::min(1.f, mw > 0 ? tw / mw : 1.f));
         const u32 wcol = tw > mw + 1e-3f ? C_RED : frac >= 0.85f ? C_ORANGE : frac >= 0.6f ? C_GOLD : C_GREEN;
-        text(dx, cy + 1, "CARRYING WEIGHT", C_DIM);
+        const int wy = gy + 10 * CELL + 3;
+        text(ax, wy, "CARRYING", C_DIM, 1, false);
         const std::string ws = kgNum(tw) + " / " + kgNum(mw) + " KG";
-        text(dx + dw - textW(ws), cy + 1, ws, wcol);
-        fillRect(dx - 1, cy + 9, dw + 2, 11, HEX(0x4a2a22));
-        fillRect(dx, cy + 10, dw, 9, HEX(0xe0a878));
-        fillRect(dx + 1, cy + 11, (int)((dw - 2) * frac), 7, wcol);
-        textC(dx + dw / 2, cy + 12, S((int)lroundf(mw > 0 ? 100.f * tw / mw : 100.f)) + "%", C_TEXT, 1, false);
-        text(dx, cy + 24, p.bag >= 0 ? item(itemPack(p.bag)).name : "NO BAG WORN", p.bag >= 0 ? C_TEXT : C_DIM);
-        if (button(dx + dw - 44, cy + 22, 44, 11, "TAKE OFF", p.bag >= 0, HEX(0x4a3a5e))) unequipBag();
-        text(dx, cy + 35, "SLOTS " + S(used) + "/" + S(cap) + "  STACKS TO " + S(MAX_STACK), used >= cap ? C_RED : C_DIM, 1, false);
+        text(ax + aw - textW(ws), wy, ws, wcol, 1, false);
+        fillRect(ax - 1, wy + 8, aw + 2, 9, HEX(0x6b665c));
+        fillRect(ax, wy + 9, aw, 7, HEX(0xd9d5ca));
+        fillRect(ax + 1, wy + 10, (int)((aw - 2) * frac), 5, wcol);
+        // ---- right page: the paper doll, then the details of the hovered (or selected) slot
+        const int dx = X + W / 2 + 8, dw = X + W - 9 - dx;
+        drawPaperDoll(dx, Y + 10, dw, dropNow, invDrag);
         // ---- details of the hovered (or selected) slot
-        const int py = cy + 44, ph = 56;
+        const int py = 130, ph = 62;
         panel(dx, py, dw, ph, HEX(0x3a2a1a));
+        const bool dollShow = dh.what >= 0 && dh.id >= 0;  // a worn piece under the cursor is shown instead of a pack slot
         const int show = std::max(0, std::min(cap - 1, hover >= 0 ? hover : invSel));
-        const Slot& sl = p.inv.slots[show];
+        Slot dsl;
+        if (dollShow) dsl.item = dh.id, dsl.n = 1, dsl.q = dh.q;
+        const Slot& sl = dollShow ? dsl : p.inv.slots[show];
         if (sl.empty()) {
             text(dx + 6, py + 8, "EMPTY SLOT", C_DIM);
             text(dx + 6, py + 20, "DRAG TO MOVE OR EQUIP, RIGHT CLICK TO USE", C_DIM, 1, false);
@@ -481,7 +568,9 @@ void Game::drawInventory() {
             text(dx + 28, py + 14, std::string(ITEM_KIND_NAME[D.kind]) + (hq ? std::string(" - ") + qualityDef(sl.q).name : baby ? std::string(" - ") + TIER[bt].name : std::string()), hq ? qualityCol(sl.q) : baby ? TIER[bt].col : C_DIM, 1, false);
             // equip / use / place / wear button for the selected item, in its info card
             const bool canAct = D.kind == IK_THROWN || D.kind == IK_LAUNCHER || D.kind == IK_AMMO || D.kind == IK_CONSUMABLE || D.kind == IK_PLACEABLE || D.kind == IK_BACKPACK || seedCropOf(sl.item) >= 0 || (D.kind == IK_TOOL && isFarmType(TOOLDEF[D.ref].type));
-            if (canAct && show == invSel) {
+            if (dollShow) {
+                if (button(dx + dw - 52, py + 4, 48, 13, "TAKE OFF", true, HEX(0x4a3a5e))) dollTakeOff();
+            } else if (canAct && show == invSel) {
                 const char* lab = D.kind == IK_CONSUMABLE ? "USE" : D.kind == IK_PLACEABLE ? "PLACE" : D.kind == IK_BACKPACK ? "WEAR" : "EQUIP";
                 if (button(dx + dw - 42, py + 4, 38, 13, lab, true, HEX(0x5d7a2e))) useSlot(invSel);
             }
@@ -528,7 +617,7 @@ void Game::drawInventory() {
         // ---- actions on the selected slot
         const Slot& cur = p.inv.slots[std::max(0, std::min(cap - 1, invSel))];
         const ItemDef* cd = cur.empty() ? nullptr : &item(cur.item);
-        int by = py + ph + 2;
+        int by = 196;
         // the amount slider: how many a DROP or SPLIT takes from the selected stack
         if (invAmtSlot != invSel) {
             invAmtSlot = invSel;
@@ -536,14 +625,14 @@ void Game::drawInventory() {
         }
         invAmt = std::max(1, std::min(std::max(1, cur.n), invAmt));
         {
-            const int sx = dx + 2, sw = dw - 32;
+            const int sx = ax + 2, sw = aw - 36;
             const bool many = cd && cur.n > 1;
             sliderBar(sx, by + 5, sw, invAmt, many ? cur.n : 1, invAmtDrag);
-            if (many && inRect(sx, by, dw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
-            textC(dx + dw - 14, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
+            if (many && inRect(sx, by, aw, 13)) invAmt = std::max(1, std::min(cur.n, invAmt - in.wheel));
+            textC(ax + aw - 16, by + 3, cd ? S(invAmt) + "/" + S(cur.n) : "--", cd ? C_GOLD : C_DIM, 1, false);
         }
-        by += 14;
-        if (button(dx, by, 33, 13, "SPLIT", cd != nullptr && cur.n > 1, HEX(0x4a5a7a))) {  // the chosen amount goes into the first free slot
+        by += 13;
+        if (button(ax, by, 33, 13, "SPLIT", cd != nullptr && cur.n > 1, HEX(0x4a5a7a))) {  // the chosen amount goes into the first free slot
             int to = -1;
             for (int i = 0; i < cap && to < 0; i++)
                 if (p.inv.slots[i].empty()) to = i;
@@ -555,27 +644,26 @@ void Game::drawInventory() {
                 audio.play(S_CLICK, 0.5f);
             }
         }
-        if (button(dx + 36, by, 33, 13, "DROP", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, invAmt);
-        if (button(dx + 72, by, 33, 13, "SORT", true, HEX(0x4a3a5e))) {
+        if (button(ax + 36, by, 33, 13, "DROP", cd != nullptr, HEX(0x7a4a2e))) dropSlot(invSel, invAmt);
+        if (button(ax + 72, by, 33, 13, "SORT", true, HEX(0x4a3a5e))) {
             p.inv.compact();
             msg("PACK SORTED", C_DIM);
         }
         // ---- the hotbar: click a slot to equip the selected item there, or to unequip what is in it
-        by += 14;
-        text(dx, by, "HOTBAR", C_DIM, 1, false);
+        by = 198;
         for (int i = 0; i < HOT_N; i++) {
-            const int hx = dx + i * 21, hy = by + 7;
+            const int hx = dx + 2 + i * 22, hy = by;
             const int id = p.hot[i];
             const bool accepts = cd && hotAccepts(HOT_KIND[i], cur.item);
-            const bool over = inRect(hx, hy, 19, 16);
-            panel(hx, hy, 19, 16, accepts ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
+            const bool over = inRect(hx, hy, 20, 20);
+            panel(hx, hy, 20, 20, accepts ? HEX(0x4e6a3a) : over ? HEX(0x4a3624) : HEX(0x33241a));
             if (id >= 0) {
-                if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(hx, hy, 19, 16, p.inv.bestQuality(id));
-                icon(itemIcon(id), hx + 10, hy + 8, 11, p.inv.count(id) > 0 ? 1.f : 0.35f);
+                if (itemHasQuality(id) && p.inv.count(id) > 0) qualityFrame(hx, hy, 20, 20, p.inv.bestQuality(id));
+                icon(itemIcon(id), hx + 10, hy + 11, 12, p.inv.count(id) > 0 ? 1.f : 0.35f);
                 if (item(id).kind == IK_THROWN || item(id).kind == IK_LAUNCHER) {
-                    if (item(id).ref == p.sel) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
+                    if (item(id).ref == p.sel) fillRect(hx + 1, hy + 18, 18, 1, C_GREEN);
                 }
-                else if (item(id).kind == IK_TOOL && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref) fillRect(hx + 1, hy + 14, 17, 1, C_GREEN);
+                else if (item(id).kind == IK_TOOL && p.tool[TOOLDEF[item(id).ref].type] == item(id).ref) fillRect(hx + 1, hy + 18, 18, 1, C_GREEN);
             }
             text(hx + 2, hy + 1, S(i + 1), HEX(0x9a8a6a), 1, false);
             if (over && dropNow && accepts) {  // dragged here from the pack
@@ -592,12 +680,12 @@ void Game::drawInventory() {
             }
         }
     } else if (invTab == 1) {
-        drawCraftTab(X, Y, W, H);
+        drawCraftTab(X, Y - 14, W, H + 14);
     } else if (invTab == 2) {
-        drawSkillsTab(X, Y, W, H);
+        drawSkillsTab(X, Y - 14, W, H + 14);
     } else if (invTab == 3) {
-        drawBestiaryTab(X, Y, W, H);
+        drawBestiaryTab(X, Y - 14, W, H + 14);
     } else {
-        drawJournalTab(X, Y, W, H);
+        drawJournalTab(X, Y - 14, W, H + 14);
     }
 }
