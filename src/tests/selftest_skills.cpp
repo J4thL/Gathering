@@ -26,7 +26,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.newGame();
         g.state = ST_PLAY;
         g.p.sk.s[SK_DEFENSE].xp = SkillState::capXp();
-        g.p.up[U_ARMOR] = 0;
+        g.p.setArmor(0);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(100, V2(0, 0), A_WOLF);
@@ -61,7 +61,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.hurtPlayer(10, V2(0, 0), A_WOLF);
         check(g.p.sk.s[SK_DEFENSE].xp == bd, "no Defense XP while dead");
         g.p.dead = false;
-        g.p.up[U_ARMOR] = 1;
+        g.p.setArmor(1);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(40, V2(0, 0), A_WOLF);
@@ -614,25 +614,34 @@ void testSkillsAndTrophies(SelfTest& t) {
             if (b) {
                 g.updateBosses(0.05f);
                 check(g.animals.size() == 1, "only one boss at a time");
-                // an attack: charge wind-up, rush, hurts an unprotected hunter; a roll's i-frames protect
-                g.p.pos = b->pos + V2(120.f, 0);
+                // an attack follows the sequence: prepare, warning on the ground, execute (only now can it hurt), recover
+                g.p.pos = b->pos + V2(40.f, 0);
                 g.p.invuln = 0.f;
+                g.p.hp = g.p.maxhp;
                 b->bossCd = 0.f;
                 b->busyT = 0.f;
                 b->stunT = 0.f;
-                g.updateBosses(0.05f);
-                check(b->bossAct == 1 || b->bossAct == 3, "in reach it starts a telegraphed attack");
-                const int act0 = b->bossAct;
-                g.p.pos = b->pos + V2(act0 == 3 ? 20.f : 60.f, 0);  // the hunter stands in its way
-                for (int i = 0; i < 120 && b->bossAct != 0 && g.p.hp == g.p.maxhp; i++) { g.updateBosses(0.016f); g.p.invuln = 0.f; }
-                check(g.p.hp < g.p.maxhp, "an attack that lands hurts the hunter");
+                g.updateBosses(0.016f);
+                check(b->bossAct == BP_PREP, "in reach it starts an attack by preparing");
+                bool sawWarn = false, hurtBeforeExec = false;
+                for (int i = 0; i < 600 && b->bossAct != BP_IDLE; i++) {
+                    const int hpBefore = g.p.hp;
+                    g.updateBosses(0.016f);
+                    if (b->bossAct == BP_WARN) sawWarn = true;
+                    if (g.p.hp < hpBefore && b->bossAct != BP_EXEC && b->bossAct != BP_RECOVER) hurtBeforeExec = true;
+                    g.p.pos = b->pos + V2(40.f, 0);  // the hunter stands still in front of it
+                    g.p.invuln = 0.f;
+                }
+                check(sawWarn && !hurtBeforeExec, "the warning comes before any damage");
+                // the pack is called at two thirds of its health (a warned-about attack of its own)
                 g.p.hp = g.p.maxhp;
-                // the pack is called at two thirds of its health
-                b->bossAct = 0;
+                b->bossAct = BP_IDLE;
+                b->bossCd = 0.f;
                 b->hp = b->maxhp * 3 / 5;
                 const size_t n0 = g.animals.size();
-                g.updateBosses(0.05f);
+                for (int i = 0; i < 600 && b->bossCalls == 0; i++) { g.updateBosses(0.016f); g.p.invuln = 3.f; }
                 check(g.animals.size() == n0 + 2 && b->bossCalls == 1, "wounded, it calls its pack");
+                b->bossAct = BP_IDLE;
                 // it never runs away
                 b->st = AS_FLEE;
                 b->fleeAnimal = false;

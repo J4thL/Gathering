@@ -230,7 +230,7 @@ void Game::harvestFinish(const HTarget& t) {
     if (R.cls != RCL_PLANT) audio.play(S_PICKUP, 0.35f);
     // thorns and poison
     const bool wrapsSafe = R.safeArmor >= 2 ? p.has(CG_VENOMWRAPS) : (p.has(CG_DESERTWRAPS) || p.has(CG_VENOMWRAPS));  // wraps shield hands from thorns / poison sap
-    if (R.hurt > 0 && p.up[U_ARMOR] < R.safeArmor && !wrapsSafe && !p.dead) {
+    if (R.hurt > 0 && p.armorLv() < R.safeArmor && !wrapsSafe && !p.dead) {
         p.hp = std::max(1.f, p.hp - R.hurt);
         p.sinceHurt = 0;
         ftext(p.pos + V2(0, -26), R.safeArmor >= 2 ? "POISON! -" + S(R.hurt) : "THORNS! -" + S(R.hurt), HEX(0x9acd6a), 1.2f);

@@ -26,9 +26,7 @@ void Game::save() {
     {
         std::ofstream f(tmp);
         if (!f) return;
-        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nup";
-        for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
-        f << "\nday " << dayT << "\nkills " << kills << "\n";
+        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "gates";
         for (int b = 0; b < B_COUNT; b++) f << ' ' << (gateOpen[b] ? 1 : 0);
         f << "\n";
@@ -61,7 +59,7 @@ void Game::save() {
                 if (sl.q > 0) f << ' ' << sl.q;
                 f << "\n";
             }
-        f << "wornq " << p.armorQ << ' ' << p.bootsQ << ' ' << p.bagQ << "\n";  // quality of the worn armor, boots and bag
+        f << "wornq " << p.wornQ[EQ_BODY] << ' ' << p.wornQ[EQ_FEET] << ' ' << p.bagQ << "\n";  // (armor and boots qualities are also in the worn lines; kept for older readers)
         // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
         // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
         // builds simply ignore, so the save version stays 2.
@@ -140,6 +138,7 @@ bool Game::load() {
     bool sawBag = false, sawHotbar = false, sawFarm = false;
     std::vector<std::string> farmKeys, wornKeys, gtoolKeys;
     bool sawWorn = false;
+    int legacyArmorQ = 0, legacyBootsQ = 0;  // old saves: the quality of the worn armor / boots, which were upgrade levels then
     struct DropLine { std::string key; int n, x, y, q; float age; };
     std::vector<DropLine> dropLines[B_COUNT];
     struct SlotLine {
@@ -177,10 +176,10 @@ bool Game::load() {
             if (!(ss >> q)) q = 0;  // (older saves: no quality field)
             slotLines.push_back({key, n, clampQuality(q)});
         } else if (k == "wornq") {
-            ss >> p.armorQ >> p.bootsQ >> p.bagQ;
-            if (!ss) p.armorQ = p.bootsQ = p.bagQ = 0;
-            p.armorQ = clampQuality(p.armorQ);
-            p.bootsQ = clampQuality(p.bootsQ);
+            ss >> legacyArmorQ >> legacyBootsQ >> p.bagQ;
+            if (!ss) legacyArmorQ = legacyBootsQ = p.bagQ = 0;
+            legacyArmorQ = clampQuality(legacyArmorQ);
+            legacyBootsQ = clampQuality(legacyBootsQ);
             p.bagQ = clampQuality(p.bagQ);
         } else if (k == "look") {
             ss >> lookLoaded.hair >> lookLoaded.color >> lookLoaded.skin >> lookLoaded.outfit;
@@ -405,6 +404,21 @@ bool Game::load() {
         }
     }
     if (!sawWorn) migrateWornGear();
+    // a piece stored in the wrong slot (saves written before the cloak slot existed) goes where it belongs, or back into the pack
+    for (int i = 0; i < EQ_COUNT; i++) {
+        if (p.worn[i] < 0) continue;
+        const int want = CG_SLOT[item(p.worn[i]).ref];
+        if (want == i || (want == EQ_ACC1 && i == EQ_ACC2)) continue;
+        const int id = p.worn[i], q = p.wornQ[i];
+        p.worn[i] = -1;
+        p.wornQ[i] = 0;
+        if (p.worn[want] < 0) p.worn[want] = id, p.wornQ[want] = q;
+        else p.inv.addIgnoringWeight(id, 1, q);
+    }
+    // an old save kept armor and boots as upgrade levels: they become the matching crafted pieces, worn
+    if (p.up[U_ARMOR] > 0 && p.worn[EQ_BODY] < 0) p.worn[EQ_BODY] = itemCarry(CG_ARMOR1 + std::min(8, p.up[U_ARMOR]) - 1), p.wornQ[EQ_BODY] = legacyArmorQ;
+    if (p.up[U_BOOTS] > 0 && p.worn[EQ_FEET] < 0) p.worn[EQ_FEET] = itemCarry(CG_BOOTS1 + std::min(3, p.up[U_BOOTS]) - 1), p.wornQ[EQ_FEET] = legacyBootsQ;
+    p.up[U_ARMOR] = p.up[U_BOOTS] = p.up[U_TOOL] = 0;
     p.syncPack();
     for (int t = 0; t < TT_COUNT; t++) p.toolManual[t] = false;
     for (int i = 0; i < 2 && i < (int)gtoolKeys.size(); i++) {
@@ -521,7 +535,7 @@ bool Game::load() {
     if (!gatesSeen)  // a save from before the gates existed: the hunter keeps every biome that was open to them
         for (int b = 0; b < B_COUNT; b++) gateOpen[b] = true;
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
-    p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
+    p.maxhp = (float)ARMOR_HP[p.armorLv()];
     p.hp = p.maxhp;
     // keep a usable weapon selected (one that is equipped on the hotbar)
     fixSel();

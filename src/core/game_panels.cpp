@@ -255,7 +255,7 @@ void Game::drawShop() {
 }
 
 // ================================================================= inventory screen
-// The paper doll on the right page of the pack: the worn carried gear around a silhouette (head, body, belt, feet / bag, back, two
+// The paper doll on the right page of the pack: the worn carried gear around a silhouette (head, body, cloak, belt, feet / bag, back, two
 // charms), then the weapon in hand, the seven tools and the mount. Clicking a worn piece takes it off; a stack dragged from the grid
 // onto a matching slot wears it. What is under the cursor is left in `dh` for the details card.
 static bool dollAccepts(int what, int idx, int id) {
@@ -290,11 +290,11 @@ void Game::drawPaperDoll(int x, int y, int w, bool dropNow, int dragSlot) {
     struct DS { int what, idx, x, y, w, h; int id, q; bool on; const char* lab; };
     DS ds[24];
     int n = 0;
-    const int cw = 22, chh = 20, gap = 21;
+    const int cw = 22, chh = 16, gap = 17;
     const int xl = x, xr = x + w - cw;
-    static const int LEFT[4] = {EQ_HEAD, EQ_BODY, EQ_BELT, EQ_FEET};
+    static const int LEFT[5] = {EQ_HEAD, EQ_BODY, EQ_CLOAK, EQ_BELT, EQ_FEET};
     static const int RIGHT[3] = {EQ_BACK, EQ_ACC1, EQ_ACC2};
-    for (int i = 0; i < 4; i++) {
+    for (int i = 0; i < 5; i++) {
         const int e = LEFT[i];
         ds[n++] = {0, e, xl, y + i * gap, cw, chh, p.worn[e], p.wornQ[e], p.worn[e] >= 0, EQ_NAME[e]};
     }
@@ -305,7 +305,7 @@ void Game::drawPaperDoll(int x, int y, int w, bool dropNow, int dragSlot) {
     }
     // the weapon, the seven tools and the mount in one row under the doll
     static const char* TL[TT_COUNT] = {"AX", "PK", "HO", "CN", "SK", "RD", "SV"};
-    const int ry = y + 4 * gap + 2, rw = w / 9;
+    const int ry = y + 5 * gap + 2, rw = w / 9;
     ds[n++] = {3, 0, x, ry, rw - 1, 19, itemWpn(p.sel), 0, true, "WP"};
     for (int t = 0; t < TT_COUNT; t++) ds[n++] = {2, t, x + (t + 1) * rw, ry, rw - 1, 19, p.tool[t] >= 0 ? itemTool(p.tool[t]) : -1, 0, p.tool[t] >= 0, TL[t]};
     HAnimal* sm = saddledMount();
@@ -362,7 +362,7 @@ void Game::drawInventory() {
     constexpr int COLS = INV_COLS, CELL = 14;
     SkinScope skin(packSkin);  // the grey paper and ink look of the book, for everything drawn in the pack
     fillRect(0, 0, LW, LH, RGBA(24, 18, 36, 215));  // the dark navy behind the pack
-    const int X = invTab == 0 ? 4 : 24, Y = 12, W = invTab == 0 ? 392 : 352, H = invTab == 0 ? 212 : 200;
+    const int X = 4, Y = 12, W = 392, H = 212;  // one size for every tab of the book
     // ---- the book: a leather cover, two pages and the spine
     {
         const u32 cover = HEX(0x4a3a30), coverHi = HEX(0x6a5646), page = HEX(0xd9d5ca), pageEdge = HEX(0xb4afa2);
@@ -410,6 +410,11 @@ void Game::drawInventory() {
         text(X + W - 10 - textW(cs), 4, cs, C_GOLD);
         icon(A.coin, X + W - 16 - textW(cs), 7, 8);
         text(X + W - 70 - textW(cs), 4, "ESC CLOSE", C_DIM, 1, false);
+    }
+    if (invTab != 0) {  // the other pages of the book: a heading over the page (the pack's two pages need none)
+        static const char* HEAD[5] = {"BACKPACK", "CRAFTING", "SKILLS", "BESTIARY", "JOURNAL"};
+        text(X + 14, Y + 10, HEAD[invTab], C_GOLD);
+        fillRect(X + 12, Y + 21, W - 24, 1, HEX(0x6b665c));
     }
     // category filter for the grid: only the items of the chosen category are listed (the stacks keep their slots)
     auto filterOf = [](int id) {
@@ -680,12 +685,12 @@ void Game::drawInventory() {
             }
         }
     } else if (invTab == 1) {
-        drawCraftTab(X, Y - 14, W, H + 14);
+        drawCraftTab(X, Y - 14, W, H + 7);
     } else if (invTab == 2) {
-        drawSkillsTab(X, Y - 14, W, H + 14);
+        drawSkillsTab(X, Y - 14, W, H + 7);
     } else if (invTab == 3) {
-        drawBestiaryTab(X, Y - 14, W, H + 14);
+        drawBestiaryTab(X, Y - 14, W, H + 7);
     } else {
-        drawJournalTab(X, Y - 14, W, H + 14);
+        drawJournalTab(X, Y - 14, W, H + 7);
     }
 }

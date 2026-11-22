@@ -213,6 +213,13 @@ inline const std::vector<HomeShadow>& homeShadowTable() {
         hStanding(HP_BARREL, SPR_H(c.A.barrel), {8, 0, 14, 0}, 0.8f),
         hStanding(HP_SCARECROW, SPR_H(c.A.H.scarecrow), {8, 0, 15, 0}, 0.8f),
         hStanding(HP_LAMP, SPR_H(c.A.T.lamp), {8, 0, 14, 0}, 0.85f),
+        hWide(HP_MILL, SPR_H(c.A.H.machine[HP_MILL - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_DAIRY, SPR_H(c.A.H.machine[HP_DAIRY - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_KETTLE, SPR_H(c.A.H.machine[HP_KETTLE - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SMOKER, SPR_H(c.A.H.machine[HP_SMOKER - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_OVEN, SPR_H(c.A.H.machine[HP_OVEN - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SAWMILL, SPR_H(c.A.H.machine[HP_SAWMILL - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SMELTER, SPR_H(c.A.H.machine[HP_SMELTER - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
         // ---> add new homestead pieces here
     };
     return T;

@@ -439,20 +439,21 @@ const char* TOOL_VERB[TT_COUNT] = {"AN AXE", "A PICKAXE", "A FARMER'S HOE", "A W
 }
 
 // gives items to the hunter; whatever does not fit lies at their feet (nothing is ever lost)
-static void hsGive(Game& g, int mat, int n) {
+static void hsGiveItem(Game& g, int itm, int n) {
     if (n <= 0) return;
-    int in = g.p.inv.add(itemMat(mat), n);
-    if (in < n) in += g.p.inv.addIgnoringWeight(itemMat(mat), n - in);
+    int in = g.p.inv.add(itm, n);
+    if (in < n) in += g.p.inv.addIgnoringWeight(itm, n - in);
     if (in < n) {
         GroundItem it{};
         it.pos = g.p.pos;
-        it.item = itemMat(mat);
+        it.item = itm;
         it.n = n - in;
         it.ammo = -1;
         g.items.push_back(it);
-        g.msg("BAG FULL - SOME " + std::string(MAT_NAME[mat]) + " DROPPED", C_RED);
+        g.msg("BAG FULL - SOME " + std::string(item(itm).name) + " DROPPED", C_RED);
     }
 }
+static void hsGive(Game& g, int mat, int n) { hsGiveItem(g, itemMat(mat), n); }
 
 bool Game::hsHarvest(HPiece& pc) {
     if (pc.kind != HP_PLOT || pc.crop < 0 || pc.stage < CROP_STAGES - 1) return false;
@@ -775,7 +776,63 @@ void Game::updateHomestead(float dt) {
     if (!hs.visited && hs.pieces.empty() && hs.animals.empty()) return;
     hs.clock += dt;
     hsTickCrops(dt);
+    hsTickMachines(dt);
     hsTickAnimals(dt);
+}
+
+// ================================================================= production machines (machines.hpp)
+
+void Game::hsTickMachines(float dt) {
+    for (auto& pc : hs.pieces) {
+        if (pc.kind < HP_MILL || pc.kind >= HP_COUNT || pc.mq <= 0 || pc.mrec < 0) continue;
+        const MachineDef& M = MACHINES[pc.kind - HP_MILL];
+        if (pc.mrec >= M.nrec) { pc.mq = 0; continue; }
+        const float sec = M.rec[pc.mrec].sec;
+        pc.mt += dt;
+        while (pc.mt >= sec && pc.mq > 0) {
+            pc.mt -= sec;
+            pc.mq--;
+            pc.mdone++;
+            if (pc.mq == 0) {
+                pc.mt = 0;
+                ftext(V2((pc.tx + pc.w() / 2.f) * TS, pc.ty * (float)TS - 4.f), "READY", C_GOLD);
+                audio.play(S_CLICK, 0.5f);
+            }
+        }
+    }
+}
+
+int Game::hsMachineLoad(HPiece& pc, int rec, int batches) {
+    if (pc.kind < HP_MILL || pc.kind >= HP_COUNT) return 0;
+    const MachineDef& M = MACHINES[pc.kind - HP_MILL];
+    if (rec < 0 || rec >= M.nrec || batches <= 0) return 0;
+    if ((pc.mq > 0 || pc.mdone > 0) && pc.mrec != rec) { msg("FINISH AND COLLECT THE CURRENT RECIPE FIRST", C_RED); return 0; }
+    const MRecipe& R = M.rec[rec];
+    int can = std::min(batches, MACH_MAX_BATCH - pc.mq - pc.mdone);
+    if (can <= 0) { msg("THE " + std::string(HPDEF[pc.kind].name) + " IS FULL - COLLECT FIRST", C_RED); return 0; }
+    for (int i = 0; i < 2; i++)
+        if (R.in[i] >= 0) can = std::min(can, p.inv.count(itemMat(R.in[i])) / R.n[i]);
+    if (can <= 0) { msg("YOU DO NOT HAVE THE INGREDIENTS", C_RED); audio.play(S_ERROR, 0.5f); return 0; }
+    for (int i = 0; i < 2; i++)
+        if (R.in[i] >= 0) p.inv.remove(itemMat(R.in[i]), can * R.n[i]);
+    pc.mrec = rec;
+    pc.mq += can;
+    audio.play(S_CLICK, 0.6f);
+    return can;
+}
+
+bool Game::hsMachineCollect(HPiece& pc) {
+    if (pc.kind < HP_MILL || pc.kind >= HP_COUNT || pc.mdone <= 0 || pc.mrec < 0) return false;
+    const MachineDef& M = MACHINES[pc.kind - HP_MILL];
+    if (pc.mrec >= M.nrec) { pc.mdone = 0; return false; }
+    const MRecipe& R = M.rec[pc.mrec];
+    const int n = pc.mdone * R.outN;
+    hsGiveItem(*this, machOutItem(R), n);
+    msg("COLLECTED " + S(n) + " " + item(machOutItem(R)).name, C_GOLD);
+    pc.mdone = 0;
+    if (pc.mq <= 0) pc.mrec = -1;
+    audio.play(S_PICKUP, 0.6f);
+    return true;
 }
 
 // ================================================================= interaction
@@ -802,6 +859,8 @@ bool Game::hsFindTarget(HTarget2& t) {
         } else if (pc.kind == HP_DOOR || pc.kind == HP_GATE) {
             const float d = dist(p.pos, c);
             if (d < 26.f) offer(4, pc.id, c + V2(0, -18), d + 2.f, std::string(pc.open ? "CLOSE " : "OPEN ") + D.name);
+        } else if (pc.kind >= HP_MILL && rectNear(pc, p.pos, 16.f)) {
+            offer(10, pc.id, c + V2(0, -pc.h() * 8.f - 14), 13.f, std::string(pc.mdone > 0 ? "COLLECT FROM " : "USE ") + D.name);
         } else if (D.storage > 0 && rectNear(pc, p.pos, 16.f)) {
             offer(3, pc.id, c + V2(0, -pc.h() * 8.f - 14), 12.f, std::string("OPEN ") + D.name);
         } else if (D.housing > 0 && rectNear(pc, p.pos, 16.f)) {
@@ -857,6 +916,14 @@ bool Game::homesteadInteract() {
             state = ST_CHEST;
             audio.play(S_CLICK);
             return true;
+        case 10:
+            if (HPiece* pc = hsPiece(t.id)) {
+                if (pc->mdone > 0 && pc->mq == 0) { hsMachineCollect(*pc); return true; }  // nothing more to load: E just collects
+                machPieceId = t.id;
+                state = ST_MACHINE;
+                audio.play(S_CLICK);
+            }
+            return true;
         case 9:
             animSelId = -1;
             animScroll = 0;
@@ -905,7 +972,9 @@ std::string Game::hsSaveLines() {
     f << "hs " << hs.can << ' ' << (hs.visited ? 1 : 0) << ' ' << (hs.gaveStarter ? 1 : 0) << ' ' << hs.clock << ' ' << hs.nextId << "\n";
     for (auto& pc : hs.pieces) {
         f << "hsp " << pc.id << ' ' << pc.kind << ' ' << pc.tx << ' ' << pc.ty << ' ' << pc.rot << ' ' << (pc.open ? 1 : 0) << ' ' << pc.crop << ' ' << pc.stage
-          << ' ' << pc.growT << ' ' << pc.water << ' ' << (pc.rich ? 1 : 0) << "\n";
+          << ' ' << pc.growT << ' ' << pc.water << ' ' << (pc.rich ? 1 : 0);
+        if (pc.kind >= HP_MILL) f << ' ' << pc.mrec << ' ' << pc.mq << ' ' << pc.mdone << ' ' << pc.mt;  // production machines
+        f << "\n";
         for (int i = 0; i < (int)pc.inv.slots.size(); i++)
             if (!pc.inv.slots[i].empty()) f << "hsi " << pc.id << ' ' << i << ' ' << itemKey(pc.inv.slots[i].item) << ' ' << pc.inv.slots[i].n << "\n";
     }
@@ -928,6 +997,17 @@ void Game::hsLoadLine(const std::string& key, std::istringstream& ss) {
         int open = 0, rich = 0;
         ss >> pc.id >> pc.kind >> pc.tx >> pc.ty >> pc.rot >> open >> pc.crop >> pc.stage >> pc.growT >> pc.water >> rich;
         if (!ss || pc.kind < 0 || pc.kind >= HP_COUNT || pc.id <= 0 || pc.tx < 0 || pc.ty < 0 || pc.tx >= MW || pc.ty >= MH) return;
+        if (pc.kind >= HP_MILL) {
+            int mr = -1, mq = 0, md = 0;
+            float mt = 0;
+            if (ss >> mr >> mq >> md >> mt) {
+                const MachineDef& M = MACHINES[pc.kind - HP_MILL];
+                pc.mrec = mr >= 0 && mr < M.nrec ? mr : -1;
+                pc.mq = pc.mrec >= 0 ? std::max(0, std::min(MACH_MAX_BATCH, mq)) : 0;
+                pc.mdone = pc.mrec >= 0 ? std::max(0, std::min(MACH_MAX_BATCH - pc.mq, md)) : 0;
+                pc.mt = std::max(0.f, mt);
+            }
+        }
         pc.rot &= 1;
         pc.open = open != 0;
         pc.rich = rich != 0;

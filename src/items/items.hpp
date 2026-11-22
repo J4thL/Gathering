@@ -54,13 +54,16 @@ constexpr int ITEM_TOOL0 = ITEM_PACK0 + PK_COUNT;
 constexpr int ITEM_PLACE0 = ITEM_TOOL0 + TL_COUNT;
 // Carried gear works while it is in the pack (like a tool: no equip step, it just has to be on you). Each takes a pack slot.
 enum CarriedId { CG_WOLFCLOAK, CG_PARKA, CG_DESERTWRAPS, CG_VENOMWRAPS, CG_WADERS, CG_HARNESS, CG_QUIVER,
-                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_STRAWHAT, CG_FARMBOOTS, CG_PORTERBELT, CG_COUNT };  // CG_LANTERN..CG_HEART: mine and dungeon gear
+                 CG_LANTERN, CG_GEMRING, CG_FROSTWARD, CG_SILVERCHARM, CG_CROWN, CG_HEART, CG_SADDLEBAG, CG_STRAWHAT, CG_FARMBOOTS, CG_PORTERBELT,
+                 CG_ARMOR1, CG_ARMOR2, CG_ARMOR3, CG_ARMOR4, CG_ARMOR5, CG_ARMOR6, CG_ARMOR7, CG_ARMOR8, CG_BOOTS1, CG_BOOTS2, CG_BOOTS3, CG_COUNT };  // CG_ARMOR*: body armor tiers 1-8, CG_BOOTS*: boots tiers 1-3 (all crafted, as many as you like)  // CG_LANTERN..CG_HEART: mine and dungeon gear
 // Where carried gear is worn (the paper doll of the pack). Gear only works while it is worn; two accessory slots take any "charm".
-enum EqSlot { EQ_HEAD, EQ_BODY, EQ_BELT, EQ_FEET, EQ_BACK, EQ_ACC1, EQ_ACC2, EQ_COUNT };
-static const char* const EQ_NAME[EQ_COUNT] = {"HEAD", "BODY", "BELT", "FEET", "BACK", "CHARM", "CHARM"};
+enum EqSlot { EQ_HEAD, EQ_BODY, EQ_BELT, EQ_FEET, EQ_BACK, EQ_ACC1, EQ_ACC2, EQ_CLOAK, EQ_COUNT };
+static const char* const EQ_NAME[EQ_COUNT] = {"HEAD", "BODY", "BELT", "FEET", "BACK", "CHARM", "CHARM", "CLOAK"};
 // the slot each CarriedId goes to (EQ_ACC1 = either accessory slot), in CarriedId order
-constexpr int CG_SLOT[17] = {EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_FEET, EQ_BELT, EQ_BACK, EQ_ACC1, EQ_ACC1, EQ_BODY, EQ_ACC1, EQ_HEAD, EQ_ACC1, EQ_BACK, EQ_HEAD, EQ_FEET, EQ_BELT};
-static_assert(sizeof(CG_SLOT) / sizeof(CG_SLOT[0]) == CG_COUNT, "every carried gear needs a slot");
+constexpr int CG_SLOT[CG_COUNT] = {EQ_CLOAK, EQ_CLOAK, EQ_CLOAK, EQ_CLOAK, EQ_FEET, EQ_BELT, EQ_BACK, EQ_ACC1, EQ_ACC1, EQ_CLOAK, EQ_ACC1, EQ_HEAD, EQ_ACC1, EQ_BACK, EQ_HEAD, EQ_FEET, EQ_BELT,
+                                   EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_BODY, EQ_FEET, EQ_FEET, EQ_FEET};
+constexpr int armorLevelOf(int cg) { return cg >= CG_ARMOR1 && cg <= CG_ARMOR8 ? cg - CG_ARMOR1 + 1 : 0; }
+constexpr int bootsLevelOf(int cg) { return cg >= CG_BOOTS1 && cg <= CG_BOOTS3 ? cg - CG_BOOTS1 + 1 : 0; }
 constexpr int ITEM_CARRY0 = ITEM_PLACE0 + PL_COUNT;
 // a baby wild animal to raise at the homestead (mounts.hpp): one id per species, the rarity tier lives in the slot's q
 constexpr int ITEM_BABY0 = ITEM_CARRY0 + CG_COUNT;
@@ -166,7 +169,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         t[itemPlace(PL_CAMPFIRE)] = {"CAMPFIRE", IK_PLACEABLE, STACK_CONS, 0, 0, "SMELT, COOK AND KEEP WARM - USE TO PLACE", PL_CAMPFIRE, 0};
         t[itemPlace(PL_CHEST)] = {"STORAGE CHEST", IK_PLACEABLE, STACK_CONS, 0, 0, "20 SLOTS OF STORAGE - USE TO PLACE", PL_CHEST, 0};
         struct CarriedText { const char* name; const char* blurb; int rarity; };
-        static const CarriedText ct[CG_COUNT] = {
+        static const CarriedText ct[CG_ARMOR1] = {
             {"WOLF PELT CLOAK", "CARRIED: HALVES THE COLD DRAIN IN THE SNOWFIELDS", 1},
             {"COLD-WEATHER PARKA", "CARRIED: NO COLD DRAIN IN THE SNOWFIELDS", 2},
             {"DESERT PROTECTION GEAR", "CARRIED: 70% LESS HEAT DRAIN, IMMUNE TO THORNS", 1},
@@ -185,7 +188,15 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
             {"FARMER'S BOOTS", "CARRIED: 10% FASTER ON FOOT", 1},
             {"PORTER'S BELT", "CARRIED: +25 KG CARRYING LIMIT", 1},
         };
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int k = 0; k < CG_ARMOR1; k++) t[itemCarry(k)] = {ct[k].name, IK_CARRIED, STACK_GEAR, 0, ct[k].rarity, ct[k].blurb, k, 0};
+        for (int l = 1; l <= 8; l++) {  // body armor: worn in the BODY slot, as many as you like
+            const int k = CG_ARMOR1 + l - 1;
+            t[itemCarry(k)] = {gearName(U_ARMOR, l), IK_CARRIED, STACK_GEAR, 0, l >= 7 ? 3 : l >= 4 ? 2 : l >= 2 ? 1 : 0, std::string("WORN ON THE BODY: ") + gearDesc(U_ARMOR, l), k, 0};
+        }
+        for (int l = 1; l <= 3; l++) {  // boots: worn in the FEET slot
+            const int k = CG_BOOTS1 + l - 1;
+            t[itemCarry(k)] = {gearName(U_BOOTS, l), IK_CARRIED, STACK_GEAR, 0, l == 3 ? 2 : 1, std::string("WORN ON THE FEET: ") + gearDesc(U_BOOTS, l), k, 0};
+        }
         for (int k = 0; k < A_COUNT; k++) t[itemBaby(k)] = {std::string("BABY ") + ANIMAL[k].name, IK_BABY, STACK_GEAR, 0, 1, "RAISE IT AT YOUR HOMESTEAD - GROWN UP, IT CAN BE SADDLED AND RIDDEN", k, 0, 3.0f};
         {  // farm babies: the price is the animal's price at the General Store (set from DOMS by the shop), they cannot be sold
             static const char* const BN[FARM_BABIES] = {"CHICK", "CALF", "LAMB", "PIGLET", "KID", "DUCKLING", "KIT"};
@@ -201,7 +212,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)].weight = TOOLDEF[k].type == TT_AXE ? 2.0f + 0.25f * TOOLDEF[k].tier : TOOLDEF[k].type == TT_PICK ? 2.5f + 0.25f * TOOLDEF[k].tier : 1.5f;
         t[itemPlace(PL_CAMPFIRE)].weight = 4.0f;
         t[itemPlace(PL_CHEST)].weight = 8.0f;
-        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : k == CG_SADDLEBAG ? 2.0f : (k >= CG_LANTERN ? 0.8f : 1.5f);
+        for (int k = 0; k < CG_COUNT; k++) t[itemCarry(k)].weight = k == CG_QUIVER ? 1.0f : k == CG_SADDLEBAG ? 2.0f : k >= CG_ARMOR1 && k <= CG_ARMOR8 ? 2.0f + 0.5f * (k - CG_ARMOR1) : k >= CG_BOOTS1 ? 1.0f + 0.2f * (k - CG_BOOTS1) : (k >= CG_LANTERN ? 0.8f : 1.5f);
         return t;
     }();
     return T;
@@ -219,7 +230,6 @@ inline int recipeItem(const Recipe& R) {
         case RK_WEAPON: return itemWpn(R.out);
         case RK_AMMO: return itemAmmo(R.out);
         case RK_ITEM: return R.out;
-        case RK_GEAR: return -1;  // worn at once, no item
         default: return ITEM_CONS0 + C_BANDAGE;
     }
 }

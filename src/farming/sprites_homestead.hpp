@@ -730,6 +730,7 @@ inline Img iconTool(int k) {
     im.outline(OUT);
     return im;
 }
+inline Img machineArt(int kind, int w, int h, int fr);
 inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build menu (24 x 24)
     Img im(24, 24);
     const Pal P = woodPal();
@@ -763,7 +764,7 @@ inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build m
             const int w = HPDEF[kind].w, h = HPDEF[kind].h;
             if (kind == HP_PEN) { for (int i = 0; i < 4; i++) { im.rect(3 + i * 5, 6, 2, 12, P.M); } im.rect(3, 8, 18, 2, P.L); im.rect(3, 13, 18, 2, P.L); im.outline(OUT); break; }
             if (kind == HP_GREENHOUSE) { im.rect(3, 6, 18, 12, RGBA(190, 230, 245, 200)); im.rect(3, 6, 18, 1, HEX(0xe6e8ec)); im.rect(3, 17, 18, 1, HEX(0x8a909c)); for (int x = 3; x < 22; x += 6) im.rect(x, 6, 1, 12, HEX(0xe6e8ec)); im.outline(OUT); break; }
-            Img b = building(kind, std::min(w, 3), std::min(h, 2));
+            Img b = kind >= HP_MILL ? machineArt(kind, std::min(w, 3), std::min(h, 2), 0) : building(kind, std::min(w, 3), std::min(h, 2));
             // fit into 24 x 24 by sampling
             for (int y = 0; y < 24; y++)
                 for (int x = 0; x < 24; x++) {
@@ -801,6 +802,103 @@ inline Img nodeSprite(int i) {
     return im;
 }
 
+// ------------------------------------------------------------------ production machines: a box with the machine on top; fr 1 is the working frame
+inline Img machineArt(int kind, int w, int h, int fr) {
+    const Pal P = woodPal(), S = stonePal();
+    const int PWd = w * 16, tall = kind == HP_MILL ? 22 : kind == HP_SAWMILL ? 8 : 16;
+    const int bodyH = h * 16 + 2, H = bodyH + tall, x0 = 1, y0 = tall, cx = PWd / 2 + 1;
+    const int frontY = y0 + bodyH - 11;
+    Img im(PWd + 2, H);
+    const bool stoneBody = kind == HP_KETTLE || kind == HP_OVEN || kind == HP_SMELTER;
+    const Pal B = stoneBody ? S : P;
+    im.rect(x0, y0, PWd, bodyH - 11, lit(B.L));                       // the top
+    im.rect(x0, frontY, PWd, 11, B.M);                                 // the front
+    im.rect(x0, y0, PWd, 1, lit(lit(B.L)));
+    im.rect(x0, frontY, PWd, 1, B.L);
+    im.rect(x0, y0 + bodyH - 2, PWd, 2, B.D);
+    for (int x = x0 + 4; x < x0 + PWd; x += 5) im.rect(x, frontY + 1, 1, 8, stoneBody ? B.D : B.D);
+    auto smoke = [&](int sx, int sy) {  // two grey puffs that drift up
+        const int d = fr * 2;
+        im.ellipse(sx, sy - d, 2.2f, 1.8f, HEX(0xd8d8de));
+        im.ellipse(sx + 1, sy - 5 - d, 2.8f, 2.2f, HEX(0xbcbcc6));
+    };
+    const u32 fire = fr ? HEX(0xffc040) : HEX(0xf0953a);
+    switch (kind) {
+        case HP_MILL: {  // a hopper over a grindstone, flour sacks, and a sail wheel on a post
+            im.rect(cx - 14, y0 - 7, 12, 3, P.D); im.rect(cx - 13, y0 - 4, 10, 6, P.M); im.rect(cx - 13, y0 - 4, 10, 1, P.L);
+            im.ellipseShaded(cx - 8, y0 + 7, 9, 4.5f, S.L, S.M, S.D);
+            im.ellipse(cx - 8, y0 + 6.f, 5, 2.f, S.D); im.set(cx - 8 + (fr ? 3 : -3), y0 + 6, HEX(0xeeeef2));
+            for (int i = 0; i < 2; i++) { im.ellipseShaded(cx + 10 + i * 6, y0 + 8, 4.5f, 3.5f, HEX(0xf2ead2), HEX(0xd8c8a0), HEX(0xa8946a)); im.rect(cx + 8 + i * 6, y0 + 4, 4, 1, P.D); }
+            const int wx = PWd - 7, wy = 9;
+            im.rect(wx, wy, 2, y0 - wy + 4, P.D);
+            for (int k = 0; k < 4; k++) {
+                const float a = (fr ? 0.7854f : 0.f) + k * 1.5708f;
+                const int ex = wx + (int)lroundf(cosf(a) * 8), ey = wy + (int)lroundf(sinf(a) * 8);
+                im.line(wx, wy, ex, ey, P.L);
+                im.line(wx + 1, wy, ex + 1, ey, P.M);
+                im.line(wx + (int)lroundf(cosf(a) * 4), wy + (int)lroundf(sinf(a) * 4) + 1, ex, ey + 1, HEX(0xece4cc));
+            }
+            im.rect(wx - 1, wy - 1, 4, 3, P.DD);
+            break;
+        }
+        case HP_DAIRY: {  // a churn with its plunger, a milk can and a stack of cheese wheels
+            im.rect(cx - 13, y0 - 5, 9, 13, P.M); im.rect(cx - 13, y0 - 5, 2, 13, P.L); im.rect(cx - 6, y0 - 5, 2, 13, P.D);
+            im.rect(cx - 13, y0 - 2, 9, 1, HEX(0x6a6a74)); im.rect(cx - 13, y0 + 4, 9, 1, HEX(0x6a6a74));
+            im.rect(cx - 10, y0 - 12 + (fr ? 3 : 0), 2, 8, P.D); im.rect(cx - 11, y0 - 13 + (fr ? 3 : 0), 4, 2, P.L);
+            im.rect(cx + 1, y0 + 1, 6, 9, HEX(0xc8ccd6)); im.rect(cx + 1, y0 + 1, 2, 9, HEX(0xeef0f6)); im.rect(cx + 2, y0 - 1, 4, 2, HEX(0x8a909c));
+            for (int i = 0; i < 2; i++) im.ellipseShaded(cx + 12, y0 + 8 - i * 3, 5.5f, 2.6f, HEX(0xffe48a), HEX(0xf2c94c), HEX(0xb8902a));
+            break;
+        }
+        case HP_KETTLE: {  // a big copper pot of jam over a fire
+            im.ellipseShaded(cx, y0 + 6, 11, 7, HEX(0xe8a468), HEX(0xb8763a), HEX(0x7a4a24));
+            im.ellipse(cx, y0 + 4.f, 8.5f, 3.8f, HEX(0x5a371c));
+            im.ellipse(cx, y0 + 4.f, 7.5f, 3.f, HEX(0xb02a5a));
+            im.set(cx - 3 + fr * 4, y0 + 3, HEX(0xe05a8a)); im.set(cx + 2 - fr * 4, y0 + 5, HEX(0xe05a8a)); im.set(cx, y0 + 4 + fr, HEX(0xff9ac0));
+            smoke(cx - 2, y0 - 3);
+            im.rect(cx - 5, frontY + 3, 10, 6, HEX(0x2a1c14)); im.rect(cx - 3, frontY + 5, 6, 4, fire); im.rect(cx - 1, frontY + 6, 2, 3, HEX(0xfff0a0));
+            break;
+        }
+        case HP_SMOKER: {  // a plank hut with a chimney and hanging meat
+            im.rect(x0 + 2, y0 - 6, PWd - 4, 7, P.D); im.rect(x0 + 2, y0 - 6, PWd - 4, 1, P.L);  // roof edge
+            im.rect(cx + 6, 0, 6, y0 - 3, S.M); im.rect(cx + 6, 0, 2, y0 - 3, S.L); im.rect(cx + 5, 0, 8, 2, S.D);
+            smoke(cx + 9, 7);
+            im.rect(cx - 7, frontY - 1, 14, 11, HEX(0x2a1c14));
+            for (int i = 0; i < 3; i++) { im.rect(cx - 5 + i * 4, frontY + 1, 2, 6, i == 1 ? HEX(0x8a2e26) : HEX(0xb8483a)); im.set(cx - 5 + i * 4, frontY + 1, HEX(0xe08a7a)); }
+            break;
+        }
+        case HP_OVEN: {  // a brick dome with a glowing mouth and a chimney
+            im.rect(PWd - 8, 1, 5, y0 - 2, S.M); im.rect(PWd - 8, 1, 2, y0 - 2, S.L); im.rect(PWd - 9, 1, 7, 2, S.D);
+            smoke(PWd - 5, 6);
+            im.ellipseShaded(cx, y0 + 6, 12, 9, HEX(0xd8795a), HEX(0xb8452e), HEX(0x7a2e1e));
+            for (int y = y0 - 1; y < y0 + 12; y += 3) for (int x = cx - 11; x < cx + 11; x += 4) if (((x + y) / 3) % 2) im.set(x, y, HEX(0x7a2e1e));
+            im.rect(cx - 5, frontY - 1, 10, 10, HEX(0x1c1410)); im.rect(cx - 4, frontY, 8, 2, HEX(0x1c1410));
+            im.rect(cx - 3, frontY + 3, 6, 6, fire); im.rect(cx - 1, frontY + 5, 2, 4, HEX(0xfff0a0));
+            break;
+        }
+        case HP_SAWMILL: {  // a saw table with a toothed blade, a stack of logs and planks
+            for (int i = 0; i < 3; i++) { const int lx = x0 + 6 + (i % 2) * 5, ly = y0 + 3 + i * 4; im.rect(lx, ly - 2, 14, 4, P.M); im.ellipse(lx + 14, ly, 2.2f, 2.f, P.L); im.ellipse(lx + 14, ly, 1.2f, 1.f, P.D); }
+            im.rect(cx - 2, y0 - 2, 22, 11, HEX(0x6a6a74)); im.rect(cx - 2, y0 - 2, 22, 1, HEX(0x9096a4));
+            const int bx = cx + 9, by = y0 + 2;
+            im.ellipse(bx, by, 7, 7, HEX(0xc8ccd6));
+            im.ellipse(bx, by, 2, 2, HEX(0x4a4a54));
+            for (int k = 0; k < 10; k++) { const float a = (fr ? 0.31f : 0.f) + k * 0.6283f; im.set(bx + (int)lroundf(cosf(a) * 8), by + (int)lroundf(sinf(a) * 8), HEX(0xe8eaf0)); }
+            for (int i = 0; i < 3; i++) { im.rect(x0 + PWd - 18, y0 + 2 + i * 3, 14, 2, P.L); im.rect(x0 + PWd - 18, y0 + 3 + i * 3, 14, 1, P.D); }
+            break;
+        }
+        default: {  // HP_SMELTER: a stone furnace with a glowing mouth, a chimney and ingots
+            im.rect(cx + 3, 1, 6, y0, S.M); im.rect(cx + 3, 1, 2, y0, S.L); im.rect(cx + 2, 1, 8, 2, S.D);
+            smoke(cx + 6, 6);
+            im.rect(cx - 10, y0 + 2, 12, 5, HEX(0xc8ccd6)); im.rect(cx - 10, y0 + 2, 12, 1, HEX(0xeef0f6));  // ingots
+            im.rect(cx - 8, y0 - 1, 10, 4, HEX(0xe8c070)); im.rect(cx - 8, y0 - 1, 10, 1, HEX(0xfff0b0));
+            im.rect(cx - 6, frontY - 1, 12, 10, HEX(0x1c1410));
+            im.rect(cx - 5, frontY + 1, 10, 8, fire); im.rect(cx - 3, frontY + 3, 6, 6, HEX(0xffe060)); im.rect(cx - 1, frontY + 5, 2, 4, HEX(0xfff6c0));
+            break;
+        }
+    }
+    im.outline(OUT);
+    return im;
+}
+
 // ------------------------------------------------------------------ the asset set
 struct HomeAssets {
     Spr wall[2][2];            // [wood / stone][capped / face only]
@@ -808,6 +906,7 @@ struct HomeAssets {
     Spr fence[2], gate[2][2], door[2];   // [horizontal / vertical][closed / open]  (door: closed / open)
     Spr building[HP_COUNT][2]; // [kind][rot & 1]
     Spr greenhouse[2];
+    Spr machine[HP_COUNT - HP_MILL][2][2];  // [kind - HP_MILL][rot & 1][idle / working]
     Spr well, scarecrow;
     Spr crop[CR_COUNT][CROP_STAGES];
     Spr portal[4], node[2];
@@ -842,6 +941,13 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
         Img g = greenhouse(w, h);
         a.greenhouse[o] = makeSpr(r, g, 1, g.h - 1);
     }
+    for (int k = HP_MILL; k < HP_COUNT; k++)
+        for (int o = 0; o < 2; o++)
+            for (int fr = 0; fr < 2; fr++) {
+                const int w = o ? HPDEF[k].h : HPDEF[k].w, h = o ? HPDEF[k].w : HPDEF[k].h;
+                Img m = machineArt(k, w, h, fr);
+                a.machine[k - HP_MILL][o][fr] = makeSpr(r, m, m.w / 2, m.h - 1);
+            }
     a.well = makeSpr(r, well(), 16, 43);
     a.scarecrow = makeSpr(r, scarecrow(), 11, 29);
     for (int c = 0; c < CR_COUNT; c++)

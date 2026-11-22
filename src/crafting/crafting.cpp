@@ -16,7 +16,10 @@ const Spr& Game::itemIcon(int id) const {
         case IK_LAUNCHER: return A.wpnIcon[D.ref];
         case IK_AMMO: return A.ammoIcon[D.ref];
         case IK_BACKPACK: return A.gearIcon[U_BAG][std::min(4, D.ref + 1)];  // tiers 1-4 of the bag art
-        case IK_CARRIED: return D.ref >= CG_STRAWHAT ? A.H.carryIcon[D.ref - CG_STRAWHAT] : A.carryIcon[D.ref];
+        case IK_CARRIED:
+            if (D.ref >= CG_ARMOR1 && D.ref <= CG_ARMOR8) return A.gearIcon[U_ARMOR][D.ref - CG_ARMOR1 + 1];
+            if (D.ref >= CG_BOOTS1) return A.gearIcon[U_BOOTS][D.ref - CG_BOOTS1 + 1];
+            return D.ref >= CG_STRAWHAT ? A.H.carryIcon[D.ref - CG_STRAWHAT] : A.carryIcon[D.ref];
         case IK_BABY: return A.babyIcon[D.ref];
         case IK_FARMBABY: return A.H.babyIcon[D.ref];
         case IK_TOOL: return A.R.toolIcon[D.ref];
@@ -36,11 +39,6 @@ std::string Game::craftBlock(int r) const {
     if (p.sk.level(R.skill) < R.minLv) return std::string("NEEDS ") + SKILL[R.skill].name + " " + S(R.minLv);
     if (!hasIngredients(R)) return "MISSING MATERIALS";
     if (!craftAnywhere && interior != recipeBuilding(R)) return std::string("MADE AT THE ") + buildingName(recipeBuilding(R));
-    if (R.kind == RK_GEAR) {
-        if (p.up[R.out] >= R.count) return "YOU WEAR BETTER ALREADY";
-        if (p.up[R.out] < R.count - 1) return "MAKE THE PREVIOUS LEVEL FIRST";
-        return "";
-    }
     const int out = recipeItem(R);
     // space: ingredients go first, then the result must fit
     Inventory test = p.inv;
@@ -64,32 +62,22 @@ bool Game::craft(int r) {
     std::string made;
     // the quality of this craft: one roll, better odds with the trade's skill level; Normal when the better tier would not fit the pack
     int q = !recipeHasQuality(R) ? (int)Q_NORMAL : craftQuality >= 0 ? clampQuality(craftQuality) : rollQuality(p.sk.level(R.skill), rng.f());
-    if (R.kind != RK_GEAR && q > Q_NORMAL && p.inv.room(recipeItem(R), q) < R.count) q = Q_NORMAL;
+    if (q > Q_NORMAL && p.inv.room(recipeItem(R), q) < R.count) q = Q_NORMAL;
     const std::string qtag = q > Q_NORMAL ? std::string(qualityDef(q).name) + " " : std::string();
-    if (R.kind == RK_GEAR) {
-        p.up[R.out] = R.count;
-        (R.out == U_ARMOR ? p.armorQ : p.bootsQ) = q;
-        if (R.out == U_ARMOR) {  // the extra health arrives at once (updatePlayer tops up current HP by the difference)
-            p.maxhp = std::max(p.maxhp, (float)ARMOR_HP[p.up[U_ARMOR]]);
-        }
-        made = "NOW WEARING " + qtag + recipeName(R);
-    } else {
-        const int out = recipeItem(R);
-        int got = p.inv.add(out, R.count, q);
-        if (got < R.count) {  // cannot happen after craftBlock, but never lose anything if it does
-            p.inv.removeQ(out, q, got);
-            for (int i = 0; i < 3; i++)
-                if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
-            msg("PACK FULL OR TOO HEAVY", C_RED);
-            audio.play(S_ERROR);
-            return false;
-        }
-        made = "CRAFTED " + S(R.count) + " " + qtag + item(out).name;
+    const int out = recipeItem(R);
+    int got = p.inv.add(out, R.count, q);
+    if (got < R.count) {  // cannot happen after craftBlock, but never lose anything if it does
+        p.inv.removeQ(out, q, got);
+        for (int i = 0; i < 3; i++)
+            if (R.mat[i] >= 0) p.inv.add(itemMat(R.mat[i]), R.n[i]);
+        msg("PACK FULL OR TOO HEAVY", C_RED);
+        audio.play(S_ERROR);
+        return false;
     }
+    made = "CRAFTED " + S(R.count) + " " + qtag + item(out).name;
     // skill bonus: a practised crafter sometimes gets more out of a craft. Stackable results come out one extra; one-off
     // results (weapons, gear, structures) hand back one of the first ingredient instead. Never when it would not fit.
-    if (R.kind != RK_GEAR && rng.chance(skillBonus(R.skill))) {
-        const int out = recipeItem(R);
+    if (rng.chance(skillBonus(R.skill))) {
         if (!itemIsGear(out) && item(out).stack > 1 && p.inv.add(out, 1, q) == 1) {
             ftext(p.pos + V2(0, -18), "EXTRA!", C_GREEN, 1.1f);
         } else if (itemIsGear(out) && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
@@ -102,15 +90,14 @@ bool Game::craft(int r) {
     ftext(p.pos + V2(0, -26), "+" + qtag + recipeName(R), q > Q_NORMAL ? qualityCol(q) : C_GOLD, 1.2f);
     grantXp(R.skill, recipeXp(R));  // only reached after the result was delivered and the ingredients were spent
     const bool isTool = R.kind == RK_ITEM && item(R.out).kind == IK_TOOL;
-    if (R.kind == RK_WEAPON || isTool || R.kind == RK_GEAR) questEvent(Q_CRAFT, R.kind == RK_WEAPON ? R.out : -1, 1);
+    const bool isArmor = R.kind == RK_ITEM && item(R.out).kind == IK_CARRIED && item(R.out).ref >= CG_ARMOR1;
+    if (R.kind == RK_WEAPON || isTool || isArmor) questEvent(Q_CRAFT, R.kind == RK_WEAPON ? R.out : -1, 1);
     return true;
 }
 
-// Craft the same recipe up to n times in a row (stops quietly at the first block: no materials, no room, locked). Gear upgrades are
-// one-off levels, so they are made once. Returns how many crafts were made.
+// Craft the same recipe up to n times in a row (stops quietly at the first block: no materials, no room, locked). Returns how many crafts were made.
 int Game::craftMany(int r, int n) {
     if (r < 0 || r >= RECIPE_N) return 0;
-    if (RECIPES[r].kind == RK_GEAR) n = 1;
     int made = 0;
     while (made < n && craftBlock(r).empty() && craft(r)) made++;
     if (made > 1) msg("CRAFTED " + S(made) + " TIMES", C_GOLD);
@@ -129,10 +116,6 @@ void recipeInfo(const Recipe& R, std::vector<std::string>& lines) {
             break;
         }
         case RK_AMMO: lines.push_back(std::string("AMMUNITION FOR THE ") + (R.out == AM_ARROW ? "BOWS" : "CROSSBOW")); break;
-        case RK_GEAR: {
-            lines.push_back(gearDesc(R.out, R.count));
-            break;
-        }
         case RK_BANDAGE: lines.push_back(item(ITEM_CONS0 + C_BANDAGE).blurb); break;
         default: {
             const ItemDef& D = item(R.out);
@@ -192,10 +175,9 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         const bool can = why.empty();
         panel(x, y, w, rowH - 1, can ? HEX(0x3f3220) : HEX(0x33261a));
         if (inRect(x, y, w, rowH - 1)) hover = r;
-        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(8, R.count)], x + 11, y + 10, 16);
-        else icon(itemIcon(recipeItem(R)), x + 11, y + 10, 16);
-        text(x + 24, y + 3, recipeName(R) + (R.count > 1 && R.kind != RK_GEAR ? "  X" + S(R.count) : std::string("")), can ? C_GOLD : HEX(0xa89060));
-        if (R.kind != RK_GEAR) {
+        icon(itemIcon(recipeItem(R)), x + 11, y + 10, 16);
+        text(x + 24, y + 3, recipeName(R) + (R.count > 1 ? "  X" + S(R.count) : std::string("")), can ? C_GOLD : HEX(0xa89060));
+        {
             std::string ow = "OWNED " + S(p.inv.count(recipeItem(R)));
             text(x + w - 86 - textW(ow), y + 3, ow, C_DIM, 1, false);
         }
@@ -211,9 +193,8 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         std::string lab = "CRAFT";
         if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
         else if (!can && why.compare(0, 8, "MADE AT ") == 0) lab = "IN TOWN";
-        else if (why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
         if (button(x + w - 54, y + 4, 50, 13, lab, can, HEX(0x5d7a2e))) craft(r);
-        if (can && R.kind != RK_GEAR && button(x + w - 82, y + 4, 26, 13, "MAX", true, HEX(0x7a5d2e))) craftMany(r, 999);  // everything the materials allow
+        if (can && button(x + w - 82, y + 4, 26, 13, "MAX", true, HEX(0x7a5d2e))) craftMany(r, 999);  // everything the materials allow
     }
     // ---- scrollbar
     if (maxScroll > 0) {
@@ -254,8 +235,7 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
 // the ingredients with a CREATE button in the middle, and the description of the picked recipe on the right.
 void Game::drawStationCraft(int X, int Y, int W, int H) {
     auto recipeIcon = [&](const Recipe& R, int cx, int cy, int size, float a = 1.f) {
-        if (R.kind == RK_GEAR) icon(A.gearIcon[R.out][std::min(8, R.count)], cx, cy, size, a);
-        else icon(itemIcon(recipeItem(R)), cx, cy, size, a);
+        icon(itemIcon(recipeItem(R)), cx, cy, size, a);
     };
     // ---- category tabs and the "can make" switch
     int cx = X + 6;
@@ -340,13 +320,13 @@ void Game::drawStationCraft(int X, int Y, int W, int H) {
     }
     panel(mx + 6, top + 50, 26, 26, HEX(0x33241a));  // what it makes
     recipeIcon(R, mx + 19, top + 63, 20);
-    text(mx + 36, top + 54, recipeName(R) + (R.count > 1 && R.kind != RK_GEAR ? " X" + S(R.count) : std::string("")), can ? C_GOLD : C_DIM, 1, false);
-    if (R.kind != RK_GEAR) text(mx + 36, top + 64, "OWNED " + S(p.inv.count(recipeItem(R))), C_DIM, 1, false);
+    text(mx + 36, top + 54, recipeName(R) + (R.count > 1 ? " X" + S(R.count) : std::string("")), can ? C_GOLD : C_DIM, 1, false);
+    text(mx + 36, top + 64, "OWNED " + S(p.inv.count(recipeItem(R))), C_DIM, 1, false);
     std::string lab = "CREATE";
     if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
     else if (why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
     if (button(mx + 6, top + 82, mw - 12, 16, lab, can, HEX(0x5d7a2e))) craft(craftSel);
-    if (R.kind != RK_GEAR && button(mx + 6, top + 100, mw - 12, 12, "CREATE MAX", can, HEX(0x7a5d2e))) craftMany(craftSel, 999);  // everything the materials allow
+    if (button(mx + 6, top + 100, mw - 12, 12, "CREATE MAX", can, HEX(0x7a5d2e))) craftMany(craftSel, 999);  // everything the materials allow
     text(mx + 6, top + 116, std::string(SKILL[R.skill].name) + " LV " + S(R.minLv), p.sk.level(R.skill) >= R.minLv ? C_GREEN : C_RED, 1, false);
     // ---- description
     int ty = top + 16;

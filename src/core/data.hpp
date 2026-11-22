@@ -235,8 +235,7 @@ enum NodeKind {
 
 // ---- crafting
 // RK_ITEM: `out` is a registry item id (tools, consumables, placeables, processed materials).
-// RK_GEAR: `out` is an Up index and `count` the level it brings the hunter to (armor, boots) - there is no item, the gear is worn at once.
-enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE, RK_ITEM, RK_GEAR };
+enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE, RK_ITEM };
 enum RecipeCat { RC_TOOLS, RC_WEAPONS, RC_AMMO, RC_MEDICINE, RC_SURVIVAL, RC_MATERIALS, RC_ARMOR, RC_COUNT };
 [[maybe_unused]] static const char* RECIPE_CAT_NAME[RC_COUNT] = {"TOOLS", "WEAPONS", "AMMO", "MEDICINE", "SURVIVAL", "PARTS", "GEAR"};
 enum Station { STN_ANY, STN_FIRE, STN_SHOP };  // where a recipe can be made: anywhere, beside a campfire, beside the merchant's forge
@@ -251,56 +250,32 @@ struct Recipe {
     int minLv = 1;            // skill level needed to make it (existing recipes stay at 1 so older saves lose nothing)
 };
 
-// ---- gear upgrades (two tiers each)
+// ---- worn gear lines. There are no coin upgrades any more: armor and boots are crafted items worn in the BODY / FEET slots (CG_ARMOR1.. /
+// CG_BOOTS1.. in items.hpp), as many as you like. `Up` only names the gear lines for the icon art and for reading old saves.
 enum Up { U_TOOL, U_BAG, U_BOOTS, U_ARMOR, U_COUNT };
-struct UpLevel {
-    const char* name;
-    const char* desc;
-    int coins;
-    int m1, n1, m2, n2;
-};
-struct UpDef {
-    const char* title;
-    UpLevel lv[2];
-};
-static const UpDef UPS[U_COUNT] = {
-    {"SKINNING KNIFE",
-     {{"BONE SKINNER", "GATHER 1.6X FASTER +25% BONUS", 60, M_BONE, 4, M_HIDE, 2},
-      {"STEEL CLEAVER", "GATHER 2.4X FASTER +50% BONUS", 200, M_BONE, 6, M_TUSK, 2}}},
-    {"BACKPACK",
-     {{"HIDE SATCHEL", "30 INVENTORY SLOTS", 70, M_HIDE, 4, -1, 0},
-      {"TRAPPER PACK", "40 INVENTORY SLOTS", 220, M_HIDE, 6, M_FUR, 3}}},
-    {"BOOTS",
-     {{"HIDE BOOTS", "MOVE 12% FASTER", 60, M_HIDE, 3, -1, 0}, {"FUR BOOTS", "MOVE 25% FASTER", 160, M_FUR, 2, M_HIDE, 3}}},
-    {"ARMOR",
-     {{"HIDE VEST", "+20 HP, -15% DAMAGE", 60, M_HIDE, 5, -1, 0},
-      {"FUR COAT", "+45 HP, -30% DAMAGE", 180, M_FUR, 4, M_HIDE, 4}}},
-};
-static const float TOOL_SPEED[3] = {1.0f, 1.6f, 2.4f};
-static const float TOOL_BONUS[3] = {0.0f, 0.25f, 0.5f};
 static const float BOOT_MUL[4] = {1.0f, 1.12f, 1.25f, 1.35f};  // level 3 (swiftfoot boots) can only be crafted
 static const int ARMOR_HP[9] = {100, 120, 145, 175, 200, 230, 255, 285, 330};  // levels 6-8: miner's plate, frostward armor, frostbound plate  // levels 3-5 (scale mail, reinforced leather, bear hide) can only be crafted
 static const float ARMOR_RED[9] = {0.0f, 0.15f, 0.30f, 0.42f, 0.48f, 0.55f, 0.60f, 0.66f, 0.72f};
 // highest level of each gear line: the shop sells levels 1-2, the rest is crafted
 constexpr int UP_MAX[4] = {2, 4, 3, 8};  // U_TOOL, U_BAG (legacy: old saves' bag level, icons only), U_BOOTS, U_ARMOR
 
-// name / description of gear level `lv` (1-based) - levels 1-2 are the shop's, the rest are crafted only
+// name / description of a crafted armor (u = U_ARMOR, lv 1-8) or boots (u = U_BOOTS, lv 1-3)
 inline const char* gearName(int u, int lv) {
-    static const char* X[4][4] = {{"", "", "", ""}, {"", "", "EXPLORER PACK", ""}, {"", "", "SWIFTFOOT BOOTS", ""}, {"", "", "SCALE MAIL", "REINFORCED LEATHER"}};
-    if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].name;
-    if (u == U_ARMOR && lv == 5) return "BEAR HIDE ARMOR";
-    if (u == U_ARMOR && lv == 6) return "MINER'S PLATE";
-    if (u == U_ARMOR && lv == 7) return "FROSTWARD ARMOR";
-    if (u == U_ARMOR && lv == 8) return "FROSTBOUND PLATE";
-    return u >= 0 && u < 4 && lv >= 3 && lv <= 4 && X[u][lv - 1][0] ? X[u][lv - 1] : "";
+    static const char* A[9] = {"", "HIDE VEST", "FUR COAT", "SCALE MAIL", "REINFORCED LEATHER", "BEAR HIDE ARMOR", "MINER'S PLATE", "FROSTWARD ARMOR", "FROSTBOUND PLATE"};
+    static const char* B[4] = {"", "HIDE BOOTS", "FUR BOOTS", "SWIFTFOOT BOOTS"};
+    if (u == U_ARMOR) return A[std::max(0, std::min(8, lv))];
+    if (u == U_BOOTS) return B[std::max(0, std::min(3, lv))];
+    return "";
 }
 inline const char* gearDesc(int u, int lv) {
-    if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].desc;
     if (u == U_ARMOR) {
-        static const char* D[9] = {"", "", "", "+75 HP, -42% DAMAGE", "+100 HP, -48% DAMAGE", "+130 HP, -55% DAMAGE", "+155 HP, -60% DAMAGE", "+185 HP, -66% DAMAGE, NO COLD", "+230 HP, -72% DAMAGE, NO COLD"};
+        static const char* D[9] = {"", "+20 HP, -15% DAMAGE", "+45 HP, -30% DAMAGE", "+75 HP, -42% DAMAGE", "+100 HP, -48% DAMAGE", "+130 HP, -55% DAMAGE", "+155 HP, -60% DAMAGE", "+185 HP, -66% DAMAGE, NO COLD", "+230 HP, -72% DAMAGE, NO COLD"};
         return D[std::max(0, std::min(8, lv))];
     }
-    if (u == U_BOOTS) return "MOVE 35% FASTER";
+    if (u == U_BOOTS) {
+        static const char* D[4] = {"", "MOVE 12% FASTER", "MOVE 25% FASTER", "MOVE 35% FASTER"};
+        return D[std::max(0, std::min(3, lv))];
+    }
     return "";
 }
 

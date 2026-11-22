@@ -299,7 +299,7 @@ void testScreensAndSaves(SelfTest& t) {
         std::string v1 = "coins 321\nmats 1 2 3 4 5 6 7 8 9 10 11\nwpn 8 3 2 4 1 1\nammo 25 9\nup 2 1 0 1\nbandages 4\nday 99.5\nkills 17\nquest 2 1 3\ndisc 10100000000000\n";
         writeFile(v1);
         bool ld = g.load();
-        bool same = ld && g.loadReport.migrated && g.loadReport.version == 1 && g.loadReport.dropped == 0 && g.p.coins == 321 && g.p.bag == PK_SATCHEL && g.p.up[U_BAG] == 0 && g.p.bagCap() == 100 && g.p.carryLimit() == 100 && g.p.up[U_TOOL] == 2 && g.kills == 17;
+        bool same = ld && g.loadReport.migrated && g.loadReport.version == 1 && g.loadReport.dropped == 0 && g.p.coins == 321 && g.p.bag == PK_SATCHEL && g.p.up[U_BAG] == 0 && g.p.bagCap() == 100 && g.p.carryLimit() == 100 && g.kills == 17;
         const int exMat[M_COUNT] = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11};
         for (int m = 0; m < M_COUNT; m++) same = same && g.p.mat(m) == exMat[m];
         const int exW[W_COUNT] = {8, 3, 2, 4, 1, 1};

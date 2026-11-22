@@ -297,7 +297,7 @@ void Game::climateMods(float& drain, float& regen) const {
             break;
         }
         case B_SNOW: {
-            float exposed = p.up[U_ARMOR] >= 2 ? 0.f : (p.up[U_ARMOR] == 1 ? 0.5f : 1.f);
+            float exposed = p.armorLv() >= 2 ? 0.f : (p.armorLv() == 1 ? 0.5f : 1.f);
             if (p.has(CG_PARKA) || p.has(CG_FROSTWARD)) exposed = 0.f;
             else if (p.has(CG_WOLFCLOAK)) exposed *= 0.5f;
             if (p.warmT > 0 || warmthAt(p.pos) > 0.3f) exposed = 0.f;  // a warm brew or standing by a campfire
@@ -710,6 +710,7 @@ void Game::update(float dt) {
             break;
         case ST_BUILD: updateBuildMenu(dt); break;
         case ST_ANIMAL: updateAnimalMenu(dt); break;
+        case ST_MACHINE: updateMachineMenu(dt); break;
         case ST_PAUSE:
             if (in.escPressed) state = ST_PLAY;
             break;

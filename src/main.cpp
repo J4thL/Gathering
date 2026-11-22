@@ -270,11 +270,9 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.p.inv.set(itemMat(M_HIDE), 20);
     g.p.inv.set(itemMat(M_TUSK), 20);
     g.p.inv.set(itemMat(M_FUR), 20);
-    bool u = g.buyUpgrade(U_TOOL);
-    printf("upgrade tool: %d (lvl %d)\n", u, g.p.up[U_TOOL]);
     g.shopTab = 2;
     frames(2);
-    shot("08_upgrades.bmp");
+    shot("08_shop_buy.bmp");
     g.state = ST_PLAY;
 
     // gathering and crafting screens
@@ -719,7 +717,7 @@ static void townTour(Game& g, const std::string& dir) {
     };
     auto find = [&](int outItem, int mat0) {
         for (int r = 0; r < RECIPE_N; r++)
-            if (RECIPES[r].kind != RK_GEAR && recipeItem(RECIPES[r]) == outItem && (mat0 < 0 || RECIPES[r].mat[0] == mat0)) return r;
+            if (recipeItem(RECIPES[r]) == outItem && (mat0 < 0 || RECIPES[r].mat[0] == mat0)) return r;
         return -1;
     };
     g.newGame();
@@ -746,14 +744,7 @@ static void townTour(Game& g, const std::string& dir) {
     g.interior = BLD_TANNER;
     ck(g.craft(rLeather) && g.p.mat(M_LEATHER) >= 2 && g.p.mat(M_HIDE) == 3, "the leatherworks tans hide into leather");
     g.interior = -1;
-    // upgrades moved to the smith: still real
     g.p.coins = 500;
-    g.p.inv.add(itemMat(M_COPPER), 20);
-    g.p.inv.add(itemMat(M_IRON), 20);
-    g.p.inv.add(itemMat(M_HIDE), 20);
-    const int up0 = g.p.up[U_TOOL];
-    g.buyUpgrade(U_TOOL);
-    ck(g.p.up[U_TOOL] >= up0, "the tool upgrade still works (now sold at the blacksmith)");
     // flowers
     g.p.inv.clear();
     g.p.coins = 200;
@@ -769,7 +760,7 @@ static void townTour(Game& g, const std::string& dir) {
     // salon
     g.p.coins = 100;
     g.p.inv.add(itemMat(M_BONE), 3);
-    const int up1 = g.p.up[U_ARMOR], lv1 = g.p.sk.level(SK_CRAFTING), bone1 = g.p.mat(M_BONE), q1 = g.questIdx;
+    const int up1 = g.p.armorLv(), lv1 = g.p.sk.level(SK_CRAFTING), bone1 = g.p.mat(M_BONE), q1 = g.questIdx;
     const HunterLook def;
     ck(g.p.look == def, "the hunter starts with the default look");
     g.salonLook = def;
@@ -796,7 +787,7 @@ static void townTour(Game& g, const std::string& dir) {
     ck(!g.confirmSalon() && g.p.look == def && g.p.coins == 10, "too few coins: refused, nothing changes");
     g.p.coins = 100;
     ck(g.confirmSalon() && g.p.look == want && g.p.coins == 100 - SALON_FEE && g.A.look == want, "confirm charges the small fee and applies the look to the real sprites");
-    ck(g.p.up[U_ARMOR] == up1 && g.p.sk.level(SK_CRAFTING) == lv1 && g.p.mat(M_BONE) == bone1 && g.questIdx == q1, "inventory, gear, skills and quests are untouched");
+    ck(g.p.armorLv() == up1 && g.p.sk.level(SK_CRAFTING) == lv1 && g.p.mat(M_BONE) == bone1 && g.questIdx == q1, "inventory, gear, skills and quests are untouched");
     g.salonLook = def;  // a preview that is cancelled / abandoned changes nothing
     g.salonLook = g.p.look;
     ck(g.p.look == want, "cancelling keeps the confirmed look");
@@ -1108,6 +1099,7 @@ int weaponTest(Game& g);     // weapon_tests.cpp
 int worldCheck(Game& g);     // world_check.cpp
 int delveCheck(Game& g);     // world_check.cpp
 int homesteadTest(Game& g);  // homestead_tests.cpp
+int bossTest(Game& g);       // boss_tests.cpp
 int soakTest(Game& g);       // soak_tests.cpp
 void delveShots(Game& g, const std::string& dir);
 
@@ -1122,7 +1114,7 @@ int main(int argc, char** argv) {
     bool headless = false;
     std::string printsDir, smithDir, delveDir, forestDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false, dtest = false, htest = false, soak = false;
+    bool wcheck = false, dtest = false, htest = false, btest = false, soak = false;
     // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
     auto takes = [&](int& i, const char* flag, std::string& dst) {
         if (strcmp(argv[i], flag)) return false;
@@ -1143,10 +1135,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
         else if (!strcmp(argv[i], "--delve")) dtest = true;
         else if (!strcmp(argv[i], "--homestead")) htest = true;
+        else if (!strcmp(argv[i], "--boss")) btest = true;
         else if (!strcmp(argv[i], "--soak")) soak = true;
     }
     // The test suites and tool modes save, load and delete save files: they get their own folder, never the player's real save.
-    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
+    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || btest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
                          !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty() || !forestDir.empty() || !printsDir.empty();
     if (toolRun && !(getenv("WILDWOOD_SAVE_DIR") && *getenv("WILDWOOD_SAVE_DIR"))) {
         std::error_code ec;
@@ -1193,6 +1186,11 @@ int main(int argc, char** argv) {
     }
     if (soak) {
         int bad = soakTest(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
+    }
+    if (btest) {
+        int bad = bossTest(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
     }

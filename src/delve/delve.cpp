@@ -21,7 +21,7 @@ const int ARMOR_NEED[DV_COUNT] = {0, 0, 2, 4, 5, ENDLESS_ARMOR_NEED};  // armour
 
 bool Game::delveReq(int id, std::string* why) const {
     if (id < 0 || id >= DV_COUNT) return false;
-    const int ar = p.up[U_ARMOR];
+    const int ar = p.armorLv();
     if (ar < ARMOR_NEED[id]) {
         if (why) *why = "NEED ARMOR TIER " + S(ARMOR_NEED[id]) + " (YOU HAVE " + S(ar) + ")";
         return false;
