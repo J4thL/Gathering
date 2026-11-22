@@ -298,6 +298,19 @@ static void scriptedRun(Game& g, const std::string& dir) {
         shot("20a_slider.bmp");
         g.amountClose();
         for (int k : {A_RABBIT, A_DEER, A_WOLF, A_BOAR}) g.bestKills[k] = 3 + 9 * k;  // the bestiary tab
+        for (int k : {SK_WOODCUTTING, SK_CRAFTING, SK_SMITHING, SK_HUNTING}) { int64_t t = 0; for (int l = 1; l < 12 + 6 * k; l++) t += xpForLevel(l); g.p.sk.s[k].xp = t; }  // the skill and crafting trees
+        g.p.sk.perk[SK_CRAFTING][0] = 0;
+        g.invTab = 2;
+        frames(3);
+        shot("20b_skilltree.bmp");
+        g.in.mx = 200; g.in.my = 120;
+        g.in.wheel = -3;
+        frames(2);
+        shot("20b2_skilltree_zoom.bmp");
+        g.treeZoom[0] = 1.f; g.treePan[0] = V2(0, 0);
+        g.invTab = 1;
+        frames(3);
+        shot("20b3_crafttree.bmp");
         g.invTab = 3;
         frames(3);
         shot("20c_bestiary.bmp");

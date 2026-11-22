@@ -685,9 +685,9 @@ void Game::drawInventory() {
             }
         }
     } else if (invTab == 1) {
-        drawCraftTab(X, Y - 14, W, H + 7);
+        drawTree(X, Y - 14, W, H + 7, true);
     } else if (invTab == 2) {
-        drawSkillsTab(X, Y - 14, W, H + 7);
+        drawTree(X, Y - 14, W, H + 7, false);
     } else if (invTab == 3) {
         drawBestiaryTab(X, Y - 14, W, H + 7);
     } else {

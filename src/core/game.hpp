@@ -938,6 +938,11 @@ struct Game {
     void perkLoadLine(std::istringstream& ss);   // the rest of a "perk <key> <step> <choice>" line
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
     void drawSkillsTab(int X, int Y, int W, int H);
+    void drawTree(int X, int Y, int W, int H, bool craft);  // the SKILLS and CRAFT tabs as radial trees (game_tree.cpp)
+    V2 treePan[2]; float treeZoom[2] = {1.f, 1.f}; int treeSel[2] = {-1, -1};  // per tree: the view and the picked node
+    void treePickRecipe(int r);  // picks a recipe's node in the crafting tree, centred (used by the tests and could be used by a 'show me this recipe' link)
+    V2 treeCraftBtn;             // where the CRAFT button of the picked recipe was drawn last frame (screen centre)
+    bool treeDown = false, treeMoved = false; float treeDX = 0, treeDY = 0, treeLX = 0, treeLY = 0;  // a mouse press on the tree: drag or click
     int skillSel = -1;  // the skill whose perk choices are open in the SKILLS tab
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
     void bestiaryKill(int kind, int tier = 0);
