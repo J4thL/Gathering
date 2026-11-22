@@ -625,7 +625,6 @@ void Game::renderWorld(bool) {
             }
             const Spr& s = *sp;
             if (a.tier == TR_LEGENDARY && !a.dead) {  // golden pulse so a legendary is easy to spot
-                float pulse = 0.35f + 0.2f * sinf(timeAcc * 3.f);
                 if (((int)(timeAcc * 6) + e.i) % 5 == 0)
                     fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
             }
