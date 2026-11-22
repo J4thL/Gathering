@@ -8,6 +8,7 @@
 // ================================================================= player
 void Game::hurtPlayer(float dmg, V2 from, int srcKind) {
     if (p.invuln > 0 || p.dead) return;
+    if (pWeakT > 0) dmg *= 1.35f;  // weakened by a boss's roar
     dmg *= 1.f - skillBonus(SK_DEFENSE);
     if (p.has(CG_VENOMWRAPS) && (srcKind == A_RATTLER || srcKind == A_MOCCASIN)) dmg *= 0.65f;  // snake-proof wraps
     int d = std::max(1, (int)ceilf(dmg * (1.f - std::min(0.9f, ARMOR_RED[p.armorLv()] * qualityDef(p.armorQ()).stat))));
@@ -242,9 +243,9 @@ void Game::updatePlayer(float dt) {
     if (pSlowT > 0) spd *= 0.65f;  // frost-slowed
     spd *= P.inv.slowFactor();     // carrying more than the limit slows the hunter
     if (HAnimal* mt = riddenMount()) spd *= mountSpeed(mt->species, mt->tier);
-    if (wantGather || wantHarvest) spd = 0;
+    if (wantGather || wantHarvest || pRootT > 0) spd = 0;  // held by a boss: no walking
     // dodge-roll: not while riding, exhausted, or already rolling; it cancels a throw/draw and costs stamina
-    if (in.dodgePressed && P.rollT <= 0 && P.rollCd <= 0 && !riding && !P.exhausted && P.stamina >= DODGE_COST) {
+    if (in.dodgePressed && pRootT <= 0 && P.rollT <= 0 && P.rollCd <= 0 && !riding && !P.exhausted && P.stamina >= DODGE_COST) {
         P.rollDir = moving ? mv : (P.aim * -1.f);
         P.rollT = DODGE_TIME;
         P.rollCd = DODGE_COOLDOWN;

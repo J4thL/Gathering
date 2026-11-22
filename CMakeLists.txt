@@ -70,6 +70,7 @@ set(WILDWOOD_TESTS
     src/tests/selftest_town.cpp
     src/tests/delve_tests.cpp
     src/tests/homestead_tests.cpp
+    src/tests/boss_tests.cpp
     src/tests/soak_tests.cpp
     src/tests/weapon_tests.cpp
     src/tests/world_check.cpp)

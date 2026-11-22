@@ -1099,6 +1099,7 @@ int weaponTest(Game& g);     // weapon_tests.cpp
 int worldCheck(Game& g);     // world_check.cpp
 int delveCheck(Game& g);     // world_check.cpp
 int homesteadTest(Game& g);  // homestead_tests.cpp
+int bossTest(Game& g);       // boss_tests.cpp
 int soakTest(Game& g);       // soak_tests.cpp
 void delveShots(Game& g, const std::string& dir);
 
@@ -1113,7 +1114,7 @@ int main(int argc, char** argv) {
     bool headless = false;
     std::string printsDir, smithDir, delveDir, forestDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false, dtest = false, htest = false, soak = false;
+    bool wcheck = false, dtest = false, htest = false, btest = false, soak = false;
     // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
     auto takes = [&](int& i, const char* flag, std::string& dst) {
         if (strcmp(argv[i], flag)) return false;
@@ -1134,10 +1135,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
         else if (!strcmp(argv[i], "--delve")) dtest = true;
         else if (!strcmp(argv[i], "--homestead")) htest = true;
+        else if (!strcmp(argv[i], "--boss")) btest = true;
         else if (!strcmp(argv[i], "--soak")) soak = true;
     }
     // The test suites and tool modes save, load and delete save files: they get their own folder, never the player's real save.
-    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
+    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || btest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
                          !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty() || !forestDir.empty() || !printsDir.empty();
     if (toolRun && !(getenv("WILDWOOD_SAVE_DIR") && *getenv("WILDWOOD_SAVE_DIR"))) {
         std::error_code ec;
@@ -1184,6 +1186,11 @@ int main(int argc, char** argv) {
     }
     if (soak) {
         int bad = soakTest(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
+    }
+    if (btest) {
+        int bad = bossTest(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
     }

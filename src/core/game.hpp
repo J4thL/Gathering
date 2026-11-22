@@ -111,10 +111,11 @@ struct Animal {
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
     int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
-    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
-    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
-    bool bossHit = false;
-    V2 bossDir;
+    int bossAct = 0, bossCalls = 0;    // BossPhase (combat/boss_moves.hpp): idle, prep, warn, exec, recover; how many times it has called its pack
+    int bossMove = 0, bossLast = -1, bossStep = 0;  // the attack now playing (BossMove), the one before, and a counter inside it (combo hit, meteor)
+    float bossT = 0, bossCd = 3.f, busyT = 0, bossAux = 0;  // seconds left in the phase; wait until the next attack; busyT freezes the ordinary AI while an attack plays
+    bool bossHit = false, bossEnr = false;  // the attack has landed already; the boss is enraged
+    V2 bossDir, bossTgt;               // where it aimed when the warning began (the hunter can sidestep it); a leap's landing spot
     float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
     // ---- daily routine (the home forest's four species, see game_animals.cpp): where it sleeps, drinks, and what it is up to
     V2 bed, drink;            // its sleeping place (a sheltered spot) and its watering place; chosen when first needed
@@ -528,6 +529,15 @@ struct Game {
     float bossCool[B_COUNT] = {};      // seconds until the boss is back (0 = it waits at its lair)
     bool bossSeen[B_COUNT] = {};       // the lair has been found (it shows on the maps)
     V2 bossLair; int bossLairMap = -1;
+    struct BossShot { V2 pos, dir; float life, dmg; };
+    std::vector<BossShot> bshots;      // a boss's ranged shots in flight
+    std::vector<V2> bossPts;           // meteor targets of the attack now playing
+    V2 bossSafe;                       // the safe zone's centre while a "stand in the safe zone" attack plays
+    void bossChoose(Animal& a, float dp);
+    void bossEnter(Animal& a, int phase);
+    void bossRun(Animal& a, float dt);
+    void bossStrike(Animal& a, float mul, bool combo = false);
+    void updateBossShots(float dt);
     V2 bossLairPos();
     Animal* liveBoss();
     int meleeWeapon() const;
@@ -560,6 +570,7 @@ struct Game {
     std::vector<int16_t> flow;         // flow field: steps to the hunter, around the walls (monsters.cpp)
     int flowTx = -1, flowTy = -1;
     float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
+    float pWeakT = 0, pRootT = 0;      // the hunter is weakened (takes more damage) / held in place, seconds left (boss roar and grab)
     float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
     // ---- light and weather (game_light.cpp)
     // weather: ONE state machine (updateLight) picks what blows; the K values are its smoothed strengths, which everything else reads
