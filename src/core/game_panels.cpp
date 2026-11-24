@@ -427,7 +427,6 @@ void Game::drawInventory() {
         }
     };
     if (invTab != 3) trophyOpen = false;
-    if (invTab != 2) skillSel = -1;  // the perk choices close when you leave the SKILLS tab
     const int cy = invTab == 0 ? Y + 10 : Y + 24;
     auto iconOf = [&](int id) -> const Spr& { return itemIcon(id); };
     auto sellPriceOf = [&](int id, int q) { return itemHasQuality(id) ? qualityPrice(itemSellBase(id), q) : item(id).price; };
@@ -685,9 +684,9 @@ void Game::drawInventory() {
             }
         }
     } else if (invTab == 1) {
-        drawCraftTab(X, Y - 14, W, H + 7);
+        drawTree(X, Y - 14, W, H + 7, true);
     } else if (invTab == 2) {
-        drawSkillsTab(X, Y - 14, W, H + 7);
+        drawTree(X, Y - 14, W, H + 7, false);
     } else if (invTab == 3) {
         drawBestiaryTab(X, Y - 14, W, H + 7);
     } else {

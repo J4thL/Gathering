@@ -341,14 +341,14 @@ void Game::hsTickCrops(float dt) {
 bool Game::hsDig(int tx, int ty) {
     auto no = [&](const char* m) { p.farmT = 0; msg(m, C_RED); audio.play(S_ERROR, 0.5f); return true; };
     HPiece* gp = hsAt(tx, ty, HL_GROUND);
-    if (gp && gp->kind == HP_PLOT && gp->crop >= 0) return no("A CROP IS PLANTED HERE - HARVEST IT FIRST");
+    const bool dugCrop = gp && gp->kind == HP_PLOT && gp->crop >= 0;  // a planted crop (a regrowing one like tomato is always planted) is dug up with the soil
     if (gp && (gp->kind == HP_HOLE || gp->kind == HP_POND || gp->kind == HP_PLOT)) {  // fill a hole / pond in, or untill empty soil
         const bool tilled = gp->kind == HP_PLOT;
         if (gp->kind == HP_POND) world.tile[ty][tx] = (uint8_t)(gp->crop >= 0 ? gp->crop : T_DIRT);
         const int id = gp->id;
         hs.pieces.erase(std::remove_if(hs.pieces.begin(), hs.pieces.end(), [&](const HPiece& q) { return q.id == id; }), hs.pieces.end());
         hsReindex();
-        ftext(V2((tx + .5f) * TS, ty * (float)TS), tilled ? "UNTILLED" : "FILLED IN", C_DIM);
+        ftext(V2((tx + .5f) * TS, ty * (float)TS), dugCrop ? "CROP DUG UP" : tilled ? "UNTILLED" : "FILLED IN", C_DIM);
         audio.play(S_BREAK, 0.4f);
         return true;
     }
@@ -484,7 +484,7 @@ bool Game::hsHarvest(HPiece& pc) {
 }
 
 // Left click with the hoe, watering can or sickle in hand, on the tile under the cursor (within reach):
-//  hoe: tills bare soil into a farm plot, digs up a ripe root crop;  seeds: sow a tilled plot;  shovel: digs / fills holes, untills an empty plot
+//  hoe: tills bare soil into a farm plot, digs up a ripe root crop;  seeds: sow a tilled plot;  shovel: digs / fills holes, untills a plot (a planted crop is dug up with it)
 //  can: waters tilled soil (planted or not), fills a hole into a pond, refills at the water's edge;  sickle: cuts a ripe crop
 bool Game::hsToolUse() {
     const int type = p.hand;

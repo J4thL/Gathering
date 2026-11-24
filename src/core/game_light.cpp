@@ -545,7 +545,6 @@ void Game::drawGroundShadows() {
             const Prop& pr = *it;
             const float fx = pr.x - camX, fy = pr.y + 1.f - camY;
             if (fx < -200 || fx > LW + 200) continue;
-            auto frame = [&](float fps, int n) { return ((int)(timeAcc * fps + pr.ph * n / 6.2832f) % n + n) % n; };
             const int rs = propRsId[i];
             if (rs >= 0 && (propSt[i].gone || propSt[i].fade > 0)) continue;  // felled or broken: no shadow
             const shadowdef::PropShadow* d = shadowdef::propShadow(pr.kind);  // the table: shadow_casters.hpp

@@ -173,15 +173,14 @@ void testScreensAndSaves(SelfTest& t) {
         g.p.inv.add(itemMat(M_TUSK), 1);
         g.p.inv.add(itemMat(M_ANTLER), 1);
         g.p.inv.add(itemMat(M_FUR), 1);
-        auto clickRecipe = [&](int r) {  // click the CRAFT button of recipe r: pick its category filter, then its row in that list
-            g.craftCat = RECIPES[r].cat;
-            g.craftScroll = 0;
-            g.craftOnly = false;
-            int row = 0;
-            for (int q = 0; q < r; q++)
-                if (RECIPES[q].cat == RECIPES[r].cat) row++;
-            g.in.mx = 24 + 8 + (352 - 16 - 5) - 54 + 25;
-            g.in.my = 12 + 24 + 14 + row * 22 + 4 + 6;
+        auto clickRecipe = [&](int r) {  // pick the recipe's node in the crafting tree, then click the CRAFT button on its card
+            g.invTab = 1;
+            g.treePickRecipe(r);
+            g.in.mx = 5;
+            g.in.my = 5;
+            g.render();
+            g.in.mx = g.treeCraftBtn.x;
+            g.in.my = g.treeCraftBtn.y;
             g.in.uiClick = true;
             g.render();
             g.in.uiClick = false;
@@ -244,7 +243,7 @@ void testScreensAndSaves(SelfTest& t) {
         // ---- every screen renders in every state without trouble
         bool rendered = true;
         for (int lvl = 0; lvl <= PK_COUNT; lvl++)
-            for (int tab = 0; tab < 2; tab++)
+            for (int tab = 0; tab < 3; tab++)  // (the pack, the crafting tree and the skill tree)
                 for (int fill = 0; fill < 2; fill++) {
                     g.p.bag = lvl - 1;
                     g.p.syncPack();
@@ -260,6 +259,7 @@ void testScreensAndSaves(SelfTest& t) {
                 }
         check(rendered, "all tabs render with no bag and every bag, empty and completely full (100 slots)");
         g.state = ST_PLAY;
+        g.invTab = 0;
     }
     // ---- saving
     printf("saving and migration\n");

@@ -57,12 +57,6 @@ bool inCone(V2 o, V2 dir, V2 q, float reach, float half) {
     const float c = (d.x * dir.x + d.y * dir.y) / L;
     return c >= cosf(half);
 }
-// distance from q to the segment o -> o + dir * len
-float segDist(V2 o, V2 dir, float len, V2 q) {
-    const V2 d = q - o;
-    const float t = std::max(0.f, std::min(len, d.x * dir.x + d.y * dir.y));
-    return dist(q, o + dir * t);
-}
 float phaseTime(const BossMoveDef& m, int ph, bool enr) {
     float t = ph == BP_PREP ? m.prep : ph == BP_WARN ? m.warn : ph == BP_EXEC ? m.exec : m.rec;
     if (enr && ph == BP_WARN) t = std::max(std::min(t, BOSS_MIN_WARN), t * BOSS_ENRAGE_SPEED);
