@@ -27,7 +27,17 @@ void Game::drawHomesteadGround() {
                 case HP_FLOOR_STONE: sprS(A.H.floorStone, sx, sy); break;
                 case HP_FOUNDATION: sprS(A.H.foundation, sx, sy); break;
                 case HP_BRIDGE: sprS(A.H.bridge[pc.rot & 1], sx, sy); break;
-                case HP_PLOT: sprS(A.H.plot[pc.water > 0.3f ? 1 : 0], sx, sy); break;
+                case HP_PLOT: {  // neighbouring plots join into one bed
+                    auto plotAt = [&](int dx, int dy) { const HPiece* q = hsAt(pc.tx + dx, pc.ty + dy, HL_GROUND); return q && q->kind == HP_PLOT; };
+                    sprS(A.H.plot[pc.water > 0.3f ? 1 : 0][(plotAt(0, -1) ? 1 : 0) | (plotAt(1, 0) ? 2 : 0) | (plotAt(0, 1) ? 4 : 0) | (plotAt(-1, 0) ? 8 : 0)], sx, sy);
+                    break;
+                }
+                case HP_HOLE: {  // neighbouring holes join into one trench
+                    auto hole = [&](int dx, int dy) { const HPiece* q = hsAt(pc.tx + dx, pc.ty + dy, HL_GROUND); return q && q->kind == HP_HOLE; };
+                    sprS(A.H.hole[(hole(0, -1) ? 1 : 0) | (hole(1, 0) ? 2 : 0) | (hole(0, 1) ? 4 : 0) | (hole(-1, 0) ? 8 : 0)], sx, sy);
+                    break;
+                }
+                case HP_POND: break;  // a pond is a water tile: the world draws it like any other water, so ponds merge with each other and with lakes and streams
             }
         } else if (pc.kind == HP_PEN) {  // trampled dirt inside the paddock
             for (int y = pc.ty + 1; y < pc.ty + pc.h() - 1; y++)
@@ -76,6 +86,9 @@ void Game::drawHsPiece(const HPiece& pc, int sub, float alpha) {
         case HP_SHED: case HP_HOUSE: case HP_BARN: case HP_COOP: case HP_WORKSHOP: case HP_WAREHOUSE:
             sprW(A.H.building[pc.kind][pc.rot & 1], x0 + w / 2, y0 + h, false, alpha);
             if (pc.kind == HP_WORKSHOP && alpha >= 1.f) sprW(A.fire[(int)(timeAcc * 9) % 3], x0 + w - 10, y0 + h - 4);
+            break;
+        case HP_MILL: case HP_DAIRY: case HP_KETTLE: case HP_SMOKER: case HP_OVEN: case HP_SAWMILL: case HP_SMELTER:
+            sprW(A.H.machine[pc.kind - HP_MILL][pc.rot & 1][pc.mq > 0 && alpha >= 1.f ? ((int)(timeAcc * 4.f + pc.id) & 1) : 0], x0 + w / 2, y0 + h, false, alpha);
             break;
         case HP_GREENHOUSE: sprW(A.H.greenhouse[pc.rot & 1], x0 + 1, y0 + h, false, alpha); break;
         case HP_WELL: sprW(A.H.well, x0 + 16, y0 + h, false, alpha); break;

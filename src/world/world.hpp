@@ -5,6 +5,7 @@
 // that is currently active; Game::travelTo (maps.cpp) swaps it by regenerating the destination from the world seed.
 #pragma once
 #include "art/sprites.hpp"
+#include "FastNoiseLite.h"  // Jordan Peck's FastNoiseLite (MIT), used by the home forest's opt-in v2 terrain (GEN_V2, worldgen.hpp)
 
 constexpr int TS = 16;
 constexpr int CW = 88, CH = 60;                          // the original Wildwood area (the core of the home map)
@@ -86,8 +87,13 @@ enum PropKind {
     P_MINEGATE, P_FROSTGATE,                                                                // the two entrances on the overworld maps
     P_BEAM, P_MINECART, P_TORCH, P_CAVECRYSTAL, P_ICECRYSTAL, P_STATUE, P_PILLAR, P_CHEST, P_STAIRS, P_EXIT,
     P_BOSSDOOR, P_EQUIP, P_DEBRIS, P_SARCO, P_THRONE, P_BRAZIER, P_BONES, P_BANNER, P_ICICLE,
-    P_HPORTAL, P_HMARKET,                                                                   // the Homestead Portal (town and homestead) and the homestead's market stall
-    P_SANDBOULDER                                                                           // the desert's large rock (appended last so older saves keep their numbers)
+    P_HPORTAL, P_HMARKET_RETIRED,                                                                 // the Homestead Portal (town and homestead) and the homestead's market stall
+    P_SANDBOULDER,                                                                          // the desert's large rock (appended last so older saves keep their numbers)
+    P_SNOWMAN, P_SNOWSIGN, P_SNOWLAMP, P_SNOWFENCE,                                         // snowfield props (Prop::ph of a sign = which: hut, lake, cairn, fortress)
+    P_SNOWCAMPFIRE, P_SNOWTENT, P_SNOWLOG,                                                  // a snowfield campsite (Prop::ph of the fire = its flicker phase)
+    P_LOOKOUT, P_FISHRACK, P_FIREWOOD, P_SNOWTENTOLD, P_SNOWASH,                            // the Watch Cairn's lookout tower, the fisher's rack and firewood, a broken tent and a cold fire ring
+    P_CAMPFIRE, P_CAMPTENT,                                                                 // the abandoned camps of the other biomes: the fire (Prop::ph = its camp), a fallen tent
+    P_ICESPIKE                                                                              // a cluster of ice spikes (Prop::ph = size 0-4, plus 5 for the sprawling look; art/ice_spike_sprites.hpp)
 };
 struct Prop {
     int kind;
@@ -99,6 +105,11 @@ struct Prop {
 inline bool isTreeKind(int k) {
     return k == P_OAK0 || k == P_OAK1 || k == P_PINE || k == P_PALM || k == P_SNOWPINE || k == P_DEADTREE0 || k == P_DEADTREE1 || k == P_BARETREE;
 }
+// Half of the snowfields' bare trees are birches (pale trunks) instead of dead spruces; which, and which of two looks, comes from where they stand.
+inline bool snowBirchAt(float x, float y) { return (hash2((int)x >> 4, (int)y >> 4, 0xB1C4u) & 3) < 2; }
+inline int snowBirchLook(float x, float y) { return (int)(hash2((int)x >> 4, (int)y >> 4, 0xB1C5u) & 1u); }
+// about one birch in four is a leafy one: a birch in leaf under a heavy cover of snow (art/leafy_birch_art.hpp), the others stand bare
+inline bool snowBirchLeafy(float x, float y) { return snowBirchAt(x, y) && (hash2((int)x >> 4, (int)y >> 4, 0xB1C6u) & 3) == 0; }
 // The scenery rocks of every biome share the forest rock pictures in three sizes: 0 = tiny, 1 = small, 2 = boulder (-1 = not a rock).
 // Only the colours differ from biome to biome (ROCK_PALS in rock_sprites.hpp).
 inline int rockClass(int k) {
@@ -131,7 +142,7 @@ enum DecorKind {
     D_FLOWER0, D_FLOWER1, D_FLOWER2, D_TUFT, D_MUSHROOM, D_PEBBLES, D_BUSH0, D_BUSH1,  // original (0-7)
     D_DRYBUSH, D_SKULL, D_SANDTUFT, D_REEDS0, D_REEDS1, D_LILY, D_BUBBLES, D_DRIFT, D_FROSTTUFT, D_ALPINE, D_GRAVEL, D_STUMP, D_VIOLET, D_POPPY,
     D_DROCK0, D_DROCK1, D_DROCK2, D_DROCK3,  // desert decor rocks (single rock, slab, stack, spire): scenery only, not minable
-    D_COUNT
+    D_BLADES, D_ICEHOLE, D_DEN, D_FROSTCRACK, D_TRACKS, D_BURIEDROCK, D_YOUNGPINE, D_FISHHOLE, D_COUNT
 };
 struct Decor {
     int kind;
@@ -151,6 +162,24 @@ struct Lantern {
     float x, y;  // warm night glow
     float r;
 };
+// A camp that is a checkpoint: the abandoned camps of the desert, swamp and mountain (a cold fire and a fallen tent) and every campsite of the
+// snowfield (the abandoned ones have a cold fire, the inhabited ones a fire that already burns: "warm"). Walking up to the fire lights it or finds
+// it, which makes the camp a checkpoint: a hunter who is knocked out wakes beside the nearest lit camp of the map instead of at its entrance.
+// (Prop::ph of a P_CAMPFIRE is the index in World::camps; the home forest has no camps.)
+struct Camp {
+    float x, y;  // the fire's ground anchor
+    bool lit = false;   // found: the fire is lit (or, for a warm camp, the camp has been walked up to) and the camp is a checkpoint
+    bool warm = false;  // an inhabited snowfield campsite whose fire burns from the start: nothing to light, walking up finds it
+};
+inline const char* campName(int biome) {
+    switch (biome) {
+        case B_DESERT: return "NOMAD CAMP";
+        case B_SWAMP: return "TRAPPER'S CAMP";
+        case B_MOUNTAIN: return "CLIMBER'S CAMP";
+        case B_SNOW: return "MUSHER'S CAMP";
+        default: return "CAMP";
+    }
+}
 // what the generator of a delve (mine / dungeon level) asks the game to spawn: monsters, chests, traps (delve.hpp)
 enum DSpawnType { DS_MONSTER, DS_CHEST, DS_TRAP, DS_BOSS };
 struct DSpawn {
@@ -186,24 +215,72 @@ struct Glade {
     int kind;
 };
 // switches that leave a layer out of the home forest (tests and tuning: every layer must leave the others where they are)
-enum GenOff : uint32_t { GEN_NO_STREAMS = 1, GEN_NO_GLADES = 2, GEN_NO_SMOOTH = 4, GEN_NO_FIELDS = 8 };
+enum GenOff : uint32_t { GEN_NO_STREAMS = 1, GEN_NO_GLADES = 2, GEN_NO_SMOOTH = 4, GEN_NO_FIELDS = 8,
+                         GEN_V2 = 16, GEN_V2_SNOW = 32, GEN_V2_PLATEAU = 64,
+                         GEN_FIXED_LANDMARKS = 128 };  // the last is an off-switch: the snowfield's Watch Cairn and Frozen Fortress stand where they always stood, for every seed  // GEN_V2 / GEN_V2_SNOW are the odd ones out: opt-ins, not off-switches (the home forest's and the snowfields' FastNoiseLite terrain)
+// New worlds get the FastNoiseLite terrain (GEN_V2: the home forest). Build with -DFOREST_V2_DEFAULT=0 to generate every seed's forest exactly as it was before.
+#ifndef FOREST_V2_DEFAULT
+#define FOREST_V2_DEFAULT 1
+#endif
+// Likewise -DSNOW_V2_DEFAULT=0 for the snowfields (GEN_V2_SNOW). (A saved game keeps only its seed, so with these on an old save's forest and snowfields are drawn the new way too.)
+#ifndef SNOW_V2_DEFAULT
+#define SNOW_V2_DEFAULT 1
+#endif
+// Snow plateaus (raised ground with a rock face along its south edge, in place of the thin ridges) are part of the v2 snowfield: -DPLATEAU_DEFAULT=0 keeps the ridges.
+#ifndef PLATEAU_DEFAULT
+#define PLATEAU_DEFAULT 1
+#endif
+constexpr uint32_t GEN_DEFAULT = (FOREST_V2_DEFAULT ? (uint32_t)GEN_V2 : 0u) | (SNOW_V2_DEFAULT ? (uint32_t)GEN_V2_SNOW : 0u) |
+                                 (SNOW_V2_DEFAULT && PLATEAU_DEFAULT ? (uint32_t)GEN_V2_PLATEAU : 0u);
+constexpr float EDGE_W = 3.f;  // the lip of a plateau stops walking in a strip this many pixels wide along its outer edge (World::edge)
 // A wide open meadow carpeted with flowers in drifting colours (worldgen.hpp): bigger than a glade, and in open country, not in the forest.
 struct FlowerField {
     float cx, cy, rx, ry;  // centre and radii in tiles (the real edge is ragged)
 };
+#define SNOW_RIDGE_K_DEFAULT 0.22f
+// The few terrain numbers the dev panel (devui/dev_ui.cpp, F1) can change live. The defaults ARE the constants worldgen always used, so a build
+// that never touches them generates exactly the worlds it always did.
+struct WorldTune {
+    // snow map
+    float snowRidgeW = 0.026f;  // half-width of the snow-capped rock ridges (in noise units)
+    float snowRidgeGap = 0.70f;  // ridges are broken wherever the gap noise is below this: higher = longer, fewer breaks
+    float snowPack = 0.62f;      // packed-snow threshold: lower = more packed snow
+    // home forest, v2 terrain (GEN_V2)
+    float fDensFreq = 0.05f, fDensWarp = 16.f;     // thicket / clearing noise: frequency, domain-warp amount (tiles)
+    float fStandFreq = 0.05f, fStandWarp = 9.f;    // floor stands (Voronoi): frequency, warp amount
+    float fEdgeFreq = 0.07f;                       // the wander of glade, field and lake outlines
+    float fGladeAmp = 0.28f, fFieldAmp = 0.22f;    // outline wander as a fraction of the shape's smaller radius
+    float fLakeAmp = 2.4f, fBrookAmp = 1.7f;       // lake outline wander (tiles), brook meander
+    // snowfields, v2 terrain (GEN_V2_SNOW)
+    float sZoneWarp = 8.f, sDriftWarp = 16.f;     // how far the zone fields / the wind-drift field are bent (tiles)
+    float sRidgeWarp = 7.f, sRidgeK = SNOW_RIDGE_K_DEFAULT;  // ridge-line wander (tiles); the ridge field's contrast (higher = thinner, shorter ridges for the same width)
+    float sLakeAmp = 2.2f;                         // frozen-lake outline wander (tiles)
+    float sRidgeMinGrad = 0.018f;                  // ridge: no rock where the ridge field is nearly flat (saddles and peaks), so lines end instead of crossing in blobs
+    float sPlatFreq = 0.03f, sPlatCut = 0.64f, sPlatWarp = 10.f;  // snow plateaus (GEN_V2_PLATEAU): size of the shapes (lower = bigger), the cut on the shape field (higher = fewer), how far their outlines wander (tiles)
+    float sPlatZone = 0.30f;                       // how strongly the zones steer the plateaus: 0 = an even scatter, higher = massifs in the rocky outcrops, open ground elsewhere
+    float sPlatBig = 0.20f;                        // the shape field's frequency in the rocky outcrops, as a fraction of the normal (lower = bigger massifs there)
+    int sPlatMin = 36;                             // the smallest plateau worth making, in tiles
+    float snowDetail = 1.f;                        // snowfield ground detail (game_render_world.cpp, drawn only, never part of the terrain): strength of the world-space drifts and ripples, 0 = off
+};
 struct World {
+    WorldTune tune;  // see WorldTune
     uint8_t tile[MH][MW];
     uint8_t biome[MH][MW];
     bool solid[MH][MW];
+    uint8_t snowForest[MH][MW], snowSlope[MH][MW];  // the snowfield's forest and drifted-slope zone weights (0..255), kept for the renderer: the ground detail and the wind streaks fade in the forest and are strongest on the slopes
+    uint8_t plat[MH][MW];  // snow plateaus (worldgen.hpp, 5c): 1 = raised ground, 2 = a ramp up to it, 0 = everything else
+    uint8_t edge[MH][MW];  // the lip of a plateau: bit 0..3 = a strip EDGE_W pixels wide along the north / east / south / west side of the tile that stops walking (blocked)
     bool occ[MH][MW];  // tall things that stop light: buildings, huts, caves, boulders, cliffs (buildOccluders, worldgen.hpp)
     std::vector<Prop> props;  // sorted by y once generation is done
     std::vector<Glade> glades;  // the home forest's clearings (empty on every other map)
     std::vector<FlowerField> fields;  // the home forest's flower fields (empty on every other map)
-    uint32_t genOff = 0;        // GenOff bits for the next generate()
+    uint32_t genOff = GEN_DEFAULT;  // GenOff bits for the next generate()
+    std::vector<float> homeDens;  // the home map's forest density field, MW x MH (filled by generate; the tests read it)
     std::vector<Decor> decor;  // sorted by y
     std::vector<ResNode> nodes;  // sorted by y
     std::vector<Landmark> landmarks;
     std::vector<Lantern> lanterns;
+    std::vector<Camp> camps;  // the abandoned camps of this map, lit or not
     V2 village, hut, door, keeper, fire, spawn, questGiver;
     V2 hub[B_COUNT];  // the trail-head / main landmark of each biome
     uint32_t seed = 7;
@@ -225,8 +302,9 @@ struct World {
     std::vector<DSpawn> dsp;
     std::vector<DLight> lights;
     V2 stairsDn, stairsUp;     // the stairs of a dungeon level
+    int endlessFloor = 1;      // the floor the Endless Depths generator builds next (delve/endless.hpp)
     V2 gate;                   // on the mountain / snow maps: where E enters the mine / the dungeon (x < 0: none)
-    V2 hportal = V2(-99999.f, -99999.f), hmarket = V2(-99999.f, -99999.f);  // the Homestead Portal (town: the way in, homestead: the way back) and the market stall
+    V2 hportal = V2(-99999.f, -99999.f);  // the Homestead Portal (town: the way in, homestead: the way back) and the market stall
     V2 bossPos;                // the Frostbound King's spot in the throne room
     V2 bossDoor;               // the door of the throne room (opens once the antechamber is crossed)
 
@@ -263,7 +341,15 @@ struct World {
         for (int ty = y0; ty <= y1; ty++)
             for (int tx = x0; tx <= x1; tx++)
                 if (solidTile(tx, ty)) return true;
+                else if (edge[ty][tx] && edgeHit(tx, ty, x - r, y - r, x + r, y + r)) return true;
         return false;
+    }
+    // does the box overlap the lip strips of tile (tx,ty)? (the tile itself is walkable: only the strip along each lipped side stops)
+    bool edgeHit(int tx, int ty, float bx0, float by0, float bx1, float by1) const {
+        const uint8_t e = edge[ty][tx];
+        const float l = (float)(tx * TS), t = (float)(ty * TS), rr = l + TS, bb = t + TS;
+        auto ov = [&](float ax0, float ay0, float ax1, float ay1) { return bx1 > ax0 && bx0 < ax1 && by1 > ay0 && by0 < ay1; };
+        return ((e & 1) && ov(l, t, rr, t + EDGE_W)) || ((e & 2) && ov(rr - EDGE_W, t, rr, bb)) || ((e & 4) && ov(l, bb - EDGE_W, rr, bb)) || ((e & 8) && ov(l, t, l + EDGE_W, bb));
     }
     // Does a tile stop sight? Trees, rocks, buildings and walls do (a felled tree stops blocking at once, with the collision grid); open
     // water and open ground do not.
@@ -301,14 +387,19 @@ struct World {
         nodes.clear();
         landmarks.clear();
         lanterns.clear();
+        camps.clear();
         npcs.clear();
         stations.clear();
         dsp.clear();
         lights.clear();
         gate = stairsDn = stairsUp = bossPos = bossDoor = V2(-1, -1);
-        hportal = hmarket = V2(-99999.f, -99999.f);
+        hportal = V2(-99999.f, -99999.f);
         memset(solid, 0, sizeof(solid));
         memset(occ, 0, sizeof(occ));
+        memset(plat, 0, sizeof(plat));
+        memset(edge, 0, sizeof(edge));
+        memset(snowForest, 0, sizeof(snowForest));
+        memset(snowSlope, 0, sizeof(snowSlope));
         memset(biome, 0, sizeof(biome));
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) tile[y][x] = T_GRASS;
@@ -322,8 +413,75 @@ struct World {
         buildOccluders();  // worldgen.hpp: what stops light (game_light.cpp)
         std::sort(props.begin(), props.end(), [](const Prop& a, const Prop& b) { return a.y < b.y; });
         spreadFlowers();   // the flowers the generators dropped become small clusters
+        spreadBlades();    // tall blade grass in the open meadow
+        spreadIceHoles();  // the seals' breathing holes in the frozen lakes
+        spreadDens();      // the arctic foxes' dens in the snowfields
         std::sort(decor.begin(), decor.end(), [](const Decor& a, const Decor& b) { return a.y < b.y; });
         std::sort(nodes.begin(), nodes.end(), [](const ResNode& a, const ResNode& b) { return a.y < b.y; });
+    }
+
+    // Arctic fox dens (D_DEN): a drift of snow with a dark opening, tucked in beside trees and rocks in the snowfields (the foxes sleep in them by day).
+    // A tile gets one by a hash of its own position (the shared random stream is untouched), only on plain snow with some cover close by.
+    void spreadDens() {
+        if (mapId != B_SNOW) return;
+        const uint32_t S = seed + (uint32_t)mapId * 31u + 6401u;
+        for (int ty = 6; ty < MH - 6; ty++)
+            for (int tx = 6; tx < MW - 6; tx++) {
+                const uint8_t t = tile[ty][tx];
+                if ((t != T_SNOW && t != T_SNOWP) || solid[ty][tx] || inTown(tx * (float)TS, ty * (float)TS, 48.f)) continue;
+                if ((hash2(tx, ty, S) & 0xFFFF) >= (uint32_t)(0.007f * 65536.f)) continue;
+                int cover = 0;
+                bool plain = true;
+                for (int dy = -2; dy <= 2; dy++)
+                    for (int dx = -2; dx <= 2; dx++) {
+                        cover += sightBlock(tx + dx, ty + dy) && (dx || dy);
+                        const uint8_t o = tile[ty + dy][tx + dx];
+                        plain = plain && (o == T_SNOW || o == T_SNOWP || solid[ty + dy][tx + dx]);
+                    }
+                if (cover < 2 || !plain || solid[ty][tx]) continue;
+                const uint32_t h = hash2(tx, ty, S + 1u);
+                decor.push_back({D_DEN, tx * (float)TS + 4.f + (h & 0xFF) / 255.f * 8.f, ty * (float)TS + 12.f + ((h >> 8) & 0xFF) / 255.f * 3.f, 0.f});
+            }
+    }
+
+    // Breathing holes (D_ICEHOLE) in the frozen lakes of the snow biome: the seals bask beside them and slip down them when startled. A tile gets
+    // one by a hash of its own position (the shared random stream is untouched), only where it and its 8 neighbours are all ice.
+    void spreadIceHoles() {
+        if (mapId != B_SNOW) return;
+        const uint32_t S = seed + (uint32_t)mapId * 31u + 6301u;
+        for (int ty = 1; ty < MH - 1; ty++)
+            for (int tx = 1; tx < MW - 1; tx++) {
+                if (tile[ty][tx] != T_ICE || (hash2(tx, ty, S) & 0xFFFF) >= (uint32_t)(0.022f * 65536.f)) continue;
+                bool inner = true;
+                for (int dy = -1; dy <= 1 && inner; dy++)
+                    for (int dx = -1; dx <= 1; dx++)
+                        if (tile[ty + dy][tx + dx] != T_ICE) { inner = false; break; }
+                if (inner) decor.push_back({D_ICEHOLE, tx * (float)TS + TS * 0.5f, ty * (float)TS + TS * 0.5f, 0.f});
+            }
+    }
+
+    // Tall blade grass (D_BLADES): a clump that stands about waist high on the player, in open grass only. A tile gets one by a hash of its own
+    // position (no shared random stream, so every other thing on an existing seed's map is unchanged), and only if the tile and all 8 of its
+    // neighbours are plain grass: none by water, banks, paths, cobbles, rocks or buildings. Dark grass (the forest floor) gets fewer.
+    void spreadBlades() {
+        const uint32_t S = seed + (uint32_t)mapId * 31u + 6101u;
+        for (int ty = 1; ty < MH - 1; ty++)
+            for (int tx = 1; tx < MW - 1; tx++) {
+                const uint8_t t = tile[ty][tx];
+                if (t != T_GRASS && t != T_DARK) continue;
+                if (solid[ty][tx] || occ[ty][tx]) continue;
+                const float chance = t == T_GRASS ? 0.040f : 0.022f;
+                if ((hash2(tx, ty, S) & 0xFFFF) >= (uint32_t)(chance * 65536.f)) continue;
+                bool open = true;
+                for (int dy = -1; dy <= 1 && open; dy++)
+                    for (int dx = -1; dx <= 1; dx++) {
+                        const uint8_t n = tile[ty + dy][tx + dx];
+                        if ((n != T_GRASS && n != T_DARK) || solid[ty + dy][tx + dx]) { open = false; break; }
+                    }
+                if (!open) continue;
+                const uint32_t h = hash2(tx, ty, S + 1u);
+                decor.push_back({D_BLADES, tx * (float)TS + 3.f + (h & 0xFF) / 255.f * 10.f, ty * (float)TS + 12.f + ((h >> 8) & 0xFF) / 255.f * 3.f, ((h >> 16) & 0xFFFF) / 65535.f * 6.28f});
+            }
     }
 
     // Meadow flowers grow in small clusters, each inside ONE tile. Every flower the generators dropped (decor kind 0-2) is kept or dropped
@@ -530,11 +688,12 @@ struct World {
         }
     }
 
-    // minimap image: MM_W x MM_H, each pixel is the average of MM_DIV x MM_DIV tiles (props included)
-    Img minimap() const {
+    // the whole map as one pixel per tile (props on top when withProps): what the minimap below averages, and what the dev panel previews
+    Img tileMap(bool withProps = true) const {
         Img full(MW, MH);
         for (int y = 0; y < MH; y++)
             for (int x = 0; x < MW; x++) full.set(x, y, miniTileColor(tile[y][x]));
+        if (withProps)
         for (auto& p : props) {
             int x = (int)(p.x / TS), y = (int)(p.y / TS);
             u32 c = 0;
@@ -549,6 +708,12 @@ struct World {
             }
             if (c) full.set(x, y, c);
         }
+        return full;
+    }
+
+    // minimap image: MM_W x MM_H, each pixel is the average of MM_DIV x MM_DIV tiles (props included)
+    Img minimap() const {
+        const Img full = tileMap();
         Img im(MM_W, MM_H);
         for (int y = 0; y < MM_H; y++)
             for (int x = 0; x < MM_W; x++) {

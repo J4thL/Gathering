@@ -6,10 +6,9 @@
 // mined with a pickaxe, they grow back: gathering.cpp), so the whole harvest and respawn system is reused. Included at the end of worldgen.hpp.
 #pragma once
 
-// where things stand (tile coordinates): the plaza with the return portal and the market, and the fertile soil
+// where things stand (tile coordinates): the plaza with the return portal, and the fertile soil
 constexpr int HS_PLAZA_X = 120, HS_PLAZA_Y = 84;
 constexpr int HS_PORTAL_X = 120, HS_PORTAL_Y = 80;
-constexpr int HS_MARKET_X = 126, HS_MARKET_Y = 86;
 
 inline void World::generateHomestead() {
     Rng r(seed * 104729u + 4441u);
@@ -20,7 +19,6 @@ inline void World::generateHomestead() {
     hub[B_HOMESTEAD] = V2(HS_PLAZA_X * TS + 8.f, HS_PLAZA_Y * TS + 8.f);
     spawn = V2(HS_PLAZA_X * TS + 8.f, (HS_PLAZA_Y + 2) * TS + 8.f);
     hportal = V2(HS_PORTAL_X * TS + 8.f, HS_PORTAL_Y * TS + 14.f);
-    hmarket = V2(HS_MARKET_X * TS + 8.f, HS_MARKET_Y * TS + 14.f);
 
     auto inMap = [](int x, int y) { return x >= 0 && y >= 0 && x < MW && y < MH; };
     auto inRing = [](int x, int y) { return x < 2 || y < 2 || x >= MW - 2 || y >= MH - 2; };
@@ -50,7 +48,7 @@ inline void World::generateHomestead() {
             const bool ford = (y > 60 && y < 66) || (y > 100 && y < 106) || (y > 134 && y < 139);
             if (!ford && fabsf(x - sx) < 1.9f && y > 6 && y < MH - 6) tile[y][x] = T_WATER;
         }
-    // ---- the plaza (dirt) and paths: the arrival plaza, a path to the market and the portal
+    // ---- the plaza (dirt) and paths: the arrival plaza, a path to the portal
     for (int dy = -6; dy <= 6; dy++)
         for (int dx = -8; dx <= 8; dx++) {
             const int x = HS_PLAZA_X + dx, y = HS_PLAZA_Y + dy;
@@ -147,15 +145,13 @@ inline void World::generateHomestead() {
     scatter(RN_BERRY, 26, [&](int x, int y) { return rim(x, y); }, 5.f);
     scatter(RN_WILDFLOWER, 34, [&](int x, int y) { return tile[y][x] == T_GRASS; }, 4.f);
 
-    // ---- the plaza furniture: the return portal and the market stall (both solid, with prompts from Game::homesteadInteract)
+    // ---- the plaza furniture: the return portal (solid, with a prompt from Game::homesteadInteract)
     auto solidTiles = [&](int tx, int ty, int w) {
         for (int i = 0; i < w; i++)
             if (inMap(tx + i, ty)) solid[ty][tx + i] = true;
     };
     props.push_back({P_HPORTAL, hportal.x, hportal.y, 0});
     solidTiles(HS_PORTAL_X - 1, HS_PORTAL_Y, 3);
-    props.push_back({P_HMARKET, hmarket.x, hmarket.y, 0});
-    solidTiles(HS_MARKET_X - 1, HS_MARKET_Y, 3);
     // a lamp at each end of the plaza (lit at night) and a few trees framing it
     for (int s : {-1, 1}) {
         const float lx = (HS_PLAZA_X + s * 7) * TS + 8.f, ly = (HS_PLAZA_Y + 1) * TS + 14.f;

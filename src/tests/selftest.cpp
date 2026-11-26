@@ -13,6 +13,9 @@ int selfTest(Game& g) {
     testSkillsAndTrophies(t);
     testTownAndFeedback(t);
     testWeather(t);
+    testSnowLife(t);
+    testBushes(t);
+    testIceSpikes(t);
     if (t.hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);
         out << t.savedBytes;

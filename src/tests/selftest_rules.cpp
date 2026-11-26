@@ -142,7 +142,7 @@ void testGameRules(SelfTest& t) {
         g.p.inv.add(itemMat(M_FUR), 50);
         g.p.inv.add(BONE, 50);
         g.p.inv.add(itemMat(M_TUSK), 50);
-        check(!g.buyUpgrade(U_BAG) && g.p.up[U_BAG] == 0, "the backpack is no longer a shop upgrade (bags are crafted and worn)");
+        check(g.p.up[U_BAG] == 0 && g.p.bag < 0, "a new hunter has no bag and no upgrade levels (everything is crafted and worn)");
     }
     {   // bags: crafted items, worn in the bag slot; they only raise the carrying-weight limit
         g.newGame();
@@ -244,7 +244,7 @@ void testGameRules(SelfTest& t) {
         check(g.p.mat(M_STONE) == stoneBeforeSell - 5 && fabsf(wBeforeSell - g.p.inv.totalWeight() - 10.f) < 1e-3f, "selling 5 stone reduces the weight by 10 kg at once");
         g.p.inv.clear();
         g.p.inv.add(itemPlace(PL_CHEST), 1);
-        check(g.placeStructure(PL_CHEST) && g.structs.size() >= 1, "(setup) a chest is placed");
+        check(placeAtCursor(g, PL_CHEST) && g.structs.size() >= 1, "(setup) a chest is placed");
         g.chestOpen = (int)g.structs.size() - 1;
         g.p.inv.add(itemMat(M_STONE), 24);  // 48 kg
         int ss = -1;
@@ -396,8 +396,8 @@ void testGameRules(SelfTest& t) {
             g.p.inv.add(itemWpn(W_FLINT), 3, Q_GOOD);
             g.p.inv.add(itemWpn(W_FLINT), 2, Q_NORMAL);
             g.p.inv.add(itemPack(PK_SATCHEL), 1, Q_EXCELLENT);
-            g.p.armorQ = Q_OUTSTANDING;
-            g.p.bootsQ = Q_MASTERPIECE;
+            g.p.setArmor(2, Q_OUTSTANDING);
+            g.p.setBoots(3, Q_MASTERPIECE);
             GroundItem gi{};
             gi.pos = g.p.pos + V2(20, 0);
             gi.item = itemWpn(W_FLINT);
@@ -410,7 +410,7 @@ void testGameRules(SelfTest& t) {
             g.newGame();
             bool ld = g.load();
             check(ld && g.p.inv.countQ(itemWpn(W_FLINT), Q_GOOD) == 3 && g.p.inv.countQ(itemWpn(W_FLINT), Q_NORMAL) == 2, "pack stacks keep their quality through a save");
-            check(g.p.armorQ == Q_OUTSTANDING && g.p.bootsQ == Q_MASTERPIECE && g.p.bagQ == Q_EXCELLENT && g.p.bag == PK_SATCHEL && g.p.carryLimit() == (int)lroundf(PACK_CARRY_KG[PK_SATCHEL] * qualityDef(Q_EXCELLENT).stat), "worn armor, boots and bag keep their quality");
+            check(g.p.armorQ() == Q_OUTSTANDING && g.p.bootsQ() == Q_MASTERPIECE && g.p.armorLv() == 2 && g.p.bootsLv() == 3 && g.p.bagQ == Q_EXCELLENT && g.p.bag == PK_SATCHEL && g.p.carryLimit() == (int)lroundf(PACK_CARRY_KG[PK_SATCHEL] * qualityDef(Q_EXCELLENT).stat), "worn armor, boots and bag keep their quality");
             bool dropOk = false;
             for (auto& d : g.items) dropOk = dropOk || (d.item == itemWpn(W_FLINT) && d.q == Q_MASTERPIECE && d.n == 2);
             check(dropOk, "a dropped stack keeps its quality through a save");
@@ -424,7 +424,14 @@ void testGameRules(SelfTest& t) {
             // an old save: no quality fields at all
             writeFile("version 2\ncoins 10\nup 0 0 0 0\nslot flint_knife 4\nslot raw_meat 5\n");
             ld = g.load();
-            check(ld && g.p.inv.countQ(itemWpn(W_FLINT), Q_NORMAL) == 4 && g.p.armorQ == Q_NORMAL && g.p.bagQ == Q_NORMAL, "a save from before quality loads everything as normal");
+            check(ld && g.p.inv.countQ(itemWpn(W_FLINT), Q_NORMAL) == 4 && g.p.armorQ() == Q_NORMAL && g.p.bagQ == Q_NORMAL, "a save from before quality loads everything as normal");
+            writeFile("version 2\ncoins 10\nup 1 0 2 3\nwornq 3 2 0\nslot flint_knife 4\n");  // armor and boots used to be upgrade levels
+            ld = g.load();
+            check(ld && g.p.armorLv() == 3 && g.p.bootsLv() == 2 && g.p.armorQ() == 3 && g.p.bootsQ() == 2 && g.p.up[U_ARMOR] == 0 && g.p.maxhp == (float)ARMOR_HP[3], "an old save's armor and boots levels become the matching worn pieces");
+            g.save();
+            g.newGame();
+            ld = g.load();
+            check(ld && g.p.armorLv() == 3 && g.p.bootsLv() == 2, "worn armor and boots survive a save of the new format");
         }
         std::remove(g.savePath().c_str());
         g.newGame();
@@ -454,7 +461,7 @@ void testGameRules(SelfTest& t) {
         check(g.amtCtx == Game::AMT_NONE && !g.in.escPressed && g.p.mat(M_STONE) == 13, "Esc closes only the slider and changes nothing");
         g.p.inv.clear();
         g.p.inv.add(itemPlace(PL_CHEST), 1);
-        g.placeStructure(PL_CHEST);
+        placeAtCursor(g, PL_CHEST);
         g.chestOpen = (int)g.structs.size() - 1;
         g.p.inv.add(itemMat(M_WOOD), 9);
         g.amountOpen(Game::AMT_CHEST, 0, 1);

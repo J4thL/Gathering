@@ -1,8 +1,7 @@
 // services.cpp - what the people in the town buildings do for the hunter.
 //
-//  Blacksmith, Leatherworks, Workshop: the crafting book (crafting.cpp) filtered to what that building makes, plus the coin upgrades
-//  that used to be on the shop's UPGRADE tab (tool skinning at the smith, armor and boots at the tanner). All of it runs on the same
-//  recipes, inventory, weight and slot rules as anywhere else: this file only draws the screens and opens / closes them.
+//  Blacksmith, Leatherworks, Workshop: the crafting book (crafting.cpp) filtered to what that building makes (armor and boots are
+//  ordinary crafted items now: no coin upgrades). It runs on the same recipes, inventory, weight and slot rules as anywhere else: this file only draws the screens and opens / closes them.
 //  General Store: the existing SELL / BUY screen (drawShop in game_render.cpp), trading only.
 //  Flower Shop and Salon: see flowers.cpp and salon.cpp.
 #include <algorithm>
@@ -43,38 +42,7 @@ void Game::updateService(float dt) {
         return;
     }
     if (svc == BLD_FLOWER && (in.tabPressed || (in.selectKey >= 0 && in.selectKey < 2))) svcTab = in.tabPressed ? 1 - svcTab : in.selectKey;
-    if (craftBld >= 0) {
-        craftScroll -= in.wheel;
-        const bool hasUp = svc == BLD_SMITH || svc == BLD_TANNER;
-        if (hasUp && (in.tabPressed || (in.selectKey >= 0 && in.selectKey < 2))) svcTab = in.tabPressed ? 1 - svcTab : in.selectKey;
-    }
-}
-
-// the coin upgrades (they used to be the shop's UPGRADE tab): a list of gear slots U_*
-void Game::drawUpgradeRows(int x0, int Y, int cw, const int* list, int n) {
-    for (int row = 0; row < n; row++) {
-        const int u = list[row];
-        const int y = Y + 4 + row * 44;
-        const int lv = p.up[u];
-        panel(x0, y, cw, 40, HEX(0x3a2a1a));
-        icon(A.gearIcon[u][std::min(8, lv)], x0 + 20, y + 20, 28, lv >= 2 ? 0.8f : 1.f);
-        text(x0 + 40, y + 4, UPS[u].title, C_DIM);
-        for (int i = 0; i < 2; i++) fillRect(x0 + cw - 20 + i * 8, y + 4, 6, 5, i < lv ? C_GOLD : HEX(0x1a120b));
-        if (lv >= 2) {
-            text(x0 + 40, y + 14, gearName(u, lv), C_GOLD);
-            text(x0 + 40, y + 23, gearDesc(u, lv), C_TEXT);
-            text(x0 + 40, y + 32, lv > 2 ? "CRAFTED GEAR" : "FULLY UPGRADED", C_GREEN);
-            continue;
-        }
-        const UpLevel& L = UPS[u].lv[lv];
-        text(x0 + 40, y + 14, L.name, C_GOLD);
-        text(x0 + 40, y + 23, L.desc, C_TEXT);
-        int cx = x0 + 40;
-        cx = chip(cx, y + 28, A.coin, p.coins, L.coins);
-        if (L.m1 >= 0) cx = chip(cx, y + 28, A.matIcon[L.m1], p.mat(L.m1), L.n1);
-        if (L.m2 >= 0) cx = chip(cx, y + 28, A.matIcon[L.m2], p.mat(L.m2), L.n2);
-        if (button(x0 + cw - 52, y + 21, 48, 16, "BUY", canAfford(L.coins, L.m1, L.n1, L.m2, L.n2), HEX(0x5d7a2e))) buyUpgrade(u);
-    }
+    if (craftBld >= 0) craftScroll -= in.wheel;
 }
 
 void Game::drawCraftService() {
@@ -82,7 +50,7 @@ void Game::drawCraftService() {
     const int X = 8, Y = 12, W = 384, H = 201;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
-    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x4a2a22));
+    fillRect(X + 3, Y + 16, W - 6, 1, HEX(0x6b665c));
     text(X + 8, Y + 7, std::string("CRAFT - ") + BUILDINGS[svc].name, C_GOLD);
     {
         std::string c = S(p.coins);
@@ -98,24 +66,10 @@ void Game::drawCraftService() {
         SDL_RenderCopy(ren, k.t, nullptr, &d);
         textC(X + 35, Y + 168, npcName(svc), C_DIM, 1, false);
     }
-    const bool hasUp = svc == BLD_SMITH || svc == BLD_TANNER;
-    if (hasUp) {
-        const char* tabs[2] = {"CRAFT", "UPGRADE"};
-        for (int i = 0; i < 2; i++)
-            if (button(X + 6, Y + 22 + i * 22, 58, 19, tabs[i], true, svcTab == i ? HEX(0xffeec8) : HEX(0x5a4028))) svcTab = i;
-    } else {
-        text(X + 8, Y + 24, "TODAY'S", C_DIM, 1, false);
-        text(X + 8, Y + 33, "WORK", C_DIM, 1, false);
-    }
-    if (!hasUp || svcTab == 0) {
-        drawStationCraft(X + 68, Y, W - 68, H);
-    } else {
-        static const int smithUp[] = {U_TOOL}, tanUp[] = {U_ARMOR, U_BOOTS};
-        if (svc == BLD_SMITH) drawUpgradeRows(X + 74, Y + 20, W - 84, smithUp, 1);
-        else drawUpgradeRows(X + 74, Y + 20, W - 84, tanUp, 2);
-        textC(X + 68 + (W - 68) / 2, Y + H - 12, "ARMOR AND BOOTS ALSO HAVE MATERIAL RECIPES ON THE CRAFT TAB", C_DIM, 1, false);
-    }
-    textC(X + W / 2, Y + H - 4, "ESC OR E: LEAVE     TAB: SWITCH     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
+    text(X + 8, Y + 24, "TODAY'S", C_DIM, 1, false);
+    text(X + 8, Y + 33, "WORK", C_DIM, 1, false);
+    drawStationCraft(X + 68, Y, W - 68, H);
+    textC(X + W / 2, Y + H - 4, "ESC OR E: LEAVE     " + kgNum(p.inv.totalWeight()) + "/" + kgNum(p.inv.maxWeight) + " KG", C_DIM, 1, false);
 }
 
 void Game::drawService() {

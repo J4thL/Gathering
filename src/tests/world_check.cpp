@@ -222,10 +222,16 @@ int delveCheck(Game& g) {
     };
     long ores[RN_COUNT] = {0};
     std::vector<char> seen;
-    for (int id = 0; id < DV_COUNT; id++) {
+    // every dungeon level once, then a spread of Endless Depths floors (tier changes, mine-like and icy tiers, boss floors)
+    static const int ENDLESS_FLOORS[] = {2, 5, 10, 11, 20, 21, 31, 35, 40, 50, 100};
+    const int nEndless = (int)(sizeof(ENDLESS_FLOORS) / sizeof(int));
+    for (int pass = 0; pass < DV_COUNT + nEndless; pass++) {
+        const int id = pass < DV_COUNT ? pass : DV_ENDLESS;
         World w;
+        w.endlessFloor = pass < DV_COUNT ? 1 : ENDLESS_FLOORS[pass - DV_COUNT];
+        const bool eBossFloor = id == DV_ENDLESS && endlessBossFloor(w.endlessFloor);
         w.generateDelve(id);
-        if (id == DV_FROST3) for (int x = 64; x <= 66; x++) w.solid[92][x] = false;  // (the king's door is opened by the hunter)
+        if (id == DV_FROST3 || eBossFloor) for (int x = 64; x <= 66; x++) w.solid[92][x] = false;  // (the king's door is opened by the hunter)
         flood(w, w.spawn, seen);
         auto reach = [&](V2 v) { return v.x >= 0 && seen[(int)(v.y / TS) * MW + (int)(v.x / TS)]; };
         int mon = 0, chest = 0, trap = 0, unreach = 0, boss = 0;
@@ -246,20 +252,23 @@ int delveCheck(Game& g) {
                     if (seen[(ny + dy) * MW + nx + dx]) ok = true;
             if (!ok) { unreach++; if (getenv("DELVE_DEBUG")) printf("   node kind %d at %d,%d\n", n.kind, nx, ny); }
         }
-        printf("delve %d %-18s: %d monsters, %d chests, %d traps, %d nodes, %d boss, lights %d, exit %s, stairs down %s, up %s, %d unreachable\n", id, DELVE_NAME[id], mon, chest, trap,
+        printf("delve %d %-18s [floor %d]: %d monsters, %d chests, %d traps, %d nodes, %d boss, lights %d, exit %s, stairs down %s, up %s, %d unreachable\n", id, DELVE_NAME[id], w.endlessFloor, mon, chest, trap,
                (int)w.nodes.size(), boss, (int)w.lights.size(), reach(w.exitPos) ? "ok" : "NO", w.stairsDn.x < 0 ? "-" : (reach(w.stairsDn) ? "ok" : "NO"), w.stairsUp.x < 0 ? "-" : (reach(w.stairsUp) ? "ok" : "NO"), unreach);
         if (!reach(w.exitPos) || unreach) { printf("  PROBLEM: part of %s cannot be reached\n", DELVE_NAME[id]); bad++; }
-        if (id != DV_FROST3 && id != DV_MINE && w.stairsDn.x < 0) { printf("  PROBLEM: no way down from %s\n", DELVE_NAME[id]); bad++; }
-        if (id == DV_FROST3 && (boss != 1 || w.bossDoor.x < 0)) { printf("  PROBLEM: the throne room has no king or no door\n"); bad++; }
-        if (id == DV_FROST3) {  // the throne hall is behind the door: open the door tiles and the king must become reachable
+        if (id != DV_FROST3 && id != DV_MINE && !eBossFloor && w.stairsDn.x < 0) { printf("  PROBLEM: no way down from %s\n", DELVE_NAME[id]); bad++; }
+        if ((id == DV_FROST3 || eBossFloor) && (boss != 1 || w.bossDoor.x < 0)) { printf("  PROBLEM: the throne room has no king or no door\n"); bad++; }
+        if (id == DV_ENDLESS && !eBossFloor && boss != 0) { printf("  PROBLEM: an ordinary Endless Depths floor has a boss\n"); bad++; }
+        if (id == DV_FROST3 || eBossFloor) {  // the throne hall is behind the door: open the door tiles and the king must become reachable
             for (int x = 64; x <= 66; x++) w.solid[92][x] = false;
             flood(w, w.spawn, seen);
             if (!seen[(int)(w.bossPos.y / TS) * MW + (int)(w.bossPos.x / TS)]) { printf("  PROBLEM: the king cannot be reached even with the door open\n"); bad++; }
         }
-        if (mon < 4 && id != DV_FROST3) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
+        if (mon < 4 && id != DV_FROST3 && !eBossFloor) { printf("  PROBLEM: %s has almost no monsters\n", DELVE_NAME[id]); bad++; }
     }
     for (int k = RN_COAL; k < RN_BERRY; k++)
         if (!ores[k]) { printf("  PROBLEM: no %s in any delve\n", NODE_NAME[k]); bad++; }
+    for (int k : {RN_VOIDSTONE, RN_GLOWCAP})
+        if (!ores[k]) { printf("  PROBLEM: no %s in the Endless Depths\n", NODE_NAME[k]); bad++; }
     // the entrances on the overworld
     for (int m : {B_MOUNTAIN, B_SNOW}) {
         g.loadMapWorld(m);
@@ -286,6 +295,41 @@ int worldCheck(Game& g) {
     long nodeTotals[RN_COUNT] = {0};
     printf("maps: %d, each %dx%d tiles (the original Wildwood area is %dx%d at tile (%d,%d) of the home map)\n", B_COUNT, MW, MH, CW, CH, COX, COY);
     for (int m = 0; m < B_COUNT; m++) bad += mapCheck(g, m, nodeTotals);
+    {  // the snowfield's Watch Cairn and Frozen Fortress stand where the seed puts them: on every seed each must be reachable (the fortress door too),
+       // off the ice, inside its zone, and apart from the hub and from each other
+        const uint32_t keepSeed = g.worldSeed;
+        int badSeeds = 0;
+        float nearest = 1e9f;
+        for (uint32_t k = 1; k <= 16; k++) {
+            g.worldSeed = k * 7919u + 13u;
+            enterMap(g, B_SNOW);
+            const World& w = g.world;
+            Reach rc(w, g.p.pos);
+            V2 cairn(-1, -1), fort(-1, -1);
+            for (auto& l : w.landmarks) {
+                if (!strcmp(l.name, "WATCH CAIRN")) cairn = V2(l.x, l.y - 2 * TS);
+                if (!strcmp(l.name, "FROZEN FORTRESS")) fort = V2(l.x, l.y - 10 * TS);
+            }
+            const int ctx = (int)(cairn.x / TS), cty = (int)(cairn.y / TS), ftx = (int)(fort.x / TS), fty = (int)(fort.y / TS);
+            bool ice = false;
+            for (int y = cty - 3; y <= cty + 3; y++)  // (frozen streams may still run past the cleared yards; the big lakes must not be under them)
+                for (int x = ctx - 3; x <= ctx + 3; x++) ice = ice || (x >= 0 && y >= 0 && x < MW && y < MH && w.tile[y][x] == T_ICE);
+            for (int y = fty - 8; y <= fty + 8; y++)
+                for (int x = ftx - 8; x <= ftx + 8; x++) ice = ice || (x >= 0 && y >= 0 && x < MW && y < MH && w.tile[y][x] == T_ICE);
+            const float dHub = std::min(hypotf((float)(ctx - MAPS[B_SNOW].hubTx), (float)(cty - MAPS[B_SNOW].hubTy)), hypotf((float)(ftx - MAPS[B_SNOW].hubTx), (float)(fty - MAPS[B_SNOW].hubTy)));
+            const float dCF = hypotf((float)(ctx - ftx), (float)(cty - fty));
+            nearest = std::min(nearest, std::min(dHub, dCF));
+            const bool ok = cairn.x > 0 && fort.x > 0 && rc.nearReach(cairn.x, cairn.y + 2 * TS, 2) && rc.nearReach(fort.x, fort.y + 10 * TS, 2) && rc.nearReach(w.gate.x, w.gate.y, 2) &&
+                            !ice && dHub >= 40.f && dCF >= 30.f && ctx >= 168 && ctx <= 212 && cty >= 36 && cty <= 80 && ftx >= 150 && ftx <= 208 && fty >= 96 && fty <= 126;
+            if (!ok) {
+                printf("  PROBLEM: seed %u: cairn (%d,%d) fortress (%d,%d): ice %d, from hub %.0f, apart %.0f, gate reachable %d\n", g.worldSeed, ctx, cty, ftx, fty, (int)ice, dHub, dCF, (int)rc.nearReach(w.gate.x, w.gate.y, 2));
+                badSeeds++;
+            }
+        }
+        printf("snow landmarks over 16 seeds: %d bad (closest pair %.0f tiles apart)\n", badSeeds, nearest);
+        bad += badSeeds;
+        g.worldSeed = keepSeed;
+    }
     {
         printf("all resource nodes over the five maps:");
         for (int k = 0; k < RN_COUNT; k++) printf(" %s=%ld", NODE_NAME[k], nodeTotals[k]);
@@ -387,7 +431,7 @@ int worldCheck(Game& g) {
                 V2 at;
                 if (!findPatch(g.world, c.tile, at, c.tile == T_MUD ? 2 : 4)) continue;
                 g.dayT = DAY_LEN * 0.2f;  // midday
-                g.p.up[U_ARMOR] = armor;
+                g.p.setArmor(armor);
                 g.p.pos = at;
                 g.in.right = true;
                 g.in.sprint = true;

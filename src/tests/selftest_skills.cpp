@@ -26,7 +26,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.newGame();
         g.state = ST_PLAY;
         g.p.sk.s[SK_DEFENSE].xp = SkillState::capXp();
-        g.p.up[U_ARMOR] = 0;
+        g.p.setArmor(0);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(100, V2(0, 0), A_WOLF);
@@ -61,7 +61,7 @@ void testSkillsAndTrophies(SelfTest& t) {
         g.hurtPlayer(10, V2(0, 0), A_WOLF);
         check(g.p.sk.s[SK_DEFENSE].xp == bd, "no Defense XP while dead");
         g.p.dead = false;
-        g.p.up[U_ARMOR] = 1;
+        g.p.setArmor(1);
         g.p.hp = g.p.maxhp = 100;
         g.p.invuln = 0;
         g.hurtPlayer(40, V2(0, 0), A_WOLF);
@@ -488,9 +488,9 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.updateCompanion(0.1f, true);
             const int base = mountCarry(A_WOLF, 1);
             check(g.mountKgNow(m) == base, "(setup) a mount's own carry weight without saddlebags");
-            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1);
+            g.p.inv.add(itemCarry(CG_SADDLEBAG), 1); g.migrateWornGear();
             check(g.mountKgNow(m) == (int)lroundf(base * 1.5f), "saddlebags in the pack add half again to the mount's carry weight");
-            g.p.inv.remove(itemCarry(CG_SADDLEBAG), 1);
+            for (int e_ = 0; e_ < EQ_COUNT; e_++) g.p.worn[e_] = -1;
             // breeding
             g.hs.animals.clear();
             g.hsAddAnimal(DA_MOUNT, V2(500, 500), false, -1, A_WOLF, 1);
@@ -614,25 +614,34 @@ void testSkillsAndTrophies(SelfTest& t) {
             if (b) {
                 g.updateBosses(0.05f);
                 check(g.animals.size() == 1, "only one boss at a time");
-                // an attack: charge wind-up, rush, hurts an unprotected hunter; a roll's i-frames protect
-                g.p.pos = b->pos + V2(120.f, 0);
+                // an attack follows the sequence: prepare, warning on the ground, execute (only now can it hurt), recover
+                g.p.pos = b->pos + V2(40.f, 0);
                 g.p.invuln = 0.f;
+                g.p.hp = g.p.maxhp;
                 b->bossCd = 0.f;
                 b->busyT = 0.f;
                 b->stunT = 0.f;
-                g.updateBosses(0.05f);
-                check(b->bossAct == 1 || b->bossAct == 3, "in reach it starts a telegraphed attack");
-                const int act0 = b->bossAct;
-                g.p.pos = b->pos + V2(act0 == 3 ? 20.f : 60.f, 0);  // the hunter stands in its way
-                for (int i = 0; i < 120 && b->bossAct != 0 && g.p.hp == g.p.maxhp; i++) { g.updateBosses(0.016f); g.p.invuln = 0.f; }
-                check(g.p.hp < g.p.maxhp, "an attack that lands hurts the hunter");
+                g.updateBosses(0.016f);
+                check(b->bossAct == BP_PREP, "in reach it starts an attack by preparing");
+                bool sawWarn = false, hurtBeforeExec = false;
+                for (int i = 0; i < 600 && b->bossAct != BP_IDLE; i++) {
+                    const int hpBefore = g.p.hp;
+                    g.updateBosses(0.016f);
+                    if (b->bossAct == BP_WARN) sawWarn = true;
+                    if (g.p.hp < hpBefore && b->bossAct != BP_EXEC && b->bossAct != BP_RECOVER) hurtBeforeExec = true;
+                    g.p.pos = b->pos + V2(40.f, 0);  // the hunter stands still in front of it
+                    g.p.invuln = 0.f;
+                }
+                check(sawWarn && !hurtBeforeExec, "the warning comes before any damage");
+                // the pack is called at two thirds of its health (a warned-about attack of its own)
                 g.p.hp = g.p.maxhp;
-                // the pack is called at two thirds of its health
-                b->bossAct = 0;
+                b->bossAct = BP_IDLE;
+                b->bossCd = 0.f;
                 b->hp = b->maxhp * 3 / 5;
                 const size_t n0 = g.animals.size();
-                g.updateBosses(0.05f);
+                for (int i = 0; i < 600 && b->bossCalls == 0; i++) { g.updateBosses(0.016f); g.p.invuln = 3.f; }
                 check(g.animals.size() == n0 + 2 && b->bossCalls == 1, "wounded, it calls its pack");
+                b->bossAct = BP_IDLE;
                 // it never runs away
                 b->st = AS_FLEE;
                 b->fleeAnimal = false;
@@ -662,6 +671,83 @@ void testSkillsAndTrophies(SelfTest& t) {
             g.bossLairMap = -1;
             g.animals.clear();
             g.p.sk = keepSk;
+        }
+        // melee: tap = quick swing, three swings in a row = combo finisher, hold = heavy swing; reach and arc matter; swinging costs stamina
+        {
+            const SkillSet keepSk = g.p.sk;
+            g.newGame();
+            g.p.dead = false;
+            g.state = ST_PLAY;
+            g.animals.clear();
+            g.in = Input();
+            check(meleeDef(W_AXE).dmgMul > meleeDef(W_FLINT).dmgMul && meleeDef(W_AXE).dur > meleeDef(W_FLINT).dur, "axes hit harder and slower than knives");
+            check(meleeDef(W_SPEAR).reach > meleeDef(W_AXE).reach && meleeDef(W_SPEAR).arcDeg < meleeDef(W_AXE).arcDeg, "spears reach farther through a narrower arc");
+            g.p.aim = V2(1, 0);
+            auto tap = [&](float hold) {  // press, hold, release (as the input does), then let the swing play out
+                g.in.melee = true;
+                for (float t = 0; t < hold; t += 0.02f) g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                for (int i = 0; i < 80; i++) g.updateMelee(0.02f);
+            };
+            Animal* d = g.spawnAnimal(A_DEER, g.p.pos + V2(22, 0), 0, 0);
+            Animal* far = g.spawnAnimal(A_DEER, g.p.pos + V2(160, 0), 0, 0);
+            Animal* behind = g.spawnAnimal(A_DEER, g.p.pos + V2(-22, 0), 0, 0);
+            check(d && far && behind, "(setup) animals in front, behind and far");
+            if (d && far && behind) {
+                d->hp = d->maxhp = behind->hp = behind->maxhp = far->hp = far->maxhp = 5000;
+                g.p.stamina = 100.f;
+                tap(0.05f);
+                check(d->hp < 5000, "a quick swing hurts an animal in front of the hunter");
+                check(far->hp == 5000 && behind->hp == 5000, "it misses animals that are too far or behind");
+                check(g.p.stamina < 100.f, "swinging costs stamina");
+                // combo: three quick swings inside the window; the third deals more
+                g.p.meleeComboT = 0.f;
+                std::vector<int> dealt;
+                for (int i = 0; i < 3; i++) {
+                    const int before = d->hp;
+                    g.p.cd = 0.f;
+                    g.p.stamina = 100.f;
+                    g.in.melee = true;
+                    g.updateMelee(0.02f);
+                    g.in.melee = false;
+                    g.updateMelee(0.02f);
+                    for (int k = 0; k < 40 && g.p.meleeT > 0; k++) g.updateMelee(0.02f);
+                    dealt.push_back(before - d->hp);
+                    d->pos = g.p.pos + V2(22, 0);
+                    d->kb = V2();
+                    d->stunT = 0;
+                }
+                check(g.p.meleeStep == 2 && dealt[2] > std::min(dealt[0], dealt[1]) * 1.2f, "the third swing of a combo is a stronger finisher");
+                // heavy: held long enough
+                g.p.meleeComboT = 0.f;
+                g.p.cd = 0.f;
+                g.p.stamina = 100.f;
+                d->hp = 5000;
+                d->pos = g.p.pos + V2(22, 0);
+                const int hq = d->hp;
+                g.in.melee = true;
+                for (float t = 0; t < MELEE_HEAVY_HOLD + 0.05f; t += 0.02f) g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                check(g.p.meleeHeavy && g.p.meleeT > 0, "holding the button builds a heavy swing");
+                for (int k = 0; k < 20 && !g.p.meleeStruck; k++) g.updateMelee(0.02f);
+                check(hq - d->hp > dealt[0] * 1.8f && d->stunT > 0, "the heavy swing hits much harder and stuns");
+                // too tired
+                for (int k = 0; k < 60; k++) g.updateMelee(0.02f);
+                g.p.cd = 0.f;
+                g.p.stamina = 1.f;
+                const int hp1 = d->hp;
+                g.in.melee = true;
+                g.updateMelee(0.02f);
+                g.in.melee = false;
+                g.updateMelee(0.02f);
+                check(g.p.meleeT <= 0 && d->hp == hp1, "a winded hunter cannot swing");
+            }
+            g.animals.clear();
+            g.in = Input();
+            g.p.sk = keepSk;
+            g.p.stamina = 100.f;
         }
         // tracking: animals leave fading prints; the Tracking skill widens and lengthens them; reading a fresh print pays XP
         {
@@ -947,6 +1033,7 @@ void testSkillsAndTrophies(SelfTest& t) {
                 for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
                 for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
                 { const float dp[3][3] = {{0, 1, 2}, {1, 2, 3.4f}, {2, 3.4f, 3.4f}}; tiles = tiles && !g.A.water.wob.empty() && g.A.water.bake(1, 2, 3, dp, 0).w == 16 && g.A.water.bakeBank(1, 2, 255).w == 16; }  // the water art bakes
+                tiles = tiles && g.A.iceHole.ok() && g.A.blades.ok() && g.A.animal[A_SEAL][0][0].ok() && (ANIMAL[A_SEAL].flags & BH_DIVES) && ((ANIMAL[A_WOLF].preyMask >> A_REINDEER) & 1) && ((ANIMAL[A_WOLF].preyMask >> A_SNOWHARE) & 1);  // the seal, its breathing hole and the blade grass are built
                 for (int st = 0; st < LIP_COUNT; st++) for (int i = 0; i < 4; i++) tiles = tiles && g.A.lip[st][i].ok();
                 for (int t = 0; t < 3; t++) { for (int v = 0; v < 4; v++) tiles = tiles && g.A.dirtTone[t][v].ok(); for (int v = 0; v < 2; v++) tiles = tiles && g.A.dirtRock[t][v].ok(); }
                 check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");

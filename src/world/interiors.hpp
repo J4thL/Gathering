@@ -79,6 +79,7 @@ inline void World::generateInterior(int kind) {
     nodes.clear();
     landmarks.clear();
     lanterns.clear();
+    camps.clear();
     npcs.clear();
     stations.clear();
     memset(solid, 0, sizeof(solid));

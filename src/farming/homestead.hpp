@@ -10,6 +10,7 @@
 #include <vector>
 #include "animals/mounts.hpp"
 #include "items/inventory.hpp"
+#include "farming/machines.hpp"
 
 // ---------------------------------------------------------------- pieces
 enum HPKind {
@@ -17,11 +18,13 @@ enum HPKind {
     HP_SHED, HP_HOUSE, HP_BARN, HP_PEN, HP_COOP, HP_WORKSHOP, HP_WAREHOUSE, HP_GREENHOUSE,                           // functional buildings
     HP_BRIDGE, HP_WELL, HP_CAMPFIRE, HP_PLOT, HP_BENCH, HP_PLANTER, HP_BARREL, HP_SCARECROW, HP_SIGN, HP_LAMP, HP_TORCH,  // outdoor structures and decoration
     HP_TROPHY,  // trophy wall: shows the trophies the hunter has earned (appended last so older saves keep their piece numbers)
+    HP_HOLE, HP_POND,  // dug with the shovel: a hole in the ground, and a hole filled with water (appended: older saves keep their numbers)
+    HP_MILL, HP_DAIRY, HP_KETTLE, HP_SMOKER, HP_OVEN, HP_SAWMILL, HP_SMELTER,  // production machines (machines.hpp), in the order of MACHINES[]
     HP_COUNT
 };
 enum HPLayer { HL_GROUND, HL_OBJECT, HL_ROOF };
-enum HPCat { HC_BASIC, HC_BUILDING, HC_OUTDOOR, HC_COUNT };
-[[maybe_unused]] static const char* HCAT_NAME[HC_COUNT] = {"BASIC", "BUILDINGS", "OUTDOOR"};
+enum HPCat { HC_BASIC, HC_BUILDING, HC_OUTDOOR, HC_MACHINE, HC_COUNT };
+[[maybe_unused]] static const char* HCAT_NAME[HC_COUNT] = {"BASIC", "BUILDINGS", "OUTDOOR", "MACHINES"};
 enum HPSolid { HS_NONE, HS_ALL, HS_RING };  // none, the whole footprint, only the outer ring of tiles (a pen)
 
 struct HPieceDef {
@@ -51,11 +54,11 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"CHICKEN COOP", 3, 2, HL_OBJECT, HS_ALL, HC_BUILDING, {M_PLANK, M_FIBER, M_BRANCH}, {8, 6, 4}, 0, 6, 0, "HOUSES 6 BIRDS OR RABBITS"},
     {"WORKSHOP", 4, 3, HL_OBJECT, HS_ALL, HC_BUILDING, {M_PLANK, M_STONE, M_IRONBAR}, {16, 8, 2}, 0, 0, 60.f, "A FORGE AND BENCH - CRAFT AND SMELT BESIDE IT"},
     {"WAREHOUSE", 5, 3, HL_OBJECT, HS_ALL, HC_BUILDING, {M_PLANK, M_STONE, M_ROPE}, {20, 10, 4}, 60, 0, 0, "60 SLOTS OF STORAGE"},
-    {"GREENHOUSE", 5, 4, HL_OBJECT, HS_NONE, HC_BUILDING, {M_PLANK, M_IRONBAR, M_ROPE}, {12, 4, 6}, 0, 0, 0, "CROPS UNDER IT GROW 1.5X FASTER AND DRY OUT SLOWER"},
+    {"GREENHOUSE", 5, 4, HL_OBJECT, HS_NONE, HC_BUILDING, {M_PLANK, M_IRONBAR, M_ROPE}, {12, 4, 6}, 0, 0, 0, "CROPS UNDER IT GROW 1.5X FASTER, AND RAIN CANNOT SOAK THE SOIL"},
     {"WOODEN BRIDGE", 1, 1, HL_GROUND, HS_NONE, HC_OUTDOOR, {M_PLANK, -1, -1}, {2, 0, 0}, 0, 0, 0, "CROSSES WATER"},
     {"WELL", 2, 2, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_STONE, M_ROPE, M_WOOD}, {12, 2, 2}, 0, 0, 0, "E REFILLS YOUR WATERING CAN"},
     {"CAMPFIRE", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_WOOD, M_STONE, -1}, {4, 3, 0}, 0, 0, 90.f, "SMELT, COOK AND KEEP WARM"},
-    {"FARM PLOT", 1, 1, HL_GROUND, HS_NONE, HC_OUTDOOR, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "TILLED SOIL - NEEDS A HOE IN YOUR PACK"},
+    {"FARM PLOT", 1, 1, HL_GROUND, HS_NONE, HC_OUTDOOR, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "TILLED SOIL - TILL WITH THE HOE, UNTILL WITH THE SHOVEL"},
     {"BENCH", 2, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, -1, -1}, {3, 0, 0}, 0, 0, 0, "A PLACE TO SIT"},
     {"FLOWER PLANTER", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_STONE, -1}, {2, 1, 0}, 0, 0, 0, "BRIGHT FLOWERS"},
     {"BARREL", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_ROPE, -1}, {4, 1, 0}, 0, 0, 0, "A FARM BARREL"},
@@ -64,45 +67,69 @@ static const HPieceDef HPDEF[HP_COUNT] = {
     {"LAMP POST", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_IRONBAR, M_PLANK, M_GREASE}, {1, 1, 1}, 0, 0, 80.f, "LIGHTS THE NIGHT"},
     {"TORCH", 1, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_BRANCH, M_GREASE, -1}, {2, 1, 0}, 0, 0, 56.f, "A SMALL FLAME"},
     {"TROPHY WALL", 4, 1, HL_OBJECT, HS_ALL, HC_OUTDOOR, {M_PLANK, M_ROPE, -1}, {6, 1, 0}, 0, 0, 0, "SHOWS EVERY TROPHY YOU HAVE EARNED"},
+    {"DUG HOLE", 1, 1, HL_GROUND, HS_NONE, -1, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "A HOLE - POUR WATER IN IT, OR NEXT TO WATER IT FLOODS"},   // cat -1: never in the build menu
+    {"POND", 1, 1, HL_GROUND, HS_NONE, -1, {-1, -1, -1}, {0, 0, 0}, 0, 0, 0, "WADE IN IT - WATERS TILLED SOIL NEARBY"},
+    {"GRAIN MILL", 3, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_STONE, M_ROPE}, {12, 6, 2}, 0, 0, 0, "E: WHEAT AND CORN BECOME FLOUR"},
+    {"DAIRY PRESS", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_IRONBAR, -1}, {8, 1, 0}, 0, 0, 0, "E: MILK BECOMES BUTTER AND CHEESE"},
+    {"PRESERVING KETTLE", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_WOOD}, {6, 2, 4}, 0, 0, 40.f, "E: BERRIES MAKE JAM, VEGETABLES PICKLES"},
+    {"SMOKEHOUSE", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_STONE, M_ROPE}, {10, 6, 1}, 0, 0, 35.f, "E: SMOKE MEAT INTO COOKED MEAT AND JERKY"},
+    {"BAKERY OVEN", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_PLANK}, {14, 1, 4}, 0, 0, 60.f, "E: BREAD, OMELETS AND PIES"},
+    {"SAWMILL", 4, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_PLANK, M_IRONBAR, M_ROPE}, {14, 3, 2}, 0, 0, 0, "E: LOGS BECOME PLANKS, FIBER BECOMES ROPE"},
+    {"SMELTER", 2, 2, HL_OBJECT, HS_ALL, HC_MACHINE, {M_STONE, M_IRONBAR, M_PLANK}, {16, 2, 4}, 0, 0, 80.f, "E: ORE AND WOOD BECOME BARS"},
 };
 constexpr int H_MAX_PIECES = 900;
 
 // ---------------------------------------------------------------- crops
-enum CropId { CR_WHEAT, CR_CARROT, CR_POTATO, CR_CABBAGE, CR_CORN, CR_TOMATO, CR_PUMPKIN, CR_STRAWBERRY, CR_COUNT };
+enum CropId { CR_WHEAT, CR_CARROT, CR_POTATO, CR_CABBAGE, CR_CORN, CR_TOMATO, CR_PUMPKIN, CR_STRAWBERRY, CR_EGGPLANT, CR_TURNIP, CR_PEPPER, CR_CUCUMBER, CR_BEET, CR_LEEK, CR_COUNT };
 static_assert(CR_COUNT == CROP_N, "crops and the produce / seed materials share one order");
 constexpr int CROP_STAGES = 5;  // 0 seed, 1 sprout, 2 growing, 3 flowering/almost, 4 ripe
 struct CropDef {
     const char* name;
     float stageSec;     // seconds the watered crop needs for each of the 4 growth steps (total = 4x)
-    float thirst;       // how fast the soil dries (1 = a watering lasts 100 s)
     int yLo, yHi;       // produce when harvested
     int seedsLo, seedsHi;  // seeds that come back with the harvest
     int tool;           // ToolType needed to harvest it (-1 = bare hands)
     int xp;             // farming XP
-    int seedPrice;      // coins for one seed at the Homestead Market
+    int seedPrice;      // coins for one seed at the General Store
     bool regrow;        // strawberries and tomatoes bear again after being picked (back to stage 3)
 };
 static const CropDef CROPS[CR_COUNT] = {
-    {"WHEAT", 40, 0.9f, 3, 5, 1, 2, TT_SICKLE, 4, 3, false},
-    {"CARROT", 32, 1.0f, 2, 4, 1, 1, TT_HOE, 4, 3, false},
-    {"POTATO", 45, 0.8f, 3, 5, 1, 1, TT_HOE, 5, 4, false},
-    {"CABBAGE", 55, 1.1f, 1, 2, 1, 2, TT_HOE, 7, 6, false},
-    {"CORN", 62, 1.2f, 2, 4, 1, 2, TT_SICKLE, 8, 7, false},
-    {"TOMATO", 58, 1.3f, 3, 5, 1, 2, -1, 8, 8, true},
-    {"PUMPKIN", 95, 1.0f, 1, 1, 2, 4, TT_AXE, 16, 12, false},
-    {"STRAWBERRY", 70, 1.4f, 3, 6, 1, 2, -1, 10, 10, true},
+    {"WHEAT", 40, 3, 5, 1, 2, TT_SICKLE, 4, 3, false},
+    {"CARROT", 32, 2, 4, 1, 1, TT_HOE, 4, 3, false},
+    {"POTATO", 45, 3, 5, 1, 1, TT_HOE, 5, 4, false},
+    {"CABBAGE", 55, 1, 2, 1, 2, TT_HOE, 7, 6, false},
+    {"CORN", 62, 2, 4, 1, 2, TT_SICKLE, 8, 7, false},
+    {"TOMATO", 58, 3, 5, 1, 2, -1, 8, 8, true},
+    {"PUMPKIN", 95, 1, 1, 2, 4, TT_AXE, 16, 12, false},
+    {"STRAWBERRY", 70, 3, 6, 1, 2, -1, 10, 10, true},
+    {"EGGPLANT", 80, 1, 3, 1, 2, TT_HOE, 14, 10, true},
+    {"TURNIP", 28, 2, 3, 1, 1, TT_HOE, 4, 3, false},
+    {"PEPPER", 60, 2, 4, 1, 2, TT_HOE, 10, 8, true},
+    {"CUCUMBER", 50, 2, 4, 1, 2, TT_HOE, 8, 6, true},
+    {"BEET", 38, 2, 3, 1, 2, TT_HOE, 6, 5, false},
+    {"LEEK", 48, 2, 3, 1, 2, TT_HOE, 7, 6, false},
 };
-inline int cropProduce(int c) { return M_CROP0 + c; }
-inline int cropSeed(int c) { return M_SEED0 + c; }
-constexpr float PLOT_DRY_SEC = 100.f;        // a full watering lasts this long at thirst 1
-constexpr float GREENHOUSE_GROWTH = 1.5f, GREENHOUSE_THIRST = 0.6f;
-constexpr float CAN_CAPACITY = 12.f;         // plots one full watering can fills
+inline int cropProduce(int c) { return cropProduceMat(c); }
+inline int cropSeed(int c) { return cropSeedMat(c); }
+// Watering: one watering lasts a crop's whole growth (the soil dries again when the crop is ripe). Bare tilled soil dries slowly,
+// and rain soaks every open-air plot.
+constexpr float PLOT_DRY_SEC = 100.f;        // a watered plot with nothing planted dries after this long
+constexpr float GREENHOUSE_GROWTH = 1.5f;
+constexpr float RAIN_SOAK_RATE = 0.12f;      // wetness per second added to open-air plots by a storm (1.0 = soaked)
+constexpr int HAY_PRICE = 4;                 // coins for a bundle of hay at the General Store
+struct ToolBuy { int tool; int price; };
+static const ToolBuy TOOL_BUY[] = {{TL_HOE, 30}, {TL_CAN, 25}, {TL_SICKLE, 30}, {TL_SHOVEL, 30}};  // the farm tools the General Store sells
+constexpr float CAN_CAPACITY = 12.f;
+constexpr float HOLE_WATER = 4.f;            // watering-can water that turns a hole into a pond
+constexpr float HOLE_FLOOD_SEC = 6.f;        // a hole next to water floods itself after this long
+constexpr int PLOT_WATER_REACH = 2;          // tilled soil this near water (tiles) waters itself         // plots one full watering can fills
 
 // ---------------------------------------------------------------- domestic animals
 enum DomKind { DA_CHICKEN, DA_COW, DA_SHEEP, DA_PIG, DA_GOAT, DA_DUCK, DA_RABBIT, DA_COUNT };
 // A raised wild animal (a mount, mounts.hpp) is one more kind of homestead animal: it lives, eats and grows like the others but looks like its
-// species (HAnimal::species / tier). It is not sold at the market and does not breed. DA_COUNT stays the number of farm animals.
+// species (HAnimal::species / tier). It is not sold in the shop and does not breed. DA_COUNT stays the number of farm animals.
 constexpr int DA_MOUNT = DA_COUNT;
+static_assert(FARM_BABIES == DA_COUNT, "every farm animal has a baby item (items/items.hpp)");
 struct DomDef {
     const char* name;
     const char* babyName;
@@ -110,7 +137,7 @@ struct DomDef {
     int product;         // Mat the adult makes (-1 none)
     float prodSec;       // seconds per product (at full happiness)
     const char* prodName;
-    int price;           // coins at the market (selling back pays half)
+    int price;           // coins at the General Store (selling back pays half)
     bool small;          // fits the coop
     float speed;         // walking speed px/s
     float size;          // sprite scale (1 = a calf-sized cow)
@@ -141,6 +168,8 @@ struct HPiece {
     int crop = -1, stage = 0;        // farm plots
     float growT = 0, water = 0;      // seconds into the current stage; 0..1 how wet the soil is
     Inventory inv{0, 1e9f};          // storage buildings
+    int mrec = -1, mq = 0, mdone = 0;  // production machines (machines.hpp): the chosen recipe, batches still to make, batches finished and waiting
+    float mt = 0;                      // seconds into the batch being made
     int w() const { return (rot & 1) ? HPDEF[kind].h : HPDEF[kind].w; }
     int h() const { return (rot & 1) ? HPDEF[kind].w : HPDEF[kind].h; }
     bool covers(int x, int y) const { return x >= tx && x < tx + w() && y >= ty && y < ty + h(); }

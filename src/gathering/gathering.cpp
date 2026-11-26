@@ -57,8 +57,11 @@ int Game::bestTool(int type, int* toolIdx) const {
         if (toolIdx) *toolIdx = bi;
         return best;
     }
-    for (int k = 0; k < TL_COUNT; k++)
-        if (TOOLDEF[k].type == type && TOOLDEF[k].tier > best && p.inv.count(itemTool(k)) > 0) best = TOOLDEF[k].tier, bi = k;
+    if ((type == TT_AXE || type == TT_PICK) && p.toolManual[type]) {  // the hunter's own choice (or nothing, when it was taken off)
+        if (p.tool[type] >= 0 && p.inv.count(itemTool(p.tool[type])) > 0) best = TOOLDEF[p.tool[type]].tier, bi = p.tool[type];
+    } else
+        for (int k = 0; k < TL_COUNT; k++)
+            if (TOOLDEF[k].type == type && TOOLDEF[k].tier > best && p.inv.count(itemTool(k)) > 0) best = TOOLDEF[k].tier, bi = k;
     if (toolIdx) *toolIdx = bi;
     return best;
 }
@@ -179,6 +182,7 @@ void Game::harvestFinish(const HTarget& t) {
         n[k] = grng.irange(y.lo, y.hi);
     }
     bool bonus = false;
+    if (n[0] > 0 && t.res == RS_ICESPIKE && !t.node) n[0] += spikeStage(t.idx) / 2;  // a bigger spike is more ice: 0, 0, 1, 1 or 2 pieces more
     if (n[0] > 0 && R.cls == RCL_PLANT && grng.chance(skillBonus(SK_FORAGING))) {  // a keen forager finds an extra plant
         n[0]++;
         bonus = true;
@@ -227,7 +231,7 @@ void Game::harvestFinish(const HTarget& t) {
     if (R.cls != RCL_PLANT) audio.play(S_PICKUP, 0.35f);
     // thorns and poison
     const bool wrapsSafe = R.safeArmor >= 2 ? p.has(CG_VENOMWRAPS) : (p.has(CG_DESERTWRAPS) || p.has(CG_VENOMWRAPS));  // wraps shield hands from thorns / poison sap
-    if (R.hurt > 0 && p.up[U_ARMOR] < R.safeArmor && !wrapsSafe && !p.dead) {
+    if (R.hurt > 0 && p.armorLv() < R.safeArmor && !wrapsSafe && !p.dead) {
         p.hp = std::max(1.f, p.hp - R.hurt);
         p.sinceHurt = 0;
         ftext(p.pos + V2(0, -26), R.safeArmor >= 2 ? "POISON! -" + S(R.hurt) : "THORNS! -" + S(R.hurt), HEX(0x9acd6a), 1.2f);
@@ -271,6 +275,10 @@ void Game::updateHarvest(float dt) {
                     s.done = 0;
                     s.t = 0;
                     keep = false;
+                    if (!node && world.props[idx].kind == P_ICESPIKE && (int)world.props[idx].ph % ICE_SPIKE_STAGES > 0) {  // an ice spike comes back small and grows
+                        s.stage = 0;
+                        s.gt = 0;
+                    }
                 }
             }
         } else {  // damaged but not finished: it recovers if left alone
@@ -280,6 +288,16 @@ void Game::updateHarvest(float dt) {
                 s.t = 0;
                 keep = false;
             }
+        }
+        if (!node && s.stage != 255 && !s.gone) {  // a spike that has come back grows one size at a time, until it is the size it was
+            if (s.fade <= 0) {
+                s.gt += dt;
+                if (s.gt >= SPIKE_GROW_SECS) {
+                    s.gt = 0;
+                    if (++s.stage >= (int)world.props[idx].ph % ICE_SPIKE_STAGES) s.stage = 255;
+                }
+            }
+            if (s.stage != 255) keep = true;
         }
         if (keep) i++;
         else hActive.erase(hActive.begin() + i);

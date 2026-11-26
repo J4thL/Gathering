@@ -2,6 +2,7 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
+#include <set>
 #include "core/game.hpp"
 
 namespace {
@@ -280,7 +281,7 @@ int homesteadTest(Game& g) {
         int woodSlot = -1;
         for (int s = 0; s < g.p.bagCap(); s++) if (g.p.inv.slots[s].item == itemMat(M_WOOD)) woodSlot = s;
         const int used1 = g.p.inv.usedSlots();
-        check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1 && g.p.tool[TT_AXE] < 0 && g.p.tool[TT_PICK] < 0, "an axe, a material or an empty slot cannot be equipped as a farming tool");
+        check(!g.equipFarmTool(axeSlot) && !g.equipFarmTool(woodSlot) && !g.equipFarmTool(-1) && g.p.inv.usedSlots() == used1, "an axe, a material or an empty slot cannot be equipped as a farming tool");
         g.p.inv.remove(itemTool(TL_AXE1), 1);
         // equipping the equipped tool again is refused: one hoe on the hotbar, no duplicate
         g.p.inv.addIgnoringWeight(itemTool(TL_HOE), 1);  // (the test pack may be at its weight limit)
@@ -345,8 +346,7 @@ int homesteadTest(Game& g) {
             check(np && np->kind == HP_PLOT && g.hs.pieces.size() == n0 + 1, "left click with the hoe in hand tills the tile into a farm plot");
             g.state = ST_PLAY;
             g.hsToolUse();
-            check(g.state == ST_FARM && g.farmPieceId == (np ? np->id : -1), "clicking the empty plot with the hoe opens the seed menu");
-            g.state = ST_PLAY;
+            check(g.state == ST_PLAY && np && np->kind == HP_PLOT, "clicking the empty plot with the hoe does nothing (seeds are sown from the hotbar)");
             np = g.hsAt(tx, ty, HL_GROUND);
             // seeds are equipped on the hotbar like a tool and sow the plot they are clicked on
             const int seedId = itemMat(cropSeed(CR_CARROT));
@@ -586,10 +586,42 @@ int homesteadTest(Game& g) {
         shot("e_ghost.bmp");
         g.bm.on = false;
         g.state = ST_BUILD; shot("f_build_menu.bmp");
-        g.state = ST_MARKET; shot("g_market.bmp");
         g.state = ST_ANIMAL; g.farmPieceId = -1; shot("h_animals.bmp");
-        g.state = ST_FARM; g.farmPieceId = g.hsAt(fx, fy, HL_GROUND) ? g.hsAt(fx, fy, HL_GROUND)->id : -1; shot("i_seeds.bmp");
         g.state = ST_PLAY;
+        {   // a field of every crop: stages 0..4 across, three plots of each in a row, to check the bed shapes and the crop art
+            bool placed = false;
+            V2 fieldPlot(0, 0);
+            for (int ty0 = py - 14; ty0 < py + 14 && !placed; ty0++)
+                for (int tx0 = px - 14; tx0 < px + 14 && !placed; tx0++) {
+                    bool free = true;
+                    for (int dy = 0; dy < 10 && free; dy++)
+                        for (int dx = 0; dx < 14 && free; dx++) free = g.hsCanBuild(HP_PLOT, tx0 + dx, ty0 + dy, 0);
+                    if (!free) continue;
+                    placed = true;
+                    for (int c = 0; c < CR_COUNT; c++)
+                        for (int st = 0; st < 5; st++) {
+                            const int tx = tx0 + st + (c < 7 ? 0 : 7), ty = ty0 + (c % 7) + (c < 7 ? 0 : 0) - 0;
+                            if (c >= 7 && st > 4) continue;
+                            if (!g.hsPlace(HP_PLOT, tx, ty, 0)) continue;
+                            HPiece* pc = g.hsAt(tx, ty, HL_GROUND);
+                            if (pc) { pc->crop = c; pc->stage = st; pc->water = (st % 2) ? 5.f : 0.f; }
+                        }
+                    g.p.pos = V2((tx0 + 6) * TS, (ty0 + 8) * TS);
+                    fieldPlot = V2((tx0 + 3) * TS + 8, (ty0 + 3) * TS + 8);
+                }
+            g.dayT = DAY_LEN * 0.3f;
+            steps(g, 3); shot("i_field.bmp");
+            // the cursor says what the tool in hand would do: watering a growing plot (green) and a hoe over a planted plot (red)
+            g.p.tool[TT_CAN] = TL_CAN; g.p.hand = TT_CAN;
+            g.p.pos = fieldPlot + V2(0, 24);
+            g.setCam(0, true);
+            g.in.mx = fieldPlot.x - g.camX; g.in.my = fieldPlot.y - g.camY;
+            shot("i2_cursor_can.bmp");
+            g.p.tool[TT_HOE] = TL_HOE; g.p.hand = TT_HOE;
+            shot("i3_cursor_hoe.bmp");
+            g.p.hand = -1;
+            g.in.my = 200;
+        }
         g.p.pos = V2(fx * TS, (fy + 2) * TS);
         g.dayT = DAY_LEN * 0.7f;
         steps(g, 3); shot("j_night.bmp");
@@ -678,6 +710,144 @@ int homesteadTest(Game& g) {
         for (int fr = 0; fr < 5; fr++) g.update(1.f / 60.f);
         check(ldOk && g.p.tool[TT_HOE] == TL_HOE && g.p.tool[TT_CAN] == TL_CAN && g.p.tool[TT_SICKLE] == TL_SICKLE && g.bestTool(TT_HOE) == 1 && g.p.hotSlotOf(itemTool(TL_HOE)) >= 0 && g.p.inv.count(itemTool(TL_HOE)) == 1, "a save from the previous tool system (tools outside the pack) still has working tools after loading and playing a few frames");
     }
+    printf("--- shovel: dig, pond, auto-watering\n");
+    {
+        check(g.ownsTool(TL_SHOVEL), "the starter kit includes a shovel");
+        int hx = -1, hy = -1;
+        for (int y = HS_PLAZA_Y + 8; y < HS_PLAZA_Y + 40 && hx < 0; y++)
+            for (int x = HS_PLAZA_X - 5; x < HS_PLAZA_X + 25; x++) {
+                bool free3 = true;
+                for (int dy = -3; dy <= 3 && free3; dy++)
+                    for (int dx = -3; dx <= 3; dx++) {
+                        const int xx = x + dx, yy = y + dy;
+                        if (xx < 0 || yy < 0 || xx >= MW || yy >= MH || !(tileGrassy(g.world.tile[yy][xx]) || g.world.tile[yy][xx] == T_DIRT) || g.hsAt(xx, yy, HL_GROUND) || g.hsAt(xx, yy, HL_OBJECT) || g.world.solid[yy][xx] || g.hsWaterTile(xx, yy)) { free3 = false; break; }
+                    }
+                for (auto& nd : g.world.nodes)
+                    if (free3 && std::abs((int)floorf(nd.x / TS) - x) <= 3 && std::abs((int)floorf(nd.y / TS) - y) <= 3) free3 = false;
+                if (free3) {  // (the shovel itself says whether the spot is allowed: plaza, edge...)
+                    g.p.pos = V2(x * TS + 8, (y + 1) * TS + 8);
+                    g.hsDig(x, y);
+                    if (g.hsAt(x, y, HL_GROUND)) { g.hsDig(x, y); hx = x; hy = y; break; }
+                }
+            }
+        check(hx >= 0, "a clear patch of ground for digging");
+        if (hx >= 0) {
+            g.p.pos = V2(hx * TS + 8, (hy + 1) * TS + 8);
+            const uint8_t soil = g.world.tile[hy][hx];
+            const size_t n0 = g.hs.pieces.size();
+            check(g.hsDig(hx, hy) && g.hsAt(hx, hy, HL_GROUND) && g.hsAt(hx, hy, HL_GROUND)->kind == HP_HOLE && g.hs.pieces.size() == n0 + 1, "the shovel digs a hole");
+            check(!g.world.blocked(hx * TS + 8, hy * TS + 8, 3.f), "a hole can be walked over");
+            g.hsDig(hx, hy);
+            check(!g.hsAt(hx, hy, HL_GROUND) && g.hs.pieces.size() == n0, "the shovel fills a hole back in");
+            g.hsDig(hx, hy);
+            g.hs.can = 2.f;
+            g.hsFillHole(*g.hsAt(hx, hy, HL_GROUND));
+            check(g.hsAt(hx, hy, HL_GROUND)->kind == HP_HOLE && g.hs.can == 2.f, "too little water in the can leaves the hole dry");
+            g.hs.can = CAN_CAPACITY;
+            g.hsFillHole(*g.hsAt(hx, hy, HL_GROUND));
+            check(g.hsAt(hx, hy, HL_GROUND)->kind == HP_POND && g.world.tile[hy][hx] == T_SHALLOW && g.hs.can == CAN_CAPACITY - HOLE_WATER, "water in a hole makes a pond (and costs water)");
+            // a plot next to the pond waters itself; one far away does not
+            check(g.hsNearWater(hx + 2, hy, PLOT_WATER_REACH) && !g.hsNearWater(hx + 3, hy + 3, PLOT_WATER_REACH), "the pond's reach for watering");
+            const bool hoe = g.bestTool(TT_HOE, nullptr) > 0;
+            if (hoe) {
+                g.p.pos = V2((hx + 2) * TS + 8, (hy + 3) * TS + 8);
+                check(g.hsPlace(HP_PLOT, hx + 2, hy, 0), "(a plot beside the pond)");
+                check(g.hsPlace(HP_PLOT, hx + 3, hy + 3, 0), "(a plot far from the pond)");
+                g.hsAt(hx + 2, hy, HL_GROUND)->water = 0;
+                g.hsAt(hx + 3, hy + 3, HL_GROUND)->water = 0;
+                g.hsTickCrops(0.5f);
+                check(g.hsAt(hx + 2, hy, HL_GROUND)->water >= 1.f, "tilled soil beside water is watered by itself");
+                check(g.hsAt(hx + 3, hy + 3, HL_GROUND)->water == 0.f, "tilled soil away from water stays dry");
+                g.hsDemolish(hx + 2, hy);
+                g.hsDemolish(hx + 3, hy + 3);
+            }
+            // a hole next to the pond floods by itself (a channel)
+            g.hsDig(hx + 1, hy);
+            for (int i = 0; i < 20; i++) g.hsTickCrops(0.5f);
+            check(g.hsAt(hx + 1, hy, HL_GROUND)->kind == HP_POND, "a hole beside water floods itself");
+            // a hole away from water stays a hole
+            g.hsDig(hx - 3, hy - 3);
+            for (int i = 0; i < 40; i++) g.hsTickCrops(0.5f);
+            check(g.hsAt(hx - 3, hy - 3, HL_GROUND)->kind == HP_HOLE, "a hole away from water stays dry");
+            // save / load keeps the ponds as water
+            g.save();
+            g.world.tile[hy][hx] = T_GRASS;
+            g.hsApplyWorld();
+            check(g.world.tile[hy][hx] == T_SHALLOW, "ponds are water again after loading");
+            g.hsDig(hx, hy);
+            check(!g.hsAt(hx, hy, HL_GROUND) && g.world.tile[hy][hx] == soil, "filling a pond in gives its soil back");
+            g.hsDig(hx + 1, hy);
+            g.hsDig(hx - 3, hy - 3);
+        }
+    }
+
+    printf("--- watering: once per crop, bare soil, rain, untilling\n");
+    {
+        int px = -1, py = -1;
+        for (int y = HS_PLAZA_Y + 8; y < HS_PLAZA_Y + 60 && px < 0; y++)
+            for (int x = HS_PLAZA_X - 10; x < HS_PLAZA_X + 30; x++) {
+                std::string why;
+                if (g.hsCanBuild(HP_PLOT, x, y, 0, &why) && !g.hsNearWater(x, y, PLOT_WATER_REACH)) { px = x; py = y; break; }
+            }
+        check(px >= 0, "a clear patch for a plot (no water within reach)");
+        if (px >= 0 && g.bestTool(TT_HOE, nullptr) > 0) {
+            g.p.pos = V2(px * TS + 8, (py + 1) * TS + 8);
+            std::string why;
+            const bool canB = g.hsCanBuild(HP_PLOT, px, py, 0, &why);
+            g.hsPlace(HP_PLOT, px, py, 0);
+            HPiece* pl = g.hsAt(px, py, HL_GROUND);
+            if (!pl) printf("   (cannot till: %s)\n", why.c_str());
+            check(canB && pl && pl->kind == HP_PLOT, "(a plot)");
+            if (pl) {
+                g.stormK = 0.f;
+                g.hs.can = CAN_CAPACITY;
+                check(g.hsWater(*pl) && pl->water >= 1.f, "bare tilled soil can be watered");
+                for (int i = 0; i < 100; i++) g.hsTickCrops(1.f);
+                check(pl->water <= 0.01f, "bare soil dries out again");
+                // sow it, water it once, and it stays wet until the crop is ripe
+                g.p.inv.add(itemMat(cropSeed(CR_CARROT)), 1);
+                check(g.hsPlant(*pl, CR_CARROT), "(sow)");
+                g.hsWater(*pl);
+                const float full = CROPS[CR_CARROT].stageSec * (CROP_STAGES - 1) + 5.f;
+                bool wetThrough = true;
+                for (float t = 0; t < full && pl->stage < CROP_STAGES - 1; t += 1.f) {
+                    g.hsTickCrops(1.f);
+                    if (pl->stage < CROP_STAGES - 1 && pl->water < 0.99f) wetThrough = false;
+                }
+                check(pl->stage >= CROP_STAGES - 1, "one watering grows the crop all the way");
+                check(wetThrough, "a planted plot stays watered while the crop grows");
+                check(pl->water <= 0.01f, "the soil is dry when the crop is fully grown");
+                g.hs.can = CAN_CAPACITY;
+                const float before = g.hs.can;
+                g.hsToolUse();  // (not aimed at it: only checks the call is safe)
+                check(g.hs.can == before, "nothing is spent when nothing is watered");
+                // the shovel: a planted plot cannot be untilled, an empty one can
+                const size_t n0 = g.hs.pieces.size();
+                g.hsDig(px, py);
+                check(g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0, "the shovel will not untill a planted plot");
+                pl = g.hsAt(px, py, HL_GROUND);
+                pl->crop = -1;
+                pl->stage = 0;
+                g.hsDig(px, py);
+                check(!g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0 - 1, "the shovel untills an empty plot");
+                // rain soaks bare soil (and not what is under a greenhouse - not tested here)
+                g.hsPlace(HP_PLOT, px, py, 0);
+                pl = g.hsAt(px, py, HL_GROUND);
+                pl->water = 0;
+                g.stormK = 1.f;
+                const int saveInterior = g.interior, saveDelve = g.delve;
+                g.interior = -1;
+                g.delve = -1;
+                for (int i = 0; i < 12; i++) g.hsTickCrops(1.f);
+                check(pl->water >= 1.f, "rain soaks a tilled plot with nothing planted");
+                g.stormK = 0.f;
+                g.interior = saveInterior;
+                g.delve = saveDelve;
+                g.hsDig(px, py);
+            }
+        }
+    }
+
     printf("--- mounts: baby drops, raising, riding\n");
     {
         if (!g.inHomestead()) {
@@ -785,6 +955,213 @@ int homesteadTest(Game& g) {
             check(common == 0 && legend == 1, "an ordinary carcass is gone after its time; a legendary one is still there");
         } else
             check(false, "spawned the test deer");
+    }
+    {
+        printf("--- stage: production machines\n");
+        if (!g.inHomestead()) g.hsEnter();
+        g.state = ST_PLAY;
+        stock(g);
+        g.p.inv.addIgnoringWeight(itemMat(M_IRONBAR), 40);
+        int mx = 0, my = 0;
+        check(findSpot(g, 22, 4, mx, my, 70, 100), "room for a row of machines");
+        const int kinds[7] = {HP_MILL, HP_DAIRY, HP_KETTLE, HP_SMOKER, HP_OVEN, HP_SAWMILL, HP_SMELTER};
+        const int wid[7] = {3, 2, 2, 2, 2, 4, 2};
+        int x = mx;
+        HPiece* mp[7] = {};
+        bool placedAll = true;
+        for (int i = 0; i < 7; i++) {
+            if (!g.hsPlace(kinds[i], x, my, 0)) placedAll = false;
+            mp[i] = g.hsAt(x, my, HL_OBJECT);
+            x += wid[i];
+        }
+        check(placedAll && mp[0] && mp[6], "all seven machines can be built (their own MACHINES build tab)");
+        bool cat = true;
+        for (int k : kinds) cat = cat && HPDEF[k].cat == HC_MACHINE && MACHINES[k - HP_MILL].nrec >= 2;
+        check(cat, "they are listed under MACHINES and have recipes");
+        if (mp[0] && mp[1] && mp[4] && mp[5] && mp[6]) {
+            HPiece& mill = *mp[0];
+            give(g, M_WHEAT, 9);
+            const int w0 = g.p.mat(M_WHEAT), f0 = g.p.mat(M_FLOUR);
+            check(g.hsMachineLoad(mill, 0, 2) == 2 && g.p.mat(M_WHEAT) == w0 - 6 && mill.mq == 2, "loading two batches takes the ingredients");
+            check(g.hsMachineLoad(mill, 1, 1) == 0, "another recipe waits until the machine is empty");
+            g.hsTickMachines(10.f);
+            check(mill.mdone == 0 && mill.mq == 2, "a batch takes its time");
+            g.hsTickMachines(11.f);
+            check(mill.mdone == 1 && mill.mq == 1, "the first batch finishes after 20 seconds");
+            g.hsTickMachines(60.f);
+            check(mill.mdone == 2 && mill.mq == 0, "the machine stops when its queue is empty");
+            check(g.hsMachineCollect(mill) && g.p.mat(M_FLOUR) == f0 + 4 && mill.mdone == 0 && mill.mrec == -1, "collecting hands over the flour and frees the machine");
+            give(g, M_CORN, 3);
+            check(g.hsMachineLoad(mill, 1, 5) == 1, "a different recipe can be loaded once it is empty (only what the pack holds)");
+            g.p.inv.remove(itemMat(M_WHEAT), g.p.mat(M_WHEAT));
+            check(g.hsMachineLoad(mill, 0, 1) == 0, "no ingredients: refused");
+            give(g, M_CORN, 80);
+            g.hsTickMachines(1000.f);
+            g.hsMachineCollect(mill);
+            check(g.hsMachineLoad(mill, 1, 50) == MACH_MAX_BATCH, "a machine holds at most " + std::to_string(MACH_MAX_BATCH) + " batches");
+            // a consumable result: bread from the oven
+            HPiece& oven = *mp[4];
+            give(g, M_FLOUR, 6);
+            const int b0 = g.p.inv.count(itemCons(C_BREAD));
+            check(g.hsMachineLoad(oven, 0, 3) == 3, "the oven takes flour");
+            g.hsTickMachines(200.f);
+            check(g.hsMachineCollect(oven) && g.p.inv.count(itemCons(C_BREAD)) == b0 + 6, "and bakes bread (2 per batch)");
+            // E collects when there is nothing more to load; otherwise the menu opens
+            HPiece& saw = *mp[5];
+            give(g, M_WOOD, 6);
+            g.hsMachineLoad(saw, 0, 1);
+            stand(g, V2((saw.tx + saw.w() / 2.f) * TS, (saw.ty + saw.h()) * TS + 6.f));
+            Game::HTarget2 t;
+            check(g.hsFindTarget(t) && t.type == 10, "E near a machine offers to use it");
+            check(g.homesteadInteract() && g.state == ST_MACHINE && g.machPieceId == saw.id, "E opens the machine menu");
+            g.state = ST_PLAY;
+            if (const char* dir = getenv("HS_SHOTS")) {  // the machines at work, their menu and the MACHINES build tab
+                auto shot = [&](const char* name) {
+                    g.helpT = 0; g.portalFx = 0; g.msgs.clear(); g.ftexts.clear();
+                    g.setCam(0, true);
+                    g.render();
+                    g.saveCanvas((std::string(dir) + "/" + name).c_str());
+                };
+                printf("shot state: map %d interior %d delve %d fade %.2f dead %d\n", (int)g.world.mapId, g.interior, g.delve, g.travelFade, (int)g.p.dead);
+                g.travelFade = 0; g.interior = -1; g.delve = -1;
+                g.dayT = DAY_LEN * 0.3f;
+                g.hsMachineLoad(*mp[1], 0, 0);
+                give(g, M_MILK, 10); give(g, M_STRAWBERRY, 9); give(g, M_MEAT, 6); give(g, M_FLOUR, 4);
+                g.hsMachineLoad(*mp[1], 1, 2); g.hsMachineLoad(*mp[2], 0, 2); g.hsMachineLoad(*mp[3], 0, 2); g.hsMachineLoad(*mp[4], 0, 1);
+                g.hsMachineLoad(*mp[0], 0, 1);
+                stand(g, V2((mx + 9) * TS, (my + 6) * TS));
+                g.hsTickMachines(3.f);
+                g.in.mx = 200; g.in.my = 200;
+                shot("m1_machines.bmp");
+                g.machPieceId = mp[2]->id; g.state = ST_MACHINE;
+                g.in.mx = 100; g.in.my = 60;
+                shot("m2_menu.bmp");
+                g.bm.cat = HC_MACHINE; g.state = ST_BUILD;
+                shot("m3_buildtab.bmp");
+                g.state = ST_PLAY;
+            }
+            // saving keeps the work in progress
+            HPiece& smelter = *mp[6];
+            give(g, M_IRON, 4);
+            g.hsMachineLoad(smelter, 1, 2);
+            g.hsTickMachines(55.f);
+            const int sid = smelter.id, smq = smelter.mq, smd = smelter.mdone;
+            const float smt = smelter.mt;
+            g.save();
+            g.newGame();
+            check(g.load(), "the save loads");
+            HPiece* sm2 = g.hsPiece(sid);
+            check(sm2 && sm2->mrec == 1 && sm2->mq == smq && sm2->mdone == smd && fabsf(sm2->mt - smt) < 0.01f, "a machine's recipe, queue, finished batches and progress survive a save");
+            g.state = ST_PLAY;
+        }
+    }
+    {
+        printf("--- stage: no homestead store, farm babies, cursor placing, 100-slot chests, new gear\n");
+        if (!g.inHomestead()) g.hsEnter();
+        g.state = ST_PLAY;
+        bool stall = false;
+        for (auto& pr : g.world.props) stall |= pr.kind == P_HMARKET_RETIRED;
+        check(!stall, "the homestead has no market stall any more");
+        // farm babies: stackable items bought at the General Store, set down at the homestead
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemFarmBaby(DA_COW), 4);
+        check(g.p.inv.usedSlots() == 1 && item(itemFarmBaby(DA_COW)).stack > 1, "baby farm animals stack in one slot");
+        const int a0 = (int)g.hs.animals.size();
+        const int sl = [&] { for (int i = 0; i < g.p.bagCap(); i++) if (!g.p.inv.slots[i].empty()) return i; return -1; }();
+        check(sl >= 0 && g.useSlot(sl) && (int)g.hs.animals.size() == a0 + 1 && g.p.inv.count(itemFarmBaby(DA_COW)) == 3, "using one sets a baby down at the homestead");
+        const HAnimal& calf = g.hs.animals.back();
+        check(calf.kind == DA_COW && !calf.adult(DOMS[DA_COW]), "...a baby cow that grows up");
+        std::set<std::string> keys;
+        bool uniq = true;
+        for (int i = 0; i < ITEM_COUNT; i++) uniq &= keys.insert(itemKey(i)).second;
+        check(uniq, "every item has its own save key");
+        // placing with the cursor
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemPlace(PL_CHEST), 1);
+        g.structs.clear();
+        stand(g, V2((HS_PLAZA_X + 3) * TS + 8.f, (HS_PLAZA_Y + 4) * TS + 8.f));
+        g.camX = g.p.pos.x - LW / 2; g.camY = g.p.pos.y - LH / 2;
+        const int ftx = (int)(g.p.pos.x / TS) + 12, fty = (int)(g.p.pos.y / TS);
+        std::string why;
+        check(!g.placeCheck(ftx, fty, &why) && why.find("FAR") != std::string::npos, "a tile out of reach cannot be built on");
+        bool placed = false;
+        for (int dx = -3; dx <= 3 && !placed; dx++)
+            for (int dy = -3; dy <= 3 && !placed; dy++) {
+                const int tx = (int)(g.p.pos.x / TS) + dx, ty = (int)(g.p.pos.y / TS) + dy;
+                if (!g.placeCheck(tx, ty)) continue;
+                g.in.mx = (int)(tx * TS + 8 - g.camX); g.in.my = (int)(ty * TS + 8 - g.camY);
+                placed = g.placeStructureAtCursor(PL_CHEST);
+                check(placed && g.structs.size() == 1 && g.structs[0].tx == tx && g.structs[0].ty == ty, "a chest goes down on the tile under the cursor");
+            }
+        check(placed, "(setup) a free tile was found near the hunter");
+        // the chest: 100 slots, a weight limit, split stacks
+        if (placed) {
+            Inventory& ch = g.structs[0].inv;
+            check(ch.capacity() == 100, "a chest always has 100 slots");
+            const int n = ch.add(itemMat(M_STONE), 1000);
+            check(n > 0 && n < 1000 && ch.totalWeight() <= CHEST_KG + 0.01f, "the weight limit stops a chest filling up with stone");
+            ch.clear();
+            g.chestOpen = 0; g.hsChestPiece = -1; g.state = ST_CHEST;
+            g.p.inv.clear();
+            g.p.inv.addIgnoringWeight(itemMat(M_WOOD), 10);
+            g.chestMove(1, 0, 4);
+            check(g.p.inv.count(itemMat(M_WOOD)) == 6 && g.structs[0].inv.count(itemMat(M_WOOD)) == 4, "part of a stack can be moved into the chest");
+            g.state = ST_PLAY; g.chestOpen = -1;
+        }
+        // new gear and meals stack and work
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemCarry(CG_FARMBOOTS), 5);
+        g.p.inv.addIgnoringWeight(itemCarry(CG_PORTERBELT), 1);
+        check(g.p.inv.usedSlots() == 2, "carried gear stacks");
+        g.p.syncPack();
+        g.migrateWornGear();
+        check(g.p.carryLimit() >= BASE_CARRY_KG + 25, "the porter's belt raises the carrying limit");
+        g.p.hp = 10.f;
+        g.p.inv.addIgnoringWeight(itemCons(C_OMELET), 2);
+        check(g.useConsumable(C_OMELET) && g.p.hp > 10.f && g.p.inv.count(itemCons(C_OMELET)) == 1, "a farm omelet heals");
+        // ---- equipping: carried gear works only while worn; axe / pickaxe follow the best one until chosen
+        g.p.inv.clear();
+        for (int e = 0; e < EQ_COUNT; e++) g.p.worn[e] = -1;
+        g.p.inv.addIgnoringWeight(itemCarry(CG_STRAWHAT), 1);
+        g.p.inv.addIgnoringWeight(itemCarry(CG_FARMBOOTS), 2);
+        auto slotOfItem = [&](int id) { for (int i = 0; i < g.p.bagCap(); i++) if (g.p.inv.slots[i].item == id) return i; return -1; };
+        check(!g.p.has(CG_STRAWHAT) && !g.p.has(CG_FARMBOOTS), "carried gear in the pack does nothing");
+        check(g.equipCarried(slotOfItem(itemCarry(CG_STRAWHAT))) && g.p.has(CG_STRAWHAT) && g.p.inv.count(itemCarry(CG_STRAWHAT)) == 0, "wearing takes it out of the pack");
+        check(g.equipCarried(slotOfItem(itemCarry(CG_FARMBOOTS))) && g.p.has(CG_FARMBOOTS) && g.p.inv.count(itemCarry(CG_FARMBOOTS)) == 1, "one of a stack is worn");
+        check(g.unequipCarried(EQ_HEAD) && !g.p.has(CG_STRAWHAT) && g.p.inv.count(itemCarry(CG_STRAWHAT)) == 1, "taking it off puts it back in the pack");
+        g.p.inv.addIgnoringWeight(itemCarry(CG_WADERS), 1);  // the same slot: it replaces the boots
+        check(g.equipCarried(slotOfItem(itemCarry(CG_WADERS))) && g.p.has(CG_WADERS) && !g.p.has(CG_FARMBOOTS) && g.p.inv.count(itemCarry(CG_FARMBOOTS)) == 2, "a piece for a taken slot swaps with the one worn");
+        // the worn gear survives a save and a load
+        g.save();
+        for (int e = 0; e < EQ_COUNT; e++) g.p.worn[e] = -1;
+        check(g.load() && g.p.has(CG_WADERS), "worn gear is saved");
+        // axe and pickaxe
+        g.p.inv.clear();
+        g.p.inv.addIgnoringWeight(itemTool(TL_AXE1), 1);
+        g.syncGatherTools();
+        check(g.p.tool[TT_AXE] == TL_AXE1 && g.bestTool(TT_AXE) > 0, "the best axe in the pack is used");
+        check(g.unequipGatherTool(TT_AXE) && g.bestTool(TT_AXE) == 0, "an axe taken off cannot chop");
+        g.syncGatherTools();
+        check(g.p.tool[TT_AXE] < 0, "...and stays off");
+        check(g.equipGatherTool(slotOfItem(itemTool(TL_AXE1))) && g.bestTool(TT_AXE) > 0, "it can be put back on");
+        // ---- the second row of crops and the farm products
+        {
+            bool ok = CR_COUNT == 14;
+            std::set<std::string> nm;
+            for (int c = 0; c < CR_COUNT; c++) {
+                ok &= seedMatCrop(cropSeed(c)) == c && seedCropOf(itemMat(cropSeed(c))) == c && item(itemMat(cropProduce(c))).kind == IK_MATERIAL;
+                ok &= nm.insert(item(itemMat(cropProduce(c))).name).second && nm.insert(item(itemMat(cropSeed(c))).name).second;
+                ok &= CROPS[c].seedPrice > 0 && CROPS[c].stageSec > 0;
+            }
+            check(ok, "every crop has its own seed, produce, name and price");
+            g.p.inv.clear();
+            g.p.inv.addIgnoringWeight(itemMat(M_CUCUMBER), 3);
+            g.p.inv.addIgnoringWeight(itemMat(M_HERB), 1);
+            bool recipe = false;
+            for (int r = 0; r < (int)(sizeof(RECIPES) / sizeof(RECIPES[0])); r++) recipe |= RECIPES[r].kind == RK_ITEM && RECIPES[r].out == itemMat(M_PICKLES);
+            check(recipe && item(itemMat(M_CHEESE)).price > item(itemMat(M_MILK)).price, "farm products have recipes and are worth more than what goes in");
+        }
+        g.p.hp = g.p.maxhp = 100000.f;
     }
     if (hadSave) {
         std::ofstream out(g.savePath(), std::ios::binary | std::ios::trunc);

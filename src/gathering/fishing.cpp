@@ -2,6 +2,7 @@
 //
 //  phase 0 idle  ->  click on water (within reach): the line is cast, phase 1 (waiting; a click now pulls it in empty)
 //  phase 1 waits a few seconds, then a bite: phase 2 (the bobber dips) for a short window; a click in the window lands a fish, a late one lets it go
+// (on the snowfields the rod also works on ice-fishing holes and the seals' breathing holes.)
 // Which fish bites depends on the water's biome and the season; the FISHING skill speeds the bites up, gives a chance of a second fish, and pays XP.
 #include "core/game.hpp"
 
@@ -20,6 +21,12 @@ const std::vector<Bite>& biteTable(int biome) {
         case B_DESERT: return DESERT;
         default: return HOME;
     }
+}
+// An ice-fishing hole (or a seal's breathing hole) on the tile: the rod works on it like on open water.
+bool iceHoleAt(const World& w, int tx, int ty) {
+    for (const auto& d : w.decor)
+        if ((d.kind == D_FISHHOLE || d.kind == D_ICEHOLE) && (int)floorf(d.x / TS) == tx && (int)floorf(d.y / TS) == ty) return true;
+    return false;
 }
 constexpr float CAST_REACH = 130.f;   // how far the line can be cast
 constexpr float LINE_BREAK = 190.f;   // walking this far from the bobber reels the line in
@@ -67,7 +74,7 @@ bool Game::fishClick() {
     // cast: at the water under the cursor, within reach
     const V2 mw(in.mx + camX, in.my + camY);
     const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
-    if (!world.water(tx, ty)) { msg("AIM AT WATER AND CLICK TO CAST", C_RED); audio.play(S_ERROR, 0.5f); return true; }
+    if (!world.water(tx, ty) && !iceHoleAt(world, tx, ty)) { msg(world.mapId == B_SNOW ? "AIM AT WATER OR AN ICE HOLE AND CLICK TO CAST" : "AIM AT WATER AND CLICK TO CAST", C_RED); audio.play(S_ERROR, 0.5f); return true; }
     const V2 target((tx + 0.5f) * TS, (ty + 0.5f) * TS);
     if (dist(p.pos, target) > CAST_REACH) { msg("TOO FAR - MOVE CLOSER TO THE WATER", C_RED); audio.play(S_ERROR, 0.5f); return true; }
     F.phase = 1;

@@ -1,5 +1,5 @@
 // sprites_homestead.hpp - the art of the Homestead, drawn in code like everything else: building pieces, crops in five growth stages, the
-// portal and the market stall, and the icons of the new materials and tools. Top-down 3/4 view like the town, light from the top-left,
+// portal, and the icons of the new materials and tools. Top-down 3/4 view like the town, light from the top-left,
 // lit tops and shaded undersides, one pixel dark contour. (The farm animals are in dom_art.hpp; they use the 3D model renderer.)
 #pragma once
 #include "core/data.hpp"
@@ -81,19 +81,66 @@ inline Img bridge(bool vert) {
         }
     return im;
 }
-inline Img plot(bool wet) {  // tilled soil: furrows with lit ridges
+// Tilled soil: one patch of dark, speckled earth with a rounded edge. mask = which sides have another plot next to them (N 1, E 2, S 4, W 8):
+// the edge (a dark outline and a lighter rim) is drawn only on the open sides, so a field of plots reads as one big rounded bed. wet = watered.
+inline Img plot(bool wet, int mask = 0) {
     Img im(16, 16);
-    const u32 a = wet ? HEX(0x3c2818) : HEX(0x7a5532), b = wet ? HEX(0x2c1c10) : HEX(0x5e3f25), c = wet ? HEX(0x543a24) : HEX(0x94683f);
+    const u32 soil = wet ? HEX(0x6a4428) : HEX(0x8f5e36), dark = wet ? HEX(0x543620) : HEX(0x75492a), light = wet ? HEX(0x7e5232) : HEX(0xa77044);
+    const u32 rim = wet ? HEX(0x8a5c3a) : HEX(0xb98250), line = HEX(0x4a2c18);
+    const bool oN = !(mask & 1), oE = !(mask & 2), oS = !(mask & 4), oW = !(mask & 8);
     for (int y = 0; y < 16; y++)
         for (int x = 0; x < 16; x++) {
-            const int f = y % 4;
-            u32 col = f == 0 ? c : f == 3 ? b : a;
-            if (nzf(x, y, 41) > 0.9f) col = f < 2 ? lit(col) : drk(col);
+            // depth from the nearest open edge; the corners between two open sides are cut round
+            int d = 99;
+            if (oN) d = std::min(d, y);
+            if (oS) d = std::min(d, 15 - y);
+            if (oW) d = std::min(d, x);
+            if (oE) d = std::min(d, 15 - x);
+            if (oN && oW) d = std::min(d, x + y - 1);
+            if (oN && oE) d = std::min(d, (15 - x) + y - 1);
+            if (oS && oW) d = std::min(d, x + (15 - y) - 1);
+            if (oS && oE) d = std::min(d, (15 - x) + (15 - y) - 1);
+            if (d < 0) continue;  // outside the rounded corner: ground shows
+            u32 col;
+            if (d == 0) col = line;
+            else if (d == 1) col = rim;
+            else {
+                col = soil;
+                const float n = nzf(x, y, 41);
+                if (n > 0.93f) col = light;
+                else if (n < 0.14f) col = dark;
+                if ((x + y * 2) % 7 == 0 && n > 0.5f) col = dark;  // a few small clods
+            }
             im.set(x, y, col);
         }
-    for (int x = 0; x < 16; x++) { im.set(x, 0, wet ? HEX(0x6a4a30) : HEX(0xb58554)); }
-    im.rect(0, 15, 16, 1, HEX(0x40301f)); im.rect(0, 0, 1, 16, wet ? HEX(0x4a3420) : HEX(0x6a4a2c)); im.rect(15, 0, 1, 16, HEX(0x3a2a1a));
-    if (wet) for (int i = 0; i < 6; i++) im.set(2 + (int)(nz(i, 1, 3) % 12), 2 + (int)(nz(i, 2, 3) % 12), HEX(0x8ab8e0));
+    if (wet) for (int i = 0; i < 5; i++) im.set(3 + (int)(nz(i, 1, 3) % 10), 3 + (int)(nz(i, 2, 3) % 10), HEX(0x8ab8e0));
+    return im;
+}
+// A hole dug in the soil (16 x 16, opaque like a plot). mask = which sides have another hole next to them (N 1, E 2, S 4, W 8): the pit runs
+// through to those edges with no rim, so neighbouring holes join into one trench. water = the build-menu icon of a pond (the real pond is a
+// water tile of the world, drawn with the same look as every lake and stream).
+inline Img digHole(bool water, int mask) {
+    Img im(16, 16);
+    for (int y = 0; y < 16; y++)
+        for (int x = 0; x < 16; x++) {
+            u32 col = (x + y) % 5 == 0 ? HEX(0x6a4a2c) : HEX(0x7a5532);
+            if (nzf(x, y, 53) > 0.88f) col = drk(col);
+            im.set(x, y, col);
+        }
+    const bool N = mask & 1, E = mask & 2, S = mask & 4, W = mask & 8;
+    const int x0 = W ? 0 : 2, x1 = E ? 15 : 13, y0 = N ? 0 : 2, y1 = S ? 15 : 13;
+    for (int y = y0; y <= y1; y++)
+        for (int x = x0; x <= x1; x++) {
+            // round the corners that have no neighbour on either side
+            const bool cl = (x == x0 && !W), cr = (x == x1 && !E), ct = (y == y0 && !N), cb = (y == y1 && !S);
+            if ((cl || cr) && (ct || cb)) continue;
+            const bool rim = (cl || cr || ct || cb);
+            u32 col;
+            if (water) col = rim ? HEX(0x4a3a28) : (((x + y) & 7) == 0 ? HEX(0x8ec2ea) : HEX(0x4f90c4));
+            else col = rim ? HEX(0x40301f) : (y > (y0 + y1) / 2 ? HEX(0x1f1510) : HEX(0x33241a));
+            im.set(x, y, col);
+        }
+    if (!water && !N) for (int x = x0 + 2; x < x1 - 1; x++) im.set(x, 1, HEX(0x94683f));  // the lip of loose soil above the pit
     return im;
 }
 inline Img roofTile() {  // overhead shingles (16 x 16), drawn over the player with some transparency
@@ -404,6 +451,32 @@ inline Img crop(int c, int stage) {
             for (int i = 0; i < 4; i++) leaf(9, 21, 5 + i % 2 * 2, 0.4f + i * 0.9f, i % 2 ? G1 : G2);
             if (stage >= 3) { const float r = stage == 3 ? 3.5f : 6.f; im.ellipseShaded(9, 19, r + 1.f, r * 0.8f, stage == 4 ? HEX(0xffa84a) : HEX(0xa8c868), stage == 4 ? HEX(0xf08a2a) : HEX(0x78a848), stage == 4 ? HEX(0xb85a14) : HEX(0x507a30)); if (stage == 4) { im.line(9, 14, 9, 22, HEX(0xc86a1a)); im.line(6, 15, 6, 21, HEX(0xc86a1a)); im.line(12, 15, 12, 21, HEX(0xc86a1a)); im.rect(8, 12, 2, 3, HEX(0x5a8a30)); } }
             break;
+        case CR_EGGPLANT:
+            for (int i = 0; i < 6; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.4f + i * 0.45f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 2; i++) { const int x = 6 + i * 6, y = 17 + i; im.ellipseShaded(x, y, 1.9f, stage == 4 ? 3.2f : 2.0f, stage == 4 ? HEX(0xa86ad8) : HEX(0x8aa868), stage == 4 ? HEX(0x6a2a9a) : HEX(0x5a8a48), stage == 4 ? HEX(0x3a1260) : HEX(0x3a6a30)); im.rect(x - 1, y - 4, 3, 1, G1); }
+            break;
+        case CR_TURNIP:
+            for (int i = 0; i < 5; i++) leaf(9, 20, H - 3 - (i % 2) * 2, 0.5f + i * 0.5f, i % 2 ? G1 : G2);
+            if (stage >= 3) im.ellipseShaded(9, 21, stage == 4 ? 3.6f : 2.2f, stage == 4 ? 2.8f : 1.6f, HEX(0xfff4ff), HEX(0xe0a8e8), HEX(0xa05ab8));
+            break;
+        case CR_PEPPER:
+            for (int i = 0; i < 6; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.35f + i * 0.5f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 4; i++) { const int x = 5 + (i % 2) * 7, y = 22 - H / 2 - 1 + i * 2; im.ellipseShaded(x, y, 1.1f, 2.4f, stage == 4 ? HEX(0xff6a4a) : HEX(0xa8d868), stage == 4 ? HEX(0xd8281a) : HEX(0x6ab84a), stage == 4 ? HEX(0x8a1008) : HEX(0x3a8a2a)); }
+            break;
+        case CR_CUCUMBER:
+            im.line(5, 22, 5, 22 - H - 3, HEX(0x8a5a30)); im.line(13, 22, 13, 22 - H - 3, HEX(0x8a5a30)); im.line(5, 22 - H - 3, 13, 22 - H - 3, HEX(0x8a5a30));  // the trellis
+            for (int i = 0; i < 5; i++) leaf(9, 21 - i * H / 6, 4, 0.3f + (i % 2) * 2.4f, i % 2 ? G1 : G2);
+            if (stage >= 3) for (int i = 0; i < 3; i++) { const int x = 7 + (i % 2) * 4, y = 22 - H / 2 + i * 3; im.ellipseShaded(x, y, 1.4f, stage == 4 ? 3.0f : 2.0f, stage == 4 ? HEX(0x8ad858) : HEX(0xb8d878), HEX(0x4a9a3a), HEX(0x2a6a22)); if (stage == 3 && i == 1) im.set(x, y - 3, HEX(0xf2d040)); }
+            break;
+        case CR_BEET:
+            for (int i = 0; i < 5; i++) leaf(9, 21, H - 2 - (i % 2) * 2, 0.5f + i * 0.5f, i % 2 ? HEX(0x6a2a3a) : G2);
+            for (int i = 0; i < 3; i++) im.line(9, 21, 9 + (i - 1) * 2, 21 - H + 3, HEX(0xb8283a));
+            if (stage >= 3) im.ellipseShaded(9, 22, stage == 4 ? 3.4f : 2.0f, stage == 4 ? 2.6f : 1.6f, HEX(0xd8506a), HEX(0xa8183a), HEX(0x5a0a1e));
+            break;
+        case CR_LEEK:
+            for (int i = 0; i < 5; i++) im.line(7 + i, 22, 6 + i * 3 / 2 + (i % 2), 22 - H - (i % 3), i % 2 ? G2 : G3);
+            im.rect(7, 18, 5, 5, stage == 4 ? HEX(0xf4f8e8) : HEX(0xc8e8a0)); im.rect(7, 18, 1, 5, HEX(0xffffff));
+            break;
         case CR_STRAWBERRY:
             for (int i = 0; i < 5; i++) leaf(9, 21, 4 + (i % 2) * 2, 0.3f + i * 0.65f, i % 2 ? G1 : G3);
             if (stage >= 3) for (int i = 0; i < 4; i++) { const int x = 5 + i * 3, y = 19 + (i % 2); if (stage == 4) { im.ellipseShaded(x, y, 1.6f, 2.0f, HEX(0xff6a7a), HEX(0xe0283a), HEX(0x8a1020)); im.set(x - 1, y - 1, HEX(0xfff0c0)); } else { im.set(x, y, HEX(0xf8f8ff)); im.set(x + 1, y, HEX(0xf2d040)); } }
@@ -413,7 +486,7 @@ inline Img crop(int c, int stage) {
     return im;
 }
 
-// ------------------------------------------------------------------ the portal (4 swirl frames, 48 x 60) and the market stall (56 x 46)
+// ------------------------------------------------------------------ the portal (4 swirl frames, 48 x 60) 
 inline Img portal(int frame) {
     Img im(48, 60);
     const Pal P = stonePal();
@@ -453,31 +526,6 @@ inline Img portal(int frame) {
     im.outline(OUT);
     return im;
 }
-inline Img market() {
-    Img im(60, 50);
-    // counter and back shelves
-    im.rect(4, 22, 52, 22, HEX(0x8a5a30)); im.rect(4, 22, 52, 2, HEX(0xb07a42));
-    for (int x = 4; x < 56; x += 6) im.rect(x, 24, 1, 20, HEX(0x6a4426));
-    im.rect(2, 40, 56, 5, HEX(0xb07a42)); im.rect(2, 40, 56, 1, HEX(0xd9a866)); im.rect(2, 44, 56, 1, HEX(0x5a371c));
-    // goods on the counter: crates of produce, a sack of seeds, a hanging sign
-    auto crate = [&](int x, u32 a, u32 b) { im.rect(x, 33, 12, 8, HEX(0x6a4426)); im.rect(x, 33, 12, 1, HEX(0xb07a42)); for (int i = 0; i < 4; i++) im.ellipseShaded(x + 2.5f + i * 2.4f, 33.f, 1.9f, 1.9f, lit(a), a, b); };
-    crate(7, HEX(0xe03a2a), HEX(0x9a1a14)); crate(21, HEX(0xf08a2a), HEX(0xb85a14)); crate(35, HEX(0x8ad868), HEX(0x4a9a3a)); crate(47, HEX(0xf2d040), HEX(0xb08a20));
-    // awning: striped cloth on two posts
-    im.rect(2, 8, 3, 36, HEX(0x6a4426)); im.rect(55, 8, 3, 36, HEX(0x6a4426));
-    for (int y = 0; y < 12; y++)
-        for (int x = 0; x < 60; x++) {
-            const int stripe = ((x + y / 2) / 5) % 2;
-            u32 c = stripe ? HEX(0xf4f0ea) : HEX(0x3a9a5a);
-            if (y == 11) c = drk(c);
-            if (y == 0) c = lit(c);
-            if (y >= 9 && (x % 5) > 2) continue;  // scalloped hem
-            im.set(x, 6 + y, c);
-        }
-    im.rect(14, 19, 32, 8, HEX(0x5a371c)); im.rect(15, 20, 30, 6, HEX(0xc89a58));
-    im.text(17, 21, "MARKET", HEX(0x3a2210));
-    im.outline(OUT);
-    return im;
-}
 
 // ------------------------------------------------------------------ icons (16 x 16) for the new materials and tools
 inline Img iconMat(int m) {
@@ -488,9 +536,10 @@ inline Img iconMat(int m) {
         im.set(7, 9, HEX(0x241a14)); im.set(9, 10, HEX(0x241a14));
         im.outline(OUT);
     };
-    if (m >= M_SEED0 && m < M_SEED0 + CROP_N) {
-        static const u32 lab[CROP_N] = {HEX(0xe8c040), HEX(0xf08a2a), HEX(0xc09a5a), HEX(0x6ab84a), HEX(0xf2d040), HEX(0xe03a2a), HEX(0xf08a2a), HEX(0xe0283a)};
-        seedPacket(lab[m - M_SEED0]);
+    if (seedMatCrop(m) >= 0) {
+        static const u32 lab[CROP_N] = {HEX(0xe8c040), HEX(0xf08a2a), HEX(0xc09a5a), HEX(0x6ab84a), HEX(0xf2d040), HEX(0xe03a2a), HEX(0xf08a2a), HEX(0xe0283a),
+                                        HEX(0x8a3ab8), HEX(0xe8d0f0), HEX(0xe0382a), HEX(0x4a9a3a), HEX(0xa8183a), HEX(0xd8f0b0)};
+        seedPacket(lab[seedMatCrop(m)]);
         return im;
     }
     switch (m) {
@@ -526,6 +575,46 @@ inline Img iconMat(int m) {
         case M_STRAWBERRY:
             im.ellipseShaded(8, 9, 4.5f, 5.5f, HEX(0xff7a8a), HEX(0xe0283a), HEX(0x8a1020)); im.rect(6, 3, 5, 2, HEX(0x4a9a3a)); im.set(8, 2, HEX(0x6ab84a));
             for (int i = 0; i < 4; i++) im.set(6 + (i % 2) * 3, 7 + i * 2 / 1 % 5, HEX(0xfff0c0));
+            break;
+        case M_EGGPLANT:
+            im.ellipseShaded(8, 9, 4.2f, 5.6f, HEX(0xa86ad8), HEX(0x6a2a9a), HEX(0x3a1260)); im.rect(6, 2, 5, 3, HEX(0x4a9a3a)); im.set(5, 3, HEX(0x6ab84a)); im.set(7, 7, HEX(0xd8b0f0));
+            break;
+        case M_TURNIP:
+            im.ellipseShaded(8, 10, 5.2f, 4.2f, HEX(0xfff4ff), HEX(0xe0a8e8), HEX(0xa05ab8)); im.line(8, 6, 8, 2, HEX(0x6ab84a)); im.line(8, 6, 5, 3, HEX(0x4a9a3a)); im.line(8, 6, 11, 3, HEX(0x4a9a3a));
+            im.rect(5, 6, 6, 2, HEX(0xc87ad0));
+            break;
+        case M_PEPPER:
+            im.ellipseShaded(8, 9, 3.2f, 5.6f, HEX(0xff6a4a), HEX(0xd8281a), HEX(0x8a1008)); im.rect(7, 2, 3, 3, HEX(0x4a9a3a)); im.set(7, 7, HEX(0xffc0a8));
+            break;
+        case M_CUCUMBER:
+            im.ellipseShaded(8, 8, 2.8f, 6.2f, HEX(0x8ad858), HEX(0x4a9a3a), HEX(0x2a6a22)); for (int i = 0; i < 4; i++) im.set(7 + (i % 2) * 2, 4 + i * 2, HEX(0xc8f0a0));
+            break;
+        case M_BEET:
+            im.ellipseShaded(8, 10, 4.8f, 4.2f, HEX(0xd8506a), HEX(0xa8183a), HEX(0x5a0a1e)); im.line(8, 6, 8, 2, HEX(0xb8283a)); im.line(8, 6, 5, 3, HEX(0x6a2a3a)); im.line(8, 6, 11, 3, HEX(0x6a8a3a)); im.set(6, 9, HEX(0xf08a9a));
+            break;
+        case M_LEEK:
+            for (int i = 0; i < 3; i++) im.line(6 + i * 2, 8, 4 + i * 4, 1, i % 2 ? HEX(0x6ab84a) : HEX(0x4a9a3a));
+            im.rect(6, 8, 5, 6, HEX(0xf4f8e8)); im.rect(6, 8, 1, 6, HEX(0xffffff)); im.rect(6, 8, 5, 2, HEX(0xc8e8a0)); im.rect(6, 14, 5, 1, HEX(0xe8d0a8));
+            break;
+        case M_FLOUR:
+            im.rect(4, 5, 8, 10, HEX(0xe8dcc0)); im.rect(4, 5, 8, 2, HEX(0xc8b890)); im.rect(4, 5, 1, 10, HEX(0xfff4d8)); im.rect(5, 9, 6, 3, HEX(0xf8f4e8));
+            im.set(7, 10, HEX(0xc8a43a)); im.set(8, 10, HEX(0xf2d868)); im.set(9, 10, HEX(0xc8a43a));
+            break;
+        case M_BUTTER:
+            im.rect(3, 7, 10, 6, HEX(0xffe880)); im.rect(3, 7, 10, 2, HEX(0xfff4b0)); im.rect(3, 12, 10, 1, HEX(0xd8b84a)); im.rect(3, 9, 1, 3, HEX(0xf2d868));
+            im.rect(4, 5, 8, 2, HEX(0xdce8f0));
+            break;
+        case M_CHEESE:
+            im.rect(2, 8, 12, 6, HEX(0xf2c84a)); im.rect(2, 8, 12, 1, HEX(0xffe888));
+            for (int x = 3; x < 13; x++) im.set(x, 7 - (x - 3) / 4, HEX(0xf8d860));
+            im.set(5, 10, HEX(0xb88a20)); im.set(9, 11, HEX(0xb88a20)); im.set(11, 9, HEX(0xb88a20)); im.rect(2, 13, 12, 1, HEX(0xc89a30));
+            break;
+        case M_JAM:
+            im.rect(4, 6, 8, 8, HEX(0x8a2a5a)); im.rect(4, 6, 2, 8, HEX(0xb04a7a)); im.rect(3, 4, 10, 3, HEX(0xe8d8a8)); im.rect(3, 4, 10, 1, HEX(0xfff0c8)); im.rect(5, 9, 6, 3, HEX(0xf0e0c0));
+            break;
+        case M_PICKLES:
+            im.rect(4, 4, 8, 10, HEX(0xc8e8d8)); im.rect(4, 4, 1, 10, HEX(0xf0fff8)); im.rect(3, 2, 10, 3, HEX(0xb89a5a));
+            for (int i = 0; i < 3; i++) im.ellipseShaded(6 + i * 2, 9, 1.2f, 3.2f, HEX(0x8ad858), HEX(0x4a9a3a), HEX(0x2a6a22));
             break;
         case M_EGG:
             im.ellipseShaded(8, 9, 4.2f, 5.2f, HEX(0xfff4e0), HEX(0xf0dcc0), HEX(0xc0a888)); im.set(6, 6, HEX(0xffffff));
@@ -564,6 +653,57 @@ inline Img iconMat(int m) {
     im.outline(OUT);
     return im;
 }
+// the face of a baby farm animal (inventory icon, 16 x 16 scaled to 8 x 8): body and head in the species' own colours
+inline Img iconFarmBaby(int k) {
+    struct C { u32 body, light, dark, beak; };
+    static const C CL[DA_COUNT] = {
+        {HEX(0xf2dc5a), HEX(0xfff0a0), HEX(0xb89a28), HEX(0xe8892a)},  // chick
+        {HEX(0xf4efe6), HEX(0xffffff), HEX(0x6a4a34), HEX(0xe8a0a0)},  // calf
+        {HEX(0xeee6d2), HEX(0xfffaf0), HEX(0x5a4a40), HEX(0x9a8a7a)},  // lamb
+        {HEX(0xf0a8a8), HEX(0xffd0d0), HEX(0xb06a6a), HEX(0xd87a7a)},  // piglet
+        {HEX(0xd8d0c0), HEX(0xf4efe4), HEX(0x6a5a4a), HEX(0x9a8a7a)},  // kid
+        {HEX(0xf6e46a), HEX(0xfff4a8), HEX(0xb89a28), HEX(0xf09a2a)},  // duckling
+        {HEX(0xb89a7a), HEX(0xe0cfb4), HEX(0x6a5040), HEX(0xe8a0a0)}}; // kit
+    const C& c = CL[k];
+    Img im(16, 16);
+    if (k == DA_COW || k == DA_SHEEP || k == DA_GOAT || k == DA_RABBIT) {  // ears / horns
+        const float ex = k == DA_RABBIT ? 5.f : 3.f;
+        im.ellipse(8.f - ex, k == DA_RABBIT ? 3.f : 5.f, 1.3f, k == DA_RABBIT ? 3.f : 1.8f, c.dark);
+        im.ellipse(8.f + ex, k == DA_RABBIT ? 3.f : 5.f, 1.3f, k == DA_RABBIT ? 3.f : 1.8f, c.dark);
+    }
+    if (k == DA_PIG) { im.ellipse(4.5f, 5.f, 1.8f, 1.8f, c.dark); im.ellipse(11.5f, 5.f, 1.8f, 1.8f, c.dark); }
+    im.ellipse(8.f, 9.5f, 6.0f, 5.4f, c.body);
+    im.ellipse(8.f, 7.6f, 4.2f, 2.4f, c.light);
+    if (k == DA_COW) im.ellipse(5.f, 8.f, 1.8f, 1.6f, c.dark);
+    im.set(5, 8, HEX(0x20140c)); im.set(10, 8, HEX(0x20140c));
+    const int by = (k == DA_CHICKEN || k == DA_DUCK) ? 10 : 11;
+    for (int x = 7; x <= 8; x++) im.set(x, by, c.beak);
+    if (k == DA_DUCK) im.set(7, by + 1, c.beak), im.set(8, by + 1, c.beak);
+    im.outline(OUT);
+    return im;
+}
+
+// the farm's carried gear: straw hat, farmer's boots, porter's belt (k = 0..2)
+inline Img iconFarmCarry(int k) {
+    Img im(16, 16);
+    if (k == 0) {
+        im.ellipse(8.f, 10.f, 7.2f, 2.8f, HEX(0xe8c86a));
+        im.ellipse(8.f, 7.f, 4.0f, 3.6f, HEX(0xf2d880));
+        im.rect(4, 8, 8, 1, HEX(0xb04a3a));
+        im.rect(5, 5, 2, 1, HEX(0xfff0b0));
+    } else if (k == 1) {
+        im.rect(4, 3, 5, 8, HEX(0x8a5a30)); im.rect(4, 3, 1, 8, HEX(0xb07a44));
+        im.rect(4, 10, 9, 3, HEX(0x6a4220)); im.rect(12, 9, 1, 1, HEX(0x6a4220));
+        im.rect(4, 5, 5, 1, HEX(0xe8c86a)); im.set(6, 8, HEX(0xc8a060));
+    } else {
+        im.rect(2, 6, 12, 4, HEX(0x7a4a26)); im.rect(2, 6, 12, 1, HEX(0xa8703c));
+        im.rect(6, 5, 4, 6, HEX(0xd8b84a)); im.rect(7, 6, 2, 4, HEX(0x7a4a26));
+        im.set(3, 8, HEX(0x3a2210)); im.set(12, 8, HEX(0x3a2210));
+    }
+    im.outline(OUT);
+    return im;
+}
+
 inline Img iconTool(int k) {
     Img im(16, 16);
     const u32 W1 = HEX(0xb07a42), W2 = HEX(0x84552c), M1 = HEX(0xc4c8d4), M2 = HEX(0x8a90a4);
@@ -575,6 +715,10 @@ inline Img iconTool(int k) {
         im.line(11, 8, 15, 4, HEX(0x7a8ca8)); im.line(11, 9, 15, 5, HEX(0x4a5a78)); im.rect(14, 3, 2, 2, HEX(0xb0c4de));
         im.rect(4, 3, 6, 1, HEX(0x4a5a78)); im.set(4, 4, HEX(0x4a5a78)); im.set(9, 4, HEX(0x4a5a78)); im.set(4, 5, HEX(0x4a5a78)); im.set(9, 5, HEX(0x4a5a78));
         im.set(15, 6, HEX(0x7ab8e0)); im.set(15, 8, HEX(0x7ab8e0));
+    } else if (k == TL_SHOVEL) {  // a long handle and a pointed steel blade at the top
+        im.line(3, 14, 10, 6, W1); im.line(4, 14, 11, 6, W2);
+        im.rect(10, 1, 5, 5, M1); im.rect(11, 6, 3, 1, M1); im.set(12, 7, M1);
+        im.rect(14, 1, 1, 5, M2); im.rect(10, 1, 5, 1, M2); im.rect(9, 5, 2, 2, W2);
     } else if (k == TL_ROD) {  // a long thin rod, a line and a red bobber
         im.line(2, 14, 12, 3, W1); im.line(3, 14, 13, 3, W2);
         im.line(13, 3, 14, 10, HEX(0xe8e8e8));
@@ -586,6 +730,7 @@ inline Img iconTool(int k) {
     im.outline(OUT);
     return im;
 }
+inline Img machineArt(int kind, int w, int h, int fr);
 inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build menu (24 x 24)
     Img im(24, 24);
     const Pal P = woodPal();
@@ -598,6 +743,8 @@ inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build m
         case HP_BRIDGE: im.blit(bridge(false), 4, 4); im.outline(OUT); break;
         case HP_ROOF: im.blit(roofTile(), 4, 4); im.outline(OUT); break;
         case HP_PLOT: im.blit(plot(false), 4, 4); im.outline(OUT); break;
+        case HP_HOLE: im.blit(digHole(false, 0), 4, 4); im.outline(OUT); break;
+        case HP_POND: im.blit(digHole(true, 0), 4, 4); im.outline(OUT); break;
         case HP_FENCE: im.blit(fence(false), 4, 3); break;
         case HP_GATE: im.blit(gate(false, false), 4, 3); break;
         case HP_DOOR: im.blit(door(false), 4, 0); break;
@@ -617,7 +764,7 @@ inline Img iconPiece(int kind) {  // a tiny picture of the piece for the build m
             const int w = HPDEF[kind].w, h = HPDEF[kind].h;
             if (kind == HP_PEN) { for (int i = 0; i < 4; i++) { im.rect(3 + i * 5, 6, 2, 12, P.M); } im.rect(3, 8, 18, 2, P.L); im.rect(3, 13, 18, 2, P.L); im.outline(OUT); break; }
             if (kind == HP_GREENHOUSE) { im.rect(3, 6, 18, 12, RGBA(190, 230, 245, 200)); im.rect(3, 6, 18, 1, HEX(0xe6e8ec)); im.rect(3, 17, 18, 1, HEX(0x8a909c)); for (int x = 3; x < 22; x += 6) im.rect(x, 6, 1, 12, HEX(0xe6e8ec)); im.outline(OUT); break; }
-            Img b = building(kind, std::min(w, 3), std::min(h, 2));
+            Img b = kind >= HP_MILL ? machineArt(kind, std::min(w, 3), std::min(h, 2), 0) : building(kind, std::min(w, 3), std::min(h, 2));
             // fit into 24 x 24 by sampling
             for (int y = 0; y < 24; y++)
                 for (int x = 0; x < 24; x++) {
@@ -655,18 +802,116 @@ inline Img nodeSprite(int i) {
     return im;
 }
 
+// ------------------------------------------------------------------ production machines: a box with the machine on top; fr 1 is the working frame
+inline Img machineArt(int kind, int w, int h, int fr) {
+    const Pal P = woodPal(), S = stonePal();
+    const int PWd = w * 16, tall = kind == HP_MILL ? 22 : kind == HP_SAWMILL ? 8 : 16;
+    const int bodyH = h * 16 + 2, H = bodyH + tall, x0 = 1, y0 = tall, cx = PWd / 2 + 1;
+    const int frontY = y0 + bodyH - 11;
+    Img im(PWd + 2, H);
+    const bool stoneBody = kind == HP_KETTLE || kind == HP_OVEN || kind == HP_SMELTER;
+    const Pal B = stoneBody ? S : P;
+    im.rect(x0, y0, PWd, bodyH - 11, lit(B.L));                       // the top
+    im.rect(x0, frontY, PWd, 11, B.M);                                 // the front
+    im.rect(x0, y0, PWd, 1, lit(lit(B.L)));
+    im.rect(x0, frontY, PWd, 1, B.L);
+    im.rect(x0, y0 + bodyH - 2, PWd, 2, B.D);
+    for (int x = x0 + 4; x < x0 + PWd; x += 5) im.rect(x, frontY + 1, 1, 8, stoneBody ? B.D : B.D);
+    auto smoke = [&](int sx, int sy) {  // two grey puffs that drift up
+        const int d = fr * 2;
+        im.ellipse(sx, sy - d, 2.2f, 1.8f, HEX(0xd8d8de));
+        im.ellipse(sx + 1, sy - 5 - d, 2.8f, 2.2f, HEX(0xbcbcc6));
+    };
+    const u32 fire = fr ? HEX(0xffc040) : HEX(0xf0953a);
+    switch (kind) {
+        case HP_MILL: {  // a hopper over a grindstone, flour sacks, and a sail wheel on a post
+            im.rect(cx - 14, y0 - 7, 12, 3, P.D); im.rect(cx - 13, y0 - 4, 10, 6, P.M); im.rect(cx - 13, y0 - 4, 10, 1, P.L);
+            im.ellipseShaded(cx - 8, y0 + 7, 9, 4.5f, S.L, S.M, S.D);
+            im.ellipse(cx - 8, y0 + 6.f, 5, 2.f, S.D); im.set(cx - 8 + (fr ? 3 : -3), y0 + 6, HEX(0xeeeef2));
+            for (int i = 0; i < 2; i++) { im.ellipseShaded(cx + 10 + i * 6, y0 + 8, 4.5f, 3.5f, HEX(0xf2ead2), HEX(0xd8c8a0), HEX(0xa8946a)); im.rect(cx + 8 + i * 6, y0 + 4, 4, 1, P.D); }
+            const int wx = PWd - 7, wy = 9;
+            im.rect(wx, wy, 2, y0 - wy + 4, P.D);
+            for (int k = 0; k < 4; k++) {
+                const float a = (fr ? 0.7854f : 0.f) + k * 1.5708f;
+                const int ex = wx + (int)lroundf(cosf(a) * 8), ey = wy + (int)lroundf(sinf(a) * 8);
+                im.line(wx, wy, ex, ey, P.L);
+                im.line(wx + 1, wy, ex + 1, ey, P.M);
+                im.line(wx + (int)lroundf(cosf(a) * 4), wy + (int)lroundf(sinf(a) * 4) + 1, ex, ey + 1, HEX(0xece4cc));
+            }
+            im.rect(wx - 1, wy - 1, 4, 3, P.DD);
+            break;
+        }
+        case HP_DAIRY: {  // a churn with its plunger, a milk can and a stack of cheese wheels
+            im.rect(cx - 13, y0 - 5, 9, 13, P.M); im.rect(cx - 13, y0 - 5, 2, 13, P.L); im.rect(cx - 6, y0 - 5, 2, 13, P.D);
+            im.rect(cx - 13, y0 - 2, 9, 1, HEX(0x6a6a74)); im.rect(cx - 13, y0 + 4, 9, 1, HEX(0x6a6a74));
+            im.rect(cx - 10, y0 - 12 + (fr ? 3 : 0), 2, 8, P.D); im.rect(cx - 11, y0 - 13 + (fr ? 3 : 0), 4, 2, P.L);
+            im.rect(cx + 1, y0 + 1, 6, 9, HEX(0xc8ccd6)); im.rect(cx + 1, y0 + 1, 2, 9, HEX(0xeef0f6)); im.rect(cx + 2, y0 - 1, 4, 2, HEX(0x8a909c));
+            for (int i = 0; i < 2; i++) im.ellipseShaded(cx + 12, y0 + 8 - i * 3, 5.5f, 2.6f, HEX(0xffe48a), HEX(0xf2c94c), HEX(0xb8902a));
+            break;
+        }
+        case HP_KETTLE: {  // a big copper pot of jam over a fire
+            im.ellipseShaded(cx, y0 + 6, 11, 7, HEX(0xe8a468), HEX(0xb8763a), HEX(0x7a4a24));
+            im.ellipse(cx, y0 + 4.f, 8.5f, 3.8f, HEX(0x5a371c));
+            im.ellipse(cx, y0 + 4.f, 7.5f, 3.f, HEX(0xb02a5a));
+            im.set(cx - 3 + fr * 4, y0 + 3, HEX(0xe05a8a)); im.set(cx + 2 - fr * 4, y0 + 5, HEX(0xe05a8a)); im.set(cx, y0 + 4 + fr, HEX(0xff9ac0));
+            smoke(cx - 2, y0 - 3);
+            im.rect(cx - 5, frontY + 3, 10, 6, HEX(0x2a1c14)); im.rect(cx - 3, frontY + 5, 6, 4, fire); im.rect(cx - 1, frontY + 6, 2, 3, HEX(0xfff0a0));
+            break;
+        }
+        case HP_SMOKER: {  // a plank hut with a chimney and hanging meat
+            im.rect(x0 + 2, y0 - 6, PWd - 4, 7, P.D); im.rect(x0 + 2, y0 - 6, PWd - 4, 1, P.L);  // roof edge
+            im.rect(cx + 6, 0, 6, y0 - 3, S.M); im.rect(cx + 6, 0, 2, y0 - 3, S.L); im.rect(cx + 5, 0, 8, 2, S.D);
+            smoke(cx + 9, 7);
+            im.rect(cx - 7, frontY - 1, 14, 11, HEX(0x2a1c14));
+            for (int i = 0; i < 3; i++) { im.rect(cx - 5 + i * 4, frontY + 1, 2, 6, i == 1 ? HEX(0x8a2e26) : HEX(0xb8483a)); im.set(cx - 5 + i * 4, frontY + 1, HEX(0xe08a7a)); }
+            break;
+        }
+        case HP_OVEN: {  // a brick dome with a glowing mouth and a chimney
+            im.rect(PWd - 8, 1, 5, y0 - 2, S.M); im.rect(PWd - 8, 1, 2, y0 - 2, S.L); im.rect(PWd - 9, 1, 7, 2, S.D);
+            smoke(PWd - 5, 6);
+            im.ellipseShaded(cx, y0 + 6, 12, 9, HEX(0xd8795a), HEX(0xb8452e), HEX(0x7a2e1e));
+            for (int y = y0 - 1; y < y0 + 12; y += 3) for (int x = cx - 11; x < cx + 11; x += 4) if (((x + y) / 3) % 2) im.set(x, y, HEX(0x7a2e1e));
+            im.rect(cx - 5, frontY - 1, 10, 10, HEX(0x1c1410)); im.rect(cx - 4, frontY, 8, 2, HEX(0x1c1410));
+            im.rect(cx - 3, frontY + 3, 6, 6, fire); im.rect(cx - 1, frontY + 5, 2, 4, HEX(0xfff0a0));
+            break;
+        }
+        case HP_SAWMILL: {  // a saw table with a toothed blade, a stack of logs and planks
+            for (int i = 0; i < 3; i++) { const int lx = x0 + 6 + (i % 2) * 5, ly = y0 + 3 + i * 4; im.rect(lx, ly - 2, 14, 4, P.M); im.ellipse(lx + 14, ly, 2.2f, 2.f, P.L); im.ellipse(lx + 14, ly, 1.2f, 1.f, P.D); }
+            im.rect(cx - 2, y0 - 2, 22, 11, HEX(0x6a6a74)); im.rect(cx - 2, y0 - 2, 22, 1, HEX(0x9096a4));
+            const int bx = cx + 9, by = y0 + 2;
+            im.ellipse(bx, by, 7, 7, HEX(0xc8ccd6));
+            im.ellipse(bx, by, 2, 2, HEX(0x4a4a54));
+            for (int k = 0; k < 10; k++) { const float a = (fr ? 0.31f : 0.f) + k * 0.6283f; im.set(bx + (int)lroundf(cosf(a) * 8), by + (int)lroundf(sinf(a) * 8), HEX(0xe8eaf0)); }
+            for (int i = 0; i < 3; i++) { im.rect(x0 + PWd - 18, y0 + 2 + i * 3, 14, 2, P.L); im.rect(x0 + PWd - 18, y0 + 3 + i * 3, 14, 1, P.D); }
+            break;
+        }
+        default: {  // HP_SMELTER: a stone furnace with a glowing mouth, a chimney and ingots
+            im.rect(cx + 3, 1, 6, y0, S.M); im.rect(cx + 3, 1, 2, y0, S.L); im.rect(cx + 2, 1, 8, 2, S.D);
+            smoke(cx + 6, 6);
+            im.rect(cx - 10, y0 + 2, 12, 5, HEX(0xc8ccd6)); im.rect(cx - 10, y0 + 2, 12, 1, HEX(0xeef0f6));  // ingots
+            im.rect(cx - 8, y0 - 1, 10, 4, HEX(0xe8c070)); im.rect(cx - 8, y0 - 1, 10, 1, HEX(0xfff0b0));
+            im.rect(cx - 6, frontY - 1, 12, 10, HEX(0x1c1410));
+            im.rect(cx - 5, frontY + 1, 10, 8, fire); im.rect(cx - 3, frontY + 3, 6, 6, HEX(0xffe060)); im.rect(cx - 1, frontY + 5, 2, 4, HEX(0xfff6c0));
+            break;
+        }
+    }
+    im.outline(OUT);
+    return im;
+}
+
 // ------------------------------------------------------------------ the asset set
 struct HomeAssets {
     Spr wall[2][2];            // [wood / stone][capped / face only]
-    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2], roof;
+    Spr floorWood[2], floorStone, foundation, bridge[2], plot[2][16], roof, hole[16];
     Spr fence[2], gate[2][2], door[2];   // [horizontal / vertical][closed / open]  (door: closed / open)
     Spr building[HP_COUNT][2]; // [kind][rot & 1]
     Spr greenhouse[2];
+    Spr machine[HP_COUNT - HP_MILL][2][2];  // [kind - HP_MILL][rot & 1][idle / working]
     Spr well, scarecrow;
     Spr crop[CR_COUNT][CROP_STAGES];
-    Spr portal[4], market, node[2];
+    Spr portal[4], node[2];
     Spr pieceIcon[HP_COUNT];
-    Spr matIcon[M_COUNT], toolIcon[TL_COUNT];  // only the homestead's entries are filled
+    Spr matIcon[M_COUNT], toolIcon[TL_COUNT], babyIcon[DA_COUNT], carryIcon[3];  // only the homestead's entries are filled
     bool ok = false;
 };
 inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
@@ -677,7 +922,8 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
         a.bridge[v] = makeSpr(r, bridge(v == 1), 0, 0);
         a.fence[v] = makeSpr(r, fence(v == 1), v ? 4 : 8, v ? 17 : 16);
         for (int o = 0; o < 2; o++) a.gate[v][o] = makeSpr(r, gate(v == 1, o == 1), v ? 4 : 8, v ? 17 : 16);
-        a.plot[v] = makeSpr(r, plot(v == 1), 0, 0);
+        for (int m = 0; m < 16; m++) a.plot[v][m] = makeSpr(r, plot(v == 1, m), 0, 0);
+        if (v == 0) for (int m = 0; m < 16; m++) a.hole[m] = makeSpr(r, digHole(false, m), 0, 0);
         a.door[v] = makeSpr(r, door(v == 1), 8, 23);
     }
     a.floorStone = makeSpr(r, floorStone(), 0, 0);
@@ -695,15 +941,23 @@ inline void buildHomeAssets(SDL_Renderer* r, HomeAssets& a) {
         Img g = greenhouse(w, h);
         a.greenhouse[o] = makeSpr(r, g, 1, g.h - 1);
     }
+    for (int k = HP_MILL; k < HP_COUNT; k++)
+        for (int o = 0; o < 2; o++)
+            for (int fr = 0; fr < 2; fr++) {
+                const int w = o ? HPDEF[k].h : HPDEF[k].w, h = o ? HPDEF[k].w : HPDEF[k].h;
+                Img m = machineArt(k, w, h, fr);
+                a.machine[k - HP_MILL][o][fr] = makeSpr(r, m, m.w / 2, m.h - 1);
+            }
     a.well = makeSpr(r, well(), 16, 43);
     a.scarecrow = makeSpr(r, scarecrow(), 11, 29);
     for (int c = 0; c < CR_COUNT; c++)
         for (int s = 0; s < CROP_STAGES; s++) a.crop[c][s] = makeSpr(r, crop(c, s), 9, 23);
     for (int f = 0; f < 4; f++) a.portal[f] = makeSpr(r, portal(f), 24, 57);
-    a.market = makeSpr(r, market(), 30, 46);
     for (int i = 0; i < 2; i++) a.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
     for (int k = 0; k < HP_COUNT; k++) a.pieceIcon[k] = makeSpr(r, iconPiece(k), 12, 12);
     for (int m = M_BERRY; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, iconMat(m), 8, 8);
+    for (int k = 0; k < 3; k++) a.carryIcon[k] = makeSpr(r, iconFarmCarry(k), 8, 8);
+    for (int k = 0; k < DA_COUNT; k++) a.babyIcon[k] = makeSpr(r, iconFarmBaby(k), 8, 8);
     for (int k = TL_HOE; k < TL_COUNT; k++) a.toolIcon[k] = makeSpr(r, iconTool(k), 8, 8);
     a.ok = true;
 }

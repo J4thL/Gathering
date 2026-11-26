@@ -14,6 +14,40 @@
 #include <fstream>
 #include "core/game.hpp"
 #include "art/export_sprites.hpp"
+#include <csignal>
+#ifdef __GLIBC__
+#include <execinfo.h>
+#endif
+
+// ---- crash log: if the game dies from a signal (segfault, abort...), wildwood_crash.txt is written next to the save with what the game
+// was doing, so a crash always leaves a trace. Best effort: it is written from inside the signal handler.
+static Game* crashGame = nullptr;
+static char crashPath[1024] = "wildwood_crash.txt";
+static void crashHandler(int sig) {
+    static volatile int busy = 0;
+    if (!busy) {
+        busy = 1;
+        if (FILE* f = fopen(crashPath, "w")) {
+            fprintf(f, "WILDWOOD HUNTER crashed: signal %d\n", sig);
+            if (crashGame) {
+                const Game& g = *crashGame;
+                fprintf(f, "state %d  map %d  delve %d  interior %d  endless floor %d  hires %d  window %dx%d  fullscreen %d\n", (int)g.state, g.world.mapId, g.delve,
+                        g.interior, g.endlessFloor, LS > 1 ? 1 : 0, g.winW, g.winH, g.fullscreen ? 1 : 0);
+                fprintf(f, "player %.0f %.0f  hp %.0f\n", g.p.pos.x, g.p.pos.y, g.p.hp);
+            }
+#ifdef __GLIBC__
+            fflush(f);
+            void* bt[40];
+            const int n = backtrace(bt, 40);
+            backtrace_symbols_fd(bt, n, fileno(f));
+#endif
+            fclose(f);
+        }
+    }
+    signal(sig, SIG_DFL);
+    raise(sig);
+}
+#include "devui/dev_ui.hpp"  // the F1 developer panel (empty stubs unless built with GATHERING_DEV_UI)
 
 void enterMap(Game& g, int b);                          // world_check.cpp (shared with the tours)
 V2 portalPoint(const World& w, const Portal& pt);      // world_check.cpp
@@ -33,6 +67,7 @@ static void pollInput(Game& g) {
     // consumed them, so a frame that runs no update step can't swallow an input.
     SDL_Event e;
     while (SDL_PollEvent(&e)) {
+        if (devui::processEvent(g, e)) continue;  // F1, or the panel has the mouse / keyboard
         switch (e.type) {
             case SDL_QUIT: g.running = false; break;
             case SDL_MOUSEMOTION: mapMouse(g, e.motion.x, e.motion.y); break;
@@ -77,6 +112,10 @@ static void pollInput(Game& g) {
                     case SDLK_ESCAPE: in.escPressed = true; break;
                     case SDLK_TAB: in.tabPressed = true; break;
                     case SDLK_RETURN: case SDLK_SPACE: in.enterPressed = true; break;
+                    case SDLK_UP: in.upPressed = true; break;
+                    case SDLK_DOWN: in.downPressed = true; break;
+                    case SDLK_LEFT: in.leftPressed = true; break;
+                    case SDLK_RIGHT: in.rightPressed = true; break;
                     case SDLK_1: in.selectKey = 0; break;
                     case SDLK_2: in.selectKey = 1; break;
                     case SDLK_3: in.selectKey = 2; break;
@@ -91,12 +130,18 @@ static void pollInput(Game& g) {
                     case SDLK_F11:
                         g.fullscreen = !g.fullscreen;
                         SDL_SetWindowFullscreen(g.win, g.fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+                        g.saveSettings();
                         break;
                     default: break;
                 }
                 break;
             case SDL_WINDOWEVENT:
                 if (e.window.event == SDL_WINDOWEVENT_FOCUS_LOST) in.l = false;
+                if (e.window.event == SDL_WINDOWEVENT_SIZE_CHANGED && !g.fullscreen && e.window.data1 >= 400 && e.window.data2 >= 225) {
+                    g.winW = e.window.data1;  // remembered for next time (written a moment after the last resize)
+                    g.winH = e.window.data2;
+                    g.winSaveT = 1.0f;
+                }
                 break;
         }
     }
@@ -108,6 +153,8 @@ static void pollInput(Game& g) {
     in.right = k[K[K_RIGHT]] || k[SDL_SCANCODE_RIGHT];
     in.sprint = k[K[K_SPRINT]] || (K[K_SPRINT] == SDL_SCANCODE_LSHIFT && k[SDL_SCANCODE_RSHIFT]);
     in.e = k[K[K_USE]];
+    if (devui::wantKeyboard()) in.up = in.down = in.left = in.right = in.sprint = in.e = false;  // typing in the dev panel is not walking
+    in.melee = k[K[K_MELEE]] || (SDL_GetMouseState(nullptr, nullptr) & SDL_BUTTON(SDL_BUTTON_RIGHT)) != 0;
 }
 
 // ---- scripted run used for automated screenshots / smoke testing
@@ -187,6 +234,97 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.in.e = true;
             for (int i = 0; i < 80; i++) frames(1);
             shot("06_gather.bmp");
+            g.in.e = false;  // (the gathering is over: nobody walks while the two pictures are taken)
+            {  // to a stand of trees, so the lean shows
+                int best = -1;
+                V2 at = g.p.pos;
+                auto isTree = [](int k) { return k == P_OAK0 || k == P_OAK1 || k == P_PINE; };
+                for (const Prop& a : g.world.props) {
+                    if (!isTree(a.kind)) continue;
+                    int n = 0;
+                    for (const Prop& b : g.world.props)
+                        if (isTree(b.kind) && fabsf(a.x - b.x) < 120.f && fabsf(a.y - b.y) < 80.f) n++;
+                    if (n > best) best = n, at = V2(a.x, a.y);
+                }
+                for (V2 off : {V2(0, 40), V2(40, 40), V2(-40, 40), V2(0, 70), V2(60, 0), V2(-60, 0)})
+                    if (!g.world.blocked(at.x + off.x, at.y + off.y, 6)) {
+                        g.p.pos = at + off;
+                        break;
+                    }
+                frames(120);  // (the camera eases to the new place: let it arrive)
+            }
+            g.windForce = 0.f;  // the same view in a dead calm and in a gale from the west: the trees and grass lean downwind
+            frames(3);
+            shot("06w_calm.bmp");
+            g.windForce = 2.f;
+            g.windAngForce = 0.f;
+            frames(3);
+            shot("06w_gale.bmp");
+            // two seconds of each, for an animation: a calm, then a gale from the west (every 6th frame of the game)
+            g.windForce = 0.f;
+            g.windAngForce = 0.f;
+            frames(30);
+            for (int i = 0; i < 24; i++) {
+                frames(6);
+                char nm[64];
+                snprintf(nm, sizeof(nm), "06g_calm_%02d.bmp", i);
+                shot(nm);
+            }
+            g.windForce = 2.f;
+            frames(30);
+            for (int i = 0; i < 24; i++) {
+                frames(6);
+                char nm[64];
+                snprintf(nm, sizeof(nm), "06g_gale_%02d.bmp", i);
+                shot(nm);
+            }
+            g.windForce = -1.f;
+            g.windAngForce = -100.f;
+            {  // the same stand of trees at night, without and with the shadows of the hunter's torch
+                const float day0 = g.dayT;
+                g.dayT = DAY_LEN * 0.72f;
+                g.lightShadows = false;
+                frames(40);
+                shot("06t_night_off.bmp");
+                g.lightShadows = true;
+                frames(4);
+                shot("06t_night_on.bmp");
+                g.dayT = day0;
+            }
+            {  // the torch among the trees, and the village fire among its walls, at night: the old coarse light and the visibility polygons
+                const float day0 = g.dayT;
+                g.dayT = DAY_LEN * 0.72f;
+                frames(30);
+                g.visLights = false;
+                frames(1);
+                shot("06v_torch_off.bmp");
+                g.visLights = true;
+                frames(1);
+                shot("06v_torch_on.bmp");
+                {  // the torch right beside a pine: the trunk throws a wedge of darkness behind it
+                    for (const Prop& pr : g.world.props)
+                        if (pr.kind == P_PINE && pr.x > 300.f && pr.y > 300.f && !g.world.blocked(pr.x - 20.f, pr.y + 3.f, 6) && !g.world.blocked(pr.x + 24.f, pr.y + 3.f, 6)) {
+                            g.p.pos = V2(pr.x - 20.f, pr.y + 3.f);
+                            break;
+                        }
+                    frames(150);
+                    g.visLights = false;
+                    frames(1);
+                    shot("06v_trunk_off.bmp");  // (the same instant, drawn twice: nothing but the light differs)
+                    g.visLights = true;
+                    frames(1);
+                    shot("06v_trunk_on.bmp");
+                }
+                g.p.pos = V2(g.world.fire.x + 40.f, g.world.fire.y + 36.f);
+                frames(150);
+                g.visLights = false;
+                frames(1);
+                shot("06v_fire_off.bmp");
+                g.visLights = true;
+                frames(1);
+                shot("06v_fire_on.bmp");
+                g.dayT = day0;
+            }
             g.in.e = false;
             for (int i = 0; i < 420 && tgt->totalRemain > 0; i++) {
                 g.in.e = true;
@@ -230,11 +368,9 @@ static void scriptedRun(Game& g, const std::string& dir) {
     g.p.inv.set(itemMat(M_HIDE), 20);
     g.p.inv.set(itemMat(M_TUSK), 20);
     g.p.inv.set(itemMat(M_FUR), 20);
-    bool u = g.buyUpgrade(U_TOOL);
-    printf("upgrade tool: %d (lvl %d)\n", u, g.p.up[U_TOOL]);
     g.shopTab = 2;
     frames(2);
-    shot("08_upgrades.bmp");
+    shot("08_shop_buy.bmp");
     g.state = ST_PLAY;
 
     // gathering and crafting screens
@@ -263,7 +399,7 @@ static void scriptedRun(Game& g, const std::string& dir) {
         g.invTab = 3;
         frames(3);
         shot("20c_bestiary.bmp");
-        g.bestMask[A_WOLF] = 5;  // the species card appears on hover
+        g.bestMask[A_WOLF] = 15;  // the species card appears on hover (all four tiers hunted: the card tells when each look turns up)
         g.in.mx = 24 + 30;
         g.in.my = 12 + 38 + 3 * 10 + 4;
         frames(3);
@@ -373,6 +509,14 @@ static void scriptedRun(Game& g, const std::string& dir) {
             g.shopTab = 2;
             frames(3);
             shot("13c_orders.bmp");
+            g.shopTab = 1;  // the BUY list: hunting gear first, then the farm tools, seeds and hay further down
+            g.shopScroll = 0;
+            frames(3);
+            shot("13d_buy.bmp");
+            g.shopScroll = 9;
+            frames(3);
+            shot("13e_buy_farm.bmp");
+            g.shopScroll = 0;
             g.shopTab = 0;
             g.state = ST_PLAY;
             g.exitBuilding();
@@ -671,7 +815,7 @@ static void townTour(Game& g, const std::string& dir) {
     };
     auto find = [&](int outItem, int mat0) {
         for (int r = 0; r < RECIPE_N; r++)
-            if (RECIPES[r].kind != RK_GEAR && recipeItem(RECIPES[r]) == outItem && (mat0 < 0 || RECIPES[r].mat[0] == mat0)) return r;
+            if (recipeItem(RECIPES[r]) == outItem && (mat0 < 0 || RECIPES[r].mat[0] == mat0)) return r;
         return -1;
     };
     g.newGame();
@@ -698,14 +842,7 @@ static void townTour(Game& g, const std::string& dir) {
     g.interior = BLD_TANNER;
     ck(g.craft(rLeather) && g.p.mat(M_LEATHER) >= 2 && g.p.mat(M_HIDE) == 3, "the leatherworks tans hide into leather");
     g.interior = -1;
-    // upgrades moved to the smith: still real
     g.p.coins = 500;
-    g.p.inv.add(itemMat(M_COPPER), 20);
-    g.p.inv.add(itemMat(M_IRON), 20);
-    g.p.inv.add(itemMat(M_HIDE), 20);
-    const int up0 = g.p.up[U_TOOL];
-    g.buyUpgrade(U_TOOL);
-    ck(g.p.up[U_TOOL] >= up0, "the tool upgrade still works (now sold at the blacksmith)");
     // flowers
     g.p.inv.clear();
     g.p.coins = 200;
@@ -721,7 +858,7 @@ static void townTour(Game& g, const std::string& dir) {
     // salon
     g.p.coins = 100;
     g.p.inv.add(itemMat(M_BONE), 3);
-    const int up1 = g.p.up[U_ARMOR], lv1 = g.p.sk.level(SK_CRAFTING), bone1 = g.p.mat(M_BONE), q1 = g.questIdx;
+    const int up1 = g.p.armorLv(), lv1 = g.p.sk.level(SK_CRAFTING), bone1 = g.p.mat(M_BONE), q1 = g.questIdx;
     const HunterLook def;
     ck(g.p.look == def, "the hunter starts with the default look");
     g.salonLook = def;
@@ -748,7 +885,7 @@ static void townTour(Game& g, const std::string& dir) {
     ck(!g.confirmSalon() && g.p.look == def && g.p.coins == 10, "too few coins: refused, nothing changes");
     g.p.coins = 100;
     ck(g.confirmSalon() && g.p.look == want && g.p.coins == 100 - SALON_FEE && g.A.look == want, "confirm charges the small fee and applies the look to the real sprites");
-    ck(g.p.up[U_ARMOR] == up1 && g.p.sk.level(SK_CRAFTING) == lv1 && g.p.mat(M_BONE) == bone1 && g.questIdx == q1, "inventory, gear, skills and quests are untouched");
+    ck(g.p.armorLv() == up1 && g.p.sk.level(SK_CRAFTING) == lv1 && g.p.mat(M_BONE) == bone1 && g.questIdx == q1, "inventory, gear, skills and quests are untouched");
     g.salonLook = def;  // a preview that is cancelled / abandoned changes nothing
     g.salonLook = g.p.look;
     ck(g.p.look == want, "cancelling keeps the confirmed look");
@@ -762,7 +899,7 @@ static void townTour(Game& g, const std::string& dir) {
 // ---- sprite sheet (flag: --sprites DIR): the hunter (every direction and frame) and every animal's first form, for judging the art
 static void spriteSheet(Game& g, const std::string& dir) {
     auto page = [&](const char* name, const std::vector<const Spr*>& list, int cols, int cellW, int cellH) {
-        g.targetCanvas();
+        SDL_SetRenderTarget(g.ren, g.canvas);
         SDL_SetRenderDrawColor(g.ren, 96, 168, 80, 255);
         SDL_RenderClear(g.ren);
         for (size_t i = 0; i < list.size(); i++) {
@@ -873,6 +1010,7 @@ static void tour(Game& g, const std::string& dir) {
         spots.push_back({std::string(nm[b]) + "_hub", b == B_HOME ? g.world.spawn : g.world.hub[b]});
         int i = 0;
         for (auto& l : g.world.landmarks) spots.push_back({std::string(nm[b]) + "_lm" + std::to_string(i++), V2(l.x, l.y + 24)});
+        { int ci = 0; for (auto& c : g.world.camps) spots.push_back({std::string(nm[b]) + "_camp" + std::to_string(ci++), V2(c.x, c.y + 26)}); }
         int k = 0;
         for (auto& sp : spots) {
             g.p.pos = sp.second;
@@ -923,7 +1061,7 @@ static void wildlife(Game& g, const std::string& dir) {
         {"home", {A_RABBIT, A_DEER, A_BOAR, A_WOLF}},
         {"desert", {A_HARE, A_FENNEC, A_COYOTE, A_RATTLER, A_ROADRUNNER, A_LIZARD, A_DUNELION}},
         {"swamp", {A_FROG, A_DUCK, A_MARSHDEER, A_MOCCASIN, A_GATOR, A_PANTHER}},
-        {"snow", {A_ARCTICFOX, A_SNOWHARE, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR}},
+        {"snow", {A_ARCTICFOX, A_SNOWHARE, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR, A_SEAL}},
         {"mountain", {A_GOAT, A_BIGHORN, A_EAGLE, A_MARMOT, A_MTLION}}};
     g.dayT = DAY_LEN * 0.2f;
     for (auto& gr : grp)
@@ -1060,6 +1198,7 @@ int weaponTest(Game& g);     // weapon_tests.cpp
 int worldCheck(Game& g);     // world_check.cpp
 int delveCheck(Game& g);     // world_check.cpp
 int homesteadTest(Game& g);  // homestead_tests.cpp
+int bossTest(Game& g);       // boss_tests.cpp
 int soakTest(Game& g);       // soak_tests.cpp
 void delveShots(Game& g, const std::string& dir);
 
@@ -1074,7 +1213,7 @@ int main(int argc, char** argv) {
     bool headless = false;
     std::string printsDir, smithDir, delveDir, forestDir, shots, tourDir, townDir, spriteDir, dumpFile, wildDir, exportDir;
     bool wtest = false, stest = false;
-    bool wcheck = false, dtest = false, htest = false, soak = false;
+    bool wcheck = false, dtest = false, htest = false, btest = false, soak = false;
     // flags that take a folder / file: without one the old code silently opened the interactive game (and never returned in a script)
     auto takes = [&](int& i, const char* flag, std::string& dst) {
         if (strcmp(argv[i], flag)) return false;
@@ -1095,10 +1234,11 @@ int main(int argc, char** argv) {
         else if (!strcmp(argv[i], "--worldcheck")) wcheck = true;
         else if (!strcmp(argv[i], "--delve")) dtest = true;
         else if (!strcmp(argv[i], "--homestead")) htest = true;
+        else if (!strcmp(argv[i], "--boss")) btest = true;
         else if (!strcmp(argv[i], "--soak")) soak = true;
     }
     // The test suites and tool modes save, load and delete save files: they get their own folder, never the player's real save.
-    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
+    const bool toolRun = headless || wtest || stest || wcheck || dtest || htest || btest || soak || !shots.empty() || !tourDir.empty() || !townDir.empty() || !smithDir.empty() ||
                          !spriteDir.empty() || !exportDir.empty() || !dumpFile.empty() || !wildDir.empty() || !delveDir.empty() || !forestDir.empty() || !printsDir.empty();
     if (toolRun && !(getenv("WILDWOOD_SAVE_DIR") && *getenv("WILDWOOD_SAVE_DIR"))) {
         std::error_code ec;
@@ -1115,7 +1255,18 @@ int main(int argc, char** argv) {
         setenv("SDL_AUDIODRIVER", "dummy", 1);
         setenv("SDL_RENDER_DRIVER", "software", 1);
     }
+#ifdef _WIN32
+    SDL_SetHint("SDL_WINDOWS_DPI_AWARENESS", "permonitorv2");  // a sharp window on high-DPI screens (not stretched by Windows)
+#endif
     Game g;
+    crashGame = &g;
+    if (!toolRun) {
+        const std::string sp = g.savePath();
+        const size_t k = sp.find_last_of("/\\");
+        const std::string cp = (k == std::string::npos ? std::string() : sp.substr(0, k + 1)) + "wildwood_crash.txt";
+        snprintf(crashPath, sizeof crashPath, "%s", cp.c_str());
+        for (int sg : {SIGSEGV, SIGABRT, SIGFPE, SIGILL}) signal(sg, crashHandler);
+    }
     if (!g.init(headless)) return 1;
     if (!dumpFile.empty()) {
         dumpCore(g, dumpFile.c_str());
@@ -1134,6 +1285,11 @@ int main(int argc, char** argv) {
     }
     if (soak) {
         int bad = soakTest(g);
+        g.audio.shutdown();
+        return bad ? 2 : 0;
+    }
+    if (btest) {
+        int bad = bossTest(g);
         g.audio.shutdown();
         return bad ? 2 : 0;
     }
@@ -1376,6 +1532,7 @@ int main(int argc, char** argv) {
         if (dt > 0.1) dt = 0.1;
         acc += dt;
         pollInput(g);
+        if (g.winSaveT > 0.f && (g.winSaveT -= (float)dt) <= 0.f) g.saveSettings();
         // edge-triggered input must only be consumed once per frame even if several sim steps run
         bool first = true;
         while (acc >= step) {
@@ -1384,6 +1541,7 @@ int main(int argc, char** argv) {
             if (first) {
                 g.in.lPressed = g.in.lReleased = g.in.ePressed = g.in.escPressed = g.in.tabPressed = g.in.enterPressed = false;
                 g.in.bandage = g.in.mapToggle = g.in.helpToggle = g.in.invToggle = false;
+                g.in.upPressed = g.in.downPressed = g.in.leftPressed = g.in.rightPressed = false;
                 g.in.buildToggle = g.in.rotPressed = g.in.delPressed = g.in.rPressed = g.in.mountPressed = g.in.commandPressed = g.in.dodgePressed = false;
                 g.in.selectKey = -1;
                 g.in.wheel = 0;
@@ -1394,6 +1552,7 @@ int main(int argc, char** argv) {
         g.in.uiClick = false;  // a UI click is only valid for the frame it happened in
         g.present();
     }
+    devui::shutdown(g);
     g.shutdown();
     return 0;
 }

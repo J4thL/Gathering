@@ -1,4 +1,4 @@
-// homestead_ui.cpp - the Homestead's menus and the build-mode input: build menu, seed menu, animal management, market stall.
+// homestead_ui.cpp - the Homestead's menus and the build-mode input: build menu, animal management.
 #include <algorithm>
 #include <cmath>
 #include "core/game.hpp"
@@ -8,12 +8,9 @@ constexpr int PX = 24, PY = 12, PW = 352, PH = 200;
 void frame(Game& g, const std::string& title) {
     g.fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
     g.panel(PX, PY, PW, PH, HEX(0x4a3524));
-    g.fillRect(PX + 3, PY + 3, PW - 6, 14, g.skinFill(UI_BG));
+    g.fillRect(PX + 3, PY + 3, PW - 6, 14, UI_BG);
     g.text(PX + 8, PY + 7, title, C_GOLD);
 }
-struct ToolBuy { int tool; int price; };
-const ToolBuy TOOL_BUY[] = {{TL_HOE, 30}, {TL_CAN, 25}, {TL_SICKLE, 30}};
-constexpr int HAY_PRICE = 4;
 }  // namespace
 
 // ================================================================= build mode (in the world)
@@ -124,46 +121,63 @@ void Game::drawBuildMenu() {
     textC(PX + PW / 2 + 40, PY + PH - 17, "TAB CATEGORY  WHEEL SCROLL  ESC CLOSE", C_DIM, 1, false);
 }
 
-// ================================================================= seed menu
+// ================================================================= production machines (machines.hpp)
 
-void Game::updateFarmMenu(float dt) {
+void Game::updateMachineMenu(float dt) {
     updateFx(dt);
-    if (in.escPressed || in.ePressed || !hsPiece(farmPieceId)) {
+    if (in.escPressed || in.ePressed) {
         state = ST_PLAY;
-        farmPieceId = -1;
+        machPieceId = -1;
+        save();
         audio.play(S_CLICK);
     }
 }
 
-void Game::drawFarmMenu() {
-    HPiece* pc = hsPiece(farmPieceId);
-    if (!pc) return;
-    frame(*this, "PLANT SEEDS");
-    text(PX + 80, PY + 7, pc->rich ? "FERTILE SOIL: +20% GROWTH" : "PLAIN SOIL", pc->rich ? C_GREEN : C_DIM, 1, false);
-    for (int c = 0; c < CR_COUNT; c++) {
-        const int y = PY + 22 + c * 20, have = p.mat(cropSeed(c));
-        const CropDef& C = CROPS[c];
-        const bool hov = inRect(PX + 6, y, PW - 12, 18);
-        panel(PX + 6, y, PW - 12, 18, hov && have > 0 ? HEX(0x4a3624) : HEX(0x33241a));
-        icon(A.matIcon[cropSeed(c)], PX + 18, y + 9, 14);
-        text(PX + 30, y + 3, std::string(C.name) + " SEEDS", have > 0 ? C_TEXT : C_DIM);
-        text(PX + 30, y + 11, "GROWS IN " + S((int)(C.stageSec * 4)) + "S  NEEDS " + (C.tool >= 0 ? std::string(C.tool == TT_SICKLE ? "SICKLE" : C.tool == TT_HOE ? "HOE" : "AXE") : std::string("HANDS")) +
-                 (C.regrow ? "  REGROWS" : ""), C_DIM, 1, false);
-        text(PX + PW - 60, y + 6, "OWN " + S(have), have > 0 ? C_GREEN : C_RED);
-        if (hov && in.uiClick) {
-            in.uiClick = false;
-            in.lPressed = false;
-            if (have > 0) {
-                hsPlant(*pc, c);
-                state = ST_PLAY;
-                farmPieceId = -1;
-                return;
-            }
-            msg("NO SEEDS - BUY SOME AT THE MARKET", C_RED);
-            audio.play(S_ERROR, 0.6f);
-        }
+void Game::drawMachineMenu() {
+    HPiece* pc = hsPiece(machPieceId);
+    if (!pc || pc->kind < HP_MILL || pc->kind >= HP_COUNT) {
+        state = ST_PLAY;
+        return;
     }
-    textC(PX + PW / 2, PY + PH - 12, "E / ESC CLOSE", C_DIM, 1, false);
+    const MachineDef& M = MACHINES[pc->kind - HP_MILL];
+    frame(*this, HPDEF[pc->kind].name);
+    text(PX + 8, PY + 22, "PICK A RECIPE AND LOAD IT FROM YOUR PACK", C_DIM, 1, false);
+    text(PX + PW - 84, PY + 22, S(pc->mq + pc->mdone) + "/" + S(MACH_MAX_BATCH) + " BATCHES", C_DIM, 1, false);
+    const int rowH = 30, top = PY + 34;
+    for (int r = 0; r < M.nrec; r++) {
+        const MRecipe& R = M.rec[r];
+        const int y = top + r * rowH;
+        const bool active = pc->mrec == r && (pc->mq > 0 || pc->mdone > 0);
+        int can = 99;
+        for (int i = 0; i < 2; i++)
+            if (R.in[i] >= 0) can = std::min(can, p.inv.count(itemMat(R.in[i])) / R.n[i]);
+        panel(PX + 6, y, PW - 12, rowH - 2, active ? HEX(0x4a3a1e) : HEX(0x33241a));
+        icon(itemIcon(machOutItem(R)), PX + 20, y + 13, 18);
+        text(PX + 34, y + 4, S(R.outN) + " " + item(machOutItem(R)).name, can > 0 ? C_TEXT : C_DIM);
+        std::string from = MAT_NAME[R.in[0]];
+        if (R.in[1] >= 0) from += std::string(" + ") + MAT_NAME[R.in[1]];
+        text(PX + 34, y + 15, from + "  " + S((int)R.sec) + "S", C_DIM, 1, false);
+        int cx = PX + 196;
+        for (int i = 0; i < 2; i++)
+            if (R.in[i] >= 0) cx = chip(cx, y + 7, A.matIcon[R.in[i]], p.mat(R.in[i]), R.n[i]);
+        const bool free = !((pc->mq > 0 || pc->mdone > 0) && pc->mrec != r) && pc->mq + pc->mdone < MACH_MAX_BATCH;
+        if (button(PX + PW - 100, y + 7, 40, 13, "LOAD", free && can > 0)) hsMachineLoad(*pc, r, 1);
+        if (button(PX + PW - 56, y + 7, 40, 13, "MAX", free && can > 0)) hsMachineLoad(*pc, r, MACH_MAX_BATCH);
+    }
+    const int sy = top + 4 * rowH + 2;
+    panel(PX + 6, sy, PW - 12, 34, HEX(0x2a1c14));
+    if (pc->mrec >= 0 && pc->mrec < M.nrec && (pc->mq > 0 || pc->mdone > 0)) {
+        const MRecipe& R = M.rec[pc->mrec];
+        text(PX + 12, sy + 4, std::string("MAKING ") + item(machOutItem(R)).name + "   LEFT " + S(pc->mq) + "   READY " + S(pc->mdone * R.outN), C_TEXT);
+        const float f = pc->mq > 0 ? std::max(0.f, std::min(1.f, pc->mt / R.sec)) : 1.f;
+        fillRect(PX + 12, sy + 16, 200, 6, HEX(0x1c1410));
+        fillRect(PX + 12, sy + 16, (int)(200 * f), 6, pc->mq > 0 ? HEX(0xe0a040) : HEX(0x6cc04a));
+        text(PX + 12, sy + 25, pc->mq > 0 ? "WORKS WHILE YOU ARE AT THE HOMESTEAD" : "ALL DONE - COLLECT IT", C_DIM, 1, false);
+    } else {
+        text(PX + 12, sy + 12, "IDLE - LOAD A RECIPE", C_DIM);
+    }
+    if (button(PX + PW - 106, sy + 10, 90, 14, "COLLECT", pc->mdone > 0, HEX(0x3a6a2a))) hsMachineCollect(*pc);
+    textC(PX + PW / 2, PY + PH - 12, "E OR ESC: CLOSE", C_DIM, 1, false);
 }
 
 // ================================================================= animal management
@@ -198,7 +212,7 @@ void Game::drawAnimalMenu() {
     if (animSelId <= 0 && !idx.empty()) animSelId = hs.animals[idx[0]].id;
     HAnimal* sel = nullptr;
     for (auto& a : hs.animals) if (a.id == animSelId) sel = &a;
-    if (idx.empty()) text(PX + 10, top + 6, here ? "NO ANIMALS LIVE HERE YET" : "NO ANIMALS - BUY SOME AT THE MARKET", C_DIM);
+    if (idx.empty()) text(PX + 10, top + 6, here ? "NO ANIMALS LIVE HERE YET" : "NO ANIMALS - BUY SOME AT THE HOMESTEAD MARKET", C_DIM);
     for (int r = 0; r < vis && r + animScroll < (int)idx.size(); r++) {
         HAnimal& a = hs.animals[idx[r + animScroll]];
         const DomDef& D = DOMS[a.kind];
@@ -300,83 +314,4 @@ void Game::drawAnimalMenu() {
         if (n == 0) msg("EVERYONE IS FED (OR YOU HAVE NO FEED)", C_DIM);
     }
     textC(PX + PW - 90, PY + PH - 9, "WHEEL SCROLL  E / ESC CLOSE", C_DIM, 1, false);
-}
-
-// ================================================================= market stall
-
-void Game::updateMarket(float dt) {
-    updateFx(dt);
-    marketScroll -= in.wheel;
-    if (in.tabPressed) marketTab = (marketTab + 1) % 4, marketScroll = 0;
-    if (in.escPressed || in.ePressed) {
-        state = ST_PLAY;
-        save();
-        audio.play(S_CLICK);
-    }
-}
-
-void Game::drawMarket() {
-    frame(*this, "HOMESTEAD MARKET");
-    text(PX + PW - 70, PY + 7, S(p.coins) + " COINS", C_GOLD);
-    static const char* TABS[4] = {"SEEDS", "ANIMALS", "SUPPLIES", "SELL"};
-    for (int t = 0; t < 4; t++)
-        if (button(PX + 8 + t * 62, PY + 20, 60, 14, TABS[t], true, marketTab == t ? HEX(0x7a5a2a) : UI_BTN)) marketTab = t, marketScroll = 0;
-    struct Row { std::string name, note; int price, have, kind, id; const Spr* ic; };
-    std::vector<Row> rows;
-    if (marketTab == 0)
-        for (int c = 0; c < CR_COUNT; c++) rows.push_back({std::string(CROPS[c].name) + " SEEDS", "GROWS IN " + S((int)(CROPS[c].stageSec * 4)) + "S", CROPS[c].seedPrice, p.mat(cropSeed(c)), 0, c, &A.matIcon[cropSeed(c)]});
-    else if (marketTab == 1)
-        for (int k = 0; k < DA_COUNT; k++) rows.push_back({DOMS[k].name, std::string(DOMS[k].prodName ? DOMS[k].prodName : "") + (DOMS[k].small ? "  COOP OK" : "  NEEDS BARN OR PEN"), DOMS[k].price, 0, 1, k, &A.matIcon[DOMS[k].product]});
-    else if (marketTab == 2) {
-        for (auto& tb : TOOL_BUY) rows.push_back({TOOLDEF[tb.tool].name, ownsTool(tb.tool) ? "YOU HAVE ONE" : "FARMING TOOL", tb.price, ownsTool(tb.tool) ? 1 : 0, 2, tb.tool, &itemIcon(itemTool(tb.tool))});
-        rows.push_back({"HAY", "FEED FOR ANY ANIMAL", HAY_PRICE, p.mat(M_HAY), 3, M_HAY, &A.matIcon[M_HAY]});
-    } else
-        for (int m : {(int)M_BERRY, (int)M_WHEAT, (int)M_CARROT, (int)M_POTATO, (int)M_CABBAGE, (int)M_CORN, (int)M_TOMATO, (int)M_PUMPKIN, (int)M_STRAWBERRY, (int)M_EGG, (int)M_DUCKEGG, (int)M_MILK, (int)M_WOOL, (int)M_TRUFFLE, (int)M_HAY})
-            if (p.mat(m) > 0) rows.push_back({MAT_NAME[m], "SELL THE WHOLE STACK", MAT_PRICE[m], p.mat(m), 4, m, &A.matIcon[m]});
-    const int rowH = 18, vis = 8, top = PY + 38;
-    marketScroll = std::max(0, std::min((int)rows.size() - vis, marketScroll));
-    if (rows.empty()) text(PX + 10, top + 8, marketTab == 3 ? "NOTHING TO SELL - HARVEST SOMETHING FIRST" : "SOLD OUT", C_DIM);
-    for (int r = 0; r < vis && r + marketScroll < (int)rows.size(); r++) {
-        const Row& w = rows[r + marketScroll];
-        const int y = top + r * rowH;
-        panel(PX + 6, y, PW - 12, rowH - 1, HEX(0x33241a));
-        icon(*w.ic, PX + 18, y + 8, 14);
-        text(PX + 30, y + 2, w.name, C_TEXT);
-        text(PX + 30, y + 10, w.note, C_DIM, 1, false);
-        if (w.kind != 1 && w.kind != 2) text(PX + 200, y + 6, "OWN " + S(w.have), C_DIM);
-        const bool sell = w.kind == 4;
-        const int total = sell ? w.price * w.have : w.price;
-        const bool can = sell || p.coins >= w.price;
-        if (button(PX + PW - 84, y + 2, 72, 13, (sell ? "SELL +" : "BUY ") + S(total), can, sell ? HEX(0x5d7a2e) : UI_BTN)) {
-            if (w.kind == 0 || w.kind == 3) {
-                if (p.inv.add(itemMat(w.id), 1) < 1) msg("BAG FULL OR TOO HEAVY", C_RED);
-                else p.coins -= w.price, audio.play(S_COIN, 0.6f);
-            } else if (w.kind == 2) {
-                if (w.have > 0) msg("YOU ALREADY HAVE ONE", C_DIM);
-                else {  // a bought tool is equipped straight away
-                    giveFarmTool(w.id);
-                    p.coins -= w.price;
-                    msg(std::string(TOOLDEF[w.id].name) + " BOUGHT AND EQUIPPED", C_GREEN);
-                    audio.play(S_COIN, 0.6f);
-                }
-            } else if (w.kind == 1) {
-                if ((int)hs.animals.size() >= H_MAX_ANIMALS) msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED);
-                else {
-                    float x0, y0, x1, y1;
-                    HAnimal tmp;
-                    hsYard(tmp, x0, y0, x1, y1);
-                    hsAddAnimal(w.id, V2(frng.range(x0, x1), frng.range(y0, y1)), false, -1);
-                    p.coins -= w.price;
-                    msg(std::string("A ") + DOMS[w.id].name + " JOINS YOUR HOMESTEAD - ASSIGN IT A HOME", C_GREEN);
-                    audio.play(S_COIN, 0.6f);
-                }
-            } else {
-                const int n = p.inv.remove(itemMat(w.id), w.have);
-                p.coins += n * w.price;
-                audio.play(S_COIN);
-                msg("SOLD " + S(n) + " " + w.name + " FOR " + S(n * w.price), C_GOLD);
-            }
-        }
-    }
-    textC(PX + PW / 2, PY + PH - 12, "TAB / CLICK TABS  WHEEL SCROLL  E / ESC CLOSE", C_DIM, 1, false);
 }
