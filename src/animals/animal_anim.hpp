@@ -8,7 +8,7 @@
 #include "core/anim.hpp"
 
 enum AnimalState { AN_IDLE, AN_WALK, AN_RUN, AN_ATTACK, AN_HURT, AN_DEATH, AN_FLY, AN_TAKEOFF, AN_LAND, AN_EAT, AN_REST, AN_ALERT, AN_COUNT };  // FLY / TAKEOFF / LAND: birds only
-constexpr int AN_MAXF = 12;  // most poses any state has
+constexpr int AN_MAXF = 6;  // most poses any state has
 
 struct AnimalClips {
     int poses[AN_COUNT];
@@ -40,11 +40,11 @@ inline const AnimalClips& quadClipSet() {
 // Hoppers (rabbit, hares): idle is sitting up with a nose twitch and a nibble, walk is a small hop, run a long bounding leap.
 inline const AnimalClips& hopClipSet() {
     static const AnimalClips C = {
-        {4, 12, 12, 1, 4, 6, 0, 0, 0, 4, 4, 3},
+        {4, 6, 6, 1, 4, 6, 0, 0, 0, 4, 4, 3},
         {
             Clip::seq({0, 1, 0, 2, 3, 2, 3, 0}, {0.7f, 0.18f, 0.5f, 0.22f, 0.18f, 0.22f, 0.18f, 0.5f}, true),  // idle: sit, twitch, nibble
-            Clip::run(0, 12, 0.0425f, true),                                                                      // walk: crouch, push off, rise, peak, fall, land (12 frames)
-            Clip::run(0, 12, 0.0325f, true),                                                                      // run: the same hop, longer and flatter
+            Clip::run(0, 6, 0.085f, true),                                                                       // walk: crouch, push off, rise, peak, fall, land
+            Clip::run(0, 6, 0.065f, true),                                                                       // run: the same hop, longer and flatter
             Clip::run(0, 1, 0.1f, false),                                                                        // attack: unused (nothing hopping bites)
             Clip::run(0, 4, 0.085f, false),                                                                      // hurt
             Clip::seq({0, 1, 2, 3, 4, 5}, {0.1f, 0.1f, 0.12f, 0.14f, 0.16f, 0.2f}, false),                     // death

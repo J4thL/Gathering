@@ -421,29 +421,6 @@ static FlakeFx flakeFx(int biome) {
     }
 }
 
-// Tuning of the screen-space weather particles per climate (px/s). A particle's velocity is
-//   vx = driftX + swayX * sin(swayFx * t) + windX * max(0, wind - windMin) * (bySize ? 0.4 + size : 1)
-//   vy = driftY + fallSz * size + swayY * sin(swayFy * t + swayPhase)
-// and the climates are blended by biome weight. (How they look is up to drawBiomeFx in game_hud.cpp.)
-struct FlakeFx {
-    float driftX, swayX, swayFx;
-    float windX, windMin;
-    bool bySize;
-    float driftY, fallSz;
-    float swayY, swayFy, swayPhase;
-};
-static FlakeFx flakeFx(int biome) {
-    constexpr float COS = 1.5707963f;  // a quarter turn: sin(x + COS) = cos(x)
-    switch (biome) {
-        //                   driftX swayX swayFx windX windMin bySize driftY fallSz swayY swayFy swayPhase
-        case B_SNOW:     return {9.f,  10.f, 1.7f, 110.f, 0.3f, false, 22.f,  30.f,  0.f,  0.f,  0.f};   // falls and drifts; a blizzard drives it sideways
-        case B_DESERT:   return {30.f, 0.f,  0.f,  150.f, 0.f,  true,  4.f,   0.f,   6.f,  2.3f, 0.f};   // sand rides the wind: a sandstorm is a gale
-        case B_SWAMP:    return {0.f,  8.f,  2.1f, 0.f,   0.f,  false, 0.f,   0.f,   7.f,  1.6f, COS};   // gnats loiter
-        case B_MOUNTAIN: return {20.f, 0.f,  0.f,  70.f,  0.f,  false, -3.f,  0.f,   5.f,  1.1f, 0.f};   // gusty wind dust
-        default:         return {};
-    }
-}
-
 // screen-space weather: each biome has its own particle behaviour; velocities blend by biome weight
 void Game::updateWeather(float dt) {
     {  // ---- the wind: a calm breeze per climate, surging in gusts, hard in a storm and harder in a sandstorm / blizzard

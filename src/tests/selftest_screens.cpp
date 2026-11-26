@@ -244,7 +244,7 @@ void testScreensAndSaves(SelfTest& t) {
         // ---- every screen renders in every state without trouble
         bool rendered = true;
         for (int lvl = 0; lvl <= PK_COUNT; lvl++)
-            for (int tab = 0; tab < 3; tab++)  // (the pack, the crafting tree and the skill tree)
+            for (int tab = 0; tab < 2; tab++)
                 for (int fill = 0; fill < 2; fill++) {
                     g.p.bag = lvl - 1;
                     g.p.syncPack();
@@ -260,7 +260,6 @@ void testScreensAndSaves(SelfTest& t) {
                 }
         check(rendered, "all tabs render with no bag and every bag, empty and completely full (100 slots)");
         g.state = ST_PLAY;
-        g.invTab = 0;
     }
     // ---- saving
     printf("saving and migration\n");

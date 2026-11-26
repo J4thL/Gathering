@@ -8,7 +8,7 @@ void Game::drawQuestPanel() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 140));
     const int X = 60, Y = 36, W = 280, H = 146;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
+    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, "ELDER HOLT - HUNTING QUESTS", C_GOLD);
     std::string qn = "QUEST " + S(questIdx + 1);
     text(X + W - 8 - textW(qn), Y + 7, qn, C_DIM);
@@ -70,7 +70,7 @@ void Game::drawShop() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 140));
     const int X = 36, Y = 12, W = 328, H = 201;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
+    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, "GENERAL STORE", C_GOLD);
     {
         std::string c = S(p.coins);
