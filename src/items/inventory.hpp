@@ -1,7 +1,7 @@
 // inventory.hpp - the slot-based inventory.
 //
 // Always INV_SLOTS (100) slots, each holding one kind of item and up to that item's stack size (999 for everything that
-// stacks; launchers, tools, bags and carried gear take a slot each). What limits the hunter is weight: the inventory has
+// stacks; launchers, tools, bags, carried gear and babies stack too). What limits the hunter is weight: the inventory has
 // a maximum carrying weight (set from the worn bag) and add() never takes more than fits. Weights are never stored, they are
 // always computed from the registry. All item facts come from items.hpp.
 #pragma once

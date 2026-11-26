@@ -62,7 +62,7 @@ static const ResDef RES[RS_COUNT] = {
     {"FALLEN LOG",    RCL_TREE,  TT_AXE,  1, 3, 0.80f, {{M_WOOD, 2, 3, 1.f, 0}, {M_MUSHROOM, 1, 1, 0.3f, 0}, {-1, 0, 0, 0, 0}},       480, 0, 0, 0x6a4a2a},
     {"CACTUS",        RCL_TREE,  TT_AXE,  1, 2, 0.80f, {{M_PULP, 2, 3, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                   300, 2, 1, 0x72bb62},
 
-    {"ROCK",          RCL_ROCK,  TT_PICK, 0, 3, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  300, 0, 0, 0xa9acb8},
+    {"ROCK",          RCL_ROCK,  TT_PICK, 1, 3, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  300, 0, 0, 0xa9acb8},
     {"SANDSTONE",     RCL_ROCK,  TT_PICK, 1, 4, 0.90f, {{M_STONE, 1, 2, 1.f, 0}, {M_COPPER, 1, 1, 0.35f, 1}, {-1, 0, 0, 0, 0}},        360, 0, 0, 0xd8b878},
     {"ICY ROCK",      RCL_ROCK,  TT_PICK, 1, 4, 0.95f, {{M_STONE, 1, 2, 1.f, 0}, {M_IRON, 1, 1, 0.20f, 2}, {-1, 0, 0, 0, 0}},          360, 0, 0, 0xcfe3f0},
     {"BOULDER",       RCL_ROCK,  TT_PICK, 1, 5, 1.00f, {{M_STONE, 2, 3, 1.f, 0}, {M_COPPER, 1, 2, 0.40f, 1}, {M_IRON, 1, 1, 0.25f, 2}}, 420, 0, 0, 0x9a9ca8},

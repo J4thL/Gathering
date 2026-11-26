@@ -80,7 +80,7 @@ bool Game::craft(int r) {
     if (rng.chance(skillBonus(R.skill))) {
         if (!itemIsGear(out) && item(out).stack > 1 && p.inv.add(out, 1, q) == 1) {
             ftext(p.pos + V2(0, -18), "EXTRA!", C_GREEN, 1.1f);
-        } else if (item(out).stack == 1 && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
+        } else if (itemIsGear(out) && R.n[0] >= 2 && p.inv.add(itemMat(R.mat[0]), 1) == 1) {
             ftext(p.pos + V2(0, -18), "SAVED A MATERIAL!", C_GREEN, 1.1f);
         }
     }
@@ -130,27 +130,26 @@ void recipeInfo(const Recipe& R, std::vector<std::string>& lines) {
 }
 }  // namespace
 
-void Game::drawCraftTab(int X, int Y, int W, int H) {
-    const int cy = Y + 38;
-    // ---- filter chips and the "can make" switch
-    int cx = X + 8;
+// The crafting panel of a station (smith, tanner, workshop), laid out like a crafting window: category tabs and a grid of recipe icons on the left,
+// the ingredients with a CREATE button in the middle, and the description of the picked recipe on the right.
+void Game::drawStationCraft(int X, int Y, int W, int H) {
+    auto recipeIcon = [&](const Recipe& R, int cx, int cy, int size, float a = 1.f) {
+        icon(itemIcon(recipeItem(R)), cx, cy, size, a);
+    };
+    // ---- category tabs and the "can make" switch
+    int cx = X + 6;
+    const int tabY = Y + 21;
     for (int c = -1; c < RC_COUNT; c++) {
-        std::string lab = c < 0 ? "ALL" : RECIPE_CAT_NAME[c];
-        int w = textW(lab) + 10;
-        if (button(cx, cy, w, 11, lab, true, craftCat == c ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) {
+        const std::string lab = c < 0 ? "ALL" : RECIPE_CAT_NAME[c];
+        const int w = textW(lab) + 8;
+        if (cx + w > X + W - 6) break;
+        if (button(cx, tabY, w, 11, lab, true, craftCat == c ? HEX(0x8a6a3a) : HEX(0x4a3a2a))) {
             craftCat = c;
             craftScroll = 0;
         }
         cx += w + 2;
     }
-    {
-        int w = textW("CAN MAKE") + 10;
-        if (button(X + W - 8 - w, cy, w, 11, "CAN MAKE", true, craftOnly ? HEX(0x5d7a2e) : HEX(0x4a3a2a))) {
-            craftOnly = !craftOnly;
-            craftScroll = 0;
-        }
-    }
-    // ---- the visible list
+    // ---- the recipes this station makes
     std::vector<int> list;
     for (int r = 0; r < RECIPE_N; r++) {
         if (craftBld >= 0 && recipeBuilding(RECIPES[r]) != craftBld) continue;
@@ -158,8 +157,10 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         if (craftOnly && !craftBlock(r).empty()) continue;
         list.push_back(r);
     }
-    const int ry0 = cy + 14, rowH = 22, rows = (Y + H - 16 - ry0) / rowH;
-    const int maxScroll = std::max(0, (int)list.size() - rows);
+    if (std::find(list.begin(), list.end(), craftSel) == list.end()) craftSel = list.empty() ? -1 : list[0];
+    // ---- the grid
+    const int COLS = 4, CELL = 20, gx = X + 6, gy = Y + 37;
+    const int rows = (Y + H - 18 - gy) / CELL, maxScroll = std::max(0, ((int)list.size() + COLS - 1) / COLS - rows);
     craftScroll = std::max(0, std::min(maxScroll, craftScroll));
     const int x = X + 8, w = W - 16 - 5;
     int hover = -1;
@@ -181,13 +182,12 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
             std::string ow = "OWNED " + S(p.inv.count(recipeItem(R)));
             text(x + w - 86 - textW(ow), y + 3, ow, C_DIM, 1, false);
         }
-        int ix = x + 24;
-        for (int k = 0; k < 3; k++)
-            if (R.mat[k] >= 0) ix = chip(ix, y + 11, A.matIcon[R.mat[k]], p.mat(R.mat[k]), R.n[k]);
-        if (craftBld < 0) {  // the pack's book: say where each one is made
-            const char* sn = recipeBuilding(R) == BLD_SMITH ? "SMITH" : recipeBuilding(R) == BLD_TANNER ? "LEATHER" : "WORKSHOP";
-            text(ix, y + 14, sn, interior == recipeBuilding(R) ? C_GREEN : C_ORANGE, 1, false);
-            ix += textW(sn) + 5;
+        recipeIcon(RECIPES[r], x + (CELL - 1) / 2, y + (CELL - 1) / 2, 14, craftBlock(r).empty() ? 1.f : 0.4f);
+        if (over && in.uiClick) {
+            in.uiClick = false;
+            in.lPressed = false;
+            craftSel = r;
+            audio.play(S_CLICK, 0.5f);
         }
         if (R.minLv > 1) text(ix, y + 14, std::string(SKILL[R.skill].name) + " " + S(R.minLv), p.sk.level(R.skill) >= R.minLv ? C_GREEN : C_RED, 1, false);
         std::string lab = "CRAFT";
@@ -196,39 +196,74 @@ void Game::drawCraftTab(int X, int Y, int W, int H) {
         if (button(x + w - 54, y + 4, 50, 13, lab, can, HEX(0x5d7a2e))) craft(r);
         if (can && button(x + w - 82, y + 4, 26, 13, "MAX", true, HEX(0x7a5d2e))) craftMany(r, 999);  // everything the materials allow
     }
-    // ---- scrollbar
-    if (maxScroll > 0) {
-        const int sbx = X + W - 9, sby = ry0, sbh = rows * rowH - 1;
-        fillRect(sbx, sby, 3, sbh, HEX(0x241a10));
-        int th = std::max(8, sbh * rows / (int)list.size());
-        int ty = sby + (sbh - th) * craftScroll / maxScroll;
-        fillRect(sbx, ty, 3, th, HEX(0x92693a));
+    if (maxScroll > 0) {  // scrollbar beside the grid
+        const int sbx = gx + COLS * CELL, sbh = rows * CELL - 1, th = std::max(8, sbh * rows / (((int)list.size() + COLS - 1) / COLS));
+        fillRect(sbx, gy, 3, sbh, HEX(0x6b665c));
+        fillRect(sbx, gy + (sbh - th) * craftScroll / maxScroll, 3, th, HEX(0xeeeae0));
     }
-    // ---- tooltip
-    if (hover >= 0) {
-        const Recipe& R = RECIPES[hover];
-        std::vector<std::string> lines;
-        recipeInfo(R, lines);
-        lines.push_back(std::string("MADE AT THE ") + buildingName(recipeBuilding(R)) + "   " + SKILL[R.skill].name + " LV " + S(R.minLv) + " (YOU " + S(p.sk.level(R.skill)) + ")");
-        lines.push_back(std::string("EARNS ") + S(recipeXp(R)) + " " + SKILL[R.skill].name + " XP");
-        const std::string why = craftBlock(hover);
-        std::vector<std::string> missing;  // exactly what is short, one line each
-        for (int k = 0; k < 3; k++)
-            if (R.mat[k] >= 0 && p.mat(R.mat[k]) < R.n[k]) missing.push_back("MISSING " + S(R.n[k] - p.mat(R.mat[k])) + " " + MAT_NAME[R.mat[k]]);
-        int tw = textW(recipeName(R)) + 6;
-        for (auto& l : lines) tw = std::max(tw, textW(l) + 6);
-        for (auto& l : missing) tw = std::max(tw, textW(l) + 6);
-        if (!why.empty()) tw = std::max(tw, textW(why) + 6);
-        int th = 12 + (int)(lines.size() + missing.size()) * 9 + (why.empty() ? 0 : 9);
-        int tx = std::min((int)in.mx + 10, LW - tw - 2), ty = std::min((int)in.my + 10, LH - th - 2);
-        panel(tx, ty, tw, th, HEX(0x241a10));
-        text(tx + 3, ty + 3, recipeName(R), C_GOLD);
-        int yy = ty + 12;
-        for (size_t i = 0; i < lines.size(); i++, yy += 9) text(tx + 3, yy, lines[i], i + 2 >= lines.size() ? C_DIM : C_TEXT, 1, false);
-        for (auto& l : missing) text(tx + 3, yy, l, C_ORANGE, 1, false), yy += 9;
-        if (!why.empty()) text(tx + 3, yy, why, C_RED, 1, false);
+    if (list.empty()) textC(gx + COLS * CELL / 2, gy + 20, craftOnly ? "NOTHING TO MAKE" : "NO RECIPES", C_DIM, 1, false);
+    // ---- the picked recipe: ingredients and CREATE (middle), description (right)
+    const int mx = gx + COLS * CELL + 8, mw = 96, dx = mx + mw + 6, dw = X + W - 6 - dx, top = gy, bottom = Y + H - 18;
+    panel(mx, top, mw, bottom - top, HEX(0x3a2a1a));
+    panel(dx, top, dw, bottom - top, HEX(0x3a2a1a));
+    text(mx + 6, top + 5, "INGREDIENTS", C_DIM, 1, false);
+    text(dx + 6, top + 5, "DESCRIPTION", C_DIM, 1, false);
+    {
+        if (button(mx + 6, bottom - 18, mw - 12, 12, "CAN MAKE ONLY", true, craftOnly ? HEX(0x5d7a2e) : HEX(0x4a3a2a))) {
+            craftOnly = !craftOnly;
+            craftScroll = 0;
+        }
     }
-    if (craftBld < 0) textC(X + W / 2, Y + H - 8, "CRAFTING IS DONE INSIDE THE TOWN BUILDINGS   WHEEL SCROLLS   TAB BACK", C_DIM, 1, false);
+    if (craftSel < 0) {
+        textC(dx + dw / 2, top + 40, "PICK A RECIPE", C_DIM, 1, false);
+        return;
+    }
+    const Recipe& R = RECIPES[craftSel];
+    const std::string why = craftBlock(craftSel);
+    const bool can = why.empty();
+    for (int k = 0; k < 3; k++) {  // up to three ingredient slots: the material, and how much you have of what it takes
+        const int sx = mx + 6 + k * 29, sy = top + 16;
+        panel(sx, sy, 26, 26, HEX(0x33241a));
+        if (R.mat[k] < 0) continue;
+        icon(A.matIcon[R.mat[k]], sx + 13, sy + 11, 16);
+        const std::string t = S(p.mat(R.mat[k])) + "/" + S(R.n[k]);
+        textC(sx + 13, sy + 29, t, p.mat(R.mat[k]) >= R.n[k] ? C_GREEN : C_RED, 1, false);
+    }
+    panel(mx + 6, top + 50, 26, 26, HEX(0x33241a));  // what it makes
+    recipeIcon(R, mx + 19, top + 63, 20);
+    text(mx + 36, top + 54, recipeName(R) + (R.count > 1 ? " X" + S(R.count) : std::string("")), can ? C_GOLD : C_DIM, 1, false);
+    text(mx + 36, top + 64, "OWNED " + S(p.inv.count(recipeItem(R))), C_DIM, 1, false);
+    std::string lab = "CREATE";
+    if (why.compare(0, 6, "NEEDS ") == 0) lab = "LOCKED";
+    else if (why == "YOU WEAR BETTER ALREADY") lab = "OWNED";
+    if (button(mx + 6, top + 82, mw - 12, 16, lab, can, HEX(0x5d7a2e))) craft(craftSel);
+    if (button(mx + 6, top + 100, mw - 12, 12, "CREATE MAX", can, HEX(0x7a5d2e))) craftMany(craftSel, 999);  // everything the materials allow
+    text(mx + 6, top + 116, std::string(SKILL[R.skill].name) + " LV " + S(R.minLv), p.sk.level(R.skill) >= R.minLv ? C_GREEN : C_RED, 1, false);
+    // ---- description
+    int ty = top + 16;
+    auto wrap = [&](const std::string& txt, u32 col) {
+        const size_t maxc = (size_t)std::max(8, (dw - 12) / 4);
+        size_t pos = 0;
+        while (pos < txt.size() && ty <= bottom - 8) {
+            size_t len = std::min(maxc, txt.size() - pos);
+            if (pos + len < txt.size()) {
+                const size_t sp = txt.rfind(' ', pos + len);
+                if (sp != std::string::npos && sp > pos) len = sp - pos;
+            }
+            text(dx + 6, ty, txt.substr(pos, len), col, 1, false);
+            ty += 8;
+            pos += len;
+            while (pos < txt.size() && txt[pos] == ' ') pos++;
+        }
+        ty += 2;
+    };
+    std::vector<std::string> lines;
+    recipeInfo(R, lines);
+    for (size_t i = 0; i < lines.size(); i++) wrap(lines[i], i == 0 ? C_TEXT : C_DIM);
+    wrap("EARNS " + S(recipeXp(R)) + " " + SKILL[R.skill].name + " XP", C_DIM);
+    for (int k = 0; k < 3; k++)
+        if (R.mat[k] >= 0 && p.mat(R.mat[k]) < R.n[k]) wrap("MISSING " + S(R.n[k] - p.mat(R.mat[k])) + " " + MAT_NAME[R.mat[k]], C_ORANGE);
+    if (!can) wrap(why, C_RED);
 }
 
 // The crafting panel of a station (smith, tanner, workshop), laid out like a crafting window: category tabs and a grid of recipe icons on the left,

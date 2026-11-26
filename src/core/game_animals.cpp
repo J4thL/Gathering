@@ -1035,7 +1035,7 @@ void Game::updateAnimals(float dt) {
                 }
                 a.face = dp.x > 0 ? 1 : -1;
                 if (dd < D.hitR + 9) {
-                    if (a.atkCd <= 0) {
+                    if (a.atkCd <= 0 && !a.boss) {  // (a boss never bites unannounced: it stops and attacks with a warning, see game_boss.cpp)
                         hurtPlayer(D.dmg * T.dmg, a.pos, a.kind);
                         if (const AnimalClips* ac = animalClips(a.kind)) a.atkT = ac->clip[AN_ATTACK].total();
                         a.atkCd = D.atkCd;
