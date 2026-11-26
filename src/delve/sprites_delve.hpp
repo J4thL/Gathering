@@ -4,6 +4,7 @@
 // lit faces and shaded undersides, a one pixel dark contour. (This header does not know the Tile / PropKind enums - world.hpp does.)
 #pragma once
 #include "core/data.hpp"
+#include "art/frost_fortress_sprite.hpp"
 #include "items/items.hpp"
 
 namespace dart {
@@ -163,7 +164,25 @@ inline Img nodeSprite(int which) {  // 0 coal, 1 silver, 2 cave crystal, 3 gems,
         im.set(x, y, l);
         im.set(x + s - 1, y + s - 1, d);
     };
+    if (which == 6) {  // glowcaps: three luminous mushrooms on the cave floor
+        Img g(18, 18);
+        for (auto d : {std::array<int, 3>{4, 11, 3}, std::array<int, 3>{9, 8, 4}, std::array<int, 3>{13, 12, 2}}) {
+            g.rect(d[0], d[1], 1 + d[2] / 3, 14 - d[1], HEX(0xe8f4e0));
+            g.ellipseShaded(d[0], d[1], (float)d[2] + 1.5f, (float)d[2] * 0.7f + 1.f, HEX(0xc8fff0), HEX(0x2ad8b0), HEX(0x0a6a64));
+            g.set(d[0] - 1, d[1] - 1, HEX(0xffffff));
+        }
+        g.outline(OUT);
+        return g;
+    }
     switch (which) {
+        case 5:  // void stone: dark rock split by violet crystal
+            for (auto d : {std::array<int, 3>{5, 6, 3}, std::array<int, 3>{9, 3, 4}, std::array<int, 3>{12, 7, 3}}) {
+                im.rect(d[0], d[1], d[2], 10 - d[1] + 3, HEX(0x6a3aa8));
+                im.rect(d[0], d[1], 1, 10 - d[1] + 3, HEX(0xd8b8ff));
+                im.rect(d[0] + d[2] - 1, d[1] + 1, 1, 10 - d[1] + 2, HEX(0x1c0a34));
+            }
+            im.set(10, 3, HEX(0xffffff)); im.set(6, 6, HEX(0xff7ad8));
+            break;
         case 0:  // coal: glossy black lumps
             for (auto d : {std::pair<int, int>{4, 7}, {9, 5}, {7, 9}, {11, 9}, {5, 11}, {12, 12}}) spot(d.first, d.second, HEX(0x6a6a78), HEX(0x26262e), HEX(0x101016), 3);
             im.set(10, 6, HEX(0xffffff));
@@ -329,63 +348,7 @@ inline Img mineGate() {  // the Abandoned Mine's mouth: an outcrop with a timber
 inline Img statue(int v);
 inline Img crystalCluster(int w, int h, u32 l, u32 m, u32 d, int seed);
 
-inline Img frostGate() {  // the ancient frozen fortress: ice walls, two towers, a glowing gate, statues, crystals (112 x 84)
-    Img im(112, 84);
-    const u32 L = HEX(0xe8f8ff), M = HEX(0xa8d0ea), D = HEX(0x5a8ab4), DD = HEX(0x2a4a70);
-    auto block = [&](int x, int y, int w, int h) {   // a lit ice-brick wall face
-        for (int yy = 0; yy < h; yy++)
-            for (int xx = 0; xx < w; xx++) {
-                const float t = (float)yy / h;
-                u32 c = mixc(HEX(0xc4e4f6), HEX(0x4a7aa8), t * 0.8f);
-                if (nzf(x + xx, y + yy, 111) > 0.88f) c = shadeC(c, 1.12f);
-                im.set(x + xx, y + yy, c);
-            }
-        for (int yy = 5; yy < h; yy += 7) im.rect(x, y + yy, w, 1, DD);
-        for (int yy = 0, r = 0; yy < h; yy += 7, r++)
-            for (int xx = (r % 2) * 6; xx < w; xx += 12) im.rect(x + xx, y + yy, 1, 6, DD);
-        im.rect(x, y, w, 1, L);
-    };
-    block(6, 40, 100, 42);  // curtain wall
-    for (int x = 6; x < 106; x += 10) { im.rect(x, 33, 7, 8, M); im.rect(x, 33, 7, 1, L); im.rect(x + 5, 33, 2, 8, D); }  // battlements
-    for (int side = 0; side < 2; side++) {  // two towers
-        const int tx = side ? 80 : 10;
-        block(tx, 14, 22, 68);
-        im.rect(tx - 3, 8, 28, 8, M); im.rect(tx - 3, 8, 28, 2, L); im.rect(tx - 3, 14, 28, 2, DD);
-        for (int i = 0; i < 5; i++) { im.rect(tx - 3 + i * 6, 3, 4, 6, M); im.rect(tx - 3 + i * 6, 3, 4, 1, L); }
-        im.rect(tx + 9, 24, 4, 9, HEX(0x0c1a30)); im.rect(tx + 9, 24, 4, 1, HEX(0x6ac8ff)); im.rect(tx + 10, 26, 2, 5, HEX(0x6ac8ff));   // arrow slits, glowing
-        im.rect(tx + 9, 46, 4, 9, HEX(0x0c1a30)); im.rect(tx + 10, 48, 2, 5, HEX(0x4a98d8));
-    }
-    im.rect(38, 36, 36, 46, HEX(0x0a1428));  // the gate: a tall arch with a cold blue glow inside
-    im.ellipse(56, 38, 18, 9, HEX(0x0a1428));
-    for (int y = 40; y < 82; y++)
-        for (int x = 40; x < 72; x++) {
-            const float g = 1.f - fabsf(x - 56.f) / 18.f;
-            const float v = g * (0.3f + 0.7f * (y - 40) / 42.f);
-            if (v > 0.2f) im.set(x, y, mixc(HEX(0x0a1428), HEX(0x4aa8e8), std::min(1.f, v * 0.9f)));
-        }
-    for (int x = 42; x < 71; x += 5) im.rect(x, 36, 1, 40, HEX(0x6a7a98));   // portcullis, half raised
-    for (int y = 40; y < 76; y += 9) im.rect(40, y, 32, 1, HEX(0x5a6a88));
-    for (int i = 0; i < 9; i++) {  // arch stones and a carved skull above
-        const float a = 3.14159f + i * 3.14159f / 8.f;
-        const int ax2 = 56 + (int)(cosf(a) * 21), ay2 = 40 + (int)(sinf(a) * 12);
-        im.rect(ax2 - 2, ay2 - 2, 5, 5, i % 2 ? M : L);
-        im.rect(ax2, ay2 + 1, 3, 2, D);
-    }
-    im.rect(53, 22, 7, 9, M); im.rect(53, 22, 7, 1, L); im.rect(54, 25, 2, 2, DD); im.rect(57, 25, 2, 2, DD); im.rect(55, 28, 3, 2, DD);
-    for (int i = 0; i < 4; i++) im.rect(36 - i * 2, 78 + i, 40 + i * 4, 1, i % 2 ? M : L);  // stairs to the threshold
-    im.blit(statue(0), 20, 44);                       // flanking statues and glowing crystals
-    im.blit(statue(2), 68, 44);
-    im.blit(crystalCluster(18, 22, HEX(0xd8f4ff), HEX(0x4ac0ff), HEX(0x1a68b0), 1), 2, 62);
-    im.blit(crystalCluster(18, 22, HEX(0xd8f4ff), HEX(0x4ac0ff), HEX(0x1a68b0), 2), 92, 62);
-    for (int side = 0; side < 2; side++) {  // banners
-        const int bx = side ? 66 : 42;
-        im.rect(bx, 12, 6, 22, HEX(0x24408a)); im.rect(bx, 12, 6, 2, HEX(0xc8d8f0)); im.rect(bx + 2, 18, 2, 6, HEX(0xe8c860));
-        for (int k = 0; k < 3; k++) im.set(bx + k * 2, 34 + (k % 2), HEX(0x24408a));
-    }
-    for (int i = 0; i < 12; i++) { const int x = 8 + (int)(nz(i, 0, 5) % 96); const int len = 2 + (int)(nz(i, 1, 5) % 5); im.rect(x, 41, 1, len, L); im.set(x, 41 + len, M); }  // icicles
-    im.outline(OUT);
-    return im;
-}
+inline Img frostGate() { return mkFrostFortress(); }  // the Frozen Fortress landmark on the snowfields (256 x 288, art/frost_fortress_sprite.hpp)
 
 inline Img throne() {  // the Frostbound King's seat: a tall ice throne on a dais (44 x 56)
     Img im(44, 56);
@@ -665,6 +628,32 @@ inline Img rockChunk() {
 }
 
 // ------------------------------------------------------------------ item icons (16 x 16)
+// the Endless Depths' own finds (16 x 16): a void shard, a glowing mushroom, an ancient relic
+inline Img iconDeepMat(int m) {
+    Img im(16, 16);
+    if (m == M_VOIDSHARD) {
+        for (int y = 1; y < 15; y++) {
+            const int w = std::max(1, 6 - abs(y - 7) * 6 / 7);
+            im.rect(8 - w / 2 + (y % 5 == 0 ? 1 : 0), y, w, 1, y < 6 ? HEX(0xb48aff) : (y > 10 ? HEX(0x2a1250) : HEX(0x6a3aa8)));
+        }
+        im.line(7, 2, 7, 12, HEX(0xe6d2ff));
+        im.set(9, 5, HEX(0xffffff));
+        im.set(6, 10, HEX(0xff7ad8));
+    } else if (m == M_GLOWCAP) {
+        im.rect(7, 8, 2, 6, HEX(0xe8f4e0));
+        im.ellipseShaded(8, 6, 6.f, 4.5f, HEX(0xc8fff0), HEX(0x2ad8b0), HEX(0x0a6a64));
+        im.set(5, 5, HEX(0xffffff)); im.set(9, 4, HEX(0xffffff)); im.set(11, 6, HEX(0xffffff));
+        im.rect(4, 10, 2, 3, HEX(0x8af0d8)); im.rect(11, 11, 2, 2, HEX(0x8af0d8));
+    } else {
+        im.ellipseShaded(8, 8, 6.5f, 6.5f, HEX(0xffe9a0), HEX(0xc99a3a), HEX(0x6a4a14));
+        im.ellipseShaded(8, 8, 3.8f, 3.8f, HEX(0x6a4a14), HEX(0x8a6420), HEX(0x4a3010));
+        im.line(8, 5, 8, 11, HEX(0xffe9a0)); im.line(5, 8, 11, 8, HEX(0xffe9a0));
+        im.set(6, 5, HEX(0xffffff));
+    }
+    im.outline(OUT);
+    return im;
+}
+
 inline Img iconDelveMat(int m) {
     Img im(16, 16);
     auto gem = [&](int cx, int cy, u32 l, u32 mm, u32 d, int r) {
@@ -749,7 +738,7 @@ struct DelveAssets {
     Spr mineGate, frostGate, beamArch, beamSide, cart, torch[3], brazier[3], crystalViolet[3], crystalIce[3], statue[3], pillar;
     Spr chest[4][2], stairs[2], exitDoor[2], bossDoor[2], equip[4], debris[3], sarco, throne, bones[2], banner, icicles;
     Spr spike[3], vent[3], iceSpike[3], iceBolt, rockChunk;
-    Spr node[5];
+    Spr node[7];
 };
 
 inline void buildDelveAssets(SDL_Renderer* r, DelveAssets& d) {
@@ -764,7 +753,7 @@ inline void buildDelveAssets(SDL_Renderer* r, DelveAssets& d) {
     }
     for (int i = 0; i < 2; i++) d.rail[i] = makeSpr(r, rail(i == 1), 0, 0), d.carpet[i] = makeSpr(r, carpet(i), 0, 0);
     d.mineGate = makeSpr(r, mineGate(), 36, 58);
-    d.frostGate = makeSpr(r, frostGate(), 56, 82);
+    d.frostGate = makeSpr(r, frostGate(), 128, 192);  // anchored at the door (row 192 of 288): see the P_FROSTGATE prop
     d.beamArch = makeSpr(r, beamPost(), 24, 39);
     d.beamSide = makeSpr(r, beamSide(), 8, 40);
     d.cart = makeSpr(r, mineCart(), 13, 19);
@@ -795,5 +784,5 @@ inline void buildDelveAssets(SDL_Renderer* r, DelveAssets& d) {
     d.icicles = makeSpr(r, icicles(), 8, 15);
     d.iceBolt = makeSpr(r, iceBolt(), 7, 4);
     d.rockChunk = makeSpr(r, rockChunk(), 6, 6);
-    for (int i = 0; i < 5; i++) d.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
+    for (int i = 0; i < 7; i++) d.node[i] = makeSpr(r, nodeSprite(i), 9, 16);
 }

@@ -14,7 +14,7 @@ inline u32 mixRGB(u32 a, u32 b, float t) {  // t = 0 -> a, 1 -> b
 // The meadow's greens, in the bright lime of the new reference: four tones per shade, darkest to lightest
 static const u32 MEADOW_TONE[GRASS_SHADES][4] = {{0x5fa83e, 0x7cc450, 0x95d460, 0xb6e486},   // light meadow (the tree / tuft grass ramp, 0x7cc450 / 0x4a963c / 0x286830, a step either side)
                                                  {0x3f8b30, 0x5fa83e, 0x7cc450, 0x95d460},   // medium
-                                                 {0x286830, 0x3a7c34, 0x4a963c, 0x66ad48}};  // dark grass  // dark grass
+                                                 {0x2c6a2c, 0x3d802f, 0x4f9a38, 0x6cb046}};  // dark grass: the same yellow-green family as the lighter two (it used to lean blue-green)
 
 // 16 x 16 grass covered end to end in blades, tufted like the reference: soft light and dark patches across the tile, small fans of three blades
 // (one upright, two leaning out) with pale tips, and dark gaps between them. Strokes wrap at the edges, so tiles join up seamlessly.

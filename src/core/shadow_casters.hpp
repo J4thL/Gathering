@@ -136,10 +136,10 @@ inline const std::vector<PropShadow>& propShadowTable() {
         pOak(P_OAK0), pOak(P_OAK1),
         pTrunk(P_PINE, SPR_P(c.A.pine[c.frame(PINE_FPS, PINE_FRAMES)]), 1.f, 0.10f, 0.045f, 4.f, 2.f),
         pTrunk(P_SNOWPINE, SPR_P(c.A.snowSpruce[c.frame(SNOW_SPRUCE_FPS, SNOW_SPRUCE_FRAMES)]), 1.f, 0.10f, 0.045f, 4.f, 2.f),
-        pTrunk(P_DEADTREE0, SPR_P(c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f, 0.09f, 0.04f, 3.f, 2.f),
-        pTrunk(P_DEADTREE1, SPR_P(c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f, 0.09f, 0.04f, 3.f, 2.f, [](const Prop&) { return true; }),
-        pTrunk(P_BARETREE, SPR_P(c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f, 0.09f, 0.04f, 3.f, 2.f,
-               [](const Prop& p) { return (((int)p.x >> 4) & 1) != 0; }),
+        // the dead spruces cast a plain standing shadow: the trunk-oval shadow of the live trees came out as a black silhouette over the thin dead tree itself
+        pStanding(P_DEADTREE0, SPR_P(c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f),
+        pStanding(P_DEADTREE1, SPR_P(c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f),
+        pStanding(P_BARETREE, SPR_P(snowBirchLeafy(c.pr.x, c.pr.y) ? c.A.B.leafyBirch[c.frame(LEAFY_BIRCH_FPS, LEAFY_BIRCH_FRAMES)] : snowBirchAt(c.pr.x, c.pr.y) ? c.A.snowBirch[c.frame(SNOW_BIRCH_FPS, SNOW_BIRCH_FRAMES)] : c.A.deadSpruce[c.frame(DEAD_SPRUCE_FPS, DEAD_SPRUCE_FRAMES)]), 0.8f),
         pStanding(P_PALM, SPR_P(c.A.B.palm), 0.95f, 1.f, 0.f),  // palms sway a little; the shadow stands still, which at 1 degree nobody sees
         pStanding(P_WITCHTREE, SPR_P(c.A.B.witchtree), 0.9f, 1.f, -1.f),
 
@@ -152,6 +152,9 @@ inline const std::vector<PropShadow>& propShadowTable() {
         pCols(P_BOULDER, SPR_P(c.A.rockLarge[0][rockLookOf(c.pr)]), 0.9f, 0.9f, -1.f),
         pCols(P_SANDBOULDER, SPR_P(c.A.rockLarge[ROCK_THEME_DESERT][rockLookOf(c.pr)]), 0.9f, 0.9f, -1.f),
 
+        // ice spikes: cast column by column like rocks, but paler (ice lets light through); the size is the prop's own (the caller passes the size it shows now)
+        pCols(P_ICESPIKE, SPR_P(c.A.iceSpike[(int)c.pr.ph % ICE_SPIKE_STAGES][((int)c.pr.ph / ICE_SPIKE_STAGES) & 1]), 0.55f, 0.85f, -1.f),
+
         // town buildings: cast column by column from the bottom edge
         pCols(P_BLD0, SPR_P(c.A.T.bld[0]), 0.8f, 0.7f, -1.f), pCols(P_BLD1, SPR_P(c.A.T.bld[1]), 0.8f, 0.7f, -1.f),
         pCols(P_BLD2, SPR_P(c.A.T.bld[2]), 0.8f, 0.7f, -1.f), pCols(P_BLD3, SPR_P(c.A.T.bld[3]), 0.8f, 0.7f, -1.f),
@@ -161,9 +164,9 @@ inline const std::vector<PropShadow>& propShadowTable() {
         pWide(P_HUT, SPR_P(c.A.hut)),
         pWide(P_STILTHUT, SPR_P(c.A.B.stilthut)),
         pWide(P_ICEHUT, SPR_P(c.A.B.icehut)),
+        pCols(P_FROSTGATE, SPR_P(c.A.D.frostGate), 0.85f, 0.45f, 95.f),  // the Frozen Fortress: its mound has a ragged bottom edge, so it is cast column by column
         pWide(P_RUINWALL, SPR_P(c.A.B.ruinwall)),
         pWide(P_ARCH, SPR_P(c.A.B.arch)),
-        pWide(P_HMARKET, SPR_P(c.A.H.market)),
         pWide(P_LOG, SPR_P(c.A.B.log), 0.7f, 0.9f),
         pWide(P_BENCH, SPR_P(c.A.T.bench), 0.7f, 0.9f),
         pWide(P_WELL, SPR_P(c.A.T.well), 0.8f, 0.8f),
@@ -177,6 +180,16 @@ inline const std::vector<PropShadow>& propShadowTable() {
         pStanding(P_BARREL, SPR_P(c.A.barrel), 0.8f),
         pStanding(P_SIGN, SPR_P(c.A.sign), 0.7f),
         pStanding(P_LAMP, SPR_P(c.A.T.lamp), 0.85f),
+        pStanding(P_SNOWLAMP, SPR_P(c.A.B.snowLamp), 0.85f),
+        pStanding(P_SNOWSIGN, SPR_P(c.A.B.snowSign[0]), 0.7f),
+        pStanding(P_SNOWMAN, SPR_P(c.A.B.snowman[0]), 0.85f),
+        pWide(P_SNOWTENT, SPR_P(c.A.B.snowTent)),
+        pWide(P_SNOWTENTOLD, SPR_P(c.A.B.tentOld[0])),
+        pWide(P_CAMPTENT, SPR_P(c.A.B.tentOld[1])),
+        pStanding(P_LOOKOUT, SPR_P(c.A.B.lookout), 0.9f),
+        pWide(P_FISHRACK, SPR_P(c.A.B.fishRack)),
+        pWide(P_FIREWOOD, SPR_P(c.A.B.firewood)),
+        pStanding(P_SNOWLOG, SPR_P(c.A.B.snowLog[0]), 0.6f),
         // ---> add new props here
     };
     return T;
@@ -214,6 +227,13 @@ inline const std::vector<HomeShadow>& homeShadowTable() {
         hStanding(HP_BARREL, SPR_H(c.A.barrel), {8, 0, 14, 0}, 0.8f),
         hStanding(HP_SCARECROW, SPR_H(c.A.H.scarecrow), {8, 0, 15, 0}, 0.8f),
         hStanding(HP_LAMP, SPR_H(c.A.T.lamp), {8, 0, 14, 0}, 0.85f),
+        hWide(HP_MILL, SPR_H(c.A.H.machine[HP_MILL - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_DAIRY, SPR_H(c.A.H.machine[HP_DAIRY - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_KETTLE, SPR_H(c.A.H.machine[HP_KETTLE - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SMOKER, SPR_H(c.A.H.machine[HP_SMOKER - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_OVEN, SPR_H(c.A.H.machine[HP_OVEN - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SAWMILL, SPR_H(c.A.H.machine[HP_SAWMILL - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
+        hWide(HP_SMELTER, SPR_H(c.A.H.machine[HP_SMELTER - HP_MILL][c.pc.rot & 1][0]), {0, 0.5f, 0, 1.f}),
         // ---> add new homestead pieces here
     };
     return T;

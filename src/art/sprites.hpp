@@ -11,6 +11,7 @@ static const u32 OUT = HEX(0x241a14);  // universal outline colour
 // result wraps exactly as the old signed multiply did in practice, so every pattern stays pixel-for-pixel the same.
 inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)((uint32_t)y * 19349663u); }
 #include "art/sprites_res.hpp"
+#include "art/sprites_tabs.hpp"
 #include "art/sprites_trophy.hpp"
 #include "art/sprites_gear.hpp"
 #include "delve/sprites_delve.hpp"
@@ -25,8 +26,13 @@ inline int patHash(int x, int y) { return (int)((uint32_t)x * 73856093u) ^ (int)
 #include "art/tree_lime.hpp"
 #include "art/tree_pine.hpp"
 #include "art/tree_snow_spruce.hpp"
+#include "art/tree_stumps.hpp"
+#include "art/camp_fire_art.hpp"
 #include "art/tree_dead_spruce.hpp"
+#include "art/tree_snow_birch.hpp"
 #include "art/rock_sprites.hpp"
+#include "art/remains_sprites.hpp"
+#include "art/ice_spike_sprites.hpp"
 #include "art/tiles_user.hpp"
 #include "art/tiles_water.hpp"
 #include "art/tiles_soil.hpp"
@@ -174,6 +180,52 @@ inline Img mkFlower(int variant) {
     }
     return im;
 }
+// Blade grass: a tall clump of curved blades (about 15 x 20), from the same ramp as the tuft and the tiles; the base is the darkest, the tips the lightest.
+inline Img mkBlades() {
+    Img im(15, 20);
+    static const u32 RAMP[5] = {HEX(0x286830), HEX(0x3f8b30), HEX(0x5fa83e), HEX(0x6cb94a), HEX(0x95d460)};  // root, dark, mid, light, tip
+    auto blade = [&](int x0, int h, float lean, float curve, int tone) {
+        for (int k = 0; k < h; k++) {
+            const float t = h > 1 ? (float)k / (h - 1) : 0.f;
+            const int x = (int)lroundf(x0 + lean * t + curve * t * t), y = 19 - k;
+            const int ci = std::min(4, std::max(0, tone + (t < .3f ? 0 : t < .75f ? 1 : 2) - 1));
+            if (x >= 0 && x < 15 && y >= 0) im.set(x, y, RAMP[ci]);
+        }
+    };
+    static const int SPEC[13][4] = {{-5, 8, -3, -1}, {-4, 11, -2, -1}, {-3, 14, -2, 0}, {-2, 16, -1, 0}, {-1, 18, -1, 1}, {0, 17, 0, 1}, {1, 18, 1, 1},
+                                    {2, 15, 2, 0}, {3, 13, 2, 1}, {4, 10, 3, 1}, {5, 7, 3, 2}, {-1, 9, 0, 0}, {1, 10, 0, 1}};
+    for (int i = 0; i < 13; i++) {
+        blade(7 + SPEC[i][0], SPEC[i][1], (float)SPEC[i][2], (float)SPEC[i][3], 1 + (i % 3));
+        if (SPEC[i][1] >= 15) blade(7 + SPEC[i][0] + 1, std::max(3, SPEC[i][1] / 3), 0.f, 0.f, 1);  // a second pixel at the base, for body
+    }
+    for (int x = 4; x < 11; x++) im.set(x, 19, RAMP[0]);  // the dark root band
+    return im;
+}
+// A breathing hole in the ice (18 x 10, anchored at its middle): a rim of pale ice round dark water with a glint.
+inline Img mkIceHole() {
+    Img im(18, 10);
+    im.ellipse(9.f, 5.f, 8.6f, 4.4f, HEX(0xe8f4fa));
+    im.ellipse(9.f, 5.2f, 7.0f, 3.2f, HEX(0xbcd8e8));
+    im.ellipse(9.f, 5.3f, 6.2f, 2.8f, HEX(0x1c4a78));
+    im.ellipse(9.f, 5.8f, 4.4f, 1.9f, HEX(0x123a62));
+    im.set(5, 4, HEX(0x5aa0d0)); im.set(6, 3, HEX(0x5aa0d0)); im.set(7, 3, HEX(0x7cc0e8));
+    im.line(1, 8, 3, 9, HEX(0xcfe4ee)); im.line(15, 1, 17, 2, HEX(0xcfe4ee));  // two hairline cracks
+    return im;
+}
+// An arctic fox den (22 x 14, anchored at the foot of the opening): a rounded drift of snow, shaded on its lower side, with a dark burrow mouth and a few paw prints.
+inline Img mkDen() {
+    Img im(22, 14);
+    im.ellipse(11.f, 10.f, 10.8f, 4.8f, HEX(0x8aa2ba));   // the shadow under the drift
+    im.ellipse(11.f, 9.2f, 10.2f, 5.6f, HEX(0xb4c6d8));   // the shaded side
+    im.ellipse(11.f, 8.0f, 9.8f, 5.6f, HEX(0xdce7f1));    // the drift
+    im.ellipse(9.5f, 6.0f, 6.4f, 3.0f, HEX(0xf8fbfd));    // the lit top
+    im.ellipse(11.f, 10.2f, 4.2f, 3.0f, HEX(0x6e86a0));   // a lip of packed snow round the mouth
+    im.ellipse(11.f, 10.4f, 3.4f, 2.5f, HEX(0x232d3c));   // the mouth of the burrow
+    im.ellipse(11.f, 10.0f, 2.6f, 1.7f, HEX(0x10151e));
+    for (int i = 0; i < 3; i++) { im.set(5 + i * 2, 12, HEX(0x7f96ad)); im.set(6 + i * 2, 13, HEX(0x7f96ad)); }  // paw prints leading in
+    im.outline(HEX(0x6e86a0));
+    return im;
+}
 inline Img mkTuft() {
     Img im(8, 8);
     u32 a = HEX(0x3f8b30), b = HEX(0x6cb94a);
@@ -218,6 +270,36 @@ inline Img mkRockGrass(int rockW, int kind, int look, int frame) {
     }
     return im;
 }
+// ---- frost round the objects of the snowfield: the forest's grass tufts recoloured onto the snow spruce's frosty ramp (dark blue-green in
+// the shade, nearly white in the light), so the snowfield's rocks, birches, dead trees, signs, tents and the rest stand in frosty tufts
+// the way the forest's trees and rocks stand in grass.
+inline void frostRecolor(Img& im) {
+    const int dr = 0x2a, dg = 0x62, db = 0x6c, lr = 0xb8, lg = 0xd8, lb = 0xe0;
+    for (int y = 0; y < im.h; y++)
+        for (int x = 0; x < im.w; x++) {
+            const u32 c = im.get(x, y);
+            if (cA(c) == 0) continue;
+            float l = (cR(c) * 0.30f + cG(c) * 0.59f + cB(c) * 0.11f) / 170.f;
+            l = l < 0.f ? 0.f : l > 1.f ? 1.f : l;
+            im.set(x, y, RGBA((int)(dr + (lr - dr) * l), (int)(dg + (lg - dg) * l), (int)(db + (lb - db) * l), cA(c)));
+        }
+}
+// Frosty tufts round a snowfield rock: the rock grass in frost colours, with the grass dying out at the rim of a low drift
+inline Img mkRockFrost(int rockW, int kind, int look, int frame) {
+    Img blades = mkRockGrass(rockW, kind, look, frame);
+    frostRecolor(blades);
+    Img im(blades.w, blades.h);
+    const u32 S1 = HEX(0xf4f8fc), S2 = HEX(0xdbe6f2);
+    im.ellipse(im.w * 0.5f, im.h - 1.4f, im.w * 0.5f - 0.5f, 1.7f, S2);
+    im.ellipse(im.w * 0.5f - 0.5f, im.h - 1.9f, im.w * 0.5f - 1.5f, 1.2f, S1);
+    im.blit(blades, 0, 0);
+    return im;
+}
+// the four widths of tuft ring that go round a snowfield sign, tent, lamp, fence, cairn and the like (picked by the object's width)
+constexpr int FROST_SKIRTS = 4;
+constexpr int FROST_SKIRT_W[FROST_SKIRTS] = {10, 18, 32, 56};
+constexpr int FROST_SKIRT_KIND[FROST_SKIRTS] = {0, 0, 1, 2};
+inline int frostSkirtFor(int objW) { return objW <= 12 ? 0 : objW <= 22 ? 1 : objW <= 40 ? 2 : 3; }
 inline Img mkPebbles() {
     Img im(8, 6);
     im.ellipse(3, 3.5f, 2.2f, 1.6f, HEX(0x9a9fa8));
@@ -915,17 +997,9 @@ inline Img mkGlow(u32 col, int sz) {
 }
 // The grass around the snow spruce's roots: the forest's spruce grass, recoloured. Every pixel keeps its brightness but is mapped
 // onto a frosty ramp, from a dark blue-green in the shade to nearly white in the light.
-inline Img mkSnowGrassFrame(int frame) {
-    Img im = mkGrassFrame(GRASS_SPRUCE, frame);
-    const int dr = 0x2a, dg = 0x62, db = 0x6c, lr = 0xb8, lg = 0xd8, lb = 0xe0;  // dark and light ends of the ramp
-    for (int y = 0; y < im.h; y++)
-        for (int x = 0; x < im.w; x++) {
-            const u32 c = im.get(x, y);
-            if (cA(c) == 0) continue;
-            float l = (cR(c) * 0.30f + cG(c) * 0.59f + cB(c) * 0.11f) / 170.f;  // the forest grass tops out around 170
-            l = l < 0.f ? 0.f : l > 1.f ? 1.f : l;
-            im.set(x, y, RGBA((int)(dr + (lr - dr) * l), (int)(dg + (lg - dg) * l), (int)(db + (lb - db) * l), cA(c)));
-        }
+inline Img mkSnowGrassFrame(int frame, int set = GRASS_SPRUCE) {
+    Img im = mkGrassFrame(set, frame);
+    frostRecolor(im);
     return im;
 }
 
@@ -1026,7 +1100,7 @@ inline Img mkWpnWorld(int w) {
             im.outline(OUT);
             return im;
         }
-    }
+            }
 }
 
 // arrows and bolts in flight / on the ground (pointing right)
@@ -1058,14 +1132,23 @@ struct Assets {
     WaterArt water;  // the lakes' and brooks' water and the bank round them, baked per tile (sprites_forest.hpp)
     Spr waterW[WATER_TEX_W], bankW[BANK_TEX_W / 16];  // the author's tile art (tiles_user.hpp): grass / dark grass crops of the 10 x 10 texture, scrolled water crops, bank tiles for water with land to its north
     Spr leaf[3], needles[3], moss[3], bank[3], bankWet[3];  // the home forest's floors (sprites_forest.hpp); bankWet is the bank right at the waterline
-    Spr flower[3], flowerX[2], tuft, mushroom, pebbles, bush[2], homeBush;  // flowerX: violet and poppy (the flower fields)
+    Spr flower[3], flowerX[2], tuft, blades, iceHole, den, mushroom, pebbles, bush[2], homeBush;  // flowerX: violet and poppy (the flower fields)
     Spr oak[OAK_VARIANTS][OAK_FRAMES], pine[PINE_FRAMES], treeGrass[GRASS_SETS][GRASS_FRAMES], rock[2];
-    Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], deadSpruce[DEAD_SPRUCE_FRAMES];  // animated snow and dead spruces
+    Spr campFire[CAMP_FIRE_FRAMES], campCold, campColdSnow;  // the abandoned camps' fire, lit (animated) and cold (camp_fire_art.hpp)
+    Spr treeStump[STUMP_COUNT];  // what each kind of tree leaves when felled (tree_stumps.hpp)
+    Spr snowGrass[GRASS_FRAMES], snowSpruce[SNOW_SPRUCE_FRAMES], deadSpruce[DEAD_SPRUCE_FRAMES], snowBirch[SNOW_BIRCH_FRAMES];  // animated snow and dead spruces, and the snowfield's bare birch
     Spr rockGrass[3][ROCK_LOOKS][ROCK_GRASS_FRAMES];  // swaying grass round minable rocks (tiny, small, large), see mkRockGrass
+    Spr rockFrost[3][ROCK_LOOKS][ROCK_GRASS_FRAMES];  // frosty tufts round the snowfield's rocks (tiny, small, large)
+    Spr frostSkirt[FROST_SKIRTS][ROCK_GRASS_FRAMES];   // frosty tufts round snowfield signs, tents, lamps, fences ... (by width)
+    Spr snowGrassDead[GRASS_FRAMES];                   // frosty tufts round the snowfield's dead spruces
     // [theme] = the biome's colours (ROCK_PALS); the picture is the same everywhere. pebbleSet lies around small rocks and boulders, like the grass around trees
     Spr rockTiny[ROCK_THEMES][ROCK_LOOKS], rockSmall[ROCK_THEMES][ROCK_LOOKS], rockLarge[ROCK_THEMES][ROCK_LOOKS], pebbleSet[ROCK_THEMES][ROCK_LOOKS];
+    Spr oreRock[OREM_N][ROCK_THEMES];  // the ore rocks (copper, iron, silver, gold, coal, amber), in each biome's stone
     Spr desertDecor[DROCK_DECOR_N];  // the desert's scenery-only rocks (grey, not minable)
-    Spr rubbleT[ROCK_THEMES];  // what a broken scenery rock leaves, in the theme's colours
+    Spr rubbleT[ROCK_THEMES];  // what a broken scenery rock leaves, in the theme's colours (kept for the old callers)
+    Spr rockLeft[ROCK_THEMES][REMAINS_ROCK_CLASSES][REMAINS_VARIANTS];  // the heap a tiny rock / small rock / boulder leaves, in the theme's colours (remains_sprites.hpp)
+    Spr iceSpike[ICE_SPIKE_STAGES][ICE_SPIKE_LOOKS];  // the snowfield's ice spikes: five sizes, two looks (ice_spike_sprites.hpp)
+    Spr oreLeft[RN_COUNT][REMAINS_VARIANTS], crystalLeft[REMAINS_VARIANTS];  // what a mined-out ore node leaves (by NodeKind), and the frost crystal's broken shards
       // rock_sprites.hpp
     Spr hut, sign, crate, barrel, fire[3], keeper[2], quester[2];
     Spr hunter[FACING_VIEWS][HS_COUNT][HS_MAXF];  // [view S E N][state][pose]; west is the east view mirrored
@@ -1074,10 +1157,11 @@ struct Assets {
     Spr animal[A_COUNT][8][5];  // [kind][form + 2*tier][walk0..3, dead]: the side view (west = mirror)
     Spr animalNS[A_COUNT][8][2][5];  // the crawlers' front (0) and back (1) views, same indexing
     Spr matIcon[M_COUNT], wpnIcon[W_COUNT], gearIcon[U_COUNT][9], carryIcon[CG_COUNT], babyIcon[A_COUNT], bandage;
+    Spr tabIcon[TI_COUNT];  // the pack's main and category tab icons (sprites_tabs.hpp)
     Spr wpnWorld[W_COUNT], ammoIcon[AM_COUNT], ammoWorld[AM_COUNT];
     Spr coin, heart, bolt, cursor, glowWarm, glowCool, shadowSoft, blood[3], vignette;
     DelveAssets D;
-    hart::HomeAssets H;  // the Homestead: building pieces, crops, portal and market (sprites_homestead.hpp)
+    hart::HomeAssets H;  // the Homestead: building pieces, crops and portal (sprites_homestead.hpp)
     DomBank Dom;    // the farm animals of the Homestead: built on first entry (buildDomBank)
     MonsterBank M;  // the delve creatures: built on first entry (buildMonsterBank)  // the Abandoned Mine and the Frozen Dungeon (sprites_delve.hpp)
     TileBlend blend;  // soft borders between ground tiles (tile_edges.hpp)
@@ -1138,6 +1222,9 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.flowerX[0] = makeSpr(r, mkFlower(2), 4, 7);  // the flower fields' violet and poppy
     a.flowerX[1] = makeSpr(r, mkFlower(3), 4, 7);
     a.tuft = makeSpr(r, mkTuft(), 4, 7);
+    a.blades = makeSpr(r, mkBlades(), 7, 19);
+    a.iceHole = makeSpr(r, mkIceHole(), 9, 5);
+    a.den = makeSpr(r, mkDen(), 11, 11);
     a.mushroom = makeSpr(r, mkMushroom(), 4, 7);
     a.pebbles = makeSpr(r, mkPebbles(), 4, 5);
     for (int i = 0; i < 2; i++) a.bush[i] = makeSpr(r, mkBush(i, rg), 12, 16);
@@ -1148,24 +1235,37 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     for (int g = 0; g < GRASS_SETS; g++)
         for (int f = 0; f < GRASS_FRAMES; f++) a.treeGrass[g][f] = makeSpr(r, mkGrassFrame(g, f), GRASS_SET[g].ax, GRASS_SET[g].ay);  // round tufts round the roots
     for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrass[f] = makeSpr(r, mkSnowGrassFrame(f), GRASS_SET[GRASS_SPRUCE].ax, GRASS_SET[GRASS_SPRUCE].ay);
+    for (int f = 0; f < GRASS_FRAMES; f++) a.snowGrassDead[f] = makeSpr(r, mkSnowGrassFrame(f, GRASS_DEAD), GRASS_SET[GRASS_DEAD].ax, GRASS_SET[GRASS_DEAD].ay);
     for (int f = 0; f < SNOW_SPRUCE_FRAMES; f++) a.snowSpruce[f] = makeSpr(r, mkSnowSpruceFrame(f), SNOW_SPRUCE_AX, SNOW_SPRUCE_AY);
+    for (int f = 0; f < SNOW_BIRCH_FRAMES; f++) a.snowBirch[f] = makeSpr(r, mkSnowBirchFrame(f), SNOW_BIRCH_AX, SNOW_BIRCH_AY);
     for (int f = 0; f < DEAD_SPRUCE_FRAMES; f++) a.deadSpruce[f] = makeSpr(r, mkDeadSpruceFrame(f), DEAD_SPRUCE_AX, DEAD_SPRUCE_AY);
     for (int i = 0; i < ROCK_LOOKS; i++) {
         for (int th = 0; th < ROCK_THEMES; th++) {
             const bool des = th == ROCK_THEME_DESERT;  // the desert has its own pictures and palette; the other biomes recolour the forest ones
+            const bool snow = th == B_SNOW;            // and so do the snowfields now: 20 hand-drawn rocks (snow_rock_sprites.hpp)
+            auto snowSpr = [&](int cls, int dy, bool shadowless) { const snowrock::Pic& p = snowrock::PICS[cls][i]; return makeSpr(r, mkSnowRock(cls, i), p.w / 2, p.h - dy, false, shadowless); };
             const RockArt &rt = des ? DROCK_TINY[i] : ROCK_TINY[i], &rs = des ? DROCK_SMALL[i] : ROCK_SMALL[i], &rl = des ? DROCK_LARGE[i] : ROCK_LARGE[i], &rp = des ? DROCK_PEBBLES[i] : ROCK_PEBBLES[i];
-            a.rockTiny[th][i] = makeSpr(r, des ? mkPalArt(rt, DROCK_PAL) : mkRockArt(rt, th), rt.w / 2, rt.h - 2, false, true);
-            a.rockSmall[th][i] = makeSpr(r, des ? mkPalArt(rs, DROCK_PAL) : mkRockArt(rs, th), rs.w / 2, rs.h - 2, false, true);
-            a.rockLarge[th][i] = makeSpr(r, des ? mkPalArt(rl, DROCK_PAL) : mkRockArt(rl, th), rl.w / 2, rl.h - 2, false, true);
-            a.pebbleSet[th][i] = makeSpr(r, des ? mkPalArt(rp, DROCK_PAL) : mkRockArt(rp, th), rp.w / 2, rp.h - 1);
+            a.rockTiny[th][i] = snow ? snowSpr(0, 2, true) : makeSpr(r, des ? mkPalArt(rt, DROCK_PAL) : mkRockArt(rt, th), rt.w / 2, rt.h - 2, false, true);
+            a.rockSmall[th][i] = snow ? snowSpr(1, 2, true) : makeSpr(r, des ? mkPalArt(rs, DROCK_PAL) : mkRockArt(rs, th), rs.w / 2, rs.h - 2, false, true);
+            a.rockLarge[th][i] = snow ? snowSpr(2, 2, true) : makeSpr(r, des ? mkPalArt(rl, DROCK_PAL) : mkRockArt(rl, th), rl.w / 2, rl.h - 2, false, true);
+            a.pebbleSet[th][i] = snow ? snowSpr(3, 1, false) : makeSpr(r, des ? mkPalArt(rp, DROCK_PAL) : mkRockArt(rp, th), rp.w / 2, rp.h - 1);
         }
         const int gw[3] = {ROCK_TINY[i].w, ROCK_SMALL[i].w, ROCK_LARGE[i].w};
         for (int k = 0; k < 3; k++)
             for (int f = 0; f < ROCK_GRASS_FRAMES; f++) {
                 const Img gi = mkRockGrass(gw[k], k, i, f);
                 a.rockGrass[k][i][f] = makeSpr(r, gi, gi.w / 2, gi.h - 1);  // anchor: bottom centre, drawn 2px below the rock's foot
+                const Img fi = mkRockFrost(gw[k], k, i, f);
+                a.rockFrost[k][i][f] = makeSpr(r, fi, fi.w / 2, fi.h - 1);
             }
     }
+    for (int k = 0; k < FROST_SKIRTS; k++)
+        for (int f = 0; f < ROCK_GRASS_FRAMES; f++) {
+            const Img fi = mkRockFrost(FROST_SKIRT_W[k], FROST_SKIRT_KIND[k], 40 + k, f);
+            a.frostSkirt[k][f] = makeSpr(r, fi, fi.w / 2, fi.h - 1);
+        }
+    for (int m = 0; m < OREM_N; m++)
+        for (int th = 0; th < ROCK_THEMES; th++) a.oreRock[m][th] = makeSpr(r, mkOreRock(m, th), ORE_W / 2, ORE_H - 3, false, true);
     for (int i = 0; i < DROCK_DECOR_N; i++) a.desertDecor[i] = makeSpr(r, mkPalArt(DROCK_DECOR[i], DROCK_DECOR_PAL), DROCK_DECOR[i].w / 2, DROCK_DECOR[i].h - 2, false, true);
     a.rock[0] = makeSpr(r, mkRock(0), 10, 13);
     a.rock[1] = makeSpr(r, mkRock(1), 12, 16);
@@ -1179,7 +1279,7 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     buildHunterSprites(r, a, HunterLook());
     buildFauna(r, a);
     buildRichAnimals(r, a);
-    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, carcassArt(m) ? artToImg(*carcassArt(m)) : oreArt(m) ? artToImg(*oreArt(m)) : m >= M_BERRY ? hart::iconMat(m) : m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
+    for (int m = 0; m < M_COUNT; m++) a.matIcon[m] = makeSpr(r, carcassArt(m) ? artToImg(*carcassArt(m)) : oreArt(m) ? artToImg(*oreArt(m)) : m >= M_VOIDSHARD ? dart::iconDeepMat(m) : m >= M_BERRY ? hart::iconMat(m) : m >= M_COAL ? dart::iconDelveMat(m) : m >= M_ROSE ? mkIconFlower(m) : m < M_CARCASS_N ? mkIconMat(m) : (isCarcassMat(m) ? mkIconTrophy(m) : (m >= M_PLANK ? mkIconProcessed(m) : mkIconLand(m))), 8, 8);
     for (int w = 0; w < W_COUNT; w++) a.wpnIcon[w] = makeSpr(r, w < W_SPEAR ? mkIconWpn(w) : (w < W_FANGDAGGER ? mkIconWpnNew(w) : mkIconWpnGear(w)), 8, 8);
     for (int k = 0; k < TL_COUNT; k++) {
         Img t = k >= TL_HOE ? hart::iconTool(k) : mkIconTool(k);
@@ -1192,8 +1292,32 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
     a.R.placeIcon[PL_CAMPFIRE] = makeSpr(r, mkCampfire(0), 9, 9);
     a.R.placeIcon[PL_CHEST] = makeSpr(r, mkChest(), 8, 7);
     a.R.stump = makeSpr(r, mkStump(), 7, 8);
+    for (int k = 0; k < STUMP_COUNT; k++) {
+        const StumpArt sa = mkStumpArt(k);
+        a.treeStump[k] = makeSpr(r, sa.img, sa.ax, sa.ay);
+    }
+    for (int k = 0; k < CAMP_FIRE_FRAMES; k++) a.campFire[k] = makeSpr(r, mkCampFireFrame(k), 8, 25);
+    a.campCold = makeSpr(r, mkCampFireFrame(-1), 8, 25);
+    a.campColdSnow = makeSpr(r, mkCampFireFrame(-2), 8, 25);
     a.R.rubble = makeSpr(r, mkRubble(), 7, 6);
     for (int th = 0; th < ROCK_THEMES; th++) a.rubbleT[th] = makeSpr(r, retintRock(mkRubble(), th), 7, 6);
+    for (int st = 0; st < ICE_SPIKE_STAGES; st++)
+        for (int lk = 0; lk < ICE_SPIKE_LOOKS; lk++) {
+            int w, h, ax, ay;
+            iceSpikeSize(st, w, h, ax, ay);
+            a.iceSpike[st][lk] = makeSpr(r, mkIceSpike(st, lk), ax, ay);
+        }
+    for (int v = 0; v < REMAINS_VARIANTS; v++) {
+        for (int th = 0; th < ROCK_THEMES; th++)
+            for (int c = 0; c < REMAINS_ROCK_CLASSES; c++) {
+                int w, h, ax, ay;
+                rockRemainsSize(c, w, h, ax, ay);
+                a.rockLeft[th][c][v] = makeSpr(r, mkRockRemains(c, v, th), ax, ay);
+            }
+        for (int k = 0; k < RN_COUNT; k++)
+            if (const OreRemainsLook* o = oreRemainsLook(k)) a.oreLeft[k][v] = makeSpr(r, mkOreRemains(*o, v), ORE_REMAINS_AX, ORE_REMAINS_AY);
+        a.crystalLeft[v] = makeSpr(r, mkOreRemains(*oreRemainsLook(-1), v), ORE_REMAINS_AX, ORE_REMAINS_AY);
+    }
     a.R.stub = makeSpr(r, mkStub(), 6, 6);
     a.R.sprout = makeSpr(r, mkSprout(), 5, 9);
     for (int u = 0; u < U_COUNT; u++)
@@ -1213,8 +1337,9 @@ inline void buildAssets(SDL_Renderer* r, Assets& a) {
         im.outline(OUT);
         a.babyIcon[k] = makeSpr(r, im, 8, 8);
     }
-    for (int c = 0; c < CG_COUNT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
+    for (int c = 0; c < CG_STRAWHAT; c++) a.carryIcon[c] = makeSpr(r, (c >= 7 && c != CG_SADDLEBAG) ? dart::iconDelveCarry(c) : mkIconCarry(c), 8, 8);
     a.bandage = makeSpr(r, mkIconBandage(), 8, 8);
+    for (int k = 0; k < TI_COUNT; k++) a.tabIcon[k] = makeSpr(r, mkTabIcon(k), 8, 8);
     for (int w = 0; w < W_COUNT; w++) {
         Img im = w < W_SPEAR ? mkWpnWorld(w) : (w < W_FANGDAGGER ? mkWpnWorldNew(w) : mkWpnWorldGear(w));
         a.wpnWorld[w] = makeSpr(r, im, im.w / 2, im.h / 2);

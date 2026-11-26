@@ -124,8 +124,8 @@ void Game::drawMinimap() {
     fillRect(vx + vw, vy, 1, vh + 1, wc);
     // shop and elder (home only), and the gates to the other maps in the colour of where they lead
     if (world.mapId == B_HOME) {
-        mapIcon(MI_HOUSE, mx(world.hut.x), my(world.hut.y), 5, C_GOLD);
-        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, mx(bldDoorX(k, COX)), my(bldBaseY(k, COY) - 8.f), 5, BUILDINGS[k].roof);
+        mapIcon(MI_COIN, mx(world.hut.x), my(world.hut.y), 5, C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) mapIcon(bldMapIcon(k), mx(bldDoorX(k, COX)), my(bldBaseY(k, COY) - 8.f), 5, BUILDINGS[k].roof);
         mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, mx(world.questGiver.x), my(world.questGiver.y), 5, C_BLUE);
     }
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
@@ -139,13 +139,14 @@ void Game::drawMinimap() {
     // discovered landmarks, in their biome's colour
     for (auto& l : world.landmarks)
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
+    for (auto& c : world.camps)  // lit camps (the checkpoints), in the colour of a fire
+        if (c.lit) fillRect(mx(c.x) - 1, my(c.y) - 1, 2, 2, HEX(0xffb347));
     // animals the scouting companion sniffed out: green for game, red for fighters (blinking as the mark runs out)
     for (auto& a : animals)
         if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
     // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
-            fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = mx(a.pos.x) - 2, ry = my(a.pos.y) - 2;
                 fillRect(rx, ry, 6, 1, C_GOLD); fillRect(rx, ry + 5, 6, 1, C_GOLD);
@@ -246,6 +247,21 @@ void Game::drawHud() {
         fillRect(x + 5, 8, 5, 5, dayT_ ? C_GOLD : HEX(0xcfd8e8));
         if (!dayT_) fillRect(x + 7, 8, 3, 3, HEX(0x33241a));
         text(x + 13, 8, buf, C_TEXT);
+        if (interior < 0 && delve < 0) {  // a little wind vane beside the clock: the arrow points the way the wind blows, and is longer the harder it does
+            const int vx = x + w + 3;
+            panel(vx, 4, 17, 13, HEX(0x33241a));
+            const float L = 3.f + 4.f * clampf(wind / 1.2f, 0.f, 1.f);
+            const V2 c(vx + 8.5f, 10.5f), tip = c + windDir * L, tail = c - windDir * L, perp(-windDir.y, windDir.x);
+            for (int i = 0; i <= 16; i++) {
+                const V2 q = tail + (tip - tail) * (i / 16.f);
+                fillRect((int)q.x, (int)q.y, 1, 1, HEX(0xcfe4f4));
+            }
+            for (int sd = -1; sd <= 1; sd += 2)
+                for (int i = 0; i <= 5; i++) {
+                    const V2 q = tip - windDir * (i * 0.6f) + perp * (sd * i * 0.45f);
+                    fillRect((int)q.x, (int)q.y, 1, 1, HEX(0xcfe4f4));
+                }
+        }
     }
     // ---- messages
     {
@@ -400,6 +416,7 @@ void Game::drawReticle() {
     tick(mx, my - g - 3, 1, 3);
     tick(mx, my + g + 1, 1, 3);
     fillRect(mx, my, 1, 1, col);
+    drawCursorAction(mx, my, over);
     if (p.charging) {
         int n = (int)(p.charge * 24);
         for (int i = 0; i < n; i++) {
@@ -407,4 +424,75 @@ void Game::drawReticle() {
             fillRect(mx + (int)roundf(cosf(a) * 10) , my + (int)roundf(sinf(a) * 10), 1, 1, p.charge >= 1 ? C_GOLD : HEX(0xffffff));
         }
     }
+}
+
+// The small chip beside the crosshair that says what a click or E would do right here: the farm tool or seed in hand (green when the
+// tile takes it, red when it does not or is out of reach), the weapon over an animal, or the tool / hand for the resource or farm
+// object under the cursor. Nothing is shown when there is nothing to do.
+void Game::drawCursorAction(int mx, int my, bool overAnimal) {
+    if (state != ST_PLAY || p.dead || interior >= 0 || delve >= 0) return;
+    const Spr* ic = nullptr;
+    std::string lab;
+    int verdict = 0;  // 0 none, 1 can, -1 cannot
+    const V2 mw(in.mx + camX, in.my + camY);
+    if (p.hand >= 0 && p.hand != HAND_ITEM && inHomestead()) {
+        const int tx = (int)floorf(mw.x / TS), ty = (int)floorf(mw.y / TS);
+        const bool far = dist(p.pos, V2((tx + .5f) * TS, (ty + .5f) * TS)) > 46.f;
+        const HPiece* gp = tx >= 0 && ty >= 0 && tx < MW && ty < MH ? hsAt(tx, ty, HL_GROUND) : nullptr;
+        const bool plot = gp && gp->kind == HP_PLOT;
+        const bool ripe = plot && gp->crop >= 0 && gp->stage >= CROP_STAGES - 1;
+        bool ok = true;
+        if (p.hand >= HAND_SEED0) {
+            const int crop = p.hand - HAND_SEED0;
+            ic = &A.matIcon[cropSeed(crop)];
+            ok = plot && gp->crop < 0 && p.inv.count(itemMat(cropSeed(crop))) > 0;
+            lab = "SOW";
+        } else if (p.tool[p.hand] >= 0) {
+            ic = &A.R.toolIcon[p.tool[p.hand]];
+            switch (p.hand) {
+                case TT_HOE: ok = ripe || (!plot && hsCanBuild(HP_PLOT, tx, ty, 0)); lab = ripe ? "HARVEST" : plot ? "TILLED" : "TILL"; break;
+                case TT_SHOVEL: lab = "DIG"; break;
+                case TT_CAN: {
+                    const HPiece* wl = hsAt(tx, ty, HL_OBJECT);
+                    const bool source = world.water(tx, ty) || (gp && gp->kind == HP_POND) || (wl && wl->kind == HP_WELL);
+                    ok = (gp && gp->kind == HP_HOLE) || (plot && !ripe) || source;
+                    lab = source ? "REFILL" : "WATER";
+                    break;
+                }
+                case TT_SICKLE: ok = ripe; lab = "CUT"; break;
+                default: break;
+            }
+        }
+        if (ic) verdict = far ? -1 : ok ? 1 : -1;
+        if (far && ic) lab = "TOO FAR";
+    } else if (overAnimal && p.hand < 0) {
+        ic = &A.wpnIcon[p.sel];
+        lab = "ATTACK";
+        verdict = 1;
+    } else if (p.hand < 0) {
+        HTarget t;
+        if (findHarvest(t) && dist(mw, t.pos) < 20.f) {  // E would gather it
+            const int tool = RES[t.res].tool;
+            const int ti = tool >= 0 ? p.tool[tool] : -1;
+            if (ti >= 0) ic = &A.R.toolIcon[ti];
+            lab = "E " + harvestVerb(t.res);
+            verdict = tool >= 0 && bestTool(tool, nullptr) < RES[t.res].minTier ? -1 : 1;
+        } else if (inHomestead()) {
+            HTarget2 h;
+            if (hsFindTarget(h) && h.type != 0 && dist(mw, h.pos) < 24.f) lab = h.key + " " + h.label, verdict = 1;
+        }
+    }
+    if (lab.empty() && !ic) return;
+    const int bx = mx + 9, by = my + 7;
+    const u32 edge = verdict < 0 ? HEX(0xd8443f) : HEX(0x6cc04a);
+    int w = 0;
+    if (!lab.empty()) w = textW(lab) + 4;
+    const int cw = (ic ? 13 : 0) + w;
+    panel(bx, by, cw + 2, 13, HEX(0x1c1410));
+    fillRect(bx, by, cw + 2, 1, edge);
+    fillRect(bx, by + 12, cw + 2, 1, edge);
+    fillRect(bx, by, 1, 13, edge);
+    fillRect(bx + cw + 1, by, 1, 13, edge);
+    if (ic) icon(*ic, bx + 7, by + 6, 10);
+    if (!lab.empty()) text(bx + (ic ? 14 : 3), by + 3, lab, verdict < 0 ? C_RED : C_TEXT, 1, false);
 }

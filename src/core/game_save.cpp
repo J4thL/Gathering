@@ -26,9 +26,7 @@ void Game::save() {
     {
         std::ofstream f(tmp);
         if (!f) return;
-        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nup";
-        for (int i = 0; i < U_COUNT; i++) f << ' ' << p.up[i];
-        f << "\nday " << dayT << "\nkills " << kills << "\n";
+        f << "version " << SAVE_VERSION << "\nseed " << worldSeed << "\ncoins " << p.coins << "\nday " << dayT << "\nkills " << kills << "\n";
         f << "gates";
         for (int b = 0; b < B_COUNT; b++) f << ' ' << (gateOpen[b] ? 1 : 0);
         f << "\n";
@@ -37,6 +35,7 @@ void Game::save() {
         if (trophyMask) f << "trophy " << trophyMask << "\n";
         if (fishCaught) f << "fish " << fishCaught << "\n";
         if (kingTier) f << "kingtier " << kingTier << "\n";
+        if (endlessBest || endlessCheckpoint) f << "endless " << endlessBest << ' ' << endlessCheckpoint << "\n";
         for (int i = 0; i < B_COUNT; i++)
             if (bossKills[i] || bossCool[i] > 0 || bossSeen[i]) f << "boss " << i << ' ' << bossKills[i] << ' ' << (int)bossCool[i] << ' ' << (bossSeen[i] ? 1 : 0) << "\n";
         economySave(f);
@@ -46,7 +45,11 @@ void Game::save() {
         // computed from the items and the bag, so changing a weight in items.hpp applies to old saves too.
         f << "look " << p.look.hair << ' ' << p.look.color << ' ' << p.look.skin << ' ' << p.look.outfit << "\n";
         f << "bag " << (p.bag >= 0 ? itemKey(itemPack(p.bag)) : std::string("-")) << "\nfarmtools";
-        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        for (int t : {(int)TT_HOE, (int)TT_CAN, (int)TT_SICKLE, (int)TT_SHOVEL}) f << ' ' << (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-"));
+        f << "\nworn";
+        for (int i = 0; i < EQ_COUNT; i++) f << ' ' << (p.worn[i] >= 0 ? itemKey(p.worn[i]) : std::string("-")) << ':' << p.wornQ[i];
+        f << "\ngtools";
+        for (int t : {(int)TT_AXE, (int)TT_PICK}) f << ' ' << (p.toolManual[t] ? (p.tool[t] >= 0 ? itemKey(itemTool(p.tool[t])) : std::string("-")) : std::string("auto"));
         f << "\nhotbar";
         for (int i = 0; i < HOT_N; i++) f << ' ' << (p.hot[i] >= 0 ? itemKey(p.hot[i]) : std::string("-"));
         f << "\n";
@@ -56,7 +59,7 @@ void Game::save() {
                 if (sl.q > 0) f << ' ' << sl.q;
                 f << "\n";
             }
-        f << "wornq " << p.armorQ << ' ' << p.bootsQ << ' ' << p.bagQ << "\n";  // quality of the worn armor, boots and bag
+        f << "wornq " << p.wornQ[EQ_BODY] << ' ' << p.wornQ[EQ_FEET] << ' ' << p.bagQ << "\n";  // (armor and boots qualities are also in the worn lines; kept for older readers)
         // maps: "at <map>" is where the hunter is; each visited map then has a "map <id>" block with its discovered landmarks
         // ("disc"), the resources waiting to regrow ("hv") and its campfires / chests ("struct", "cslot"). Extra lines that older
         // builds simply ignore, so the save version stays 2.
@@ -70,6 +73,7 @@ void Game::save() {
             const MapMem& mm = mapMem[m];
             if (!mm.visited) continue;
             f << "map " << m << "\ndisc " << mm.disc << "\n";
+            if (!mm.camps.empty()) f << "camps " << mm.camps << "\n";  // which abandoned camps are lit (absent in older saves: none is)
             if (!mm.seen.empty()) f << "seen " << mm.seen << "\n";
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
@@ -94,6 +98,7 @@ void Game::save() {
         return;
     }
     hasSave = true;
+    readSaveInfo();
 }
 
 // If the main save is missing but the previous one (save.txt.bak) is there - the game stopped between the two renames in save() - put it back.
@@ -133,7 +138,9 @@ bool Game::load() {
     };
     std::string bagKey = "-", hotKeys[HOT_N];
     bool sawBag = false, sawHotbar = false, sawFarm = false;
-    std::vector<std::string> farmKeys;
+    std::vector<std::string> farmKeys, wornKeys, gtoolKeys;
+    bool sawWorn = false;
+    int legacyArmorQ = 0, legacyBootsQ = 0;  // old saves: the quality of the worn armor / boots, which were upgrade levels then
     struct DropLine { std::string key; int n, x, y, q; float age; };
     std::vector<DropLine> dropLines[B_COUNT];
     struct SlotLine {
@@ -144,7 +151,7 @@ bool Game::load() {
     // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
     // separate maps existed (one big world) and are converted below
     std::vector<std::string> mapHv[B_COUNT], mapSt[B_COUNT];
-    std::string mapDisc[B_COUNT], mapSeen[B_COUNT];
+    std::string mapDisc[B_COUNT], mapSeen[B_COUNT], mapCamps[B_COUNT];
     std::vector<std::string> legHv, legSt;
     std::string legDisc;
     std::vector<std::pair<std::string, int>> legacyRefund;  // items from old out-of-home chests (see below)
@@ -171,10 +178,10 @@ bool Game::load() {
             if (!(ss >> q)) q = 0;  // (older saves: no quality field)
             slotLines.push_back({key, n, clampQuality(q)});
         } else if (k == "wornq") {
-            ss >> p.armorQ >> p.bootsQ >> p.bagQ;
-            if (!ss) p.armorQ = p.bootsQ = p.bagQ = 0;
-            p.armorQ = clampQuality(p.armorQ);
-            p.bootsQ = clampQuality(p.bootsQ);
+            ss >> legacyArmorQ >> legacyBootsQ >> p.bagQ;
+            if (!ss) legacyArmorQ = legacyBootsQ = p.bagQ = 0;
+            legacyArmorQ = clampQuality(legacyArmorQ);
+            legacyBootsQ = clampQuality(legacyBootsQ);
             p.bagQ = clampQuality(p.bagQ);
         } else if (k == "look") {
             ss >> lookLoaded.hair >> lookLoaded.color >> lookLoaded.skin >> lookLoaded.outfit;
@@ -186,6 +193,13 @@ bool Game::load() {
             sawFarm = true;
             std::string key;
             while (ss >> key) farmKeys.push_back(key);
+        } else if (k == "worn") {
+            sawWorn = true;
+            std::string key;
+            while (ss >> key) wornKeys.push_back(key);
+        } else if (k == "gtools") {
+            std::string key;
+            while (ss >> key) gtoolKeys.push_back(key);
         } else if (k == "hotbar") {
             sawHotbar = true;
             for (int i = 0; i < HOT_N; i++) {
@@ -216,6 +230,12 @@ bool Game::load() {
                 bossKills[bi] = std::max(0, std::min(100000, kills));
                 bossCool[bi] = (float)std::max(0, std::min((int)BOSS_RESPAWN, cool));
                 bossSeen[bi] = seen != 0;
+            }
+        } else if (k == "endless") {  // "endless <deepest floor> <last boss floor beaten>"
+            int best = 0, cp = 0;
+            if (ss >> best >> cp) {
+                endlessBest = std::max(0, std::min(100000, best));
+                endlessCheckpoint = std::max(0, std::min(endlessBest, cp));
             }
         } else if (k == "kingtier") {
             int n = 0;
@@ -302,6 +322,10 @@ bool Game::load() {
             ss >> bits;
             if (curLoad >= 0) mapDisc[curLoad] = bits;
             else if (curLoad == -1) legDisc = bits;
+        } else if (k == "camps") {
+            std::string bits;
+            ss >> bits;
+            if (curLoad >= 0) mapCamps[curLoad] = bits;
         } else if (k == "seen") {  // fog of war of the current map block (absent in older saves: the map starts unexplored)
             std::string bits;
             ss >> bits;
@@ -375,6 +399,42 @@ bool Game::load() {
             if (isFarmType(TOOLDEF[k].type) && p.tool[TOOLDEF[k].type] < 0 && p.inv.count(itemTool(k)) > 0) {
                 p.tool[TOOLDEF[k].type] = k;
             }
+    // worn carried gear ("key:quality" per EqSlot) and the chosen axe / pickaxe; an older save wore its carried gear from the pack
+    for (int i = 0; i < EQ_COUNT; i++) p.worn[i] = -1, p.wornQ[i] = 0;
+    for (int i = 0; i < EQ_COUNT && i < (int)wornKeys.size(); i++) {
+        const size_t c = wornKeys[i].rfind(':');
+        const int id = itemFromKey(c == std::string::npos ? wornKeys[i] : wornKeys[i].substr(0, c));
+        if (id >= 0 && item(id).kind == IK_CARRIED) {
+            p.worn[i] = id;
+            p.wornQ[i] = c == std::string::npos ? 0 : std::max(0, std::min(Q_COUNT - 1, atoi(wornKeys[i].c_str() + c + 1)));
+        }
+    }
+    if (!sawWorn) migrateWornGear();
+    // a piece stored in the wrong slot (saves written before the cloak slot existed) goes where it belongs, or back into the pack
+    for (int i = 0; i < EQ_COUNT; i++) {
+        if (p.worn[i] < 0) continue;
+        const int want = CG_SLOT[item(p.worn[i]).ref];
+        if (want == i || (want == EQ_ACC1 && i == EQ_ACC2)) continue;
+        const int id = p.worn[i], q = p.wornQ[i];
+        p.worn[i] = -1;
+        p.wornQ[i] = 0;
+        if (p.worn[want] < 0) p.worn[want] = id, p.wornQ[want] = q;
+        else p.inv.addIgnoringWeight(id, 1, q);
+    }
+    // an old save kept armor and boots as upgrade levels: they become the matching crafted pieces, worn
+    if (p.up[U_ARMOR] > 0 && p.worn[EQ_BODY] < 0) p.worn[EQ_BODY] = itemCarry(CG_ARMOR1 + std::min(8, p.up[U_ARMOR]) - 1), p.wornQ[EQ_BODY] = legacyArmorQ;
+    if (p.up[U_BOOTS] > 0 && p.worn[EQ_FEET] < 0) p.worn[EQ_FEET] = itemCarry(CG_BOOTS1 + std::min(3, p.up[U_BOOTS]) - 1), p.wornQ[EQ_FEET] = legacyBootsQ;
+    p.up[U_ARMOR] = p.up[U_BOOTS] = p.up[U_TOOL] = 0;
+    p.syncPack();
+    for (int t = 0; t < TT_COUNT; t++) p.toolManual[t] = false;
+    for (int i = 0; i < 2 && i < (int)gtoolKeys.size(); i++) {
+        const int t = i == 0 ? TT_AXE : TT_PICK;
+        if (gtoolKeys[i] == "auto") continue;
+        p.toolManual[t] = true;
+        const int id = gtoolKeys[i] == "-" ? -1 : itemFromKey(gtoolKeys[i]);
+        p.tool[t] = id >= 0 && item(id).kind == IK_TOOL && TOOLDEF[item(id).ref].type == t ? item(id).ref : -1;
+    }
+    syncGatherTools();
     applyLook(lookLoaded);
     refreshQuest();
     // A save from before the separate maps stored everything in one 240x168 world with the original area at tile (76,54), which is
@@ -433,6 +493,7 @@ bool Game::load() {
         mapMem[m].hv = mapHv[m];
         mapMem[m].st = mapSt[m];
         mapMem[m].disc = mapDisc[m];
+        mapMem[m].camps = mapCamps[m];
         mapMem[m].seen = mapSeen[m];
         mapMem[m].visited = !mapHv[m].empty() || !mapSt[m].empty() || !mapDisc[m].empty() || m == atMap;
         mapMem[m].items.clear();
@@ -481,7 +542,7 @@ bool Game::load() {
     if (!gatesSeen)  // a save from before the gates existed: the hunter keeps every biome that was open to them
         for (int b = 0; b < B_COUNT; b++) gateOpen[b] = true;
     restoreMap();  // the home map is active after newGame(); other maps are put back when you travel there
-    p.maxhp = (float)ARMOR_HP[p.up[U_ARMOR]];
+    p.maxhp = (float)ARMOR_HP[p.armorLv()];
     p.hp = p.maxhp;
     // keep a usable weapon selected (one that is equipped on the hotbar)
     fixSel();
@@ -497,4 +558,30 @@ bool Game::load() {
         if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a delve: back at its entrance
     } else if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a town building: back outside its door
     return true;
+}
+
+// The summary the title screen shows beside CONTINUE: read from the plain-text save (seed, coins, day, kills, where the hunter is, gates,
+// and a "map" line for every map visited). A save that cannot be read just shows no card.
+void Game::readSaveInfo() {
+    saveInfo = SaveInfo();
+    std::ifstream f(savePath());
+    if (!f) return;
+    std::string line;
+    float dayF = 0.f;
+    int n = 0;
+    while (std::getline(f, line) && n++ < 4000) {
+        std::istringstream ss(line);
+        std::string k;
+        ss >> k;
+        if (k == "seed") ss >> saveInfo.seed;
+        else if (k == "coins") ss >> saveInfo.coins;
+        else if (k == "day") ss >> dayF;
+        else if (k == "kills") ss >> saveInfo.kills;
+        else if (k == "at") { int b = 0; if (ss >> b && b >= 0 && b < B_COUNT) saveInfo.biome = b; }
+        else if (k == "gates") { int g = 0, c = 0; while (ss >> g) c += g != 0; saveInfo.gates = c; }
+        else if (k == "map") saveInfo.maps++;
+    }
+    saveInfo.day = 1 + (int)(dayF / DAY_LEN);
+    saveInfo.season = ((saveInfo.day - 1) / SEASON_DAYS) % SEASON_COUNT;
+    saveInfo.ok = saveInfo.seed != 0 || saveInfo.coins != 0 || saveInfo.day > 1 || saveInfo.kills != 0;
 }

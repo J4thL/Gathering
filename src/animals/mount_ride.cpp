@@ -53,7 +53,7 @@ void Game::dismount(bool quiet) {
     p.mountKg = 0;
     p.syncPack();
     mountAnimT = 0;
-    if (!quiet) msg(leave ? "YOU DISMOUNT - YOUR MOUNT WAITS HERE" : inHomestead() ? "YOU DISMOUNT" : "YOU DISMOUNT - THE MOUNT RETURNS TO THE HOMESTEAD", C_DIM);
+    if (!quiet) msg(inHomestead() ? "YOU DISMOUNT" : "YOU DISMOUNT - THE MOUNT RETURNS TO THE HOMESTEAD", C_DIM);
 }
 
 bool Game::toggleMount() {
@@ -87,7 +87,7 @@ bool Game::toggleMount() {
     m->ridden = true;
     p.mountKg = mountKgNow(*m);
     p.syncPack();
-    msg(std::string(called ? "YOU CALL YOUR " : "YOU MOUNT THE ") + ANIMAL[m->species].name + " +" + S(p.mountKg) + " KG", C_GREEN);
+    msg("YOU MOUNT THE " + std::string(ANIMAL[m->species].name) + " +" + S(p.mountKg) + " KG", C_GREEN);
     audio.play(S_CLICK);
     return true;
 }

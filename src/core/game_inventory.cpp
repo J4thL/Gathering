@@ -80,6 +80,41 @@ bool Game::useConsumable(int c) {
             p.nightT = 300.f;
             ftext(p.pos + V2(0, -24), "NIGHTSIGHT!", C_BLUE, 1.2f);
             break;
+        case C_OMELET:
+            if (!heal(60)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_BREAD:
+            if (!heal(40)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_CHOWDER:
+            if (!heal(100)) return false;
+            p.warmT = std::max(p.warmT, 120.f);
+            ftext(p.pos + V2(0, -34), "WARM!", C_ORANGE, 1.2f);
+            break;
+        case C_PIE:
+            if (!heal(50)) return false;
+            p.swiftT = 60.f;
+            ftext(p.pos + V2(0, -34), "SPRY!", C_GREEN, 1.2f);
+            break;
+        case C_VEGSTEW:
+            if (!heal(80)) return false;
+            p.stamina = 100.f;
+            p.exhausted = false;
+            break;
+        case C_RATATOUILLE:
+            if (!heal(90)) return false;
+            p.swiftT = 90.f;
+            ftext(p.pos + V2(0, -34), "SPRY!", C_GREEN, 1.2f);
+            break;
+        case C_BEETSOUP:
+            if (!heal(120)) return false;
+            p.warmT = std::max(p.warmT, 180.f);
+            ftext(p.pos + V2(0, -34), "WARM!", C_ORANGE, 1.2f);
+            break;
         default: return false;
     }
     p.inv.takeBest(id);
@@ -130,11 +165,25 @@ bool Game::useSlot(int slot) {
             audio.play(S_CLICK);
             return true;
         }
+        case IK_FARMBABY: {  // a bought baby farm animal: set it down at the homestead, on the tile under the cursor when that is within reach
+            if (!inHomestead()) { msg("RAISE IT AT YOUR HOMESTEAD", C_DIM); return false; }
+            if ((int)hs.animals.size() >= H_MAX_ANIMALS) { msg("THE HOMESTEAD IS FULL OF ANIMALS", C_RED); audio.play(S_ERROR); return false; }
+            V2 at = p.pos + V2(frng.range(-14, 14), 18);
+            const V2 cur(in.mx + camX, in.my + camY);
+            if (state == ST_PLAY && dist(cur, p.pos) <= PLACE_REACH && !world.solidTile((int)floorf(cur.x / TS), (int)floorf(cur.y / TS))) at = cur;
+            p.inv.remove(id, 1);
+            hsAddAnimal(D.ref, at, true, -1);
+            msg(std::string("A BABY ") + DOMS[D.ref].name + " JOINS YOUR HOMESTEAD - ASSIGN IT A HOME", C_GREEN);
+            audio.play(S_CLICK);
+            return true;
+        }
         case IK_CONSUMABLE: return useConsumable(D.ref);
         case IK_TOOL:
             if (isFarmType(TOOLDEF[D.ref].type)) return equipFarmTool(slot);
-            msg("TOOLS WORK AUTOMATICALLY - THE BEST ONE IN YOUR PACK IS USED", C_DIM);
+            if (TOOLDEF[D.ref].type == TT_AXE || TOOLDEF[D.ref].type == TT_PICK) return equipGatherTool(slot);
+            msg("EQUIP THE ROD ON THE HOTBAR TO FISH", C_DIM);
             return false;
+        case IK_CARRIED: return equipCarried(slot);
         case IK_PLACEABLE:
             if (placeStructure(D.ref)) {
                 state = ST_PLAY;  // close the pack so the new structure is visible
@@ -198,22 +247,6 @@ void Game::spend(int coins, int m1, int n1, int m2, int n2) {
     p.coins -= coins;
     if (m1 >= 0) p.inv.remove(itemMat(m1), n1);
     if (m2 >= 0) p.inv.remove(itemMat(m2), n2);
-}
-bool Game::buyUpgrade(int u) {
-    if (u == U_BAG) return false;  // bags are crafted and worn, not bought
-    int lv = p.up[u];
-    if (lv >= 2) return false;
-    const UpLevel& L = UPS[u].lv[lv];
-    if (!canAfford(L.coins, L.m1, L.n1, L.m2, L.n2)) {
-        audio.play(S_ERROR);
-        return false;
-    }
-    spend(L.coins, L.m1, L.n1, L.m2, L.n2);
-    p.up[u]++;
-    audio.play(S_CRAFT);
-    msg(std::string("UPGRADED: ") + L.name, C_GOLD);
-    save();
-    return true;
 }
 void Game::sellMat(int m, int n) {
     n = std::min(n, p.mat(m));

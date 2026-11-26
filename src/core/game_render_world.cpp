@@ -50,7 +50,185 @@ void Game::blendEdges(int tx, int ty, int sx, int sy, int cls, uint32_t h) {
 }
 
 // ================================================================= world
+// How much of the snowfield's wind detail (the ripple crests and the streaks) a tile gets, 0..1.2: most on the drifted slopes, a little less on open tundra,
+// little in the forest (the trees shelter the ground), half on a plateau's top, and next to nothing within a tile of a rock wall, so the lines never run up
+// against the rock.
+static float snowFxK(const World& w, int tx, int ty) {
+    if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return 0.f;
+    float k = 0.75f + 0.45f * (w.snowSlope[ty][tx] / 255.f) - 0.55f * (w.snowForest[ty][tx] / 255.f);
+    if (w.plat[ty][tx] == 1) k *= 0.5f;
+    for (int dy = -1; dy <= 1; dy++)
+        for (int dx = -1; dx <= 1; dx++) {
+            const int nx = tx + dx, ny = ty + dy;
+            if (nx >= 0 && ny >= 0 && nx < MW && ny < MH && w.tile[ny][nx] == T_CLIFF) return clampf(k, 0.f, 1.2f) * 0.12f;
+        }
+    return clampf(k, 0.f, 1.2f);
+}
+
+// The snowfield's wind on the ground: faint streaks of snow slide east across the open snow. They are fixed to the world (a grid of cells, some of them with a
+// streak that runs along its cell and fades in and out), so they move with the wind, not with the camera. How many there are and how bright depends on the wind
+// (a calm day has only a few), they taper away at both ends, they are drawn a piece at a time so they stop at a rock wall, a log or a tree and fade where
+// snowFxK says the ground is sheltered, and they dim with the daylight and turn pale blue at night.
+void Game::drawSnowDrift() {
+    const float wd = clampf(wind + 0.8f * galeK, 0.f, 1.f);  // 0 calm .. 1 gale
+    const float dens = 0.14f + 0.6f * wd;                     // the share of cells that carry a streak
+    const float dl = daylight();
+    const float bright = (0.35f + 0.65f * wd) * (0.45f + 0.55f * dl), cool = 1.f - dl;
+    const int CW = 64, CH = 34, SEG = 6;
+    const u32 wr = (u32)(255 - 55 * cool), wgc = (u32)(255 - 41 * cool), wb = (u32)(255 - 13 * cool);  // white by day, a pale blue by night
+    for (int gy = camY / CH - 1; gy <= (camY + LH) / CH + 1; gy++)
+        for (int gx = camX / CW - 1; gx <= (camX + LW) / CW + 1; gx++) {
+            const uint32_t h = hash2(gx, gy, 9137u);
+            if ((float)(h >> 2 & 255u) / 255.f >= dens) continue;
+            const int len = 22 + (int)(h >> 4 & 15u) * 3;
+            const float span = (float)(CW + len), pos = fmodf(rainDrift * 0.55f + (float)(h >> 8 & 1023u), span);
+            const float env = sinf(pos / span * 3.1416f);
+            if (env * bright < 0.03f) continue;
+            const int x = gx * CW + (int)pos - len, y = gy * CH + (int)(h >> 20 & 31u) % CH;
+            if (x < 0 || y < 0) continue;
+            for (int i = 0; i < SEG; i++) {
+                const int x0 = x + len * i / SEG, x1 = x + len * (i + 1) / SEG, sl = x1 - x0;
+                const int tx = (x0 + x1) / 2 / TS, ty = y / TS;
+                if (tx >= MW || ty >= MH || (!world.tileIs(tx, ty, T_SNOW) && !world.tileIs(tx, ty, T_SNOWP)) || world.solid[ty][tx]) continue;
+                const int a = (int)(160.f * env * sinf((i + 0.5f) / SEG * 3.1416f) * bright * snowFxK(world, tx, ty));  // thin at both ends
+                if (a < 6) continue;
+                fillRect(x0 - camX, y - camY, sl, 1, RGBA(wr, wgc, wb, a));
+                if (sl > 1) fillRect(x0 + 1 - camX, y + 1 - camY, sl - 1, 1, RGBA(138, 164, 202, a * 7 / 10));
+            }
+        }
+}
+
+// ---- snowfield ground detail
+// Two FastNoiseLite layers over the snow tiles, both stretched along the wind (east): broad drifts, a pale crest of snow where the wind has piled it up
+// and a bluish shade in the hollows (dithered, so it stays pixel art), and thin ripples along the drifts, each a lit pixel with its shadow just below.
+// The noise is sampled at world pixels, so a drift carries on over the tile borders instead of repeating per tile like the tile art does.
+void Game::freeSnowDetail() {
+    for (auto& kv : snowDetTex)
+        if (kv.second) SDL_DestroyTexture(kv.second);
+    snowDetTex.clear();
+    for (auto& kv : snowFaceCache)
+        if (kv.second.t) SDL_DestroyTexture(kv.second.t);
+    snowFaceCache.clear();
+}
+
+// The rock of a snow cliff: columns of frosty basalt standing side by side, each with a lit left edge, a shaded right edge and a dark joint here and there
+// where one block ends and the next begins; the columns are 3-5 px wide and laid out in world pixels (so they run on over the tile borders and do not repeat
+// tile by tile), and the rock darkens towards the foot. With `cap` the top of the tile carries the snow, its lower edge scalloped.
+static Img snowFaceBase(FastNoiseLite& cell, int tx, int ty, bool cap) {
+    (void)cell;
+    Img im(TS, TS);
+    // the snowfield's rock palette (ROCK_PALS[B_SNOW]: pale frosty blue), the same stone as the icy rocks standing on the plateaus
+    static const u32 TONE[3] = {HEX(0x7a86a6), HEX(0x727e9e), HEX(0x838fad)};
+    static const u32 LOW[3] = {HEX(0x66739a), HEX(0x606c92), HEX(0x6d7aa0)};  // the same, darker, towards the foot
+    const u32 LT = HEX(0xb2bed6), SH = HEX(0x4a5575), DK = HEX(0x3c4660);
+    auto edgeOf = [](int k) { return 4 * k + (int)(hash2(k, 11, 6221u) % 3u) - 1; };  // where column k begins: 4 px apart, jittered by one
+    for (int y = 0; y < TS; y++)
+        for (int x = 0; x < TS; x++) {
+            const int X = tx * TS + x, Y = ty * TS + y;
+            int k = (X >> 2) + 1;  // the column that holds X: the last one that begins at or before it
+            while (edgeOf(k) > X) k--;
+            const int xin = X - edgeOf(k), w = edgeOf(k + 1) - edgeOf(k);
+            const uint32_t hk = hash2(k, 5, 6223u);
+            const int seg = 6 + (int)(hk % 5u), off = (int)((hk >> 8) % 11u);  // blocks 6-10 px tall, offset per column
+            const bool joint = (Y + off) % seg == 0;
+            const bool lowRows = y >= 10 && !cap;
+            u32 c = (lowRows ? LOW : TONE)[(hk >> 4) % 3u];
+            if (xin == 0) c = joint ? SH : LT;                            // lit left edge
+            else if (xin == w - 1) c = DK;                                 // shaded right edge, a dark gap to the next column
+            else if (joint) c = SH;                                        // a joint between two blocks
+            else if (xin == w - 2 && w >= 4) c = lowRows ? SH : (Y + off) % seg == 1 ? SH : c;  // the right flank a shade darker near the gap
+            else if ((hash2(X, Y, 6211u) & 31u) == 0) c = LT;              // a fleck
+            im.set(x, y, c);
+        }
+    if (cap)
+        for (int x = 0; x < TS; x++) {
+            const float X = (float)(tx * TS + x);
+            int d = 5 + (int)lroundf(1.6f * sinf(X * 0.83f + 0.7f) + 1.0f * sinf(X * 2.1f + 2.3f));
+            d = std::max(3, std::min(8, d));
+            for (int y = 0; y < d; y++) im.set(x, y, y < 2 ? HEX(0xffffff) : HEX(0xeef4fa));
+            im.set(x, d, HEX(0xb9cde2));
+            if (d + 1 < TS) im.set(x, d + 1, HEX(0x3c4660));
+        }
+    return im;
+}
+
+const Spr* Game::snowFaceSpr(int tx, int ty, bool cap, int cfg) {
+    const uint64_t key = (uint64_t)(ty * MW + tx) | (uint64_t)(cfg & 255) << 24 | (uint64_t)(cap ? 1 : 0) << 32;
+    if (auto it = snowFaceCache.find(key); it != snowFaceCache.end()) return &it->second;
+    FastNoiseLite cell((int)(world.seed * 2654435761u + 0x3a91u));
+    cell.SetNoiseType(FastNoiseLite::NoiseType_Cellular);
+    cell.SetCellularDistanceFunction(FastNoiseLite::CellularDistanceFunction_Euclidean);
+    cell.SetCellularReturnType(FastNoiseLite::CellularReturnType_CellValue);
+    cell.SetFrequency(1.f);
+    const Img base = snowFaceBase(cell, tx, ty, cap);
+    const int prof = (int)(hash2(tx, ty, 6203u) & 3u);
+    return &snowFaceCache.emplace(key, makeSpr(ren, bakeCliff(base, cfg, prof, CLIFF_ICE, 6), 0, 0)).first->second;  // corners rounded a little more than the old 4 px
+}
+
+SDL_Texture* Game::snowDetailChunk(int cx, int cy) {
+    if (snowDetSeed != world.seed) {  // another world: the old drifts are no use
+        freeSnowDetail();
+        snowDetSeed = world.seed;
+    }
+    const int key = cy * 4096 + cx;
+    if (auto it = snowDetTex.find(key); it != snowDetTex.end()) return it->second;
+    constexpr int P = 8 * TS;
+    FastNoiseLite drift, ripple, warp, dash;
+    drift.SetSeed((int)(world.seed * 2654435761u + 0x51f0u));
+    drift.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    drift.SetFractalType(FastNoiseLite::FractalType_FBm);
+    drift.SetFractalOctaves(2);
+    drift.SetFrequency(1.f);
+    ripple.SetSeed((int)(world.seed * 2246822519u + 0x77c1u));
+    ripple.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    ripple.SetFrequency(1.f);
+    dash.SetSeed((int)(world.seed * 668265263u + 0x1d35u));
+    dash.SetNoiseType(FastNoiseLite::NoiseType_OpenSimplex2);
+    dash.SetFrequency(1.f);
+    warp.SetSeed((int)(world.seed * 3266489917u + 0x2bd3u));
+    warp.SetDomainWarpType(FastNoiseLite::DomainWarpType_OpenSimplex2);
+    warp.SetDomainWarpAmp(26.f);
+    warp.SetFrequency(0.012f);
+    static const int bayer[4][4] = {{0, 8, 2, 10}, {12, 4, 14, 6}, {3, 11, 1, 9}, {15, 7, 13, 5}};
+    Img im(P, P);
+    // the pale crest of a ripple at a world pixel, 0 = none .. 1 = full: the drifts decide where ripples may form, the strongest in a drift's heart; a second slow
+    // field stretched along the wind leaves gaps, so a crest is a run of dashes with soft ends and not one long line
+    auto crest = [&](float wx, float wy, float broad) -> float {
+        if (broad < -0.10f) return 0.f;
+        if (fabsf(ripple.GetNoise(wx * 0.050f, wy * 0.21f)) >= 0.045f) return 0.f;
+        const float brk = clampf((dash.GetNoise(wx * 0.10f, wy * 0.45f) + 0.12f) / 0.22f, 0.f, 1.f);
+        if (brk <= 0.f) return 0.f;
+        return brk * (0.4f + 0.6f * clampf((broad + 0.10f) / 0.40f, 0.f, 1.f));
+    };
+    for (int y = 0; y < P; y++)
+        for (int x = 0; x < P; x++) {
+            const float X = (float)(cx * P + x), Y = (float)(cy * P + y);
+            float wx = X, wy = Y;
+            warp.DomainWarp(wx, wy);
+            const float broad = drift.GetNoise(wx * 0.011f, wy * 0.034f);
+            const float b = (bayer[y & 3][x & 3] + 0.5f) / 16.f;
+            u32 c = 0;
+            // contoured, not noisy: flat tones inside a drift, the dither only along its edge (a band ~0.07 wide)
+            const float sh = (-broad - 0.16f) / 0.07f, lt = (broad - 0.34f) / 0.07f;
+            if (sh > 0.f) c = (sh > b || sh > 1.f) ? (-broad > 0.40f ? RGBA(138, 166, 208, 62) : RGBA(142, 170, 212, 38)) : 0u;
+            else if (lt > 0.f) c = (lt > b || lt > 1.f) ? RGBA(255, 255, 255, 105) : 0u;
+            if (const float cr = crest(wx, wy, broad); cr > 0.03f) c = RGBA(255, 255, 255, (int)(150.f * cr + 0.5f));
+            else {  // a ripple's shadow: the pixel under a crest
+                float ux = X, uy = Y - 1.f;
+                warp.DomainWarp(ux, uy);
+                if (const float cs = crest(ux, uy, drift.GetNoise(ux * 0.011f, uy * 0.034f)); cs > 0.03f) c = RGBA(112, 142, 194, (int)(95.f * cs + 0.5f));
+            }
+            im.set(x, y, c);
+        }
+    SDL_Texture* t = toTex(ren, im);
+    snowDetTex[key] = t;
+    return t;
+}
+
 void Game::renderWorld(bool) {
+    if (world.mapId == B_SNOW && snowDetSeed != world.seed) { freeSnowDetail(); snowDetSeed = world.seed; }  // another world: the baked drifts and faces are no use
+    const float snowDl = daylight();
+    const bool snowDet = world.mapId == B_SNOW && interior < 0 && delve < 0 && (world.genOff & GEN_V2_SNOW) && world.tune.snowDetail > 0.01f;
     int tx0 = std::max(0, camX / TS), ty0 = std::max(0, camY / TS);
     int tx1 = std::min(MW - 1, (camX + LW) / TS), ty1 = std::min(MH - 1, (camY + LH) / TS);
     int wf = (int)(timeAcc * 2.4f);
@@ -127,8 +305,34 @@ void Game::renderWorld(bool) {
                     if (!world.water(tx + 1, ty)) fillRect(sx + TS - 1, sy, 1, TS, rim);
                     break;
                 }
-                case T_SNOW: sprS(A.B.snow[h % 3], sx, sy); break;
-                case T_SNOWP: sprS(A.B.snowp[h % 2], sx, sy); break;
+                case T_SNOW: case T_SNOWP: {
+                    const bool packed = world.tile[ty][tx] == T_SNOWP;
+                    if (packed) sprS(A.B.snowp[h % 2], sx, sy);
+                    else sprS(A.B.snow[h % 3], sx, sy);
+                    if (snowDet) {
+                        if (SDL_Texture* dt = snowDetailChunk(tx >> 3, ty >> 3)) {
+                            const SDL_Rect src{(tx & 7) * TS, (ty & 7) * TS, TS, TS}, dst{sx, sy, TS, TS};
+                            SDL_SetTextureAlphaMod(dt, (Uint8)(clampf(world.tune.snowDetail * (packed ? 0.6f : 1.f) * snowFxK(world, tx, ty), 0.f, 1.f) * 255));
+                            SDL_SetTextureColorMod(dt, (Uint8)(150 + 105 * snowDl), (Uint8)(172 + 83 * snowDl), (Uint8)(236 + 19 * snowDl));  // pale blue at night
+                            SDL_RenderCopy(ren, dt, &src, &dst);
+                        }
+                    }
+                    if (world.plat[ty][tx] == 1) {  // raised ground: a clean, paler top (the ground's speckle fades), and the lip along every side that looks onto plain ground
+                        fillRect(sx, sy, TS, TS, RGBA(255, 255, 255, 105));
+                        static const int LX[8] = {0, 1, 0, -1, 1, 1, -1, -1}, LY[8] = {-1, 0, 1, 0, -1, 1, 1, -1};  // N E S W NE SE SW NW
+                        int lc = 0;
+                        for (int d = 0; d < 8; d++) {
+                            const int nx = tx + LX[d], ny = ty + LY[d];
+                            if (nx >= 0 && ny >= 0 && nx < MW && ny < MH && world.plat[ny][nx] == 0 && (world.tile[ny][nx] != T_CLIFF || d == 1 || d == 3)) lc |= 1 << d;  // (the side of a top that runs beside the end of a wall has its rim too)
+                        }
+                        if (lc & (1 | 8)) lc &= ~128;
+                        if (lc & (1 | 2)) lc &= ~16;
+                        if (lc & (2 | 4)) lc &= ~32;
+                        if (lc & (4 | 8)) lc &= ~64;
+                        if (lc) sprS(*A.blend.lip(ren, lc, (int)(hash2(tx, ty, 6207u) & 3u)), sx, sy);
+                    }
+                    break;
+                }
                 case T_ICE: {
                     sprS(A.B.ice[h % 2], sx, sy);
                     if (((int)(timeAcc * 1.2f) + (h & 7)) % 9 == 0) fillRect(sx + (h >> 4) % 12 + 2, sy + (h >> 8) % 12 + 2, 2, 1, RGBA(255, 255, 255, 200));  // glints
@@ -162,8 +366,26 @@ void Game::renderWorld(bool) {
                 case T_MAT: sprS(A.T.mat, sx, sy); break;
                 case T_CLIFF: {
                     if (world.mapId == B_SNOW) {  // snow-capped brown rock: the top tile of a ridge carries the snow, the tile below it is bare face
-                        sprS(world.tileIs(tx, ty - 1, T_CLIFF) ? A.B.snowCliff[h % 3] : A.B.snowCliffCap[h % 3], sx, sy);
-                        if (!world.tileIs(tx, ty + 1, T_CLIFF)) fillRect(sx, sy + TS - 3, TS, 3, HEX(0x2e2a34));
+                        // the sides facing open ground are finished off by the 8-neighbour mask (art/tile_edges.hpp, bakeCliff): foot, lit / shaded
+                        // side edges, rounded and notched corners. What is cut away shows the snow drawn under the tile.
+                        static const int CX[8] = {0, 1, 0, -1, 1, 1, -1, -1}, CY[8] = {-1, 0, 1, 0, -1, 1, 1, -1};  // N E S W NE SE SW NW
+                        int cfg = 0;
+                        for (int d = 0; d < 8; d++) {
+                            const int nx = tx + CX[d], ny = ty + CY[d];
+                            if (nx >= 0 && ny >= 0 && nx < MW && ny < MH && world.tile[ny][nx] != T_CLIFF) cfg |= 1 << d;  // the map's edge counts as rock
+                        }
+                        // where the wall ends against the plateau's own top (the top reaches further south beside it) the face runs flush into it: no cut end,
+                        // no outline; the top's rim (below) carries on beside it, so wall and top join up
+                        if (tx > 0 && world.plat[ty][tx - 1] == 1) cfg &= ~(8 | 64 | 128);
+                        if (tx + 1 < MW && world.plat[ty][tx + 1] == 1) cfg &= ~(2 | 16 | 32);
+                        if (cfg & (1 | 8)) cfg &= ~128;   // a diagonal only matters where both its sides are rock
+                        if (cfg & (1 | 2)) cfg &= ~16;
+                        if (cfg & (2 | 4)) cfg &= ~32;
+                        if (cfg & (4 | 8)) cfg &= ~64;
+                        if (const Spr* cs = snowFaceSpr(tx, ty, (cfg & 1) != 0, cfg)) {
+                            if (cfg) sprS(A.B.snow[h % 3], sx, sy);  // the ground under the rounded and notched corners
+                            sprS(*cs, sx, sy);
+                        }
                         break;
                     }
                     sprS(A.B.cliff[h % 3], sx, sy);
@@ -181,6 +403,7 @@ void Game::renderWorld(bool) {
             }
             if (wet > 0.02f && wetGroundTile(world.tile[ty][tx])) fillRect(sx, sy, TS, TS, RGBA(24, 34, 56, (int)(55 * wet)));  // rain-soaked ground is darker
         }
+    if (world.mapId == B_SNOW && interior < 0 && delve < 0) drawSnowDrift();  // snow streaming low across the open ground
     drawFootprints();  // what walking left behind (game_prints.cpp)
     drawTracks();      // animal tracks the hunter can read (game_tracks.cpp)
     drawBossTelegraph();
@@ -194,7 +417,7 @@ void Game::renderWorld(bool) {
     for (auto& it : items) {
         const float left = (it.item >= 0 ? DROP_LIFE : THROWN_LIFE) - it.t;
         if (left < DESPAWN_WARN && despawnBlink(timeAcc + it.pos.x * 0.01f)) continue;  // about to vanish: blinks
-        if (it.item >= 0) { sprW(A.shadow[0], it.pos.x, it.pos.y, false, 0.6f); icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON); }  // a stack the hunter dropped: a small icon, not a whole tile
+        if (it.item >= 0) { sprW(A.shadowSoft, it.pos.x, it.pos.y, false, 0.6f); icon(itemIcon(it.item), (int)it.pos.x - camX, (int)it.pos.y - camY - 4, DROP_ICON); }  // a stack the hunter dropped: a small icon, not a whole tile
         else sprW(it.ammo >= 0 ? A.ammoWorld[it.ammo] : A.wpnWorld[it.wpn], it.pos.x, it.pos.y - 2, false, 1.f, it.angle * 57.2958, true);
         float g = fmodf(timeAcc + it.pos.x * 0.01f, 1.8f);
         if (g < 0.25f) {
@@ -233,6 +456,9 @@ void Game::renderWorld(bool) {
     // decor (swaying grass and flowers)
     // decor, props and nodes are sorted by y, so only the rows near the camera are visited
     auto yLess = [](const auto& e, float y) { return e.y < y; };
+    // a bush right in front of the hunter is drawn again over him (below, in the y-sorted layer), so he stands half hidden behind it
+    struct FrontBush { const Spr *under, *s; float x, y, alpha, mainA, ang, sqx, sqy, sqr; bool squash; };
+    std::vector<FrontBush> frontBush;
     for (auto it = std::lower_bound(world.decor.begin(), world.decor.end(), camY - 10.f, yLess); it != world.decor.end() && it->y <= camY + LH + 30; ++it) {
         const Decor& d = *it;
         if (d.x < camX - 20 || d.x > camX + LW + 20) continue;
@@ -240,9 +466,16 @@ void Game::renderWorld(bool) {
         bool sway = true;
         float swayAmt = 6.f, alpha = 1.f;
         bool squash = false;  // round bushes: no idle sway, a springy squash when brushed
+        bool bushy = false;   // a bush (bush_react.hpp): shaken, shed over, and drawn in front of the hunter when he stands behind it
+        const Spr* under = nullptr;  // a snow shrub that has dropped its snow: its bare twigs, with the snow fading back in over them
+        float mainA = 1.f;
         switch (d.kind) {
             case D_FLOWER0: case D_FLOWER1: case D_FLOWER2: s = &A.flower[d.kind]; break;
             case D_TUFT: s = &A.tuft; break;
+            case D_ICEHOLE: s = &A.iceHole; sway = false; break;  // a seal's breathing hole in the ice
+            case D_FISHHOLE: s = &A.B.fishHole; sway = false; break;  // the Ice Fisher's fishing hole
+            case D_DEN: s = &A.den; sway = false; break;           // an arctic fox's den in a snowdrift
+            case D_BLADES: s = &A.blades; swayAmt = 3.f; break;  // tall blade grass: a gentle sway, and it leans away from whoever runs through it
             case D_MUSHROOM: s = &A.mushroom; sway = false; break;
             case D_PEBBLES: s = &A.pebbleSet[rockTheme()][(std::abs((int)(d.x / 9.f)) + 3 * std::abs((int)(d.y / 9.f))) % ROCK_LOOKS]; sway = false; break;
             case D_BUSH0: case D_BUSH1: {
@@ -254,9 +487,14 @@ void Game::renderWorld(bool) {
                 sway = twiggy;
                 squash = !twiggy;
                 swayAmt = bt == B_SWAMP ? 3.5f : 2.5f;
+                bushy = true;
+                if (bt == B_SNOW) {
+                    const float k = bushSnowK((size_t)(it - world.decor.begin()));
+                    if (k < 1.f) under = &A.B.snowBushBare[bv], mainA = k;
+                }
                 break;
             }
-            case D_DRYBUSH: s = &A.B.drybush; swayAmt = 3.f; break;
+            case D_DRYBUSH: s = &A.B.drybush; swayAmt = 3.f; bushy = true; break;
             case D_SKULL: s = &A.B.skull; sway = false; break;
             case D_DROCK0: case D_DROCK1: case D_DROCK2: case D_DROCK3: s = &A.desertDecor[d.kind - D_DROCK0]; sway = false; break;
             case D_SANDTUFT: s = &A.B.sandtuft; swayAmt = 1.5f; break;  // the agave: stiff leaves, so only a hint of sway
@@ -264,18 +502,30 @@ void Game::renderWorld(bool) {
             case D_LILY: s = &A.B.lily; sway = false; break;
             case D_BUBBLES: s = &A.B.bubbles; sway = false; alpha = fmaxf(0.f, sinf(timeAcc * 1.3f + d.ph * 3.f)) * 0.9f + 0.1f; break;
             case D_DRIFT: s = &A.B.drift; sway = false; break;
+            case D_FROSTCRACK: s = &A.B.frostCrack[((int)(d.ph * 7.f)) & 3]; sway = false; break;
+            case D_YOUNGPINE: s = &A.B.youngPine; swayAmt = 2.5f; break;
+            case D_TRACKS: s = &A.B.tracks[((int)(d.ph * 7.f)) & 3]; sway = false; break;
+            case D_BURIEDROCK: s = &A.B.buriedRock[((int)(d.ph * 7.f)) & 3]; sway = false; break;
             case D_FROSTTUFT: s = &A.B.frosttuft; swayAmt = 3.f; break;
             case D_ALPINE: s = &A.B.alpine; break;
-            case D_STUMP: s = &A.R.stump; sway = false; break;
+            case D_STUMP: s = world.mapId == B_SNOW ? &A.B.snowStump[((int)(d.ph * 7.f)) % 3] : &A.R.stump; sway = false; break;
             case D_VIOLET: case D_POPPY: s = &A.flowerX[d.kind - D_VIOLET]; break;
             default: s = &A.B.gravel; sway = false; break;
         }
-        float ang = sway ? sinf(windT * 1.9f + d.ph + d.x * 0.02f) * swayAmt * (0.8f + wind) + grassBend((size_t)(it - world.decor.begin())) : 0.f;  // plus the lean from whoever just walked through
+        float ang = sway ? sinf(windT * 1.9f + d.ph + d.x * 0.02f) * swayAmt * (0.8f + wind) + windDir.x * swayAmt * 0.6f * clampf(wind, 0.f, 2.f) * (0.5f + windGust) + grassBend((size_t)(it - world.decor.begin())) : 0.f;  // plus the lean from whoever just walked through
+        float sqx = 1.f, sqy = 1.f, sqr = 0.f;
         if (squash) {  // the bend is the lean a walker's kick would give a tuft: a bush turns it into a short squat-and-spring and a slight tilt
             const float bend = grassBend((size_t)(it - world.decor.begin())), k = std::min(1.f, fabsf(bend) / 30.f);
-            sprWSquash(*s, d.x, d.y, 1.f + 0.10f * k, 1.f - 0.12f * k, bend * 0.12f, alpha);
-        } else
-            sprW(*s, d.x, d.y, false, alpha, ang, true);
+            sqx = 1.f + 0.10f * k, sqy = 1.f - 0.12f * k, sqr = bend * 0.12f;
+        }
+        auto putBush = [&](const Spr& sp, float a) {
+            if (squash) sprWSquash(sp, d.x, d.y, sqx, sqy, sqr, a);
+            else sprW(sp, d.x, d.y, false, a, ang, true);
+        };
+        if (under) putBush(*under, alpha);
+        if (mainA > 0.f) putBush(*s, alpha * mainA);
+        if (bushy && interior < 0 && !p.dead && d.y > p.pos.y + 1.f && d.y < p.pos.y + 14.f && fabsf(d.x - p.pos.x) < 14.f)
+            frontBush.push_back({under, s, d.x, d.y, alpha, mainA, ang, sqx, sqy, sqr, squash});
     }
     // resource nodes: a soft shadow, the plant or ore, and a slow glint so they read as "pick me"
     for (auto it = std::lower_bound(world.nodes.begin(), world.nodes.end(), camY - 10.f, yLess); it != world.nodes.end() && it->y <= camY + LH + 30; ++it) {
@@ -283,13 +533,17 @@ void Game::renderWorld(bool) {
         if (n.x < camX - 20 || n.x > camX + LW + 20) continue;
         const HState& hs = nodeSt[it - world.nodes.begin()];
         if (hs.gone) {  // finished: a stub of the plant, or the broken-up rock, until it grows back
-            sprW(A.R.stub.t && RES[nodeRes(n.kind)].cls == RCL_PLANT ? A.R.stub : A.R.rubble, n.x, n.y);
+            const bool plantRes = RES[nodeRes(n.kind)].cls == RCL_PLANT;
+            const Spr& left = !plantRes && A.oreLeft[n.kind][0].t ? A.oreLeft[n.kind][remainsVariant(n.x, n.y)] : (A.R.stub.t && plantRes ? A.R.stub : A.R.rubble);
+            sprW(left, n.x, n.y);
             continue;
         }
         const float grow = hs.fade > 0 ? 1.f - hs.fade / REGROW_FADE : 1.f;  // regrowing: fades back in
         const float shk = hs.shake > 0 ? sinf(timeAcc * 70.f) * hs.shake * 9.f : 0.f;
-        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && (n.kind < RN_COAL || n.kind >= RN_BERRY);
-        sprW(n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
+        bool plant = n.kind != RN_ORE && n.kind != RN_CACTUS && n.kind != RN_COPPER && n.kind != RN_GOLD && n.kind != RN_AMBER && n.kind != RN_VOIDSTONE && (n.kind < RN_COAL || n.kind >= RN_BERRY);
+        // the ore nodes are rocks with the metal in their cracks, drawn in the stone of the biome they stand in (mines and delves use the mountain's dark stone)
+        const int om = n.kind == RN_COPPER ? OREM_COPPER : n.kind == RN_ORE ? OREM_IRON : n.kind == RN_SILVER ? OREM_SILVER : n.kind == RN_GOLD ? OREM_GOLD : n.kind == RN_COAL ? OREM_COAL : n.kind == RN_AMBER ? OREM_AMBER : -1;
+        sprW(om >= 0 ? A.oreRock[om][world.isDelve() ? B_MOUNTAIN : rockTheme()] : n.kind >= RN_VOIDSTONE ? A.D.node[5 + n.kind - RN_VOIDSTONE] : n.kind >= RN_BERRY ? A.H.node[n.kind - RN_BERRY] : n.kind >= RN_COAL ? A.D.node[n.kind - RN_COAL] : A.B.node[n.kind], n.x + shk, n.y, false, std::max(0.25f, grow), plant ? sinf(timeAcc * 1.6f + n.ph) * 3.f : 0.f, true);
         float g = fmodf(timeAcc * 0.9f + n.ph, 3.2f);
         if (hs.fade <= 0 && g < 0.22f) {
             int gx = (int)n.x - camX + 4, gy = (int)n.y - camY - 12;
@@ -305,7 +559,8 @@ void Game::renderWorld(bool) {
         int j = 0;
     };
     std::vector<DL> dl;
-    for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 20.f, yLess); it != world.props.end() && it->y <= camY + LH + 90; ++it) {
+    // (the Frozen Fortress is sorted at its door but hangs 96 px below it, so the range starts well above the screen)
+    for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 110.f, yLess); it != world.props.end() && it->y <= camY + LH + 90; ++it) {
         if (it->x < camX - 80 || it->x > camX + LW + 80) continue;
         dl.push_back({it->y, 0, (int)(it - world.props.begin())});
     }
@@ -316,6 +571,7 @@ void Game::renderWorld(bool) {
     if (world.mapId == B_HOME && interior < 0)
         for (size_t i = 0; i < villagers.size(); i++) dl.push_back({villagers[i].pos.y, 12, (int)i});
     dl.push_back({p.pos.y, 2, 0});
+    for (size_t i = 0; i < frontBush.size(); i++) dl.push_back({frontBush[i].y, 13, (int)i});
     if (delve >= 0) {
         for (size_t i = 0; i < mons.size(); i++) dl.push_back({mons[i].pos.y - (mons[i].state == MN_DEAD ? 4.f : 0.f), 7, (int)i});
         for (size_t i = 0; i < dchests.size(); i++) dl.push_back({dchests[i].pos.y, 8, (int)i});
@@ -342,6 +598,7 @@ void Game::renderWorld(bool) {
 
     float night = interior >= 0 ? 0.f : 1.f - daylight();
     drawGroundShadows();  // tree and rock shadows lie on the ground, under everything that stands on it
+    drawGroundShadows(1);  // and the shadows of the torch and the fires, at night
     // pebbles scattered round the foot of a small rock or a boulder, like the grass round a tree: which pile and which way round it lies is fixed per rock
     auto pebblesAround = [&](const Prop& pr) {
         const int tx = (int)(pr.x / TS), ty = (int)(pr.y / TS);
@@ -356,13 +613,38 @@ void Game::renderWorld(bool) {
     auto grassAround = [&](const Prop& pr) {
         const int tx = std::min(MW - 1, std::max(0, (int)(pr.x / TS))), ty = std::min(MH - 1, std::max(0, (int)((pr.y - 1.f) / TS)));
         const uint8_t gt = world.tile[ty][tx];
-        if (gt != T_GRASS && gt != T_DARK && gt != T_MOSS) return;  // not on sand, snow, stone, bare forest floors or the interior floors
+        const bool frosty = world.mapId == B_SNOW && (gt == T_SNOW || gt == T_SNOWP);  // the snowfield's rocks stand in frosty tufts
+        if (gt != T_GRASS && gt != T_DARK && gt != T_MOSS && !frosty) return;  // not on sand, stone, bare forest floors or the interior floors
         const int kind = rockClass(pr.kind);
         const int look = rockLookOf(pr);
         const int fr = ((int)(windT * 5.f + pr.ph * ROCK_GRASS_FRAMES / 6.2832f) % ROCK_GRASS_FRAMES + ROCK_GRASS_FRAMES) % ROCK_GRASS_FRAMES;
-        sprWG(A.rockGrass[kind][look][fr], pr.x, pr.y + 2);
+        sprWG(frosty ? A.rockFrost[kind][look][fr] : A.rockGrass[kind][look][fr], pr.x, pr.y + 2);
+    };
+    // frosty tufts round the foot of a snowfield object (sign, tent, lamp, fence, cairn ...): the ring is picked by the object's width
+    auto frostFoot = [&](const Prop& pr, int objW) {
+        if (world.mapId != B_SNOW || interior >= 0 || delve >= 0) return;
+        const int tx = (int)(pr.x / TS), ty = (int)(pr.y / TS);
+        const int fr = ((int)(windT * 5.f + (tx * 7 + ty * 3) * 0.7f) % ROCK_GRASS_FRAMES + ROCK_GRASS_FRAMES) % ROCK_GRASS_FRAMES;
+        sprWG(A.frostSkirt[frostSkirtFor(objW)][fr], pr.x, pr.y + 2);
+    };
+    // frosty tufts round a snowfield tree's roots (the spruce set for the pines and birches, the dead set for the dead spruces)
+    auto frostRoots = [&](const Prop& pr, bool dead, float lean) {
+        if (world.mapId != B_SNOW || interior >= 0 || delve >= 0) return;
+        const int fr = ((int)(windT * SNOW_SPRUCE_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES;
+        const Spr& g = dead ? A.snowGrassDead[fr] : A.snowGrass[fr];
+        sprWG(g, pr.x, pr.y + 1, false, 1.f, lean);
     };
     for (auto& e : dl) {
+        if (e.t == 13) {  // a bush the hunter stands behind: over him
+            const FrontBush& fb = frontBush[e.i];
+            auto put = [&](const Spr& sp, float a) {
+                if (fb.squash) sprWSquash(sp, fb.x, fb.y, fb.sqx, fb.sqy, fb.sqr, a);
+                else sprW(sp, fb.x, fb.y, false, a, fb.ang, true);
+            };
+            if (fb.under) put(*fb.under, fb.alpha);
+            if (fb.mainA > 0.f) put(*fb.s, fb.alpha * fb.mainA);
+            continue;
+        }
         if (e.t == 0) {
             const Prop& pr = world.props[e.i];
             const int camSave = camX;
@@ -371,11 +653,32 @@ void Game::renderWorld(bool) {
                 const HState& hs = propSt[e.i];
                 if (hs.gone || hs.fade > 0) {  // felled tree / broken rock, then a sprout while it grows back
                     const bool tree = RES[rs].cls == RCL_TREE;
-                    sprW(tree ? A.R.stump : (isRockKind(pr.kind) ? A.rubbleT[rockTheme()] : A.R.rubble), pr.x, pr.y);
+                    if (tree) {  // every kind of tree leaves its own stump; the mirror image on every other tile
+                        int sk = STUMP_OAK;
+                        switch (pr.kind) {
+                            case P_OAK0: case P_OAK1: {
+                                const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));
+                                sk = ov == 3 ? STUMP_OLDOAK : ov == 4 ? STUMP_SAPLING : ov == 5 ? STUMP_DEADOAK : STUMP_OAK;
+                            } break;
+                            case P_PINE: sk = STUMP_PINE; break;
+                            case P_PALM: sk = STUMP_PALM; break;
+                            case P_SNOWPINE: sk = STUMP_SNOWPINE; break;
+                            case P_DEADTREE0: case P_DEADTREE1: sk = STUMP_DEADSPRUCE; break;
+                            case P_BARETREE: sk = snowBirchAt(pr.x, pr.y) ? STUMP_BIRCH : STUMP_SNOWDEAD; break;
+                            case P_CACTUS0: case P_CACTUS1: sk = STUMP_CACTUS; break;
+                            case P_LOG: sk = STUMP_LOG; break;
+                            default: break;
+                        }
+                        sprW(A.treeStump[sk], pr.x, pr.y, (((int)(pr.x / TS) + (int)(pr.y / TS)) & 1) != 0);
+                    } else {
+                        const int rv = remainsVariant(pr.x, pr.y);
+                        sprW(isRockKind(pr.kind) ? A.rockLeft[rockTheme()][rockClass(pr.kind)][rv] : (pr.kind == P_CRYSTAL ? A.crystalLeft[rv] : (pr.kind == P_ICESPIKE ? A.oreLeft[RN_ETERNALICE][rv] : A.R.rubble)), pr.x, pr.y);
+                    }
                     if (!tree && rockClass(pr.kind) >= 1) pebblesAround(pr);  // the pebbles stay where the rock was
                     if (!tree && isRockKind(pr.kind)) grassAround(pr);
                     if (tree && pr.kind == P_SNOWPINE)  // the frosty grass stays around the stump too
                         sprWG(A.snowGrass[((int)(windT * SNOW_SPRUCE_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
+                    if (tree && pr.kind == P_BARETREE) frostRoots(pr, !snowBirchAt(pr.x, pr.y), 0.f);  // ... and round a felled birch or dead spruce
                     if (tree && (pr.kind == P_OAK0 || pr.kind == P_OAK1 || pr.kind == P_PINE)) {  // the grass stays around the stump
                         const int gset = pr.kind == P_PINE ? GRASS_SPRUCE : OAK_VAR[oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS))].grass;
                         if (!bareFloor(pr)) sprWG(A.treeGrass[gset][((int)(windT * OAK_FPS + pr.ph * GRASS_FRAMES / 6.2832f) % GRASS_FRAMES + GRASS_FRAMES) % GRASS_FRAMES], pr.x, pr.y + 1);
@@ -390,15 +693,15 @@ void Game::renderWorld(bool) {
                     {
                         const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));  // which look this tree has, fixed per tree
                         const int fr = ((int)(windT * OAK_FPS + pr.ph * OAK_FRAMES / 6.2832f) % OAK_FRAMES + OAK_FRAMES) % OAK_FRAMES;
-                        sprW(A.oak[ov][fr], pr.x, pr.y + 1);
-                        if (!bareFloor(pr)) sprWG(A.treeGrass[OAK_VAR[ov].grass][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                        sprWLean(A.oak[ov][fr], pr.x, pr.y + 1, windLean(A.oak[ov][fr]));
+                        if (!bareFloor(pr)) sprWG(A.treeGrass[OAK_VAR[ov].grass][fr], pr.x, pr.y + 1, false, 1.f, windLean(A.treeGrass[OAK_VAR[ov].grass][fr]));  // the grass around the roots, drawn over the trunk
                     }
                     break;
                 case P_PINE:
                     {
                         const int fr = ((int)(windT * PINE_FPS + pr.ph * PINE_FRAMES / 6.2832f) % PINE_FRAMES + PINE_FRAMES) % PINE_FRAMES;
-                        sprW(A.pine[fr], pr.x, pr.y + 1);
-                        if (!bareFloor(pr)) sprWG(A.treeGrass[GRASS_SPRUCE][fr], pr.x, pr.y + 1);  // the grass around the roots, drawn over the trunk
+                        sprWLean(A.pine[fr], pr.x, pr.y + 1, windLean(A.pine[fr]));
+                        if (!bareFloor(pr)) sprWG(A.treeGrass[GRASS_SPRUCE][fr], pr.x, pr.y + 1, false, 1.f, windLean(A.treeGrass[GRASS_SPRUCE][fr]));  // the grass around the roots, drawn over the trunk
                     }
                     break;
                 case P_ROCK0: case P_ROCK1: case P_BOULDER: case P_SANDBOULDER: case P_SANDROCK0: case P_SANDROCK1: case P_SNOWROCK:
@@ -421,13 +724,31 @@ void Game::renderWorld(bool) {
                 case P_FURN: sprW(A.T.furn[std::max(0, std::min(FU_COUNT - 1, (int)pr.ph))], pr.x, pr.y); break;
                 case P_LAMP: sprW(A.T.lamp, pr.x, pr.y); break;
                 case P_FENCE: sprW(A.T.fence, pr.x, pr.y); break;
+                case P_SNOWMAN: sprW(A.B.snowman[(int)pr.ph & 3], pr.x, pr.y); frostFoot(pr, A.B.snowman[0].w); break;
+                case P_SNOWSIGN: { const Spr& ss = A.B.snowSign[std::max(0, std::min(3, (int)pr.ph))]; sprW(ss, pr.x, pr.y); frostFoot(pr, ss.w); } break;
+                case P_SNOWLAMP: sprW(A.B.snowLamp, pr.x, pr.y); frostFoot(pr, A.B.snowLamp.w); break;
+                case P_SNOWFENCE: sprW(A.B.snowFence, pr.x, pr.y); frostFoot(pr, A.B.snowFence.w); break;
+                case P_SNOWCAMPFIRE: sprW(A.B.snowFire[((int)(timeAcc * 9) + (int)pr.ph) % 3], pr.x, pr.y); break;
+                case P_SNOWTENT: sprW(A.B.snowTentSnowy, pr.x, pr.y); frostFoot(pr, A.B.snowTentSnowy.w); break;  // the snowfield's tents are the snow-covered ones; the regular tent is for the other biomes' camps
+                case P_SNOWLOG: sprW(A.B.snowLog[((int)(pr.x / TS) * 5 + (int)(pr.y / TS) * 3) % 3], pr.x, pr.y); frostFoot(pr, A.B.snowLog[0].w); break;
+                case P_LOOKOUT: sprW(A.B.lookout, pr.x, pr.y); frostFoot(pr, A.B.lookout.w); break;
+                case P_FISHRACK: sprW(A.B.fishRack, pr.x, pr.y); frostFoot(pr, A.B.fishRack.w); break;
+                case P_FIREWOOD: sprW(A.B.firewood, pr.x, pr.y); frostFoot(pr, A.B.firewood.w); break;
+                case P_SNOWTENTOLD: sprW(A.B.tentOld[0], pr.x, pr.y); frostFoot(pr, A.B.tentOld[0].w); break;  // the snow-covered one: tentOld[1] (bare) is for the other biomes
+                case P_SNOWASH: sprW(A.B.ashRing, pr.x, pr.y); break;
+                case P_CAMPFIRE: {  // an abandoned camp's fire: a ring of cold logs until the hunter walks up and lights it
+                    const int ci = (int)pr.ph;
+                    const bool lit = ci >= 0 && ci < (int)world.camps.size() && world.camps[ci].lit;
+                    sprW(lit ? A.campFire[((int)(timeAcc * 11.8f) + ci * 5) % CAMP_FIRE_FRAMES] : (world.mapId == B_SNOW ? A.campColdSnow : A.campCold), pr.x, pr.y);
+                } break;
+                case P_CAMPTENT: sprW(pr.ph > 0.5f ? A.B.snowTent : A.B.tentOld[1], pr.x, pr.y); break;  // the regular tent standing (ph 1) or the bare one come down (ph 0): the other biomes' camps (A.B.snowTent is the regular tent, whatever its name)
                 case P_BENCH: sprW(A.T.bench, pr.x, pr.y); break;
                 case P_PLANTER: sprW(A.T.planter, pr.x, pr.y); break;
                 case P_WELL: sprW(A.T.well, pr.x, pr.y); break;
                 // ---- desert
                 case P_CACTUS0: case P_CACTUS1: sprW(A.B.cactus[pr.kind - P_CACTUS0], pr.x, pr.y); break;
                 case P_PALM:
-                    sprW(A.B.palm, pr.x, pr.y + 1, false, 1.f, sinf(windT * 0.9f + pr.ph) * 0.9f, true);
+                    sprW(A.B.palm, pr.x, pr.y + 1, false, 1.f, sinf(windT * 0.9f + pr.ph) * 0.9f + windDir.x * wind * (0.5f + windGust) * 1.1f, true);  // (the palm turns on its foot, leaning downwind)
                     break;
                 case P_COLUMN: sprW(A.B.column, pr.x, pr.y); break;
                 case P_RUINWALL: sprW(A.B.ruinwall, pr.x, pr.y); break;
@@ -436,7 +757,7 @@ void Game::renderWorld(bool) {
                 case P_DEADTREE0: case P_DEADTREE1:
                     {
                         const int fr = ((int)(windT * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
-                        sprW(A.deadSpruce[fr], pr.x, pr.y + 1, pr.kind == P_DEADTREE1);  // the second look is the mirror image
+                        sprWLean(A.deadSpruce[fr], pr.x, pr.y + 1, windLean(A.deadSpruce[fr]), pr.kind == P_DEADTREE1);  // the second look is the mirror image
                     }
                     break;
                 case P_LOG: sprW(A.B.log, pr.x, pr.y); break;
@@ -447,14 +768,26 @@ void Game::renderWorld(bool) {
                 case P_SNOWPINE:
                     {
                         const int fr = ((int)(windT * SNOW_SPRUCE_FPS + pr.ph * SNOW_SPRUCE_FRAMES / 6.2832f) % SNOW_SPRUCE_FRAMES + SNOW_SPRUCE_FRAMES) % SNOW_SPRUCE_FRAMES;
-                        sprW(A.snowSpruce[fr], pr.x, pr.y + 1);
-                        sprWG(A.snowGrass[fr % GRASS_FRAMES], pr.x, pr.y + 1);  // frosty grass around the roots, over the trunk
+                        sprWLean(A.snowSpruce[fr], pr.x, pr.y + 1, windLean(A.snowSpruce[fr]));
+                        sprWG(A.snowGrass[fr % GRASS_FRAMES], pr.x, pr.y + 1, false, 1.f, windLean(A.snowGrass[fr % GRASS_FRAMES]));  // frosty grass around the roots, over the trunk
                     }
                     break;
                 case P_BARETREE:
+                    if (snowBirchLeafy(pr.x, pr.y)) {  // a leafy birch under snow: its sway is painted into its frames (the wind drives the pace)
+                        sprW(A.B.leafyBirch[((int)(windT * LEAFY_BIRCH_FPS + pr.ph * LEAFY_BIRCH_FRAMES / 6.2832f) % LEAFY_BIRCH_FRAMES + LEAFY_BIRCH_FRAMES) % LEAFY_BIRCH_FRAMES], pr.x, pr.y + 1);
+                        frostRoots(pr, false, 0.f);
+                        break;
+                    }
+                    if (snowBirchAt(pr.x, pr.y)) {  // a birch: animated like the spruces (24 sway frames), the second look is the mirror image
+                        const int fr = ((int)(windT * SNOW_BIRCH_FPS + pr.ph * SNOW_BIRCH_FRAMES / 6.2832f) % SNOW_BIRCH_FRAMES + SNOW_BIRCH_FRAMES) % SNOW_BIRCH_FRAMES;
+                        sprWLean(A.snowBirch[fr], pr.x, pr.y + 1, windLean(A.snowBirch[fr]), snowBirchLook(pr.x, pr.y) == 1);
+                        frostRoots(pr, false, 0.f);  // frosty tufts round the roots, drawn over the trunk
+                        break;
+                    }
                     {
                         const int fr = ((int)(windT * DEAD_SPRUCE_FPS + pr.ph * DEAD_SPRUCE_FRAMES / 6.2832f) % DEAD_SPRUCE_FRAMES + DEAD_SPRUCE_FRAMES) % DEAD_SPRUCE_FRAMES;
-                        sprW(A.deadSpruce[fr], pr.x, pr.y + 1, ((int)pr.x >> 4) & 1);  // mirrored on every other tile, so they differ
+                        sprWLean(A.deadSpruce[fr], pr.x, pr.y + 1, windLean(A.deadSpruce[fr]), ((int)pr.x >> 4) & 1);  // mirrored on every other tile, so they differ
+                        frostRoots(pr, true, windLean(A.snowGrassDead[fr % GRASS_FRAMES]));
                     }
                     break;
                 case P_CRYSTAL: {
@@ -463,8 +796,9 @@ void Game::renderWorld(bool) {
                     if (tw < 0.2f) fillRect((int)pr.x - camX + 1, (int)pr.y - camY - 18, 1, 3, RGBA(255, 255, 255, 230));
                     break;
                 }
-                case P_ICEHUT: sprW(A.B.icehut, pr.x, pr.y); break;
-                case P_CAIRN: sprW(A.B.cairn, pr.x, pr.y); break;
+                case P_ICESPIKE: sprW(A.iceSpike[propRsId[e.i] >= 0 ? spikeStage(e.i) : (int)pr.ph % ICE_SPIKE_STAGES][((int)pr.ph / ICE_SPIKE_STAGES) & 1], pr.x, pr.y); break;
+                case P_ICEHUT: sprW(A.B.icehut, pr.x, pr.y); frostFoot(pr, A.B.icehut.w); break;
+                case P_CAIRN: sprW(A.B.cairn, pr.x, pr.y); frostFoot(pr, A.B.cairn.w); break;
                 // ---- mountain
                 case P_CAVE: sprW(A.B.cave, pr.x, pr.y); break;
                 case P_STANDING: {
@@ -476,7 +810,6 @@ void Game::renderWorld(bool) {
                 case P_BSIGN0: case P_BSIGN1: case P_BSIGN2: case P_BSIGN3: sprW(A.B.bsign[pr.kind - P_BSIGN0], pr.x, pr.y); break;
                 // ---- the mine and the frozen dungeon
                 case P_HPORTAL: sprW(A.H.portal[((int)(timeAcc * 6.f)) & 3], pr.x, pr.y); break;
-                case P_HMARKET: sprW(A.H.market, pr.x, pr.y); break;
                 case P_MINEGATE: sprW(A.D.mineGate, pr.x, pr.y); break;
                 case P_FROSTGATE: sprW(A.D.frostGate, pr.x, pr.y); break;
                 case P_BEAM: break;  // drawn over the heads (below)
@@ -570,6 +903,7 @@ void Game::renderWorld(bool) {
                     else ang = 50.f - 35.f * (f - 0.8f) / 0.2f;                                     // rest on the soil, lift away
                     sprW(A.R.toolSwing[p.tool[p.farmType]], p.pos.x + (left ? -3 : 3), p.pos.y - 6, left, 1.f, left ? -ang : ang, true);
                 }
+                drawMelee();
                 // weapon in hand while winding up
                 if (p.charging && p.wpn(p.sel) > 0) {
                     float back = p.charge * 3.f;
@@ -629,6 +963,12 @@ void Game::renderWorld(bool) {
                 if (((int)(timeAcc * 6) + e.i) % 5 == 0)
                     fillRect((int)a.pos.x - camX + (int)(sinf(timeAcc * 5 + e.i) * 9), (int)a.pos.y - camY - (int)(a.bodyH * 2 + 4 + 5 * sinf(timeAcc * 7)), 2, 2, TIER[3].col);
             }
+            if (a.tier == TR_RARE && !a.dead) {  // a rare one: a small blue glint that comes and goes above it, so it can be told from a common one from afar
+                const int ph = ((int)(timeAcc * 2.5f) + e.i * 3) % 8;
+                const int gx = (int)a.pos.x - camX + (e.i % 5) - 2, gy = (int)a.pos.y - camY - (int)(a.bodyH * 2 + 5);
+                if (ph == 0) fillRect(gx, gy, 1, 3, TIER[2].col), fillRect(gx - 1, gy + 1, 3, 1, TIER[2].col);  // a little cross glint
+                else if (ph == 1) fillRect(gx, gy + 1, 1, 1, TIER[2].col);
+            }
             const bool shaded = shadeBegin(s, a.pos.x, a.pos.y, 0.75f);  // sampled on the ground, not up in the air
             sprW(s, a.pos.x, a.pos.y - hop, mirror);
             if (shaded) shadeEnd(s);
@@ -660,17 +1000,49 @@ void Game::renderWorld(bool) {
     }
     drawHsRoofs();
     drawHsOverlay();
+    drawPlaceGhost();
     // projectiles
     for (auto& pr : projs) {
         float ang = (pr.angle + pr.spin * (pr.travelled / pr.speed)) * 57.2958;
         sprW(pr.ammo >= 0 ? A.ammoWorld[pr.ammo] : A.wpnWorld[pr.wpn], pr.pos.x, pr.pos.y, false, 1.f, ang, true);
         if (pr.crit) fillRect((int)pr.pos.x - camX, (int)pr.pos.y - camY, 1, 1, RGBA(255, 200, 80, 220));
     }
+    // rings spreading over the water (a diving seal): a flattened circle that widens and fades
+    for (const Ripple& r : ripples) {
+        if (r.t <= 0.f) continue;
+        const float k = r.t / r.max, rad = 6.f + 20.f * k;
+        const u32 c = RGBA(70, 140, 200, (int)(235.f * (1.f - k)));  // a blue ring on the ice, fading as it spreads
+        for (int i = 0; i < 32; i++) {
+            const float ang = i * 6.2832f / 32.f;
+            fillRect((int)(r.x + cosf(ang) * rad - camX), (int)(r.y + sinf(ang) * rad * 0.5f - camY), 1, 1, c);
+        for (int i = 0; i < 32; i += 2) {  // (a lighter inner edge, so it reads as a wave)
+            const float ang = i * 6.2832f / 32.f;
+            fillRect((int)(r.x + cosf(ang) * (rad - 1.f) - camX), (int)(r.y + sinf(ang) * (rad - 1.f) * 0.5f - camY), 1, 1, RGBA(232, 246, 255, (int)(170.f * (1.f - k))));
+        }
+        }
+    }
     // particles
     for (auto& q : parts) {
         float a = clampf(q.life / q.max, 0, 1);
         u32 c = withA(q.col, (int)(255 * std::min(1.f, a * 2.f)));
         fillRect((int)(q.x - camX), (int)(q.y - q.z - camY), q.size, q.size, c);
+    }
+    for (auto& q : smoke) {  // chimney and campfire smoke: a small puff that swells as it rises and fades out, with a darker underside
+        const float k = 1.f - clampf(q.life / q.max, 0.f, 1.f);
+        const int n = 3 + (int)(k * (q.size - 2.001f));
+        const int a = (int)(215.f * std::min(1.f, k * 24.f) * (1.f - k * k * k));
+        if (a < 6) continue;
+        const int sx = (int)(q.x - camX) - n / 2, sy = (int)(q.y - q.z - camY) - n / 2;
+        // grey, darker than the snow behind it (a white puff is lost on the white ground): a lit top edge, a shaded underside
+        fillRect(sx + 1, sy, n - 2, n, RGBA(116, 126, 152, a));
+        fillRect(sx, sy + 1, n, n - 2, RGBA(116, 126, 152, a));
+        fillRect(sx + 1, sy + n - 1, n - 2, 1, RGBA(78, 88, 114, a));
+        fillRect(sx + 1, sy, n - 2, 1, RGBA(170, 180, 202, a * 4 / 5));
+    }
+    for (auto& q : spin) {  // spindrift and pine puffs: a speck, and its faint shadow on the snow below so it shows against the white ground
+        const float f = std::min(1.f, clampf(q.life / q.max, 0, 1) * 2.f);
+        if (q.z > 2.f) fillRect((int)(q.x - camX), (int)(q.y - camY) + 1, q.size, 1, RGBA(112, 138, 180, (int)(95 * f)));
+        fillRect((int)(q.x - camX), (int)(q.y - q.z - camY), q.size, q.size, withA(q.col, (int)(225 * f)));
     }
 
     // ---- lighting: darkness with pools of light, dusk and dawn colour, glows, lightning (game_light.cpp; the delves have their own darkness)

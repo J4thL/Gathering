@@ -8,7 +8,7 @@ void Game::drawJournalTab(int X, int Y, int W, int H) {
     int y = Y + 40;
     auto head = [&](const char* s) {
         text(x0, y, s, C_GOLD, 1, false);
-        fillRect(x0, y + 9, W - 24, 1, HEX(0x4a2a22));
+        fillRect(x0, y + 9, W - 24, 1, HEX(0x6b665c));
         y += 13;
     };
 

@@ -73,7 +73,7 @@ void Game::makeOrders(int day) {
     std::vector<int> pool;
     for (int r = 0; r < RECIPE_N; r++) {
         const Recipe& R = RECIPES[r];
-        if (R.kind == RK_GEAR || !recipeHasQuality(R) || R.minLv > p.sk.level(R.skill) + 5) continue;
+        if (!recipeHasQuality(R) || R.minLv > p.sk.level(R.skill) + 5) continue;
         const int id = recipeItem(R);
         const int k = item(id).kind;
         if (k != IK_CONSUMABLE && k != IK_AMMO && k != IK_PLACEABLE) continue;  // gear you carry or hold is never ordered

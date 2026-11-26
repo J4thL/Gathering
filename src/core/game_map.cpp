@@ -14,6 +14,18 @@ static const char* compassWord(float dx, float dy) {
 }
 
 // Small pixel icons for the maps. Letters: r the accent colour, w cream wall, d dark, y gold, g green, c light, b blue.
+int Game::bldMapIcon(int k) {
+    switch (k) {
+        case BLD_SMITH: return MI_ANVIL;
+        case BLD_TANNER: return MI_LEATHER;
+        case BLD_WORKSHOP: return MI_TOOLS;
+        case BLD_SHOP: return MI_COIN;
+        case BLD_FLOWER: return MI_FLOWER;
+        case BLD_SALON: return MI_SCISSORS;
+        default: return MI_HOUSE;
+    }
+}
+
 void Game::mapIcon(int kind, int cx, int cy, int sz, u32 col) {
     static const char* const HOUSE7[7] = {"...r...", "..rrr..", ".rrrrr.", "rrrrrrr", ".wwwww.", ".wwdww.", ".wwdww."};
     static const char* const HOUSE5[5] = {"..r..", ".rrr.", "rrrrr", ".wdw.", ".wdw."};
@@ -27,11 +39,29 @@ void Game::mapIcon(int kind, int cx, int cy, int sz, u32 col) {
     static const char* const ELD5[5] = {".bbb.", "bcbcb", ".bbb.", "bbbbb", "b.b.b"};
     static const char* const LAIR7[7] = {"r.....r", "rr.r.rr", "rrrrrrr", "rwrrrwr", ".rrrrr.", ".rwrwr.", "..r.r.."};  // a horned skull
     static const char* const LAIR5[5] = {"r...r", "rrrrr", "rwrwr", ".rrr.", ".r.r."};
+    static const char* const ANVIL7[7] = {"rrrrrr.", "rrrrrrr", ".rrrrr.", "..rrr..", "..rrr..", ".rrrrr.", "rrrrrrr"};
+    static const char* const ANVIL5[5] = {"rrrr.", "rrrrr", ".rrr.", "..r..", ".rrr."};
+    static const char* const LEATH7[7] = {"r.rrr.r", "rrrrrrr", ".rrrrr.", "rrrrrrr", ".rrrrr.", "rr...rr", "r.....r"};  // a hide
+    static const char* const LEATH5[5] = {"r.r.r", "rrrrr", ".rrr.", "rrrrr", "r...r"};
+    static const char* const TOOLS7[7] = {".rrrrr.", "rrrrrrr", ".rrrrr.", "..www..", "..www..", "..www..", "..www.."};  // a hammer
+    static const char* const TOOLS5[5] = {"rrrrr", "rrrrr", ".rrr.", "..w..", "..w.."};
+    static const char* const COIN7[7] = {".yyyyy.", "yyydyyy", "yydyyyy", "yyydyyy", "yyyydyy", "yyydyyy", ".yyyyy."};  // a dollar coin
+    static const char* const COIN5[5] = {".yyy.", "yydyy", "ydddy", "yydyy", ".yyy."};
+    static const char* const FLOW7[7] = {"..rrr..", ".rryrr.", "..rrr..", "...g...", "..gg...", "...g...", "...g..."};
+    static const char* const FLOW5[5] = {".rrr.", "rryrr", ".rrr.", "..g..", ".gg.."};
+    static const char* const SCIS7[7] = {"w.....w", ".w...w.", "..w.w..", "...w...", "..r.r..", ".rr.rr.", ".r...r."};  // scissors
+    static const char* const SCIS5[5] = {"w...w", ".w.w.", "..w..", ".r.r.", "rr.rr"};
     const bool big = sz >= 7;
     const char* const* pat = nullptr;
     switch (kind) {
         case MI_HOUSE: pat = big ? HOUSE7 : HOUSE5; break;
         case MI_PORTAL: pat = big ? PORT7 : PORT5; break;
+        case MI_ANVIL: pat = big ? ANVIL7 : ANVIL5; break;
+        case MI_LEATHER: pat = big ? LEATH7 : LEATH5; break;
+        case MI_TOOLS: pat = big ? TOOLS7 : TOOLS5; break;
+        case MI_COIN: pat = big ? COIN7 : COIN5; break;
+        case MI_FLOWER: pat = big ? FLOW7 : FLOW5; break;
+        case MI_SCISSORS: pat = big ? SCIS7 : SCIS5; break;
         case MI_LAIR: pat = big ? LAIR7 : LAIR5; break;
         case MI_QUEST_NEW: pat = big ? BADGE7 : BADGE5; break;
         case MI_QUEST_READY: pat = big ? ASK7 : ASK5; break;
@@ -90,11 +120,19 @@ void Game::drawWorldMap() {
     auto sy = [&](float wy) { return oy + (int)(wy / TS / MM_DIV * K); };
     // the shop and the elder (home only)
     if (world.mapId == B_HOME) {
-        mapIcon(MI_HOUSE, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
-        text(sx(world.hut.x) + 5, sy(world.hut.y) - 3, "SHOP", C_GOLD);
-        for (int k = 0; k < BLD_COUNT; k++) mapIcon(MI_HOUSE, sx(bldDoorX(k, COX)), sy(bldBaseY(k, COY) - 8.f), 7, BUILDINGS[k].roof);
-        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, sx(world.questGiver.x), sy(world.questGiver.y), 7, C_BLUE);
-        text(sx(world.questGiver.x) + 5, sy(world.questGiver.y) - 3, "ELDER", C_BLUE);
+        mapIcon(MI_COIN, sx(world.hut.x), sy(world.hut.y), 7, C_GOLD);
+        text(sx(world.hut.x) + 6, sy(world.hut.y) - 3, "SHOP", C_GOLD);
+        for (int k = 0; k < BLD_COUNT; k++) {
+            const int bx = sx(bldDoorX(k, COX)), by = sy(bldBaseY(k, COY) - 8.f);
+            mapIcon(bldMapIcon(k), bx, by, 7, BUILDINGS[k].roof);
+            if (inRect(bx - 4, by - 4, 9, 9)) {
+                const int lx = std::max(ox + 1, std::min(ox + mw - textW(BUILDINGS[k].name) - 1, bx - textW(BUILDINGS[k].name) / 2));
+                text(lx, by + 6, BUILDINGS[k].name, C_TEXT);
+            }
+        }
+        const int ex = sx(world.questGiver.x), ey = sy(world.questGiver.y);
+        mapIcon(!questActive ? MI_QUEST_NEW : questReady() ? MI_QUEST_READY : MI_ELDER, ex, ey, 7, C_BLUE);
+        text(ex + 6, ey - 3, !questActive ? "QUEST" : questReady() ? "TURN IN" : "ELDER", !questActive ? C_GOLD : questReady() ? C_GREEN : C_BLUE);
     }
     // gates, named for where they lead
     for (int i = 0; i < MAPS[world.mapId].nPortals; i++) {
@@ -121,6 +159,13 @@ void Game::drawWorldMap() {
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(l.x) - textW(nm) / 2));
         text(lx, sy(l.y) + 3, nm, C_TEXT);
     }
+    for (auto& c : world.camps) {  // lit camps: the checkpoints
+        if (!c.lit) continue;
+        fillRect(sx(c.x) - 1, sy(c.y) - 1, 3, 3, HEX(0xffb347));
+        const std::string nm = campName(world.mapId);
+        const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(c.x) - textW(nm) / 2));
+        text(lx, sy(c.y) + 3, nm, HEX(0xffb347));
+    }
     // the gate shortcut: every gate and whether it is open; click one to see what it asks for
     text(4, oy + 2, "GATES", C_GOLD);
     for (int gi = 0; gi < GATE_N; gi++) {
@@ -134,7 +179,6 @@ void Game::drawWorldMap() {
     // carcasses that still hold materials
     for (auto& a : animals)
         if (a.dead && a.totalRemain > 0) {
-            fillRect(sx(a.pos.x), sy(a.pos.y), 2, 2, C_RED);
             if (a.tracked && ((int)(timeAcc * 2)) & 1) {  // a pulsing ring marks the quarry that bled out of sight
                 const int rx = sx(a.pos.x) - 3, ry = sy(a.pos.y) - 3;
                 fillRect(rx, ry, 8, 1, C_GOLD); fillRect(rx, ry + 7, 8, 1, C_GOLD);
@@ -148,6 +192,11 @@ void Game::drawWorldMap() {
     const int total = (int)world.landmarks.size();
     const std::string cnt = "LANDMARKS " + S(landmarksFound()) + "/" + S(total);
     if (total > 0) text(ox, oy + mh + 8, cnt, B.col);
+    if (!world.camps.empty()) {  // and how many of the map's camps are lit
+        int lit = 0;
+        for (auto& c : world.camps) lit += c.lit ? 1 : 0;
+        text(ox + (total > 0 ? textW(cnt) + 12 : 0), oy + mh + 8, "CAMPS " + S(lit) + "/" + S((int)world.camps.size()), HEX(0xffb347));
+    }
     const Landmark* near = nullptr;
     float best = 1e9f;
     for (auto& l : world.landmarks) {

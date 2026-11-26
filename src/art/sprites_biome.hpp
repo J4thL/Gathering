@@ -2,6 +2,8 @@
 // Same rules as sprites.hpp: everything is painted in code, nothing is loaded from disk.
 #pragma once
 #include "core/data.hpp"
+#include "art/crystal_sprite.hpp"
+#include "art/snow_landmarks.hpp"
 
 // ================================================================= ground tiles (16x16)
 inline Img mkSpeckleTile(u32 base, u32 dark, u32 light, int nd, int nl, Rng& r) {
@@ -69,11 +71,11 @@ inline Img mkBog(int frame) {  // deep bog: dark, impassable
     return im;
 }
 inline Img mkSnow(int v, Rng& r) {
-    Img im = mkSpeckleTile(HEX(0xedf2f7), HEX(0xd8e2ec), HEX(0xffffff), 12 + v * 2, 10, r);
+    Img im = mkSpeckleTile(HEX(0xeef3f8), HEX(0xd0dcea), HEX(0xfffdf6), 12 + v * 2, 10, r);
     for (int i = 0; i < 2; i++) {
         int x = r.irange(1, 12), y = r.irange(2, 14);
-        im.set(x, y, HEX(0xc9d8e6));
-        im.set(x + 1, y, HEX(0xc9d8e6));
+        im.set(x, y, HEX(0xbccce1));
+        im.set(x + 1, y, HEX(0xbccce1));
     }
     return im;
 }
@@ -81,7 +83,7 @@ inline Img mkSnow(int v, Rng& r) {
 // ground has a texture without getting busy. Added on top of the speckle tile with its own random numbers, so nothing else's art shifts.
 inline void snowTexture(Img& im, int variant, bool packed) {
     Rng r(0x5a0b + variant * 977 + (packed ? 31 : 0));
-    const u32 plus = packed ? HEX(0xb4c6da) : HEX(0xcddbea), blob = packed ? HEX(0xc0d0e2) : HEX(0xd9e4f0), glint = packed ? HEX(0xf2f7fb) : HEX(0xffffff);
+    const u32 plus = packed ? HEX(0xa5b9d0) : HEX(0xc0d0e5), blob = packed ? HEX(0xb3c5d9) : HEX(0xcddbec), glint = packed ? HEX(0xf2f7fb) : HEX(0xfffdf6);
     for (int i = 0; i < 3; i++) {  // drifted blobs: a lumpy 3 x 2 patch with a lit pixel
         const int x = r.irange(1, 11), y = r.irange(2, 12);
         for (int k = 0; k < 3; k++) im.set(x + k, y + (k == 1 ? 0 : 1), blob);
@@ -95,7 +97,7 @@ inline void snowTexture(Img& im, int variant, bool packed) {
     }
 }
 inline Img mkSnowPacked(int v, Rng& r) {
-    Img im = mkSpeckleTile(HEX(0xd5e0ea), HEX(0xc0cfdd), HEX(0xe6eef5), 14, 8, r);
+    Img im = mkSpeckleTile(HEX(0xcad7e5), HEX(0xb6c7d9), HEX(0xdde8f2), 14, 8, r);
     for (int i = 0; i < 3 + v; i++) im.set(r.irange(0, 15), r.irange(0, 15), HEX(0x9d8f7c));  // trampled earth
     return im;
 }
@@ -150,6 +152,216 @@ inline Img mkSnowCliff(int v, bool cap, Rng& r) {
             if (h < 16) im.set(x, h, SH);  // the shadow the lip throws on the rock below it
         }
     }
+    return im;
+}
+#include "art/leafy_birch_art.hpp"  // the snowfield's leafy birch
+#include "art/snow_tent_old_art.hpp"  // ... and the one that has come down
+#include "art/snow_tent_art.hpp"  // the snowfield's hand-drawn tent
+#include "art/snow_props.hpp"  // the snowfield's redrawn snowmen, lamp, stumps, logs and ground clutter
+// ---- snowfield props: the town's sign, lamp and fence and the forest's stump, drawn again with snow lying on them, and a snowman
+inline Img mkSnowSign(const char* text) {
+    Img im(32, 26);
+    const u32 W = HEX(0xf4f8fc), W2 = HEX(0xdbe6f2), BL = HEX(0xaec3da);
+    im.rect(14, 12, 3, 13, HEX(0x6b4423));
+    im.rect(16, 12, 1, 13, HEX(0x52341a));
+    im.rect(2, 2, 28, 12, HEX(0xc99a5a));
+    im.rect(2, 13, 28, 1, HEX(0x8a5c34));
+    im.rect(3, 3, 26, 1, HEX(0x8a5c34));
+    im.text(8, 6, text, HEX(0x3b2616));
+    im.set(4, 4, HEX(0x52341a));
+    im.set(27, 4, HEX(0x52341a));
+    // the snow on the board: a lip along the top whose lower edge is uneven, with a drift in each corner
+    im.rect(2, 1, 28, 2, W);
+    for (int x = 2; x < 30; x++) {
+        const int h = (x * 7 + 3) % 5;
+        if (h < 2) im.set(x, 3, W2);
+        if (h == 0) im.set(x, 4, BL);
+    }
+    im.rect(2, 12, 3, 1, W); im.rect(27, 12, 3, 1, W2);
+    im.rect(11, 24, 9, 1, W); im.rect(13, 23, 5, 1, W2);  // snow heaped round the post
+    im.outline(OUT);
+    return im;
+}
+inline Img mkSnowLamp() {
+    Img im(10, 36);
+    const u32 W = HEX(0xf4f8fc), W2 = HEX(0xdbe6f2);
+    im.rect(4, 8, 2, 26, HEX(0x2e2e38));
+    im.rect(3, 32, 4, 3, HEX(0x3a3a46));
+    im.rect(2, 3, 6, 6, HEX(0xffe9a8));
+    im.rect(2, 8, 6, 1, HEX(0x2e2e38));
+    im.rect(2, 3, 1, 6, HEX(0x2e2e38));
+    im.rect(7, 3, 1, 6, HEX(0x2e2e38));
+    im.rect(3, 4, 4, 4, HEX(0xfff6d0));
+    im.rect(2, 3, 6, 1, HEX(0x2e2e38));
+    im.rect(2, 1, 6, 2, W);      // a cap of snow on the lantern
+    im.set(2, 2, W2); im.set(7, 2, W2); im.set(5, 3, W2);
+    im.rect(2, 33, 6, 2, W);     // and a drift round the foot
+    im.rect(3, 32, 4, 1, W2);
+    im.outline(OUT);
+    return im;
+}
+inline Img mkSnowFence() {
+    Img im(18, 18);
+    const u32 W = HEX(0xf4f8fc), W2 = HEX(0xdbe6f2);
+    im.rect(3, 3, 2, 12, HEX(0x8a5c34));
+    im.rect(12, 3, 2, 12, HEX(0x8a5c34));
+    im.rect(0, 6, 18, 2, HEX(0xb07a45));
+    im.rect(0, 11, 18, 2, HEX(0xb07a45));
+    im.rect(0, 5, 18, 2, W);                     // the upper rail carries a ridge of snow, the lower one only patches
+    for (int x = 0; x < 18; x += 3) im.set(x, 7, W2);
+    im.rect(1, 10, 6, 2, W); im.rect(10, 10, 5, 1, W); im.rect(11, 11, 3, 1, W2);
+    im.rect(2, 2, 4, 2, W); im.rect(11, 2, 4, 2, W);  // a cap on each post
+    im.set(2, 4, W2); im.set(14, 4, W2);
+    im.rect(2, 14, 5, 1, W); im.rect(11, 14, 4, 1, W);  // drifts at the foot
+    im.outline(OUT);
+    return im;
+}
+inline Img mkSnowStump() {
+    Img im(14, 11);
+    im.rect(2, 4, 10, 6, HEX(0x6a4220));
+    im.rect(2, 4, 3, 6, HEX(0x8a5a2c));
+    im.set(3, 9, HEX(0x4a2c14));
+    im.ellipse(7, 4, 5.4f, 2.8f, HEX(0xf4f8fc));      // the cut face is a pad of snow
+    im.ellipse(7, 4.5f, 3.6f, 1.6f, HEX(0xdbe6f2));
+    im.set(5, 3, HEX(0xffffff)); im.set(9, 4, HEX(0xffffff));
+    im.rect(2, 8, 3, 1, HEX(0xdbe6f2)); im.rect(9, 9, 3, 1, HEX(0xf4f8fc));  // snow against the foot
+    im.outline(OUT);
+    return im;
+}
+inline Img mkSnowman() {
+    Img im(16, 25);
+    const u32 L = HEX(0xffffff), M = HEX(0xe3ecf6), D = HEX(0xa9bdd4), COAL = HEX(0x2a2a30), STICK = HEX(0x5a3d24);
+    im.line(4, 13, 1, 9, STICK); im.line(12, 13, 15, 9, STICK);  // the arms, behind
+    im.set(1, 8, STICK); im.set(15, 8, STICK); im.set(2, 11, STICK);
+    im.ellipseShaded(8, 19, 5.8f, 5.0f, L, M, D);
+    im.ellipseShaded(8, 12.5f, 4.4f, 3.9f, L, M, D);
+    im.ellipseShaded(8, 7.5f, 3.5f, 3.3f, L, M, D);
+    im.set(7, 7, COAL); im.set(10, 7, COAL);                     // eyes
+    im.set(8, 8, HEX(0xe8802a)); im.set(9, 8, HEX(0xe8802a)); im.set(10, 8, HEX(0xc9631a));  // a carrot nose pointing right
+    im.set(6, 9, COAL); im.set(7, 10, COAL); im.set(9, 10, COAL); im.set(10, 9, COAL);       // a smile
+    im.rect(5, 10, 7, 1, HEX(0xc0392b)); im.rect(10, 11, 2, 3, HEX(0xc0392b)); im.set(10, 13, HEX(0x8f271c));  // scarf and its tail
+    im.rect(5, 4, 7, 1, HEX(0x24242c)); im.rect(6, 1, 5, 3, HEX(0x24242c)); im.rect(6, 3, 5, 1, HEX(0x8f271c));  // a top hat
+    im.set(8, 16, COAL); im.set(8, 19, COAL);                    // buttons
+    im.outline(OUT);
+    return im;
+}
+// ---- snowfield campsite: a fire in a ring of stones on a patch of thawed ground, a tent, and a log seat, all with snow on them
+inline Img mkSnowCampfire(int frame) {
+    Img im(20, 22);
+    const u32 W = HEX(0xf4f8fc);
+    im.ellipse(10, 17, 9.f, 4.2f, HEX(0xb7c6da));      // the snow thawed back round the fire: a wet, dark patch with a damp rim
+    im.ellipse(10, 17, 7.6f, 3.4f, HEX(0x5a4c44));
+    im.ellipse(10, 17.5f, 5.4f, 2.3f, HEX(0x2e2622));  // ash and char
+    for (int i = 0; i < 8; i++) {                      // stones, the ones on the far side with a cap of snow
+        const float a = i * 0.785f + 0.2f;
+        const int sx = (int)(10 + cosf(a) * 6.5f), sy = (int)(16 + sinf(a) * 3.f);
+        im.ellipse((float)sx, (float)sy, 1.9f, 1.5f, i % 2 ? HEX(0x8d929e) : HEX(0x6a6f7c));
+        if (sinf(a) < 0.1f) im.set(sx, sy - 1, W);
+    }
+    im.line(5, 17, 14, 14, HEX(0x6b4423));
+    im.line(5, 16, 14, 13, HEX(0x8d5e33));
+    im.line(6, 14, 14, 18, HEX(0x52341a));
+    im.line(6, 13, 14, 17, HEX(0x7a5230));
+    const float hgt[3] = {8, 10, 7};
+    const float h = hgt[frame % 3];
+    im.ellipse(10, 13 - h * 0.35f, 4.2f - frame * 0.3f, h * 0.55f, HEX(0xe0452a));
+    im.ellipse(10, 13 - h * 0.28f, 3.0f, h * 0.45f, HEX(0xff8a2b));
+    im.ellipse(10 + (frame - 1) * 0.6f, 13 - h * 0.18f, 1.8f, h * 0.3f, HEX(0xffd34d));
+    im.set(10, 5 + frame, HEX(0xffd34d));
+    return im;
+}
+inline Img mkSnowTent() {
+    Img im(32, 26);
+    const u32 W = HEX(0xf4f8fc), W2 = HEX(0xdbe6f2), BL = HEX(0xaec3da);
+    const u32 CL = HEX(0xc9694a), CD = HEX(0xa24f38), CK = HEX(0x7e3b2c), DOOR = HEX(0x2a1a1a), DOOR2 = HEX(0x4a2a24);
+    for (int y = 3; y <= 22; y++) {                    // an A-frame seen from the front: the lit side left, the shaded side right
+        const float hw = 0.7f + (y - 3) * 0.78f;
+        for (int x = (int)(16 - hw); x <= (int)(16 + hw); x++) im.set(x, y, x < 16 ? CL : CD);
+    }
+    for (int y = 3; y <= 22; y += 5) im.line(16, y, 16 + (y - 3) / 3, y + 4, CK);  // seams
+    im.line(16, 3, 16, 11, CK);                        // the ridge line
+    for (int y = 11; y <= 22; y++) {                   // the doorway, a flap folded back on each side
+        const float hw = 0.5f + (y - 11) * 0.45f;
+        for (int x = (int)(16 - hw); x <= (int)(16 + hw); x++) im.set(x, y, y < 14 ? DOOR : DOOR2);
+        im.set((int)(16 - hw) - 1, y, CK); im.set((int)(16 + hw) + 1, y, CK);
+    }
+    for (int y = 3; y <= 15; y++) {                    // snow lying along both slopes
+        const float hw = 0.7f + (y - 3) * 0.78f;
+        if ((y + 1) % 4 != 0) { im.set((int)(16 - hw), y, W); im.set((int)(16 + hw), y, W2); }
+        if (y < 9) { im.set((int)(16 - hw) + 1, y, W2); im.set((int)(16 + hw) - 1, y, BL); }
+    }
+    im.rect(14, 2, 5, 2, W);                           // a cap on the ridge
+    im.rect(1, 21, 30, 2, W); im.rect(3, 20, 8, 1, W); im.rect(22, 20, 7, 1, W2); im.rect(4, 22, 24, 1, W2);  // drifted up round the foot
+    im.outline(OUT);
+    return im;
+}
+inline Img mkSnowLog() {
+    Img im(20, 10);
+    const u32 W = HEX(0xf4f8fc), W2 = HEX(0xdbe6f2);
+    im.rect(2, 3, 17, 5, HEX(0x6b4423));
+    im.rect(2, 3, 17, 1, HEX(0x8d5e33));
+    im.rect(2, 7, 17, 1, HEX(0x52341a));
+    im.set(7, 5, HEX(0x52341a)); im.set(8, 5, HEX(0x52341a)); im.set(13, 6, HEX(0x52341a));  // bark
+    im.ellipse(2.5f, 5.5f, 1.9f, 2.7f, HEX(0xc99a5a));  // the sawn end
+    im.set(2, 5, HEX(0x8a5c34)); im.set(3, 6, HEX(0x8a5c34));
+    im.rect(5, 2, 13, 1, W); im.rect(4, 1, 11, 1, W); im.rect(6, 3, 8, 1, W2);  // snow heaped along the top
+    im.rect(3, 8, 16, 1, W2); im.rect(8, 9, 7, 1, W);                            // and at its foot
+    im.outline(OUT);
+    return im;
+}
+// ---- snowfield ground detail: frost cracks, animal tracks and half-buried rocks (flat decor, a few pixels each)
+inline Img mkFrostCrack(int v) {
+    Img im(14, 8);
+    const u32 CR = HEX(0x8aa2c2), HI = HEX(0xf6faff);
+    static const int px[2][6][2] = {{{1, 4}, {3, 3}, {5, 4}, {7, 3}, {9, 4}, {12, 3}}, {{1, 3}, {3, 4}, {6, 3}, {8, 4}, {10, 3}, {12, 4}}};
+    for (int i = 0; i + 1 < 6; i++) { im.line(px[v][i][0], px[v][i][1], px[v][i + 1][0], px[v][i + 1][1], CR); }
+    im.line(px[v][2][0], px[v][2][1], px[v][2][0] + 1, 6, CR);   // two short branches
+    im.line(px[v][4][0], px[v][4][1], px[v][4][0] - 1, 1, CR);
+    for (int i = 0; i < 6; i += 2) im.set(px[v][i][0] + 1, px[v][i][1] + 1, HI);  // a lit edge on the far side of the crack
+    return im;
+}
+inline Img mkTracks(int v) {
+    Img im(18, 9);
+    const u32 SH = HEX(0x98b0cd), HI = HEX(0xf6faff);
+    auto paw = [&](int x, int y) {  // a pad and four toes, with the lit rim of the snow on its upper side
+        im.set(x + 1, y + 2, SH); im.set(x + 2, y + 2, SH); im.set(x + 1, y + 3, SH); im.set(x + 2, y + 3, SH);
+        im.set(x, y + 1, SH); im.set(x + 1, y, SH); im.set(x + 2, y, SH); im.set(x + 3, y + 1, SH);
+        im.set(x + 1, y + 1, HI);
+    };
+    if (v == 0) { paw(0, 4); paw(5, 1); paw(10, 4); paw(14, 1); }
+    else { paw(1, 1); paw(6, 4); paw(11, 1); paw(14, 5); }
+    return im;
+}
+inline Img mkBuriedRock(int v) {
+    Img im(11, 8);
+    im.ellipseShaded(5.5f, 4.6f, 4.7f, 3.0f, HEX(0xa6acba), HEX(0x838a9a), HEX(0x606677));
+    im.ellipse(5.0f, 2.6f, 3.0f, 1.3f, HEX(0xf4f8fc));   // a cap of snow on the top of the rock, the grey showing round it
+    im.set(8, 3, HEX(0xdde8f3)); im.set(2, 3, HEX(0xdde8f3));
+    if (v) { im.set(2, 5, HEX(0x606677)); im.set(8, 6, HEX(0x606677)); }
+    im.outline(OUT);
+    return im;
+}
+// ---- snowfield tree variety: a young snow-laden pine (the bare birch is an animated tree now: art/tree_snow_birch.hpp)
+inline Img mkYoungPine() {
+    Img im(18, 28);
+    const u32 BASE = HEX(0x2e6c5b), SHADE = HEX(0x1f4e48), LIGHT = HEX(0x4c9180), SNOW = HEX(0xf6fafd), SNOW2 = HEX(0xd5e3ee), TRUNK = HEX(0x6b4a34);
+    im.rect(8, 23, 3, 4, TRUNK);
+    for (int k = 0; k < 3; k++) {  // three tiers, each wider than the one above, the top one the narrowest
+        const int y0 = 2 + k * 7;
+        for (int y = y0; y <= y0 + 9 && y < 25; y++) {
+            const int half = (int)(0.5f + (y - y0 + 1) * (0.46f + 0.04f * k)) + (k > 0 ? 1 : 0);
+            for (int x = 9 - half; x <= 9 + half; x++) {
+                if (x < 0 || x > 17) continue;
+                const u32 c = (x - (9 - half) < 2 && y - y0 < 8) ? LIGHT : (9 + half - x < 2) ? SHADE : (y == y0 + 9 ? SHADE : BASE);
+                im.set(x, y, c);
+            }
+        }
+        for (int y = y0; y < y0 + 4; y++)  // snow on the upper part of each tier, heavier on the left
+            for (int x = 9 - 2 - k; x <= 9 + 1 + k; x++)
+                if (im.get(x, y) != 0 && ((x + y + k) % 3 != 0 || y == y0)) im.set(x, y, (y - y0) < 2 ? SNOW : SNOW2);
+    }
+    im.rect(5, 26, 8, 1, SNOW); im.rect(6, 25, 5, 1, SNOW2);   // a little drift at the foot
+    im.outline(HEX(0x173f39));
     return im;
 }
 inline Img mkCliff(int v, Rng& r) {
@@ -495,23 +707,6 @@ inline Img mkBareTree(Rng& r) {
     im.outline(OUT);
     return im;
 }
-inline Img mkCrystal() {
-    Img im(18, 26);
-    auto shard = [&](int cx, int base, int h, int w, u32 lt, u32 md, u32 dk) {
-        for (int y = 0; y < h; y++) {
-            float k = y / (float)h;
-            int hw = (int)(w * (k < 0.3f ? k / 0.3f : 1.f));
-            for (int x = cx - hw; x <= cx + hw; x++) im.set(x, base - h + y, x < cx ? lt : (x > cx ? dk : md));
-        }
-    };
-    shard(5, 23, 14, 2, HEX(0xd8f4ff), HEX(0xa6dcf4), HEX(0x6fb4dc));
-    shard(11, 24, 20, 3, HEX(0xe8faff), HEX(0xb4e4f8), HEX(0x74bce0));
-    shard(15, 23, 10, 1, HEX(0xd8f4ff), HEX(0xa6dcf4), HEX(0x6fb4dc));
-    im.set(10, 8, HEX(0xffffff));
-    im.set(10, 9, HEX(0xffffff));
-    im.outline(HEX(0x2a4a63));
-    return im;
-}
 inline Img mkIceHut() {
     Img im(56, 48);
     im.ellipse(28, 34, 24, 13, HEX(0xdce8f2));  // dome of ice blocks
@@ -767,36 +962,43 @@ inline Img mkSwampFern(Rng& r) {
     return im;
 }
 // Snowfield bush, variant 0: a bare twig shrub with a heap of snow banked round its foot -- the twigs fan out above it, frosted on top.
-inline Img mkSnowBush(Rng& r) {
+// With snowy == false the same shrub after it has shaken its snow off: the same twigs (the random stream is used the same way), no frost, and only a thin smear of snow at the root.
+inline Img mkSnowBush(Rng& r, bool snowy = true) {
     Img im(24, 19);
     const u32 pal[4] = {HEX(0x2a2018), HEX(0x4a3a2c), HEX(0x6e5a46), HEX(0x9a866a)};
     twigBurst(im, pal, 11.5f, 16.f, 17, 9.f, 8.f, r);
     const Img twigs = im;  // frost on the upward-facing side of the twigs
     for (int y = 1; y < im.h; y++)
         for (int x = 0; x < im.w; x++)
-            if ((twigs.get(x, y) >> 24) != 0 && (twigs.get(x, y - 1) >> 24) == 0 && r.chance(0.3f)) im.set(x, y, HEX(0xeef4fc));
+            if ((twigs.get(x, y) >> 24) != 0 && (twigs.get(x, y - 1) >> 24) == 0 && r.chance(0.3f) && snowy) im.set(x, y, HEX(0xeef4fc));
     const u32 RIM = HEX(0x6f84ac), LT = HEX(0xf8fcff), MD = HEX(0xdbe7f6), DK = HEX(0xa5b8d6);
     const float lump[5][3] = {{11.5f, 13.2f, 3.0f}, {8.f, 14.4f, 2.6f}, {15.2f, 14.2f, 2.8f}, {5.f, 15.4f, 1.9f}, {18.5f, 15.4f, 2.0f}};
     for (const auto& l : lump) {  // back to front: a ring one pixel wider cuts each lump out from the ones behind it
         const float cx = l[0] + r.range(-0.3f, 0.3f), cy = l[1] + r.range(-0.2f, 0.2f), rx = l[2], ry = l[2] * 0.8f;
+        if (!snowy) continue;
         im.ellipse(cx, cy, rx + 0.9f, ry + 0.9f, RIM);
         im.ellipseShaded(cx, cy, rx, ry, LT, MD, DK);
     }
-    im.ellipse(11.5f, 15.8f, 6.6f, 1.5f, RIM);
-    im.ellipseShaded(11.5f, 15.8f, 5.8f, 1.0f, MD, MD, DK);
+    if (snowy) {
+        im.ellipse(11.5f, 15.8f, 6.6f, 1.5f, RIM);
+        im.ellipseShaded(11.5f, 15.8f, 5.8f, 1.0f, MD, MD, DK);
+    } else {  // the little that is left: a thin pale smear round the root
+        im.ellipse(11.5f, 15.6f, 4.6f, 1.2f, MD);
+        im.ellipse(11.5f, 15.8f, 3.4f, 0.8f, DK);
+    }
     for (int y = 17; y < im.h; y++) for (int x = 0; x < im.w; x++) im.set(x, y, 0u);
     return im;
 }
 // Snowfield bush, variant 1: a dead twig clump with a little frost on its upper sides and a snow drift round its root.
-inline Img mkFrostTwigs(Rng& r) {
+inline Img mkFrostTwigs(Rng& r, bool snowy = true) {
     Img im(18, 14);
     const u32 pal[4] = {HEX(0x2a2018), HEX(0x4a3a2c), HEX(0x6e5a46), HEX(0x9a866a)};
-    im.ellipse(9.f, 11.8f, 5.6f, 1.8f, HEX(0xe6eef8));
+    im.ellipse(9.f, 11.8f, snowy ? 5.6f : 3.6f, snowy ? 1.8f : 1.1f, HEX(0xe6eef8));
     twigBurst(im, pal, 9.f, 12.f, 15, 5.5f, 6.f, r);
     const Img src = im;
     for (int y = 1; y < im.h; y++)
         for (int x = 0; x < im.w; x++)
-            if ((src.get(x, y) >> 24) != 0 && (src.get(x, y - 1) >> 24) == 0 && r.chance(0.55f)) im.set(x, y, HEX(0xeef4fc));
+            if ((src.get(x, y) >> 24) != 0 && (src.get(x, y - 1) >> 24) == 0 && r.chance(0.55f) && snowy) im.set(x, y, HEX(0xeef4fc));
     return im;
 }
 // Mountain bush, variant 0: a cool blue-green alpine cushion, dotted with small blue star flowers.
@@ -977,12 +1179,12 @@ inline Img mkFog() {
 
 // ================================================================= bank
 struct BiomeAssets {
-    Spr sand[3], dune[2], mud[2], murk[4], bog[4], snow[3], snowp[2], ice[2], stone[3], cliff[3], snowCliff[3], snowCliffCap[3];
+    Spr sand[3], dune[2], mud[2], murk[4], bog[4], snow[3], snowp[2], ice[2], stone[3], cliff[3], snowCliff[3], snowCliffCap[3], lookout, fishRack, firewood, tentOld[2], ashRing, fishHole, snowSign[4], snowLamp, snowFence, snowStump[3], snowman[4], snowFire[3], snowTent, snowTentSnowy, snowLog[3], frostCrack[4], tracks[4], buriedRock[4], leafyBirch[LEAFY_BIRCH_FRAMES], youngPine;
     Spr cactus[2], palm, column, ruinwall, arch;
     Spr deadtree[2], log, stilthut, witchtree, grave;
     Spr snowpine, baretree, crystal, icehut, cairn;
     Spr cave, boulder, standing, bsign[4];
-    Spr swampBush[2], snowBush[2], mountainBush[2], drybush, skull, sandtuft, reeds[2], lily, bubbles, drift, frosttuft, alpine, gravel;
+    Spr swampBush[2], snowBush[2], snowBushBare[2], mountainBush[2], drybush, skull, sandtuft, reeds[2], lily, bubbles, drift, frosttuft, alpine, gravel;
     Spr node[RN_COUNT];
     Spr fog;
 };
@@ -1029,13 +1231,62 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b, TileBlend* tb = nu
         b.stone[i] = makeSpr(r, im, 0, 0);
         if (tb) tb->src[BL_STONE][i] = im;
     }
-    if (tb) tb->nvar[BL_STONE] = 3;
-    for (int i = 0; i < 3; i++) b.cliff[i] = makeSpr(r, mkCliff(i, rg), 0, 0);
     {
         Rng sc(20241122);  // the snowfields' cliffs, with their own random numbers
         for (int i = 0; i < 3; i++) {
             b.snowCliff[i] = makeSpr(r, mkSnowCliff(i, false, sc), 0, 0);
             b.snowCliffCap[i] = makeSpr(r, mkSnowCliff(i, true, sc), 0, 0);
+        }
+        static const char* signText[4] = {"HUT", "LAKE", "CAIRN", "FORT"};
+        for (int i = 0; i < 4; i++) b.snowSign[i] = makeSpr(r, mkSnowSign(signText[i]), 16, 24);
+        b.snowLamp = makeSpr(r, mkSnowLampV(), 5, 35);
+        b.snowFence = makeSpr(r, mkSnowFence(), 9, 16);
+        for (int i = 0; i < 3; i++) b.snowStump[i] = makeSpr(r, mkSnowStumpV(i), 7, 8);
+        for (int i = 0; i < 4; i++) b.snowman[i] = makeSpr(r, mkSnowmanV(i), 8, 23);
+        for (int i = 0; i < 3; i++) b.snowFire[i] = makeSpr(r, mkSnowCampfire(i), 10, 18);
+        b.snowTent = makeSpr(r, mkSnowTentArt(), 16, 29);
+        b.snowTentSnowy = makeSpr(r, mkSnowTentSnowyArt(), 16, 29);
+        for (int i = 0; i < 3; i++) b.snowLog[i] = makeSpr(r, mkSnowLogV(i), 10, 8);
+        b.lookout = makeSpr(r, mkLookout(), 16, 62);
+        b.fishRack = makeSpr(r, mkFishRack(), 13, 20);
+        b.firewood = makeSpr(r, mkFirewood(), 10, 12);
+        for (int i = 0; i < 2; i++) b.tentOld[i] = makeSpr(r, mkSnowTentOldArt(i), 16, 29);
+        b.ashRing = makeSpr(r, mkAshRing(), 11, 8);
+        b.fishHole = makeSpr(r, mkFishHole(), 11, 8);
+        for (int i = 0; i < LEAFY_BIRCH_FRAMES; i++) b.leafyBirch[i] = makeSpr(r, mkLeafyBirchFrame(i), 33, 65);
+        b.youngPine = makeSpr(r, mkYoungPine(), 9, 25);
+        for (int i = 0; i < 4; i++) {
+            b.frostCrack[i] = makeSpr(r, mkFrostCrackV(i), 9, 5);
+            b.tracks[i] = makeSpr(r, mkTracksV(i), 10, 5);
+            b.buriedRock[i] = makeSpr(r, mkBuriedRockV(i), 7, 8);
+        }
+    }
+    if (tb) tb->nvar[BL_STONE] = 3;
+    for (int i = 0; i < 3; i++) b.cliff[i] = makeSpr(r, mkCliff(i, rg), 0, 0);
+    {
+        Rng sc(20241122);  // the snowfields' cliffs, with their own random numbers
+        for (int i = 0; i < 3; i++) {
+            const Img bare = mkSnowCliff(i, false, sc), cap = mkSnowCliff(i, true, sc);
+            b.snowCliff[i] = makeSpr(r, bare, 0, 0);
+            b.snowCliffCap[i] = makeSpr(r, cap, 0, 0);
+            if (tb) tb->cliffSrc[0][i] = bare, tb->cliffSrc[1][i] = cap;
+        }
+        static const char* signText[4] = {"HUT", "LAKE", "CAIRN", "FORT"};
+        for (int i = 0; i < 4; i++) b.snowSign[i] = makeSpr(r, mkSnowSign(signText[i]), 16, 24);
+        b.snowLamp = makeSpr(r, mkSnowLampV(), 5, 35);
+        b.snowFence = makeSpr(r, mkSnowFence(), 9, 16);
+        for (int i = 0; i < 3; i++) b.snowStump[i] = makeSpr(r, mkSnowStumpV(i), 7, 8);
+        for (int i = 0; i < 4; i++) b.snowman[i] = makeSpr(r, mkSnowmanV(i), 8, 23);
+        for (int i = 0; i < 3; i++) b.snowFire[i] = makeSpr(r, mkSnowCampfire(i), 10, 18);
+        b.snowTent = makeSpr(r, mkSnowTentArt(), 16, 29);
+        b.snowTentSnowy = makeSpr(r, mkSnowTentSnowyArt(), 16, 29);
+        for (int i = 0; i < 3; i++) b.snowLog[i] = makeSpr(r, mkSnowLogV(i), 10, 8);
+        for (int i = 0; i < LEAFY_BIRCH_FRAMES; i++) b.leafyBirch[i] = makeSpr(r, mkLeafyBirchFrame(i), 33, 65);
+        b.youngPine = makeSpr(r, mkYoungPine(), 9, 25);
+        for (int i = 0; i < 4; i++) {
+            b.frostCrack[i] = makeSpr(r, mkFrostCrackV(i), 9, 5);
+            b.tracks[i] = makeSpr(r, mkTracksV(i), 10, 5);
+            b.buriedRock[i] = makeSpr(r, mkBuriedRockV(i), 7, 8);
         }
     }
 
@@ -1054,7 +1305,7 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b, TileBlend* tb = nu
     b.grave = makeSpr(r, mkGrave(), 8, 18);
     b.snowpine = makeSpr(r, mkSnowPine(rg), 14, 44);
     b.baretree = makeSpr(r, mkBareTree(rg), 14, 38);
-    b.crystal = makeSpr(r, mkCrystal(), 9, 24);
+    b.crystal = makeSpr(r, mkCrystal(), 14, 30);
     b.icehut = makeSpr(r, mkIceHut(), 28, 44);
     b.cairn = makeSpr(r, mkCairn(), 9, 22);
     b.cave = makeSpr(r, mkCave(), 26, 39);
@@ -1070,6 +1321,7 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b, TileBlend* tb = nu
     b.swampBush[0] = makeSpr(r, mkMossBush(sr), 12, 16);
     b.swampBush[1] = makeSpr(r, mkSwampFern(sr), 12, 15);
     Rng wr(20241118);  // the snowfield's two bushes
+    Rng wb = wr;       // (and the same two once they have shaken their snow off: the same twigs, drawn from the same stream)
     b.snowBush[0] = makeSpr(r, mkSnowBush(wr), 12, 16);
     b.snowBush[1] = makeSpr(r, mkFrostTwigs(wr), 9, 12);
     Rng mr(20241119);  // the mountains' two bushes
@@ -1085,4 +1337,6 @@ inline void buildBiomeAssets(SDL_Renderer* r, BiomeAssets& b, TileBlend* tb = nu
     b.gravel = makeSpr(r, mkGravel(), 5, 5);
     for (int k = 0; k < RN_COUNT; k++) b.node[k] = makeSpr(r, k < RN_HERB ? mkNode(k) : mkNodeNew(k), 9, 16);
     b.fog = makeSpr(r, mkFog(), 56, 22);
+    b.snowBushBare[0] = makeSpr(r, mkSnowBush(wb, false), 12, 16);  // (last, so the pictures drawn after them in the stream do not change)
+    b.snowBushBare[1] = makeSpr(r, mkFrostTwigs(wb, false), 9, 12);
 }

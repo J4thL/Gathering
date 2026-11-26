@@ -5,6 +5,7 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "core/audio.hpp"
 #include "core/settings.hpp"
@@ -13,12 +14,14 @@
 #include "npcs/quests.hpp"
 #include "art/sprites.hpp"
 #include "world/world.hpp"
+#include "world/bush_react.hpp"
 #include "gathering/resources.hpp"
 #include "player/skills.hpp"
 #include "world/spawns.hpp"
 #include "combat/monsters.hpp"
 #include "farming/homestead.hpp"
 #include "combat/effects.hpp"
+#include "combat/melee.hpp"
 #include "animals/bosses.hpp"
 
 // ----------------------------------------------------------------- palette
@@ -34,9 +37,10 @@ struct Input {
     bool l = false, lPressed = false, lReleased = false;
     bool up = false, down = false, left = false, right = false, sprint = false, e = false;
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
+    bool upPressed = false, downPressed = false, leftPressed = false, rightPressed = false;  // arrow-key presses, for the menus
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
-    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false;  // B build menu, R rotate, X demolish, right mouse button
+    bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false, melee = false;  // melee: right mouse button or the melee key is held  // B build menu, R rotate, X demolish, right mouse button
     bool uiClick = false;  // mouse click latched for UI buttons; cleared after each rendered frame
 };
 
@@ -110,10 +114,11 @@ struct Animal {
     float alertT = 0;     // > 0 while a startled animal freezes and looks before it bolts (the alert animation)
     float hurtT = 0;      // > 0 while the hurt animation plays
     int boss = 0;                      // 0 = ordinary; biome + 1 for the boss of that biome (animals/bosses.hpp)
-    int bossAct = 0, bossCalls = 0;    // 0 idle, 1 charge wind-up, 2 charging, 3 slam wind-up; how many times it has called its pack
-    float bossT = 0, bossCd = 3.f, busyT = 0;  // attack timers; busyT freezes the ordinary AI while an attack plays
-    bool bossHit = false;
-    V2 bossDir;
+    int bossAct = 0, bossCalls = 0;    // BossPhase (combat/boss_moves.hpp): idle, prep, warn, exec, recover; how many times it has called its pack
+    int bossMove = 0, bossLast = -1, bossStep = 0;  // the attack now playing (BossMove), the one before, and a counter inside it (combo hit, meteor)
+    float bossT = 0, bossCd = 3.f, busyT = 0, bossAux = 0;  // seconds left in the phase; wait until the next attack; busyT freezes the ordinary AI while an attack plays
+    bool bossHit = false, bossEnr = false;  // the attack has landed already; the boss is enraged
+    V2 bossDir, bossTgt;               // where it aimed when the warning began (the hunter can sidestep it); a leap's landing spot
     float stunT = 0, fearT = 0, poisonT = 0, poisonTick = 0;  // status effects (combat/effects.hpp): frozen / bolting from the hunter / losing health
     // ---- daily routine (the home forest's four species, see game_animals.cpp): where it sleeps, drinks, and what it is up to
     V2 bed, drink;            // its sleeping place (a sheltered spot) and its watering place; chosen when first needed
@@ -150,18 +155,25 @@ struct Player {
     float staDelay = 0;
     float charge = 0;
     bool charging = false;
-    int armorQ = 0, bootsQ = 0, bagQ = 0;  // quality of the worn armor, boots and bag (items/quality.hpp)
+    int bagQ = 0;  // quality of the worn bag (items/quality.hpp)
     int hotSel = -1;      // the hotbar slot selected by the wheel / key (-1 = none)
     int hand = -1;        // the farm tool type (TT_HOE / TT_CAN / TT_SICKLE) held in hand via its hotbar key, -1 = a weapon is in hand
     float cd = 0, invuln = 0, sinceHurt = 99;
+    float meleeT = 0, meleeDur = 0.4f, meleeHold = 0, meleeComboT = 0;  // melee swing (combat/melee.hpp)
+    int meleeStep = 0;
+    bool meleeHeavy = false, meleeStruck = false, meleePrev = false;
+    V2 meleeAim;
     int coins = 0;
     HunterLook look;      // appearance (salon.cpp): hairstyle, hair colour, skin, tunic
     Inventory inv;  // everything the hunter carries: always 100 slots, limited by weight (the worn bag sets the limit)
+    int worn[EQ_COUNT] = {-1, -1, -1, -1, -1, -1, -1, -1};  // worn carried gear (item ids) by EqSlot: like the bag it is out of the pack while worn
+    int wornQ[EQ_COUNT] = {0, 0, 0, 0, 0, 0, 0, 0};
+    bool toolManual[TT_COUNT] = {false, false, false, false, false, false, false};  // axe / pickaxe: true = the hunter chose (or took off) the tool, false = the best one in the pack is used
     int bag = -1;   // the worn bag (a PackId), -1 = none; it is not in the inventory while worn and its weight does not count
-    int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
+    int tool[TT_COUNT] = {-1, -1, -1, -1, -1, -1, -1};  // equipped farming tools (a ToolId) by ToolType: only TT_HOE / TT_CAN / TT_SICKLE are used; like the bag they are not in the inventory while equipped
     int hot[HOT_N] = {-1, -1, -1, -1, -1, -1, -1, -1};  // hotbar: the item equipped in each quick slot (item id), -1 = empty
     int sel = 0;
-    int up[U_COUNT] = {0};
+    int up[U_COUNT] = {0};  // legacy: only read from old saves, which are turned into worn armor / boots / a worn bag on load
     SkillSet sk;  // skill XP (skills.hpp); saved as "skill <key> <xp>" lines
     float gatherT = 0;
     float impactT = 0;    // > 0 for a moment after a harvest swing lands: the hunter shows the recovery pose
@@ -179,11 +191,22 @@ struct Player {
     int wpn(int w) const { return inv.count(itemWpn(w)); }
     int ammo(int a) const { return inv.count(itemAmmo(a)); }
     int bandages() const { return inv.count(ITEM_CONS0 + C_BANDAGE); }
-    bool has(int carried) const { return inv.count(itemCarry(carried)) > 0; }  // carried gear is active while it is in the pack
+    bool has(int carried) const {  // carried gear is active only while it is worn
+        for (int i = 0; i < EQ_COUNT; i++)
+            if (worn[i] == itemCarry(carried)) return true;
+        return false;
+    }
+    // the armor and boots are whatever is worn in the BODY / FEET slots (0 = none): tier 1-8 / 1-3 and their quality
+    int armorLv() const { return worn[EQ_BODY] >= 0 && item(worn[EQ_BODY]).kind == IK_CARRIED ? armorLevelOf(item(worn[EQ_BODY]).ref) : 0; }
+    int bootsLv() const { return worn[EQ_FEET] >= 0 && item(worn[EQ_FEET]).kind == IK_CARRIED ? bootsLevelOf(item(worn[EQ_FEET]).ref) : 0; }
+    int armorQ() const { return armorLv() > 0 ? wornQ[EQ_BODY] : 0; }
+    int bootsQ() const { return bootsLv() > 0 ? wornQ[EQ_FEET] : 0; }
+    void setArmor(int lv, int q = 0) { worn[EQ_BODY] = lv > 0 ? itemCarry(CG_ARMOR1 + std::min(8, lv) - 1) : -1; wornQ[EQ_BODY] = lv > 0 ? q : 0; }  // wear armor tier lv (0 = none)
+    void setBoots(int lv, int q = 0) { worn[EQ_FEET] = lv > 0 ? itemCarry(CG_BOOTS1 + std::min(3, lv) - 1) : -1; wornQ[EQ_FEET] = lv > 0 ? q : 0; }
     int bagUsed() const { return inv.usedSlots(); }  // slots in use
     int bagCap() const { return inv.capacity(); }   // always 100
     int mountKg = 0;  // extra carrying capacity while riding a mount
-    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank(); }  // kg (+ the hunter rank)
+    int carryLimit() const { return (bag >= 0 ? (int)lroundf(PACK_CARRY_KG[bag] * qualityDef(bagQ).stat) : BASE_CARRY_KG) + mountKg + RANK_CARRY_KG * sk.rank() + (has(CG_PORTERBELT) ? 25 : 0); }  // kg (+ the hunter rank)
     void syncPack() { inv.maxWeight = (float)carryLimit(); }  // call after the worn bag changes
     int hotSlotOf(int itemId) const {
         for (int i = 0; i < HOT_N; i++)
@@ -227,6 +250,9 @@ struct Part {
     u32 col;
     int size;
     bool grav;
+};
+struct Ripple {  // a ring spreading over water; t < 0 is a delay before it begins
+    float x, y, t, max;
 };
 struct FText {
     V2 p;
@@ -273,6 +299,7 @@ struct LightSrc {
     bool occl;  // tall things (buildings, rocks) cast shadows from it
     bool night;  // only lit at night (windows, lamps), otherwise always (fires)
     bool south = false;  // lights only the ground south of it (a window on a house front: nothing leaks through to the back)
+    float edge = 0.f;    // 0 = a soft pool; towards 1 = a pool with a clear rim you can read the radius from (fires), drawn by day too
 };
 
 // harvest state of one resource (see gathering.cpp): hits already landed, regrow timers, a little shake when struck
@@ -282,6 +309,8 @@ struct HState {
     float t = 0;        // gone: seconds until it starts to regrow; damaged: seconds since the last hit
     float fade = 0;     // regrowing: seconds of sprout left
     float shake = 0;
+    uint8_t stage = 255;  // an ice spike that has come back: the size it has grown to so far (255 = full size)
+    float gt = 0;         // ... and the seconds towards the next size
 };
 struct HTarget {
     bool valid = false;
@@ -291,18 +320,20 @@ struct HTarget {
     float dist = 0;
     int key() const { return valid ? (node ? (1 << 28) : 0) | idx : -1; }
 };
-constexpr int CHEST_SLOTS = 20, MAX_STRUCTS = 16;
+constexpr int CHEST_SLOTS = 100, MAX_STRUCTS = 16;
+constexpr float CHEST_KG = 400.f;       // what a chest holds in weight (100 slots always; the weight is the limit)
+constexpr float PLACE_REACH = 72.f;     // how far from the hunter the cursor can put a campfire / chest down
 constexpr int INV_COLS = 10;  // the pack screen draws its 100 slots as 10 columns x 10 rows
 // things the hunter builds: campfires (smelting, cooking, warmth, light) and storage chests
 struct Structure {
     int kind = PL_CAMPFIRE;
     int tx = 0, ty = 0;
-    Inventory inv{CHEST_SLOTS, 1e9f};  // chests only (a chest has no weight limit)
+    Inventory inv{CHEST_SLOTS, CHEST_KG / OVERLOAD_MAX};  // chests only: 100 slots and a hard weight limit of CHEST_KG
     V2 pos() const { return V2(tx * TS + 8.f, ty * TS + 12.f); }
 };
 
 enum State { ST_TITLE, ST_PLAY, ST_SHOP, ST_PAUSE, ST_QUEST, ST_INVENTORY, ST_CHEST, ST_SERVICE,
-               ST_BUILD, ST_FARM, ST_ANIMAL, ST_MARKET, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP };  // the Homestead's menus (homestead_ui.cpp)
+               ST_BUILD, ST_ANIMAL, ST_MAP, ST_GATE, ST_SETTINGS, ST_HELP, ST_MACHINE };  // the Homestead's menus (homestead_ui.cpp)
 
 // seasons: a week of days each (a day is DAY_LEN seconds), spring first. They change how many animals roam, which pelts and fat a kill gives,
 // how often storms come and the colour of the light (game_light.cpp, game_animals.cpp, game_logic.cpp).
@@ -347,6 +378,8 @@ struct Game {
     float presScale = 3, offX = 0, offY = 0;
     bool running = true;
     bool fullscreen = false;
+    int winW = 1200, winH = 675;  // the windowed size, remembered in settings.txt (with fullscreen) and restored at start-up
+    float winSaveT = -1.f;        // > 0: the window was just resized; settings are written when this runs out
     bool packSkin = false;  // while the pack is drawn: tan and copper panels with dark text (the inventory look), applied by panel/button/text
     struct SkinScope {  // switches the pack skin on for a scope
         bool& f;
@@ -369,6 +402,9 @@ struct Game {
     std::vector<GroundItem> items;
     std::vector<Proj> projs;
     std::vector<Part> parts;
+    std::vector<Part> spin;  // snowfield wind effects: spindrift off the ridges, puffs shaken from the pines (updateSnowFx)
+    std::vector<Part> smoke;  // snowfield warmth: smoke from the hut's chimney and the campfires (updateSnowFx); Part::size = the widest the puff grows
+    std::vector<Ripple> ripples;
     std::vector<FText> ftexts;
     std::vector<Decal> decals;
     std::deque<Msg> msgs;
@@ -378,11 +414,17 @@ struct Game {
     // the wind: ONE value that everything reads (updateWeather). It always blows towards +x (east). wind 0..2 is its strength, windGust 0..1 the
     // current surge, windT is the clock the trees and grass sway by (it runs faster in a gale), rainDrift how far the rain has been carried sideways.
     float wind = 0.2f, windGust = 0.5f, windT = 0, rainDrift = 0;
+    // the wind blows towards windDir (a unit vector; windAng is its angle). It turns slowly and unevenly over time: the rain, the snow, the dust and the
+    // clouds drift with it, a hunter's scent is carried along it (sightFactor) and the clock panel shows it. cloudOfs is how far the clouds have been carried.
+    float windAng = 0.38f;
+    float windForce = -1.f, windAngForce = -100.f;  // (tests and screenshots: a fixed wind strength / direction instead of the weather's; negative / -100: not used)
+    V2 windDir = V2(0.93f, 0.37f), cloudOfs = V2(0.f, 0.f);
     float wet = 0;  // 0..1 how soaked the ground is: builds up in a storm (20 s), dries over about 90 s afterwards (darker ground, a little slippery)
     Rng rng{20261024};
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
-    int shopPage = 0;
+    float legPity = 0.f;  // bad-luck protection for legendary spawns (fauna.hpp: LEGEND_PITY_STEP)
+    int shopScroll = 0;  // first visible row of the General Store BUY list
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
     int invTab = 0, invSel = 0;   // inventory screen: 0 = backpack, 1 = crafting, 2 = skills, 3 = bestiary, 4 = journal; selected slot
@@ -413,6 +455,8 @@ struct Game {
     } loadReport;
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
+    Rng brng{616161};     // what bushes shed and how long a flushed hare runs: its own stream, so brushing a bush never moves the hunting or wildlife sequences
+    Rng snowRng{515151};  // the snowfield's wind effects only, like wrng
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
     int lastStep = 0;  // the walk-cycle half-step the last footstep sound was played for
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
@@ -423,6 +467,12 @@ struct Game {
     int shopTab = 0;
     bool showMap = true;
     bool hasSave = false;
+    // what the title screen shows about the saved game (read from the first lines of save.txt; see readSaveInfo in game_save.cpp)
+    struct SaveInfo { bool ok = false; int day = 1, season = 0, biome = 0, coins = 0, kills = 0, maps = 0, gates = 0; unsigned seed = 0; } saveInfo;
+    void readSaveInfo();
+    int menuSel = 0;      // the highlighted title-screen button (0 new game, 1 continue, 2 settings, 3 quit)
+    float fpsAvg = 60.f;  // smoothed frames per second, for the FPS counter
+
     uint32_t worldSeed = WORLD_SEED;  // the seed every map of this game is generated from: random per new game, kept in the save
     bool newGameAsk = false;          // the title screen is asking "replace your saved game?"
     int shapeWait = 0;                // frames left before the new world is built: the title shows "SHAPING THE WORLD" meanwhile
@@ -455,6 +505,7 @@ struct Game {
         bool visited = false;
         std::vector<std::string> hv, st;  // harvested resources and placed structures, as save lines
         std::string disc;                 // which landmarks were discovered ('1' / '0')
+        std::string camps;                // which abandoned camps are lit ('1' / '0')
         std::string seen;                 // fog of war: one '0' / '1' per minimap cell (MM_W x MM_H); empty = nothing explored yet
         std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
     } mapMem[B_COUNT];
@@ -505,12 +556,30 @@ struct Game {
     float bossCool[B_COUNT] = {};      // seconds until the boss is back (0 = it waits at its lair)
     bool bossSeen[B_COUNT] = {};       // the lair has been found (it shows on the maps)
     V2 bossLair; int bossLairMap = -1;
+    struct BossShot { V2 pos, dir; float life, dmg; };
+    std::vector<BossShot> bshots;      // a boss's ranged shots in flight
+    std::vector<V2> bossPts;           // meteor targets of the attack now playing
+    V2 bossSafe;                       // the safe zone's centre while a "stand in the safe zone" attack plays
+    void bossChoose(Animal& a, float dp);
+    void bossEnter(Animal& a, int phase);
+    void bossRun(Animal& a, float dt);
+    void bossStrike(Animal& a, float mul, bool combo = false);
+    void updateBossShots(float dt);
     V2 bossLairPos();
     Animal* liveBoss();
+    int meleeWeapon() const;
+    bool startMelee(bool heavy);
+    void meleeStrike();
+    void updateMelee(float dt);
+    void drawMelee();
     void updateBosses(float dt);
     void bossKilled(Animal& a);
     void drawBossTelegraph();
     void drawWildBossBar();
+    int endlessFloor = 1, endlessBest = 0, endlessCheckpoint = 0;  // Endless Depths: the floor now, the deepest reached, the last boss floor beaten (delve/endless.hpp)
+    bool endlessDescend();                                          // take the stairs down to the next floor
+    void endlessBossKilled(const Monster& m);
+    std::string delveBossName() const;
     HAnimal* companionAnimal();
     int mountKgNow(const HAnimal& m) const;
     static int bondLevel(int bond);
@@ -528,6 +597,7 @@ struct Game {
     std::vector<int16_t> flow;         // flow field: steps to the hunter, around the walls (monsters.cpp)
     int flowTx = -1, flowTy = -1;
     float flowT = 0, rockT = 6, ambT = 0, delveBanT = 0, bossBanT = 0;
+    float pWeakT = 0, pRootT = 0;      // the hunter is weakened (takes more damage) / held in place, seconds left (boss roar and grab)
     float pSlowT = 0, pPoisonT = 0, pColdT = 0;  // the hunter's slow (frost) and poison, seconds left
     // ---- light and weather (game_light.cpp)
     // weather: ONE state machine (updateLight) picks what blows; the K values are its smoothed strengths, which everything else reads
@@ -585,15 +655,37 @@ struct Game {
     void updateFx(float dt);
     void updateBiome(float dt);
     void updateWeather(float dt);
+    void updateSnowFx(float dt);
+    void drawSnowDrift();
+    // snowfield ground detail: wind-carved drifts and ripples from FastNoiseLite, sampled in world pixels so they run on across tile borders. Baked in
+    // 8 x 8-tile chunks the first time they are seen; only the picture is cached, so tiles that stop being snow simply stop drawing it.
+    SDL_Texture* snowDetailChunk(int cx, int cy);
+    void freeSnowDetail();
+    // a snow cliff / plateau-face tile: cobble boulders from a Voronoi field sampled in world pixels (continuous across tiles), snow-capped where nothing
+    // is above it, then finished by the 8-neighbour mask (art/tile_edges.hpp). Baked per tile the first time it is seen.
+    const Spr* snowFaceSpr(int tx, int ty, bool cap, int cfg);
+    std::unordered_map<uint64_t, Spr> snowFaceCache;
+    std::unordered_map<int, SDL_Texture*> snowDetTex;
+    uint32_t snowDetSeed = 0;
     void climateMods(float& drain, float& regen) const;
     int landmarksFound() const;
+    void updateCamps();        // walking up to an abandoned camp's cold fire lights it: the camp is found and becomes a checkpoint
+    V2 respawnPoint() const;   // where a knocked-out hunter wakes: beside the nearest lit camp of this map, else at the map's entrance
     void throwWeapon();
     bool canUse(int w) const;
     bool useSlot(int slot);  // inventory screen: equip a weapon / use a consumable / wear a bag
     // ---- equipment: the worn bag and the hotbar (items equipped for quick use)
     bool equipBag(int slot);            // wear the bag in this pack slot (the old one goes back into the pack)
     bool unequipBag();
-    void drawGearColumn(int x0, int y0);
+    bool equipCarried(int slot, int into = -1);        // wear the carried gear in this pack slot (what it replaces goes back into the pack)
+    bool unequipCarried(int eq);        // take the gear worn in this EqSlot off
+    bool equipGatherTool(int slot);     // axe / pickaxe: use this one
+    bool unequipGatherTool(int type);
+    void syncGatherTools();             // axe / pickaxe follow the best one in the pack until the hunter chooses
+    void migrateWornGear();             // old saves: gear that lay in the pack is worn
+    struct DollHover { int what = -1, idx = 0, id = -1, q = 0; const char* lab = ""; } dh;  // the worn slot under the cursor (pack screen)
+    void drawPaperDoll(int x, int y, int w, bool dropNow, int dragSlot);  // the equipment page of the pack (game_panels.cpp)
+    void dollTakeOff();
     bool equipFarmTool(int slot);       // equip the farming tool in this pack slot: it goes on the hotbar like a weapon and stays in the pack
     bool unequipFarmTool(int type);     // take the equipped hoe / can / sickle off the hotbar (it stays in the pack)
     void giveFarmTool(int toolId);      // add a tool to the pack and equip it (starter / bought tools)
@@ -646,9 +738,12 @@ struct Game {
 
     void populate();
     Animal* spawnAnimal(int kind, V2 pos, int form, int tier);
+    bool spawnHerd(int kind, V2 pos, int form, int size);  // a herd: a leader and size - 1 others close by (the pack fields): they keep to the leader and bolt together
+    void splash(V2 p);                                      // a splash of droplets and widening rings on the water (a seal diving down its hole)
     void streamSpawns(float dt);
     int liveLegendaries() const;
-    int rollTier();
+    int rollTier(int kind = -1);                // a rarity tier for a new animal of this kind (-1: no kind: the plain odds)
+    float lookLuck(int look) const;             // how much the weather and the hour favour a look (1 = not at all): ghost at night, frost in a blizzard...
     void applyTier(Animal& a, int tier);
     Animal* nearestCarcass(float maxD);
     float tod() const;
@@ -667,7 +762,14 @@ struct Game {
         int kind = HP_FENCE, rot = 0, tx = 0, ty = 0, cat = 0, scroll = 0;
         std::string why;
     } bm;
-    int farmPieceId = -1, animSelId = -1, animScroll = 0, marketTab = 0, marketScroll = 0, hsTileHit = -1;
+    struct PlaceMode {  // placing a campfire / chest with the cursor (structures.cpp)
+        bool on = false, valid = false;
+        int kind = PL_CAMPFIRE, tx = 0, ty = 0;
+        std::string why;
+    } pl;
+    float gtSyncT = 0;
+    int machPieceId = -1;  // the production machine whose menu is open
+    int farmPieceId = -1, animSelId = -1, animScroll = 0, hsTileHit = -1;
     float portalFx = 0, hsSaveT = 0, hsBreedT = 0, hsMsgT = 0;
     std::vector<int> hsGrid[3];  // [layer][ty * MW + tx] = piece id (0 = none), rebuilt by hsReindex()
     bool inHomestead() const { return world.mapId == B_HOMESTEAD; }
@@ -683,6 +785,13 @@ struct Game {
     float grassPuffCd = 0.f;
     void updateGrass(float dt);
     float grassBend(size_t decorIndex) const;
+    // bushes (bush_react.hpp): what a walker brushing one sets off, and the cover one gives
+    static constexpr float BUSH_REFILL = 150.f;  // seconds before a snow shrub has banked up snow again (a blizzard does it in a quarter of that)
+    std::vector<float> bushShedT, bushCd;        // per decor piece: when it dropped its snow (-1 = still snowy); when it may rustle again
+    BushDef bushDef(const Decor& d) const;
+    float bushSnowK(size_t decorIndex) const;    // 1 = banked with snow, 0 = bare twigs; between: the snow coming back
+    float bushCoverAt(V2 pos) const;             // 0..1: how well the bushes round this spot hide someone standing in it
+    void bushBrushed(size_t decorIndex, V2 who, float speed, bool hunter);
     HAnimal* riddenMount();
     HAnimal* saddledMount();
     bool toggleMount();
@@ -700,6 +809,11 @@ struct Game {
     void hsReindex();                                                 // rebuild hsGrid after the piece list changed
     void hsApplyWorld();                                              // the pieces' solid tiles and bridges on the freshly generated map
     HPiece* hsPiece(int id);
+    void hsTickMachines(float dt);
+    int hsMachineLoad(HPiece& pc, int rec, int batches);  // batches actually loaded (0 = refused, the reason is shown)
+    bool hsMachineCollect(HPiece& pc);
+    void updateMachineMenu(float dt);
+    void drawMachineMenu();
     HPiece* hsAt(int tx, int ty, int layer);
     bool hsCanBuild(int kind, int tx, int ty, int rot, std::string* why = nullptr);
     bool hsPlace(int kind, int tx, int ty, int rot);
@@ -710,6 +824,11 @@ struct Game {
     bool hsLeave();
     void hsGiveStarter();
     bool homesteadInteract();
+    bool hsWaterTile(int tx, int ty) const;      // water you can draw from / that waters soil: a lake, a brook, a pond
+    bool hsNearWater(int tx, int ty, int reach) const;
+    bool hsDig(int tx, int ty);                  // the shovel on a tile: dig a hole, or fill a hole / pond back in
+    bool hsFillHole(HPiece& pc);                 // the watering can on a hole: a pond
+    void hsMakePond(HPiece& pc);
     bool hsToolUse();  // left click with a farm tool in hand: till / plant / water / harvest the tile under the cursor
     bool homesteadPrompt();
     struct HTarget2 { int type = 0; int id = 0; V2 pos; std::string label, key; };  // what E would use here
@@ -736,13 +855,9 @@ struct Game {
     int hsChestPiece = -1;
     void updateBuildMode();
     void updateBuildMenu(float dt);
-    void updateFarmMenu(float dt);
     void updateAnimalMenu(float dt);
-    void updateMarket(float dt);
     void drawBuildMenu();
-    void drawFarmMenu();
     void drawAnimalMenu();
-    void drawMarket();
     void drawHomesteadGround();                                       // floors, foundations, plots, pen yards
     void drawHsPiece(const HPiece& pc, int sub, float alpha = 1.f);   // one object-layer piece (sub: ring tile of a pen)
     void drawHsCrop(const HPiece& pc);
@@ -792,7 +907,9 @@ struct Game {
     void updateLight(float dt);                  // storms, thunder, and the list of lamps (game_light.cpp)
     void drawLighting(float night);              // darkness with pools of light, dusk and dawn colour, glows
     int rockTheme() const { return world.mapId >= 0 && world.mapId <= B_MOUNTAIN ? world.mapId : 0; }  // rock colours of the map you are in (the homestead and interiors use the forest's)
-    void drawGroundShadows();                    // tree and rock shadows that swing with the sun
+    bool visLights = true;                       // (screenshots and tests: false = the old coarse light blocking and plain glows, to compare)
+    bool lightShadows = true;                    // (screenshots and tests: switch the torch and fire shadows off to compare)
+    void drawGroundShadows(int pass = 0);        // tree and rock shadows that swing with the sun (pass 0) / that fall away from the hunter's torch and fires (pass 1)
     void drawSkyFx(float night2);                // aurora, shimmer, wisps, rain, lightning
     float lampLight(V2 pos) const;               // 0..1: how much a fire, lamp or window lights this spot at night (monsters shy away)
     void drawDelveDark();                        // darkness and light pools
@@ -803,7 +920,7 @@ struct Game {
     bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
     void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)
     std::string seen;                  // fog of war of the active map (see MapMem::seen)
-    void revealAround(V2 pos);         // mark the minimap cells around the hunter as explored
+    void revealAround(V2 pos, int R = 9);         // mark the minimap cells around the hunter as explored
     void snapshotMap();                // park the active map's state in mapMem
     void stashOutside();               // before entering a building or a delve: park the outside (map, spot, animals) and clear everything live
     void restoreMap();                 // put mapMem's state for the active map back
@@ -816,6 +933,8 @@ struct Game {
     bool findHarvest(HTarget& out) const;
     int bestTool(int type, int* toolIdx = nullptr) const;  // highest tool tier of a type in the pack (0 = none)
     bool harvestUp(bool node, int idx) const;
+    // the size an ice spike shows now: the size it was made with, or less while it is growing back (Prop::ph % 5 is its full size)
+    int spikeStage(int i) const { const int full = (int)world.props[i].ph % ICE_SPIKE_STAGES; return propSt[i].stage == 255 ? full : std::min(full, (int)propSt[i].stage); }
     HState& hstate(bool node, int idx) { return node ? nodeSt[idx] : propSt[idx]; }
     const HState& hstate(bool node, int idx) const { return node ? nodeSt[idx] : propSt[idx]; }
     bool lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy, int ignoreTx1 = INT_MIN, int ignoreTy1 = INT_MIN) const;  // ignores the tiles from (ignoreTx, ignoreTy) to (ignoreTx1, ignoreTy1)
@@ -828,7 +947,12 @@ struct Game {
     void drawHarvestPrompt();
     std::string harvestVerb(int res) const;
     // ---- structures (structures.cpp)
-    bool placeStructure(int kind);
+    bool placeStructure(int kind);                        // pack / hotbar use: starts the placing mode
+    bool placeStructureAt(int kind, int tx, int ty);      // puts one down on that tile (range and room are checked)
+    bool placeStructureAtCursor(int kind);
+    bool placeCheck(int tx, int ty, std::string* why = nullptr);
+    void updatePlacing();
+    void drawPlaceGhost();
     bool structInteract(float dt);
     void drawStructPrompt();
     bool canPlaceAt(int tx, int ty) const;
@@ -933,7 +1057,6 @@ struct Game {
     bool buyFlower(int m, int n);
     bool applyLook(const HunterLook& l);      // redraw the hunter's real sprites with this look
     void drawCraftService();            // blacksmith / leatherworks / workshop
-    void drawUpgradeRows(int x0, int Y, int cw, const int* list, int n);
     // quest giver
     bool nearQuestGiver() const;
     bool questReady() const { return questActive && questProg >= quest.goal; }
@@ -944,7 +1067,6 @@ struct Game {
     // shop actions
     bool canAfford(int coins, int m1, int n1, int m2, int n2) const;
     void spend(int coins, int m1, int n1, int m2, int n2);
-    bool buyUpgrade(int u);
     void sellMat(int m, int n);
     int sellable(int item, int q) const;           // how many pieces of that quality the shop will take (a tool: never the best one)
     void sellItem(int item, int q, int n);         // sell crafted things at their quality price
@@ -962,11 +1084,13 @@ struct Game {
     State settingsBack = ST_PLAY, helpBack = ST_PLAY;
     int helpPage = 0;
     static constexpr int HELP_PAGES = 5;
-    bool cfgDrag[2] = {false, false};
+    bool cfgDrag[3] = {false, false, false};
+    int settingsTab = 0;  // 0 audio, 1 video, 2 controls
     std::string settingsPath();
     void saveSettings();
     void loadSettings();
     bool readHiResSetting();
+    void readWindowSetting(int& w, int& h, bool& fs);
     std::string keyName(int act) const;
     void rebindKey(SDL_Scancode sc);
     void openSettings();
@@ -995,7 +1119,11 @@ struct Game {
     void drawTitle();
     void drawPause();
     void drawReticle();
+    void drawCursorAction(int mx, int my, bool overAnimal);  // the action chip beside the crosshair
     void drawMinimap();
+    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR, MI_ANVIL, MI_LEATHER, MI_TOOLS, MI_COIN, MI_FLOWER, MI_SCISSORS };
+    static int bldMapIcon(int bldKind);  // the icon that says what a town building does
+    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void drawWorldMap();             // the full-map screen (M), game_map.cpp
     void updateWorldMap(float dt);
     void drawBiomeFx();
@@ -1031,15 +1159,16 @@ struct Game {
     }
     void shadeEnd(const Spr& s) const { SDL_SetTextureColorMod(s.t, 255, 255, 255); }
     // sprW for ground cover (grass, pebbles) and for things that stand on the ground: a shadow that falls on it darkens it
-    void sprWG(const Spr& s, float wx, float wy, bool flip = false, float k = 1.f) {
+    // a sprite leaning downwind: strips of it are shifted sideways, none at its foot and leanPx at its top (whole pixels: no resampling, so it stays crisp)
+    void sprWLean(const Spr& s, float wx, float wy, float leanPx, bool flip = false);
+    float windLean(const Spr& s) const;  // how many pixels the top of a tree or tall plant leans downwind just now (0 in a calm, a lot in a gale)
+    void sprWG(const Spr& s, float wx, float wy, bool flip = false, float k = 1.f, float leanPx = 0.f) {
         const bool sh = shadeBegin(s, wx, wy, k);
-        sprW(s, wx, wy, flip);
+        sprWLean(s, wx, wy, leanPx, flip);
         if (sh) shadeEnd(s);
     }
     void icon(const Spr& s, int cx, int cy, int size = 16, float alpha = 1.f);
     void text(int x, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true, float alpha = 1.f);
-    enum MapIcon { MI_HOUSE, MI_PORTAL, MI_QUEST_NEW, MI_QUEST_READY, MI_ELDER, MI_LAIR };
-    void mapIcon(int kind, int cx, int cy, int sz, u32 col);  // a small pixel icon (sz 5 or 7) centred on a map position
     void textC(int cx, int y, const std::string& s, u32 col = C_TEXT, int sc = 1, bool shadow = true);
     void textOutlined(int x, int y, const std::string& s, u32 col, float alpha = 1.f);
     int textW(const std::string& s, int sc = 1) const { return (int)s.size() * 4 * sc - sc; }

@@ -290,6 +290,42 @@ inline Img mkIconCons(int c) {
             im.ellipse(8, 10, 2.6f, 1.6f, HEX(0xfff6a0));
             im.rect(8, 9, 1, 3, HEX(0x1a2060));
             break;
+        case C_OMELET:  // a folded golden omelette on a plate
+            im.ellipse(8, 10, 6.6f, 3.6f, HEX(0xe8e2d4));
+            im.ellipse(8, 9, 5.2f, 2.8f, HEX(0xf2c94c));
+            im.ellipse(8, 8, 3.8f, 1.4f, HEX(0xfae38a));
+            im.set(6, 9, HEX(0x5aa83c)); im.set(10, 9, HEX(0x5aa83c));
+            break;
+        case C_BREAD:  // a round loaf with a slash
+            im.ellipseShaded(8, 9, 6.2f, 4.6f, HEX(0xe0a458), HEX(0xc07c30), HEX(0x7a4a1c));
+            im.rect(5, 7, 1, 3, HEX(0xf6d89a)); im.rect(8, 6, 1, 3, HEX(0xf6d89a)); im.rect(11, 7, 1, 3, HEX(0xf6d89a));
+            break;
+        case C_CHOWDER:  // a creamy bowl with a fish tail
+            im.ellipse(8, 10, 6.4f, 3.8f, HEX(0x8a5a2c));
+            im.ellipse(8, 9, 5.4f, 2.8f, HEX(0xf2ead3));
+            im.set(6, 9, HEX(0xd8a070)); im.set(9, 8, HEX(0x7ac85a)); im.set(10, 10, HEX(0xd8a070));
+            im.rect(10, 5, 2, 1, HEX(0x6a9ac8)); im.set(12, 4, HEX(0x6a9ac8)); im.set(12, 6, HEX(0x6a9ac8));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(7, 2, HEX(0xeef6ff));
+            break;
+        case C_PIE:  // a berry pie with a lattice top
+            im.ellipse(8, 10, 6.6f, 3.8f, HEX(0xc88a48));
+            im.ellipse(8, 9, 5.6f, 2.8f, HEX(0x8a2a5a));
+            im.rect(4, 8, 8, 1, HEX(0xe8b870)); im.rect(4, 10, 8, 1, HEX(0xe8b870));
+            im.rect(6, 7, 1, 4, HEX(0xe8b870)); im.rect(9, 7, 1, 4, HEX(0xe8b870));
+            break;
+        case C_VEGSTEW:  // a bowl of stew with greens and a carrot
+            im.ellipse(8, 10, 6.4f, 3.8f, HEX(0x7a4a26)); im.ellipse(8, 9, 5.4f, 2.8f, HEX(0xc88a4a));
+            im.set(6, 9, HEX(0x6ab84a)); im.set(9, 8, HEX(0xf08a2a)); im.set(10, 10, HEX(0xf4f8e8)); im.set(7, 8, HEX(0xe8cc94));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(8, 2, HEX(0xeef6ff));
+            break;
+        case C_RATATOUILLE:  // a plate of sliced vegetables in a ring
+            im.ellipse(8, 10, 6.8f, 3.8f, HEX(0xe8e2d4));
+            for (int i = 0; i < 6; i++) im.ellipse(4.5f + i * 1.4f, 9.5f - (i % 2), 1.6f, 1.6f, i % 3 == 0 ? HEX(0x8a3ab8) : i % 3 == 1 ? HEX(0xe03a2a) : HEX(0xf2c84a));
+            break;
+        case C_BEETSOUP:  // a pink creamy bowl
+            im.ellipse(8, 10, 6.4f, 3.8f, HEX(0x8a5a2c)); im.ellipse(8, 9, 5.4f, 2.8f, HEX(0xd8506a)); im.ellipse(8, 9, 2.4f, 1.0f, HEX(0xf8e0e4));
+            im.set(6, 3, HEX(0xeef6ff)); im.set(7, 2, HEX(0xeef6ff));
+            break;
         default:  // cactus water: a green gourd flask with a droplet
             im.rect(7, 2, 2, 3, HEX(0xb89a5a));
             im.ellipseShaded(8, 10, 5.f, 4.8f, HEX(0x8ad46a), HEX(0x4a9a4c), HEX(0x2f7a3a));

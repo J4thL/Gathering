@@ -17,6 +17,7 @@ enum Mat {
     M_FROGGLAND, M_DUCKDOWN, M_BOGHOOF, M_VENOMSAC, M_GATORTOOTH, M_PANTHEREYE,                                      // swamp
     M_FOXBRUSH, M_SNOWFOOT, M_VELVET, M_MARROW, M_LYNXTUFT, M_BEARGALL,                                              // snow
     M_GOATBEARD, M_RAMFLEECE, M_GOLDPLUME, M_MARMOTPELT, M_COUGARFANG,                                               // mountain
+    M_SEALWHISKER,                                                                                                  // snow (the seal: its species comes last)
     M_FAT,                                                                                                           // shared carcass fat (grease, fuel)
     M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,                                                             // processed from the above (crafting components)
     M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,                                                             // the flower shop: cut flowers (bought) and the bouquet made from them
@@ -29,13 +30,22 @@ enum Mat {
     M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,  // seeds (same order)
     M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,                                                              // animal products and feed
     M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,                                                               // fish: caught with a rod (fishing.cpp)
+    M_EGGPLANT, M_TURNIP, M_PEPPER, M_CUCUMBER, M_BEET, M_LEEK,                                                      // the second row of crops: produce
+    M_SEED_EGGPLANT, M_SEED_TURNIP, M_SEED_PEPPER, M_SEED_CUCUMBER, M_SEED_BEET, M_SEED_LEEK,                       // ... and their seeds (same order)
+    M_FLOUR, M_BUTTER, M_CHEESE, M_JAM, M_PICKLES,                                                                   // farm products made from crops and animal goods (recipes.hpp)
+    M_VOIDSHARD, M_GLOWCAP, M_RELIC,                                                                                   // found only in the Endless Depths (delve/endless)
     M_COUNT
 };
-constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N = 8;  // crop i: produce M_CROP0 + i, seed M_SEED0 + i
+constexpr int M_CROP0 = M_WHEAT, M_SEED0 = M_SEED_WHEAT, CROP_N0 = 8, M_CROP1 = M_EGGPLANT, M_SEED1 = M_SEED_EGGPLANT, CROP_N = 14;
+// crop i (0..CROP_N-1): the first eight are the original run, the rest the second row (their materials sit after the fish)
+constexpr int cropProduceMat(int c) { return c < CROP_N0 ? M_CROP0 + c : M_CROP1 + (c - CROP_N0); }
+constexpr int cropSeedMat(int c) { return c < CROP_N0 ? M_SEED0 + c : M_SEED1 + (c - CROP_N0); }
+// the crop a seed material sows (-1 when m is not a seed)
+constexpr int seedMatCrop(int m) { return m >= M_SEED0 && m < M_SEED0 + CROP_N0 ? m - M_SEED0 : m >= M_SEED1 && m < M_SEED1 + (CROP_N - CROP_N0) ? CROP_N0 + m - M_SEED1 : -1; }
 constexpr int M_CARCASS_N = M_CLAW + 1;  // the ORIGINAL carcass materials (a contiguous block); trophies and fat come from carcasses too
-constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_COUGARFANG - M_RABBITFOOT + 1;
+constexpr int M_TROPHY0 = M_RABBITFOOT, M_TROPHY_N = M_SEALWHISKER - M_RABBITFOOT + 1;
 inline bool isTrophy(int m) { return m >= M_TROPHY0 && m < M_TROPHY0 + M_TROPHY_N; }
-inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE) || m == M_STEELBAR || m == M_SILVERBAR; }  // made by crafting: SELL EVERYTHING keeps these
+inline bool isComponent(int m) { return m == M_ROPE || (m >= M_COPPERBAR && m <= M_GOLDBAR) || (m >= M_PLANK && m < M_ROSE) || m == M_STEELBAR || m == M_SILVERBAR || (m >= M_FLOUR && m <= M_PICKLES); }  // made by crafting: SELL EVERYTHING keeps these
 inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m <= M_FAT); }  // can appear in a carcass (hunting) rather than on the land
 [[maybe_unused]] static const char* MAT_NAME[M_COUNT] = {
     "RAW MEAT", "HIDE", "BONE", "ORGANS", "FUR", "TUSK", "ANTLER", "FEATHER", "HORN", "SCALE", "CLAW",
@@ -47,7 +57,7 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "SAND HARE TAIL", "FENNEC EAR", "COYOTE FANG", "RATTLE", "ROAD PLUME", "LIZARD TAIL", "LION MANE",
     "FROG GLAND", "DUCK DOWN", "BOG HOOF", "VENOM SAC", "GATOR TOOTH", "PANTHER EYE",
     "FOX BRUSH", "SNOW HARE FOOT", "VELVET ANTLER", "MOOSE MARROW", "LYNX TUFT", "BEAR GALL",
-    "GOAT BEARD", "RAM FLEECE", "GOLDEN PLUME", "MARMOT PELT", "COUGAR FANG",
+    "GOAT BEARD", "RAM FLEECE", "GOLDEN PLUME", "MARMOT PELT", "COUGAR FANG", "SEAL WHISKER",
     "ANIMAL FAT",
     "PLANK", "LEATHER", "BONE FRAGMENTS", "HERBAL EXTRACT", "GREASE",
     "ROSE", "TULIP", "LAVENDER", "SUNFLOWER", "BOUQUET",
@@ -57,7 +67,11 @@ inline bool isCarcassMat(int m) { return m < M_CARCASS_N || (m >= M_TROPHY0 && m
     "WILD BERRIES", "WHEAT", "CARROT", "POTATO", "CABBAGE", "CORN", "TOMATO", "PUMPKIN", "STRAWBERRY",
     "WHEAT SEEDS", "CARROT SEEDS", "POTATO EYES", "CABBAGE SEEDS", "CORN SEEDS", "TOMATO SEEDS", "PUMPKIN SEEDS", "STRAWBERRY RUNNERS",
     "HEN EGG", "DUCK EGG", "FRESH MILK", "SHEEP WOOL", "TRUFFLE", "HAY",
-    "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE"};
+    "TROUT", "BASS", "CATFISH", "EEL", "ARCTIC CHAR", "PIKE",
+    "EGGPLANT", "TURNIP", "HOT PEPPER", "CUCUMBER", "BEETROOT", "LEEK",
+    "EGGPLANT SEEDS", "TURNIP SEEDS", "PEPPER SEEDS", "CUCUMBER SEEDS", "BEET SEEDS", "LEEK SEEDS",
+    "FLOUR", "BUTTER", "CHEESE", "BERRY JAM", "PICKLES",
+    "VOID SHARD", "GLOWCAP", "ANCIENT RELIC"};
 static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        4, 2, 3, 3,
                                        5, 6, 6, 5, 8, 12, 9, 8,
@@ -67,7 +81,7 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        9, 12, 20, 16, 10, 6, 30,
                                        10, 8, 14, 18, 26, 28,
                                        14, 10, 22, 26, 24, 36,
-                                       14, 22, 28, 8, 30,
+                                       14, 22, 28, 8, 30, 24,
                                        4,
                                        4, 12, 1, 12, 5,
                                        4, 3, 5, 2, 12,
@@ -77,7 +91,10 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
                                        3, 4, 4, 4, 6, 5, 6, 12, 8,
                                        1, 1, 1, 1, 1, 1, 2, 2,
                                        4, 5, 6, 10, 30, 2,
-                                       12, 14, 18, 16, 20, 26};
+                                       12, 14, 18, 16, 20, 26,
+                                       12, 6, 9, 8, 8, 9, 1, 1, 1, 1, 1, 1,
+                                       9, 16, 30, 24, 20,
+                                       70, 30, 160};
 [[maybe_unused]] static const char* MAT_BLURB[M_COUNT] = {
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
     "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS", "TRADE GOOD FROM A CARCASS",
@@ -92,7 +109,7 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "TROPHY OF THE DESERT HARE", "TROPHY OF THE FENNEC FOX", "TROPHY OF THE COYOTE", "TROPHY OF THE RATTLESNAKE", "TROPHY OF THE ROADRUNNER", "TROPHY OF THE DESERT LIZARD", "TROPHY OF THE DUNE LION",
     "TROPHY OF THE MARSH FROG", "TROPHY OF THE WILD DUCK", "TROPHY OF THE MARSH DEER", "TROPHY OF THE WATER MOCCASIN", "TROPHY OF THE ALLIGATOR", "TROPHY OF THE BOG PANTHER",
     "TROPHY OF THE ARCTIC FOX", "TROPHY OF THE SNOW HARE", "TROPHY OF THE REINDEER", "TROPHY OF THE MOOSE", "TROPHY OF THE LYNX", "TROPHY OF THE POLAR BEAR",
-    "TROPHY OF THE MOUNTAIN GOAT", "TROPHY OF THE BIGHORN SHEEP", "TROPHY OF THE GOLDEN EAGLE", "TROPHY OF THE MARMOT", "TROPHY OF THE MOUNTAIN LION",
+    "TROPHY OF THE MOUNTAIN GOAT", "TROPHY OF THE BIGHORN SHEEP", "TROPHY OF THE GOLDEN EAGLE", "TROPHY OF THE MARMOT", "TROPHY OF THE MOUNTAIN LION", "TROPHY OF THE SEAL - ONLY SEALS CARRY IT",
     "RENDERED FROM BIG GAME - A SLOW-BURNING FUEL",
     "SAWN BOARDS - BOWS, SPEARS, HAFTS", "TANNED HIDE - ARMOR, PACKS AND GEAR", "CRUSHED BONE - ARROWHEADS, BLADES, FITTINGS", "PRESSED FROM HERBS - MEDICINES", "RENDERED FAT - TANNING, COOKING, WATERPROOFING",
     "A CUT ROSE FROM THE FLOWER SHOP - BOUQUETS", "A CUT TULIP FROM THE FLOWER SHOP - BOUQUETS", "SWEET-SCENTED SPRIGS FROM THE FLOWER SHOP - BOUQUETS", "A BIG SUNNY BLOOM - BOUQUETS",
@@ -108,7 +125,11 @@ static const int MAT_PRICE[M_COUNT] = {5, 9, 3, 7, 16, 22, 18, 6, 20, 14, 24,
     "PLANT IN TILLED SOIL - GROWS INTO CORN", "PLANT IN TILLED SOIL - GROWS INTO TOMATOES", "PLANT IN TILLED SOIL - GROWS INTO A PUMPKIN", "PLANT IN TILLED SOIL - GROWS INTO STRAWBERRIES",
     "LAID BY HENS - COOKING AND TRADE", "LAID BY DUCKS - RICH AND CREAMY", "FROM COWS AND GOATS - COOKING AND TRADE", "SHEARED FROM SHEEP - SOFT AND WARM", "A PRIZED FUNGUS ROOTED OUT BY PIGS", "DRIED GRASS - FEEDS THE FARM ANIMALS",
     "A QUICK RIVER FISH - FOOD AND TRADE", "A GREEN LAKE FISH - FOOD AND TRADE", "A WHISKERED BOTTOM-FEEDER - FOOD AND TRADE", "SLIPPERY AND RICH - FOOD AND TRADE",
-    "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH"};
+    "A COLD-WATER FISH OF THE NORTH - PRIZED", "A FIERCE LONG-JAWED HUNTER - A FINE CATCH",
+    "A GLOSSY PURPLE FRUIT - STEWS AND TRADE", "A SWEET WHITE ROOT - QUICK TO GROW", "A FIERY FRUIT - STEWS AND TRADE", "CRISP AND COOL - GOOD PICKLED", "A DEEP RED ROOT - EARTHY AND SWEET", "A MILD, SWEET ONION - SOUPS AND STEWS",
+    "PLANT IN TILLED SOIL - GROWS INTO EGGPLANTS", "PLANT IN TILLED SOIL - GROWS INTO TURNIPS", "PLANT IN TILLED SOIL - GROWS INTO HOT PEPPERS", "PLANT IN TILLED SOIL - GROWS INTO CUCUMBERS", "PLANT IN TILLED SOIL - GROWS INTO BEETS", "PLANT IN TILLED SOIL - GROWS INTO LEEKS",
+    "GROUND WHEAT - MADE AT THE CAMPFIRE", "CHURNED FROM FRESH MILK - RICH AND SMOOTH", "AGED MILK CURD - A FARM FAVOURITE", "BERRIES BOILED SWEET - KEEPS FOR MONTHS", "CUCUMBERS CURED IN BRINE AND HERBS",
+    "A SHARD OF DARKNESS FROM THE ENDLESS DEPTHS - FOUND NOWHERE ELSE", "A GLOWING FUNGUS OF THE DEEP - FOUND ONLY IN THE ENDLESS DEPTHS", "A TREASURE OF A LOST AGE - FOUND ONLY IN THE ENDLESS DEPTHS"};
 // order in which a carcass gives up its materials while gathering (land materials never appear in a carcass; they sit at the end)
 static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR, M_TUSK, M_ANTLER, M_FEATHER, M_SCALE, M_HORN, M_CLAW,
                                           M_WOOD, M_BRANCH, M_STONE, M_FIBER, M_HERB, M_MUSHROOM, M_SAGE, M_PULP, M_BOGWORT, M_NIGHTSHADE,
@@ -116,14 +137,18 @@ static const int GATHER_ORDER[M_COUNT] = {M_MEAT, M_HIDE, M_ORGAN, M_BONE, M_FUR
                                           M_RABBITFOOT, M_DEERSINEW, M_BOARBRISTLE, M_WOLFFANG, M_HARETAIL, M_FENNECEAR, M_COYOTEFANG, M_RATTLE, M_ROADPLUME,
                                           M_LIZARDTAIL, M_LIONMANE, M_FROGGLAND, M_DUCKDOWN, M_BOGHOOF, M_VENOMSAC, M_GATORTOOTH, M_PANTHEREYE, M_FOXBRUSH,
                                           M_SNOWFOOT, M_VELVET, M_MARROW, M_LYNXTUFT, M_BEARGALL, M_GOATBEARD, M_RAMFLEECE, M_GOLDPLUME, M_MARMOTPELT,
-                                          M_COUGARFANG, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,
+                                          M_COUGARFANG, M_SEALWHISKER, M_FAT, M_PLANK, M_LEATHER, M_BONEFRAG, M_EXTRACT, M_GREASE,
                                           M_ROSE, M_TULIP, M_LAVENDER, M_SUNFLOWER, M_BOUQUET,
                                           M_COAL, M_SILVER, M_RARECRYSTAL, M_GEM, M_STEELBAR, M_SILVERBAR, M_BATWING, M_SILK, M_SPIDERFANG, M_GOLEMCORE, M_CAVEPELT,
                                           M_ICEBONE, M_FROSTFANG, M_ICESHARD, M_KNIGHTPLATE, M_FROSTRUNE, M_ETERNALICE, M_CRYPTKEY,
                                           M_BERRY, M_WHEAT, M_CARROT, M_POTATO, M_CABBAGE, M_CORN, M_TOMATO, M_PUMPKIN, M_STRAWBERRY,
                                           M_SEED_WHEAT, M_SEED_CARROT, M_SEED_POTATO, M_SEED_CABBAGE, M_SEED_CORN, M_SEED_TOMATO, M_SEED_PUMPKIN, M_SEED_STRAWBERRY,
                                           M_EGG, M_DUCKEGG, M_MILK, M_WOOL, M_TRUFFLE, M_HAY,
-                                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE};
+                                          M_TROUT, M_BASS, M_CATFISH, M_EEL, M_CHAR, M_PIKE,
+                                          M_EGGPLANT, M_TURNIP, M_PEPPER, M_CUCUMBER, M_BEET, M_LEEK,
+                                          M_SEED_EGGPLANT, M_SEED_TURNIP, M_SEED_PEPPER, M_SEED_CUCUMBER, M_SEED_BEET, M_SEED_LEEK,
+                                          M_FLOUR, M_BUTTER, M_CHEESE, M_JAM, M_PICKLES,
+                                          M_VOIDSHARD, M_GLOWCAP, M_RELIC};
 
 // Weapons. The first four are thrown (and picked up again); the bow and crossbow are launchers that spend ammo instead.
 enum Wpn { W_FLINT, W_BONE, W_AXE, W_JAVELIN, W_BOW, W_CROSSBOW, W_SPEAR, W_IRONSPEAR, W_LONGBOW,
@@ -202,16 +227,16 @@ enum NodeKind {
     RN_GOLD,                                                                                    // mountain rare vein
     RN_COAL, RN_SILVER, RN_CAVECRYSTAL, RN_GEM, RN_ETERNALICE,                                  // the mine and the frozen dungeon
     RN_BERRY, RN_WILDFLOWER,                                                                    // the homestead's berry bushes and wild flowers
+    RN_VOIDSTONE, RN_GLOWCAP,                                                                   // the Endless Depths only
     RN_COUNT
 };
 [[maybe_unused]] static const char* NODE_NAME[RN_COUNT] = {"PRICKLY PEAR", "SAGEBRUSH", "MARSH REEDS", "BOGWORT", "FROSTBLOOM", "ALPINE HERB", "IRON ORE",
                                                            "WILD HERB", "MUSHROOMS", "FALLEN BRANCH", "WILD FLAX", "DRY WOOD", "COPPER ORE",
-                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE", "BERRY BUSH", "WILD FLOWERS"};
+                                                           "NIGHTSHADE", "BOG AMBER", "GOLD VEIN", "COAL SEAM", "SILVER VEIN", "CAVE CRYSTAL", "GEM DEPOSIT", "ETERNAL ICE", "BERRY BUSH", "WILD FLOWERS", "VOID STONE", "GLOWCAPS"};
 
 // ---- crafting
 // RK_ITEM: `out` is a registry item id (tools, consumables, placeables, processed materials).
-// RK_GEAR: `out` is an Up index and `count` the level it brings the hunter to (armor, boots) - there is no item, the gear is worn at once.
-enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE, RK_ITEM, RK_GEAR };
+enum RecipeKind { RK_WEAPON, RK_AMMO, RK_BANDAGE, RK_ITEM };
 enum RecipeCat { RC_TOOLS, RC_WEAPONS, RC_AMMO, RC_MEDICINE, RC_SURVIVAL, RC_MATERIALS, RC_ARMOR, RC_COUNT };
 [[maybe_unused]] static const char* RECIPE_CAT_NAME[RC_COUNT] = {"TOOLS", "WEAPONS", "AMMO", "MEDICINE", "SURVIVAL", "PARTS", "GEAR"};
 enum Station { STN_ANY, STN_FIRE, STN_SHOP };  // where a recipe can be made: anywhere, beside a campfire, beside the merchant's forge
@@ -226,56 +251,32 @@ struct Recipe {
     int minLv = 1;            // skill level needed to make it (existing recipes stay at 1 so older saves lose nothing)
 };
 
-// ---- gear upgrades (two tiers each)
+// ---- worn gear lines. There are no coin upgrades any more: armor and boots are crafted items worn in the BODY / FEET slots (CG_ARMOR1.. /
+// CG_BOOTS1.. in items.hpp), as many as you like. `Up` only names the gear lines for the icon art and for reading old saves.
 enum Up { U_TOOL, U_BAG, U_BOOTS, U_ARMOR, U_COUNT };
-struct UpLevel {
-    const char* name;
-    const char* desc;
-    int coins;
-    int m1, n1, m2, n2;
-};
-struct UpDef {
-    const char* title;
-    UpLevel lv[2];
-};
-static const UpDef UPS[U_COUNT] = {
-    {"SKINNING KNIFE",
-     {{"BONE SKINNER", "GATHER 1.6X FASTER +25% BONUS", 60, M_BONE, 4, M_HIDE, 2},
-      {"STEEL CLEAVER", "GATHER 2.4X FASTER +50% BONUS", 200, M_BONE, 6, M_TUSK, 2}}},
-    {"BACKPACK",
-     {{"HIDE SATCHEL", "30 INVENTORY SLOTS", 70, M_HIDE, 4, -1, 0},
-      {"TRAPPER PACK", "40 INVENTORY SLOTS", 220, M_HIDE, 6, M_FUR, 3}}},
-    {"BOOTS",
-     {{"HIDE BOOTS", "MOVE 12% FASTER", 60, M_HIDE, 3, -1, 0}, {"FUR BOOTS", "MOVE 25% FASTER", 160, M_FUR, 2, M_HIDE, 3}}},
-    {"ARMOR",
-     {{"HIDE VEST", "+20 HP, -15% DAMAGE", 60, M_HIDE, 5, -1, 0},
-      {"FUR COAT", "+45 HP, -30% DAMAGE", 180, M_FUR, 4, M_HIDE, 4}}},
-};
-static const float TOOL_SPEED[3] = {1.0f, 1.6f, 2.4f};
-static const float TOOL_BONUS[3] = {0.0f, 0.25f, 0.5f};
 static const float BOOT_MUL[4] = {1.0f, 1.12f, 1.25f, 1.35f};  // level 3 (swiftfoot boots) can only be crafted
 static const int ARMOR_HP[9] = {100, 120, 145, 175, 200, 230, 255, 285, 330};  // levels 6-8: miner's plate, frostward armor, frostbound plate  // levels 3-5 (scale mail, reinforced leather, bear hide) can only be crafted
 static const float ARMOR_RED[9] = {0.0f, 0.15f, 0.30f, 0.42f, 0.48f, 0.55f, 0.60f, 0.66f, 0.72f};
 // highest level of each gear line: the shop sells levels 1-2, the rest is crafted
 constexpr int UP_MAX[4] = {2, 4, 3, 8};  // U_TOOL, U_BAG (legacy: old saves' bag level, icons only), U_BOOTS, U_ARMOR
 
-// name / description of gear level `lv` (1-based) - levels 1-2 are the shop's, the rest are crafted only
+// name / description of a crafted armor (u = U_ARMOR, lv 1-8) or boots (u = U_BOOTS, lv 1-3)
 inline const char* gearName(int u, int lv) {
-    static const char* X[4][4] = {{"", "", "", ""}, {"", "", "EXPLORER PACK", ""}, {"", "", "SWIFTFOOT BOOTS", ""}, {"", "", "SCALE MAIL", "REINFORCED LEATHER"}};
-    if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].name;
-    if (u == U_ARMOR && lv == 5) return "BEAR HIDE ARMOR";
-    if (u == U_ARMOR && lv == 6) return "MINER'S PLATE";
-    if (u == U_ARMOR && lv == 7) return "FROSTWARD ARMOR";
-    if (u == U_ARMOR && lv == 8) return "FROSTBOUND PLATE";
-    return u >= 0 && u < 4 && lv >= 3 && lv <= 4 && X[u][lv - 1][0] ? X[u][lv - 1] : "";
+    static const char* A[9] = {"", "HIDE VEST", "FUR COAT", "SCALE MAIL", "REINFORCED LEATHER", "BEAR HIDE ARMOR", "MINER'S PLATE", "FROSTWARD ARMOR", "FROSTBOUND PLATE"};
+    static const char* B[4] = {"", "HIDE BOOTS", "FUR BOOTS", "SWIFTFOOT BOOTS"};
+    if (u == U_ARMOR) return A[std::max(0, std::min(8, lv))];
+    if (u == U_BOOTS) return B[std::max(0, std::min(3, lv))];
+    return "";
 }
 inline const char* gearDesc(int u, int lv) {
-    if (lv >= 1 && lv <= 2) return UPS[u].lv[lv - 1].desc;
     if (u == U_ARMOR) {
-        static const char* D[9] = {"", "", "", "+75 HP, -42% DAMAGE", "+100 HP, -48% DAMAGE", "+130 HP, -55% DAMAGE", "+155 HP, -60% DAMAGE", "+185 HP, -66% DAMAGE, NO COLD", "+230 HP, -72% DAMAGE, NO COLD"};
+        static const char* D[9] = {"", "+20 HP, -15% DAMAGE", "+45 HP, -30% DAMAGE", "+75 HP, -42% DAMAGE", "+100 HP, -48% DAMAGE", "+130 HP, -55% DAMAGE", "+155 HP, -60% DAMAGE", "+185 HP, -66% DAMAGE, NO COLD", "+230 HP, -72% DAMAGE, NO COLD"};
         return D[std::max(0, std::min(8, lv))];
     }
-    if (u == U_BOOTS) return "MOVE 35% FASTER";
+    if (u == U_BOOTS) {
+        static const char* D[4] = {"", "MOVE 12% FASTER", "MOVE 25% FASTER", "MOVE 35% FASTER"};
+        return D[std::max(0, std::min(3, lv))];
+    }
     return "";
 }
 
