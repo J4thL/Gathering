@@ -162,10 +162,10 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         static const char* pn[PK_COUNT] = {"HIDE SATCHEL", "TRAPPER PACK", "EXPLORER PACK", "EXPEDITION PACK"};
         static const float pw[PK_COUNT] = {1.0f, 1.5f, 2.0f, 2.5f};
         for (int k = 0; k < PK_COUNT; k++) {
-            t[itemPack(k)] = {pn[k], IK_BACKPACK, STACK_GEAR, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
+            t[itemPack(k)] = {pn[k], IK_BACKPACK, 1, 0, k, "", k, PACK_CARRY_KG[k], pw[k]};
             t[itemPack(k)].blurb = "WEARABLE BAG - CARRY UP TO " + std::to_string(PACK_CARRY_KG[k]) + " KG";
         }
-        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, STACK_GEAR, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
+        for (int k = 0; k < TL_COUNT; k++) t[itemTool(k)] = {TOOLDEF[k].name, IK_TOOL, 1, 0, TOOLDEF[k].tier >= 3 ? 2 : 1, TOOLDEF[k].blurb, k, 0};
         t[itemPlace(PL_CAMPFIRE)] = {"CAMPFIRE", IK_PLACEABLE, STACK_CONS, 0, 0, "SMELT, COOK AND KEEP WARM - USE TO PLACE", PL_CAMPFIRE, 0};
         t[itemPlace(PL_CHEST)] = {"STORAGE CHEST", IK_PLACEABLE, STACK_CONS, 0, 0, "20 SLOTS OF STORAGE - USE TO PLACE", PL_CHEST, 0};
         struct CarriedText { const char* name; const char* blurb; int rarity; };

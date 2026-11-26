@@ -1,4 +1,4 @@
-// skills.cpp - awarding skill XP and saving it (the SKILLS tab is the skill tree, core/game_tree.cpp).
+// skills.cpp - awarding skill XP, saving it, and the pack's SKILLS tab.
 // Skill data and the XP curve are in skills.hpp. Callers award XP only after an action has really completed.
 #include <algorithm>
 #include <cstring>
