@@ -139,6 +139,8 @@ void Game::drawMinimap() {
     // discovered landmarks, in their biome's colour
     for (auto& l : world.landmarks)
         if (l.found) fillRect(mx(l.x) - 1, my(l.y) - 1, 2, 2, BIOME[l.biome].col);
+    for (auto& c : world.camps)  // lit camps (the checkpoints), in the colour of a fire
+        if (c.lit) fillRect(mx(c.x) - 1, my(c.y) - 1, 2, 2, HEX(0xffb347));
     // animals the scouting companion sniffed out: green for game, red for fighters (blinking as the mark runs out)
     for (auto& a : animals)
         if (!a.dead && !a.gone && a.scoutT > 0 && (a.scoutT > 2.f || (((int)(timeAcc * 4)) & 1))) fillRect(mx(a.pos.x), my(a.pos.y), 2, 2, ANIMAL[a.kind].aggro ? C_RED : C_GREEN);
@@ -245,6 +247,21 @@ void Game::drawHud() {
         fillRect(x + 5, 8, 5, 5, dayT_ ? C_GOLD : HEX(0xcfd8e8));
         if (!dayT_) fillRect(x + 7, 8, 3, 3, HEX(0x33241a));
         text(x + 13, 8, buf, C_TEXT);
+        if (interior < 0 && delve < 0) {  // a little wind vane beside the clock: the arrow points the way the wind blows, and is longer the harder it does
+            const int vx = x + w + 3;
+            panel(vx, 4, 17, 13, HEX(0x33241a));
+            const float L = 3.f + 4.f * clampf(wind / 1.2f, 0.f, 1.f);
+            const V2 c(vx + 8.5f, 10.5f), tip = c + windDir * L, tail = c - windDir * L, perp(-windDir.y, windDir.x);
+            for (int i = 0; i <= 16; i++) {
+                const V2 q = tail + (tip - tail) * (i / 16.f);
+                fillRect((int)q.x, (int)q.y, 1, 1, HEX(0xcfe4f4));
+            }
+            for (int sd = -1; sd <= 1; sd += 2)
+                for (int i = 0; i <= 5; i++) {
+                    const V2 q = tip - windDir * (i * 0.6f) + perp * (sd * i * 0.45f);
+                    fillRect((int)q.x, (int)q.y, 1, 1, HEX(0xcfe4f4));
+                }
+        }
     }
     // ---- messages
     {

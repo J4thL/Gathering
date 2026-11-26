@@ -196,9 +196,9 @@ struct WaterArt {
                 const float d = (dep[iy][ix] * (1 - fx) + dep[iy][ix + 1] * fx) * (1 - fy) + (dep[iy + 1][ix] * (1 - fx) + dep[iy + 1][ix + 1] * fx) * fy;
                 const float t = d + (nz - 0.5f) * 0.6f;
                 const int lvl = t < 1.25f ? 0 : t < 2.25f ? 1 : t < 3.25f ? 2 : 3;
-                // all the water scrolls the same way; the deeper water is flipped and shifted so the two layers do not repeat each other
+                // shallow and normal water scroll one way, the deeper water flipped and shifted the other, so the two layers do not repeat each other
                 const bool deeper = lvl >= 2;
-                const int px = deeper ? wx + frame * 2 + 32 : wx + frame * 2, py = deeper ? 15 - (wy & 15) : (wy & 15);
+                const int px = deeper ? wx - frame * 2 + 32 : wx + frame * 2, py = deeper ? 15 - (wy & 15) : (wy & 15);
                 u32 c = PAL[lvl][patIdx(pat(px, py))];
                 if (land) {  // distance to the nearest dry land, in pixels
                     const float cx = x + 0.5f, cy = y + 0.5f;

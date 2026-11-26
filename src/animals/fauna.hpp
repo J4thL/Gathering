@@ -11,19 +11,21 @@ enum Kind {
     A_FROG, A_DUCK, A_MARSHDEER, A_MOCCASIN, A_GATOR, A_PANTHER,                         // swamp
     A_ARCTICFOX, A_SNOWHARE, A_REINDEER, A_MOOSE, A_LYNX, A_POLARBEAR,                   // snow
     A_GOAT, A_BIGHORN, A_EAGLE, A_MARMOT, A_MTLION,                                      // mountain
+    A_SEAL,                                                                              // snow, on the frozen lakes (added last: indices are saved)
     A_COUNT
 };
 
 constexpr float FLY_HEIGHT = 13.f, FLY_CLIMB = 28.f, FLY_DESCEND = 22.f;  // px above the ground, px/s up, px/s down
 
-enum Art { ART_QUAD, ART_BIRD, ART_SNAKE, ART_FROG, ART_LIZARD, ART_GATOR };
+enum Art { ART_QUAD, ART_BIRD, ART_SNAKE, ART_FROG, ART_LIZARD, ART_GATOR, ART_SEAL };
 
 // behaviour flags
 enum {
     BH_AMBUSH = 1,      // lies still ("lurks") until you come close, then strikes and backs off
     BH_NIGHT_AGGRO = 2, // only hunts the player at night; by day it behaves like prey
     BH_FLIES = 4,       // lifts off the ground while fleeing (harder to hit)
-    BH_SOARS = 8        // a flyer that stays airborne while it moves about and only lands to rest or feed (eagle)
+    BH_SOARS = 8,       // a flyer that stays airborne while it moves about and only lands to rest or feed (eagle)
+    BH_DIVES = 16       // flees to the nearest hole in the ice and slips down it (seal)
 };
 
 // How a rarity tier recolours a species. Which look each tier uses is data (AnimalDef::looks).
@@ -99,7 +101,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_FENNEC, {"FENNEC FOX", 16, 26, 112, 130, 6, false, 0, 0, 0.35f, {{1, 2}, {0, 1}, {0, 1}, {0, 0}, {1, 1}, {0, 0}, {0, 0}}});
         d.bodyH = 5; d.decal = 0; d.shadow = 0; d.restChance = 0.3f; d.feedChance = 0.2f;
-        d.looks[0] = LK_RUSTY; d.looks[2] = LK_EMBER;
+        d.looks[0] = LK_RUSTY; d.looks[2] = LK_EMBER; d.legendName = "EMBER FOX"; d.legendDrop[0] = M_FUR; d.legendDrop[1] = 2; d.legendDrop[2] = 3;
     }
     {
         auto& d = S(A_COYOTE, {"COYOTE", 40, 28, 100, 120, 8, true, 9, 0.9f, 0.50f, {{2, 3}, {1, 1}, {1, 2}, {0, 1}, {1, 2}, {0, 0}, {0, 0}}});
@@ -115,12 +117,12 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_ROADRUNNER, {"ROADRUNNER", 16, 26, 135, 120, 7, false, 0, 0, 0.35f, {{1, 2}, {0, 0}, {0, 1}, {0, 1}, {0, 0}, {0, 0}, {0, 0}}});
         d.art = ART_BIRD; d.bodyH = 7; d.decal = 0; d.shadow = 0; d.feedChance = 0.4f; d.animK = 0.1f;
-        d.looks[0] = LK_RUSTY; d.looks[2] = LK_GOLD;
+        d.looks[0] = LK_RUSTY; d.looks[2] = LK_GOLD; d.legendName = "GILDED RUNNER";
     }
     {
         auto& d = S(A_LIZARD, {"DESERT LIZARD", 8, 20, 110, 80, 5, false, 0, 0, 0.30f, {{0, 1}, {0, 1}, {0, 1}, {0, 0}, {0, 0}, {0, 0}, {0, 0}}});
         d.art = ART_LIZARD; d.bodyH = 3; d.decal = 0; d.shadow = 0; d.restChance = 0.5f; d.animK = 0.1f;
-        d.looks[0] = LK_RUSTY; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD;
+        d.looks[0] = LK_RUSTY; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD; d.legendName = "SUNSCALE";
     }
     {
         auto& d = S(A_DUNELION, {"DUNE LION", 120, 26, 110, 150, 12, true, 24, 1.1f, 0.70f, {{4, 6}, {3, 4}, {3, 4}, {2, 3}, {2, 3}, {0, 0}, {0, 0}}});
@@ -137,7 +139,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_DUCK, {"WILD DUCK", 12, 18, 125, 120, 6, false, 0, 0, 0.35f, {{1, 2}, {0, 0}, {0, 1}, {0, 1}, {0, 0}, {0, 0}, {0, 0}}});
         d.art = ART_BIRD; d.flags = BH_FLIES; d.bodyH = 6; d.decal = 0; d.shadow = 0; d.feedChance = 0.4f; d.restChance = 0.15f;
-        d.looks[0] = LK_PALE; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD;
+        d.looks[0] = LK_PALE; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD; d.legendName = "EMERALD DRAKE";
     }
     {
         auto& d = S(A_MARSHDEER, {"MARSH DEER", 52, 22, 92, 120, 9, false, 0, 0, 0.60f, {{3, 4}, {2, 2}, {2, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}}});
@@ -173,7 +175,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_SNOWHARE, {"SNOW HARE", 12, 24, 120, 105, 6, false, 0, 0, 0.35f, {{1, 1}, {1, 1}, {0, 1}, {0, 0}, {1, 1}, {0, 0}, {0, 0}}});
         d.bodyH = 5; d.decal = 0; d.shadow = 0; d.hop = true; d.animK = 0.09f; d.feedChance = 0.3f; d.restChance = 0.15f;
-        d.looks[0] = LK_RUSTY; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_GHOST;
+        d.looks[0] = LK_RUSTY; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_GHOST; d.legendName = "AURORA HARE"; d.legendDrop[0] = M_FUR; d.legendDrop[1] = 2; d.legendDrop[2] = 3;
     }
     {
         auto& d = S(A_REINDEER, {"REINDEER", 56, 24, 94, 120, 10, false, 0, 0, 0.65f, {{3, 5}, {2, 3}, {2, 3}, {1, 2}, {0, 0}, {0, 0}, {0, 0}}});
@@ -192,13 +194,19 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_LYNX, {"LYNX", 44, 28, 108, 135, 8, true, 13, 0.75f, 0.50f, {{2, 3}, {1, 2}, {1, 2}, {0, 1}, {2, 3}, {0, 0}, {0, 0}}});
         d.alertMul = 0.75f; d.fleeHp = 0.3f; d.leash = 300; d.bodyH = 7; d.decal = 1; d.restChance = 0.35f;
-        d.looks[0] = LK_PALE; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_FROST;
+        d.looks[0] = LK_PALE; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_FROST; d.legendName = "GHOST LYNX"; d.legendDrop[0] = M_FUR; d.legendDrop[1] = 3; d.legendDrop[2] = 4;
     }
     {
         auto& d = S(A_POLARBEAR, {"POLAR BEAR", 180, 20, 98, 130, 14, true, 30, 1.5f, 0.90f, {{6, 8}, {4, 5}, {3, 4}, {2, 3}, {4, 5}, {0, 0}, {0, 0}}});
         d.alertMul = 0.8f; d.fleeHp = 0.1f; d.leash = 320; d.bodyH = 12; d.decal = 2; d.shadow = 2; d.restChance = 0.3f; d.hpBarY = 16;
         d.looks[0] = LK_RUSTY; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_FROST; d.legendName = "GLACIER BEAR";
         d.legendDrop[0] = M_FUR; d.legendDrop[1] = 4; d.legendDrop[2] = 6;
+    }
+    {  // a plump grey seal that basks on the frozen lakes beside its breathing hole; a shuffle on land, so it rarely strays, and it slips down the hole when startled
+        auto& d = S(A_SEAL, {"SEAL", 42, 10, 74, 95, 8, false, 0, 0, 0.60f, {{4, 5}, {2, 3}, {1, 2}, {1, 1}, {2, 3}, {0, 0}, {0, 0}}});
+        d.art = ART_SEAL; d.flags = BH_DIVES; d.bodyH = 5; d.decal = 1; d.shadow = 1; d.hpBarY = 9; d.animK = 0.06f;
+        d.restChance = 0.65f; d.feedChance = 0.f;
+        d.looks[0] = LK_PALE; d.looks[1] = LK_MELANISTIC; d.looks[2] = LK_FROST; d.legendName = "ICE SEAL";
     }
     // ---------------------------------------------------------------- mountain
     {
@@ -220,7 +228,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     {
         auto& d = S(A_MARMOT, {"MARMOT", 16, 16, 90, 95, 6, false, 0, 0, 0.35f, {{1, 2}, {1, 1}, {0, 1}, {0, 0}, {0, 1}, {0, 0}, {0, 0}}});
         d.bodyH = 5; d.decal = 0; d.shadow = 0; d.feedChance = 0.45f; d.restChance = 0.25f;
-        d.looks[0] = LK_PALE; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD;
+        d.looks[0] = LK_PALE; d.looks[1] = LK_ALBINO; d.looks[2] = LK_GOLD; d.legendName = "WHISTLER KING"; d.legendDrop[0] = M_FUR; d.legendDrop[1] = 2; d.legendDrop[2] = 3;
     }
     {
         auto& d = S(A_MTLION, {"MOUNTAIN LION", 105, 26, 110, 150, 11, true, 22, 1.0f, 0.70f, {{4, 5}, {3, 4}, {3, 3}, {2, 2}, {3, 4}, {0, 0}, {0, 0}}});
@@ -251,6 +259,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
         {A_LYNX, M_LYNXTUFT, 1, 1}, {A_POLARBEAR, M_BEARGALL, 1, 2},
         {A_GOAT, M_GOATBEARD, 1, 1}, {A_BIGHORN, M_RAMFLEECE, 1, 1}, {A_EAGLE, M_GOLDPLUME, 1, 1}, {A_MARMOT, M_MARMOTPELT, 0, 1},
         {A_MTLION, M_COUGARFANG, 1, 2},
+        {A_SEAL, M_SEALWHISKER, 1, 2},
     };
     for (const Trophy& tr : TROPHY) drop(tr.kind, tr.mat, tr.lo, tr.hi);
     // ---- animal fat: from anything with some body to it (fuel and grease, see recipes.hpp)
@@ -262,7 +271,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     auto hunts = [&](int predator, std::initializer_list<int> prey) {
         for (int k : prey) t[predator].preyMask |= 1u << k;
     };
-    hunts(A_WOLF, {A_RABBIT, A_DEER});
+    hunts(A_WOLF, {A_RABBIT, A_DEER, A_REINDEER, A_SNOWHARE});  // (the white wolves of the snowfields hunt the reindeer and the snow hares)
     hunts(A_COYOTE, {A_HARE, A_LIZARD, A_FENNEC});
     hunts(A_DUNELION, {A_HARE, A_FENNEC, A_ROADRUNNER, A_COYOTE});
     hunts(A_RATTLER, {A_LIZARD});
@@ -270,7 +279,7 @@ inline std::array<AnimalDef, A_COUNT> makeAnimals() {
     hunts(A_MOCCASIN, {A_FROG});
     hunts(A_PANTHER, {A_MARSHDEER, A_DUCK, A_FROG});
     hunts(A_LYNX, {A_SNOWHARE, A_ARCTICFOX});
-    hunts(A_POLARBEAR, {A_SNOWHARE, A_ARCTICFOX, A_REINDEER});
+    hunts(A_POLARBEAR, {A_SNOWHARE, A_ARCTICFOX, A_REINDEER, A_SEAL});
     hunts(A_MTLION, {A_GOAT, A_MARMOT});
     return t;
 }
@@ -278,13 +287,26 @@ static const std::array<AnimalDef, A_COUNT> ANIMAL = makeAnimals();
 // the trophy block of the material enum lists the species in Kind order: M_TROPHY0 + kind is that species' trophy
 static_assert(M_TROPHY_N == A_COUNT, "one trophy material per species");
 static_assert(M_RABBITFOOT == M_TROPHY0 + A_RABBIT && M_WOLFFANG == M_TROPHY0 + A_WOLF && M_LIONMANE == M_TROPHY0 + A_DUNELION &&
-              M_GATORTOOTH == M_TROPHY0 + A_GATOR && M_BEARGALL == M_TROPHY0 + A_POLARBEAR && M_COUGARFANG == M_TROPHY0 + A_MTLION,
+              M_GATORTOOTH == M_TROPHY0 + A_GATOR && M_BEARGALL == M_TROPHY0 + A_POLARBEAR && M_COUGARFANG == M_TROPHY0 + A_MTLION && M_SEALWHISKER == M_TROPHY0 + A_SEAL,
               "trophy materials must stay in species order");
 
 // ---------------------------------------------------------------- rarity tiers
 // A specimen's tier is rolled when it spawns. Multipliers are deliberately modest: a rare animal is a better
 // trophy and a warier target, not a different game. The legendary tier also has hard spawn limits (see spawns.hpp).
 enum Tier { TR_COMMON, TR_UNCOMMON, TR_RARE, TR_LEGENDARY, TR_COUNT };
+// When a look turns up (the bestiary shows it once that tier has been hunted); it matches Game::lookLuck. null: the moment does not matter for that look.
+inline const char* lookHint(int look) {
+    switch (look) {
+        case LK_GHOST: return "AT NIGHT";
+        case LK_FROST: return "IN BLIZZARDS";
+        case LK_GOLD: return "DAWN AND DUSK";
+        case LK_EMBER: return "DUSK, SANDSTORMS";
+        case LK_DARK: case LK_MELANISTIC: return "AFTER DARK";
+        case LK_ALBINO: case LK_PALE: return "BY DAY";
+        default: return nullptr;
+    }
+}
+
 struct TierDef {
     const char* name;
     float chance;    // chance per spawn (legendary additionally needs a free legendary slot, see LEGEND_*)
@@ -302,6 +324,9 @@ static const TierDef TIER[TR_COUNT] = {
 };
 constexpr int LEGEND_MAX_ALIVE = 1;       // never more than one legendary at a time...
 constexpr float LEGEND_COOLDOWN = 300.f;  // ...and at least this many seconds between legendary spawns
+// bad-luck protection: every roll that was allowed to be a legendary and was not adds this much to the legendary chance (up to the cap); a legendary resets it.
+// With 0.3% to begin with, the chance is about 1% after 70 rolls and tops out at 3.3% (ten times the base).
+constexpr float LEGEND_PITY_STEP = 0.0001f, LEGEND_PITY_MAX = 0.03f;
 
 inline std::string animalName(int kind, int tier) {
     const AnimalDef& D = ANIMAL[kind];

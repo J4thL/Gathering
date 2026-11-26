@@ -639,7 +639,7 @@ void testWorldRules(SelfTest& t) {
                     if (!isTreeKind(a.kind) || a.x < 10 * TS || a.y < 10 * TS || a.x > (MW - 10) * TS || a.y > (MH - 10) * TS) continue;
                     const int tx = (int)(a.x / TS), ty = (int)((a.y - 1.f) / TS);
                     if (tx >= COX - 2 && tx < COX + CW + 2 && ty >= COY - 2 && ty < COY + CH + 2) continue;
-                    if (fbm((tx - COX) * 0.08f, (ty - COY) * 0.08f, sd + 1) >= 0.5f || w.tile[ty][tx] != T_GRASS) continue;
+                    if (w.homeDens[(size_t)ty * MW + tx] >= 0.5f || w.tile[ty][tx] != T_GRASS) continue;
                     bool glade = false;
                     for (const Glade& gl : w.glades)
                         if (hypotf((tx - gl.cx) / gl.rx, (ty - gl.cy) / gl.ry) < 1.8f) glade = true;
@@ -661,13 +661,13 @@ void testWorldRules(SelfTest& t) {
             for (uint32_t sd : {WORLD_SEED, 12345u, 777u}) {
                 World full, rough, noStreams, noGlades, noFields;
                 full.generate(sd, B_HOME);
-                rough.genOff = GEN_NO_SMOOTH;
+                rough.genOff = GEN_DEFAULT | GEN_NO_SMOOTH;
                 rough.generate(sd, B_HOME);
-                noStreams.genOff = GEN_NO_STREAMS;
+                noStreams.genOff = GEN_DEFAULT | GEN_NO_STREAMS;
                 noStreams.generate(sd, B_HOME);
-                noGlades.genOff = GEN_NO_GLADES;
+                noGlades.genOff = GEN_DEFAULT | GEN_NO_GLADES;
                 noGlades.generate(sd, B_HOME);
-                noFields.genOff = GEN_NO_FIELDS;
+                noFields.genOff = GEN_DEFAULT | GEN_NO_FIELDS;
                 noFields.generate(sd, B_HOME);
                 auto isFloor = [](uint8_t t) { return t == T_GRASS || t == T_DARK || t == T_LEAF || t == T_MOSS || t == T_NEEDLES || t == T_ROOTS; };
                 auto specks = [&](const World& w) {  // floor tiles with at most 1 of their 8 neighbours the same floor (isolated specks and the tips of one-tile spurs), away from water, glades and the village
@@ -732,6 +732,114 @@ void testWorldRules(SelfTest& t) {
             check(smooth, "smoothing removes at least half of the floor specks");
             check(independent, "leaving out streams, glades or flower fields leaves every tree away from them exactly where it was");
             check(allSeeds, "the home forest has meadow, dark grass, leaf litter, needles and moss in sensible shares, and trees match their floor");
+        }
+        // ---- snowfield plateaus: raised ground with a rock face on its south side, ramps up, a walking-stopping lip on the other sides
+        {
+            bool shapes = true, ramps = true, reach = true, lip = true, same = true, off = true, sizes = true, tops = true, edgesClear = true;
+            long totalPlat = 0;
+            for (uint32_t sd : {WORLD_SEED, 12345u, 777u}) {
+                World w, w2, flat;
+                w.genOff = GEN_DEFAULT | GEN_V2_SNOW | GEN_V2_PLATEAU;
+                w.generate(sd, B_SNOW);
+                w2.genOff = w.genOff;
+                w2.generate(sd, B_SNOW);
+                flat.genOff = (GEN_DEFAULT | GEN_V2_SNOW) & ~GEN_V2_PLATEAU;
+                flat.generate(sd, B_SNOW);
+                long nPlat = 0, nRamp = 0;
+                for (int y = 0; y < MH; y++)
+                    for (int x = 0; x < MW; x++) {
+                        nPlat += w.plat[y][x] == 1;
+                        nRamp += w.plat[y][x] == 2;
+                        same = same && w.tile[y][x] == w2.tile[y][x] && w.plat[y][x] == w2.plat[y][x] && w.edge[y][x] == w2.edge[y][x];
+                        off = off && flat.plat[y][x] == 0 && flat.edge[y][x] == 0;
+                        // the tile under a plateau's bottom edge is rock face (two tiles), unless it is a ramp
+                        if (w.plat[y][x] == 1 && y + 2 < MH && w.plat[y + 1][x] != 1)
+                            shapes = shapes && (w.plat[y + 1][x] == 2 || w.tile[y + 1][x] == T_CLIFF) && (w.plat[y + 2][x] == 2 || w.tile[y + 2][x] == T_CLIFF);
+                    }
+                {   // the sizes vary (a massif of 200+ tiles and a small mesa on every seed), and the tops carry stones, trees, cairns and frostbloom
+                    std::vector<int> lab((size_t)MW * MH, 0);
+                    int big = 0, small = 0;
+                    for (int y = 0; y < MH; y++)
+                        for (int x = 0; x < MW; x++) {
+                            if (w.plat[y][x] != 1 || lab[(size_t)y * MW + x]) continue;
+                            std::vector<int> st{y * MW + x};
+                            lab[(size_t)y * MW + x] = 1;
+                            int a = 0;
+                            while (!st.empty()) {
+                                const int c = st.back();
+                                st.pop_back();
+                                a++;
+                                const int cx = c % MW, cy = c / MW, d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                                for (auto& o : d4) {
+                                    const int nx = cx + o[0], ny = cy + o[1];
+                                    if (nx >= 0 && ny >= 0 && nx < MW && ny < MH && w.plat[ny][nx] == 1 && !lab[(size_t)ny * MW + nx]) lab[(size_t)ny * MW + nx] = 1, st.push_back(ny * MW + nx);
+                                }
+                            }
+                            big += a >= 200;
+                            small += a < 100;
+                        }
+                    sizes = sizes && big >= 1 && small >= 3;
+                    int onTop = 0, cairns = 0, bloom = 0;
+                    for (const Prop& p : w.props) {
+                        const int tx = (int)(p.x / TS), ty = (int)((p.y - 1.f) / TS);
+                        if (tx < 0 || ty < 0 || tx >= MW || ty >= MH || w.plat[ty][tx] != 1) continue;
+                        onTop++;
+                        cairns += p.kind == P_CAIRN;
+                        // nothing stands on the lip row: every edge tile of a top is free
+                        edgesClear = edgesClear && w.edge[ty][tx] == 0;
+                    }
+                    for (const ResNode& n : w.nodes) {
+                        const int tx = (int)(n.x / TS), ty = (int)(n.y / TS);
+                        bloom += tx >= 0 && ty >= 0 && tx < MW && ty < MH && w.plat[ty][tx] == 1;
+                    }
+                    tops = tops && onTop >= 8 && cairns >= 1 && bloom >= 2;
+                }
+                totalPlat += nPlat;
+                shapes = shapes && nPlat > 0 && nPlat < MW * MH / 3;
+                ramps = ramps && nRamp >= 2;
+                // every plateau can be walked onto from the hub: flood on 8px cells with the real collision test (as the walk-ability repair does)
+                const int gw = MW * TS / 8, gh = MH * TS / 8;
+                std::vector<char> seen((size_t)gw * gh, 0);
+                std::vector<int> q;
+                const int sx = (int)(w.hub[B_SNOW].x / 8), sy = (int)(w.hub[B_SNOW].y / 8);
+                auto pass = [&](int cx, int cy) { return cx >= 0 && cy >= 0 && cx < gw && cy < gh && !w.blocked(cx * 8 + 4.f, cy * 8 + 4.f, 4.f); };
+                if (pass(sx, sy)) { q.push_back(sy * gw + sx); seen[sy * gw + sx] = 1; }
+                for (size_t h = 0; h < q.size(); h++) {
+                    const int cx = q[h] % gw, cy = q[h] / gw;
+                    const int d4[4][2] = {{1, 0}, {-1, 0}, {0, 1}, {0, -1}};
+                    for (auto& o : d4) {
+                        const int nx = cx + o[0], ny = cy + o[1];
+                        if (pass(nx, ny) && !seen[ny * gw + nx]) { seen[ny * gw + nx] = 1; q.push_back(ny * gw + nx); }
+                    }
+                }
+                long plateauCells = 0, plateauReached = 0;
+                for (int cy = 0; cy < gh; cy++)
+                    for (int cx = 0; cx < gw; cx++) {
+                        const int tx = cx * 8 / TS, ty = cy * 8 / TS;
+                        if (w.plat[ty][tx] != 1 || !pass(cx, cy)) continue;
+                        plateauCells++;
+                        plateauReached += seen[cy * gw + cx];
+                    }
+                reach = reach && plateauCells > 0 && plateauReached * 100 >= plateauCells * 98;
+                // the lip: a free plateau tile whose east side looks onto plain ground stops the hunter a few pixels short of that side, and does not stop him in the middle
+                bool found = false;
+                for (int y = 4; y < MH - 4 && !found; y++)
+                    for (int x = 4; x < MW - 4 && !found; x++)
+                        if (w.plat[y][x] == 1 && (w.edge[y][x] & 2) && !w.solid[y][x] && !w.blocked(x * TS + TS / 2.f, y * TS + TS / 2.f, 4.f)) {
+                            found = true;
+                            lip = lip && w.blocked(x * TS + TS - 1.f, y * TS + TS / 2.f, 4.f) && !w.blocked(x * TS + TS - EDGE_W - 4.f - 0.5f, y * TS + TS / 2.f, 4.f);
+                        }
+                lip = lip && found;
+            }
+            check(shapes && totalPlat > 0, "the snowfield has plateaus on every seed, each with a two-tile rock face (or a ramp) along its south edge, and none covers a third of the map");
+            check(ramps, "every seed has ramps up onto the plateaus");
+            check(reach, "every plateau can be reached from the hub by walking (through the ramps)");
+            check(lip, "the lip along a plateau's outer edge stops the hunter just short of it, and the middle of the plateau is free");
+            check(sizes, "plateau sizes vary: every seed has at least one massif of 200+ tiles and several small mesas under 100");
+            check(tops, "plateau tops carry stones, lone trees, a cairn and frostbloom on every seed");
+            check(edgesClear, "nothing stands on a plateau's edge tiles (the lip row stays free to walk)");
+            check(same, "plateaus build identically for the same seed");
+            check(off, "with plateaus switched off the snowfield has none");
         }
         // ---- travel keeps the hunter, and each map keeps its own state
         g.newGame();
@@ -842,5 +950,123 @@ void testWorldRules(SelfTest& t) {
             check(g.mapMem[B_DESERT].disc == "1000" && g.mapMem[B_SWAMP].disc == "010" && g.mapMem[B_MOUNTAIN].disc == "1000", "old landmark discoveries are split between the maps");
             removeAll();
         }
+    }
+    printf("abandoned camps and checkpoints\n");
+    {
+        // ---- the generator: three or four camps on the desert, swamp and mountain, every campsite of the snowfield (three to six), none found at the
+        // start, each with one fire and a blocked tile (and, outside the snowfield, one fallen tent)
+        bool counts = true, cold = true, oneFire = true, blockedOk = true, same = true, others = true, warmOk = true;
+        int standing = 0, fallen = 0;  // the tents of the other biomes' camps: still standing, come down
+        for (int m : {B_DESERT, B_SWAMP, B_MOUNTAIN, B_SNOW}) {
+            World a, b;
+            a.generate(WORLD_SEED, m);
+            b.generate(WORLD_SEED, m);
+            counts = counts && a.camps.size() >= 3 && a.camps.size() <= (m == B_SNOW ? 6u : 4u);
+            same = same && a.camps.size() == b.camps.size();
+            for (size_t i = 0; i < a.camps.size(); i++) {
+                const Camp& c = a.camps[i];
+                cold = cold && !c.lit;
+                blockedOk = blockedOk && a.solidTile((int)(c.x / TS), (int)(c.y / TS));
+                int n = 0, tents = 0;
+                for (const Prop& pr : a.props) {
+                    const bool here = fabsf(pr.x - c.x) < 1.f && fabsf(pr.y - c.y) < 1.f;
+                    n += here && ((pr.kind == P_CAMPFIRE && (int)pr.ph == (int)i) || (pr.kind == P_SNOWCAMPFIRE && c.warm));
+                    tents += pr.kind == P_CAMPTENT && fabsf(pr.x - (c.x - 40.f)) < 1.f && fabsf(pr.y - (c.y - 14.f)) < 1.f;
+                    if (pr.kind == P_CAMPTENT) (pr.ph > 0.5f ? standing : fallen)++;
+                }
+                oneFire = oneFire && n == 1 && (m == B_SNOW || tents == 1);
+                warmOk = warmOk && (m == B_SNOW || !c.warm);
+            }
+        }
+        for (int m : {B_HOME}) {
+            World a;
+            a.generate(WORLD_SEED, m);
+            others = others && a.camps.empty();
+        }
+        check(counts && same, "the desert, swamp and mountain get three or four camps and the snowfield three to six, the same ones every time");
+        check(cold && oneFire && blockedOk && warmOk, "every camp starts unfound, with one fire (blocking its tile) and, outside the snowfield, one fallen tent");
+        check(others, "the home forest has no camps");
+        check(standing > 0 && fallen > 0, "the camps of the other biomes have both the standing tent and the fallen one");
+        // ---- lighting and the checkpoint
+        g.newGame();
+        g.state = ST_PLAY;
+        g.helpT = 0;
+        g.travelTo(B_DESERT, MAPS[B_DESERT].entryTx, MAPS[B_DESERT].entryTy, false);
+        g.travelCd = 0;
+        check(g.world.camps.size() >= 3, "the desert has its camps in the game world");
+        if (g.world.camps.size() >= 3) {
+            const Camp c0 = g.world.camps[0];
+            g.p.pos = V2(c0.x + 90, c0.y + 90);
+            g.updateCamps();
+            check(!g.world.camps[0].lit, "a camp stays cold while the hunter is far from its fire");
+            const V2 entrance = g.world.spawn;
+            check(dist(g.respawnPoint(), entrance) < 1.f, "with no camp lit, a knocked-out hunter wakes at the map's entrance");
+            g.p.pos = V2(c0.x, c0.y + 30);
+            const int64_t xp0 = g.p.sk.s[SK_SURVIVAL].xp;
+            g.updateCamps();
+            check(g.world.camps[0].lit, "walking up to a camp's fire lights it");
+            check(g.p.sk.s[SK_SURVIVAL].xp > xp0, "lighting a camp pays some survival experience");
+            const int64_t xp1 = g.p.sk.s[SK_SURVIVAL].xp;
+            g.updateCamps();
+            check(g.p.sk.s[SK_SURVIVAL].xp == xp1, "a camp pays only once");
+            check(g.world.camps[1].lit == false, "the other camps stay cold");
+            // knocked out far away: wakes beside the lit camp
+            g.p.pos = V2(c0.x + 300, c0.y + 200);
+            g.p.hp = 1;
+            g.hurtPlayer(50, g.p.pos + V2(10, 0));
+            check(g.p.dead, "the hunter is knocked out");
+            for (int i = 0; i < 400 && g.p.dead; i++) g.update(0.05f);
+            check(!g.p.dead && dist(g.p.pos, V2(c0.x, c0.y + 22.f)) < 6.f, "a knocked-out hunter wakes beside the lit camp");
+            check(!g.world.blocked(g.p.pos.x, g.p.pos.y, 5.f), "and does not wake inside anything");
+            // the lit camps are saved and come back
+            g.save();
+            g.world.camps[0].lit = false;
+            const bool ld = g.load();
+            check(ld && g.world.mapId == B_DESERT && g.world.camps.size() >= 3 && g.world.camps[0].lit && !g.world.camps[1].lit, "a lit camp is still lit after saving and loading");
+            // another map keeps its own camps: leave and come back
+            g.travelTo(B_HOME, MAPS[B_DESERT].portals[0].arriveTx, MAPS[B_DESERT].portals[0].arriveTy, false);
+            g.travelCd = 0;
+            check(g.world.camps.empty(), "the home map has no camps");
+            g.travelTo(B_DESERT, MAPS[B_DESERT].entryTx, MAPS[B_DESERT].entryTy, false);
+            g.travelCd = 0;
+            check(g.world.camps.size() >= 3 && g.world.camps[0].lit && !g.world.camps[1].lit, "a camp stays lit when the hunter leaves the map and comes back");
+        }
+        // ---- the snowfield: a camp is found by walking up to it (a warm one has nothing to light), and the hunter wakes beside it, never inside a log
+        g.travelTo(B_SNOW, MAPS[B_SNOW].entryTx, MAPS[B_SNOW].entryTy, false);
+        g.travelCd = 0;
+        check(g.world.camps.size() >= 3, "the snowfield has its camps in the game world");
+        if (g.world.camps.size() >= 3) {
+            bool anyWarm = false, anyCold = false;
+            for (const Camp& c : g.world.camps) (c.warm ? anyWarm : anyCold) = true;
+            check(anyWarm || anyCold, "the snowfield's camps are warm (a burning fire) or cold (an abandoned camp)");
+            for (size_t ci = 0; ci < g.world.camps.size(); ci++) {
+                const Camp c = g.world.camps[ci];
+                g.p.pos = V2(c.x, c.y + 30);
+                g.updateCamps();
+                check(g.world.camps[ci].lit, "walking up to a snowfield camp finds it");
+                g.p.pos = V2(c.x + 300, c.y + 200);
+                const V2 wake = g.respawnPoint();
+                check(!g.world.blocked(wake.x, wake.y, 5.f) && dist(wake, V2(c.x, c.y)) < 40.f, "and a hunter knocked out far away wakes beside it, never inside a log or a tent");
+            }
+        }
+        // ---- the snowfield's leafy birches: about one birch in four, always a birch, the same trees every time
+        {
+            World a, b;
+            a.generate(WORLD_SEED, B_SNOW);
+            b.generate(WORLD_SEED, B_SNOW);
+            int birches = 0, leafy = 0, leafyNotBirch = 0, differs = 0;
+            for (size_t i = 0; i < a.props.size(); i++) {
+                const Prop& pr = a.props[i];
+                if (pr.kind != P_BARETREE) continue;
+                birches += snowBirchAt(pr.x, pr.y);
+                leafy += snowBirchLeafy(pr.x, pr.y);
+                leafyNotBirch += snowBirchLeafy(pr.x, pr.y) && !snowBirchAt(pr.x, pr.y);
+                differs += i >= b.props.size() || snowBirchLeafy(pr.x, pr.y) != snowBirchLeafy(b.props[i].x, b.props[i].y);
+            }
+            check(birches >= 20 && leafy * 100 >= birches * 15 && leafy * 100 <= birches * 35, "about one birch in four of the snowfield is a leafy one");
+            check(leafyNotBirch == 0 && differs == 0, "a leafy birch is always a birch, and they are the same ones every time");
+        }
+        removeAll();
+        g.loadMapWorld(B_HOME);  // the tests after this one expect the home map
     }
 }

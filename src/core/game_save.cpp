@@ -73,6 +73,7 @@ void Game::save() {
             const MapMem& mm = mapMem[m];
             if (!mm.visited) continue;
             f << "map " << m << "\ndisc " << mm.disc << "\n";
+            if (!mm.camps.empty()) f << "camps " << mm.camps << "\n";  // which abandoned camps are lit (absent in older saves: none is)
             if (!mm.seen.empty()) f << "seen " << mm.seen << "\n";
             for (auto& ln : mm.hv) f << ln << "\n";
             for (auto& ln : mm.st) f << ln << "\n";
@@ -97,6 +98,7 @@ void Game::save() {
         return;
     }
     hasSave = true;
+    readSaveInfo();
 }
 
 // If the main save is missing but the previous one (save.txt.bak) is there - the game stopped between the two renames in save() - put it back.
@@ -149,7 +151,7 @@ bool Game::load() {
     // per-map state read from the file: "map <id>" starts a block; lines before any block come from a save made before the
     // separate maps existed (one big world) and are converted below
     std::vector<std::string> mapHv[B_COUNT], mapSt[B_COUNT];
-    std::string mapDisc[B_COUNT], mapSeen[B_COUNT];
+    std::string mapDisc[B_COUNT], mapSeen[B_COUNT], mapCamps[B_COUNT];
     std::vector<std::string> legHv, legSt;
     std::string legDisc;
     std::vector<std::pair<std::string, int>> legacyRefund;  // items from old out-of-home chests (see below)
@@ -320,6 +322,10 @@ bool Game::load() {
             ss >> bits;
             if (curLoad >= 0) mapDisc[curLoad] = bits;
             else if (curLoad == -1) legDisc = bits;
+        } else if (k == "camps") {
+            std::string bits;
+            ss >> bits;
+            if (curLoad >= 0) mapCamps[curLoad] = bits;
         } else if (k == "seen") {  // fog of war of the current map block (absent in older saves: the map starts unexplored)
             std::string bits;
             ss >> bits;
@@ -487,6 +493,7 @@ bool Game::load() {
         mapMem[m].hv = mapHv[m];
         mapMem[m].st = mapSt[m];
         mapMem[m].disc = mapDisc[m];
+        mapMem[m].camps = mapCamps[m];
         mapMem[m].seen = mapSeen[m];
         mapMem[m].visited = !mapHv[m].empty() || !mapSt[m].empty() || !mapDisc[m].empty() || m == atMap;
         mapMem[m].items.clear();
@@ -551,4 +558,30 @@ bool Game::load() {
         if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a delve: back at its entrance
     } else if (atPosX >= 0 && atPosY >= 0) p.pos = freeSpot(atPosX / TS, atPosY / TS);  // saved inside a town building: back outside its door
     return true;
+}
+
+// The summary the title screen shows beside CONTINUE: read from the plain-text save (seed, coins, day, kills, where the hunter is, gates,
+// and a "map" line for every map visited). A save that cannot be read just shows no card.
+void Game::readSaveInfo() {
+    saveInfo = SaveInfo();
+    std::ifstream f(savePath());
+    if (!f) return;
+    std::string line;
+    float dayF = 0.f;
+    int n = 0;
+    while (std::getline(f, line) && n++ < 4000) {
+        std::istringstream ss(line);
+        std::string k;
+        ss >> k;
+        if (k == "seed") ss >> saveInfo.seed;
+        else if (k == "coins") ss >> saveInfo.coins;
+        else if (k == "day") ss >> dayF;
+        else if (k == "kills") ss >> saveInfo.kills;
+        else if (k == "at") { int b = 0; if (ss >> b && b >= 0 && b < B_COUNT) saveInfo.biome = b; }
+        else if (k == "gates") { int g = 0, c = 0; while (ss >> g) c += g != 0; saveInfo.gates = c; }
+        else if (k == "map") saveInfo.maps++;
+    }
+    saveInfo.day = 1 + (int)(dayF / DAY_LEN);
+    saveInfo.season = ((saveInfo.day - 1) / SEASON_DAYS) % SEASON_COUNT;
+    saveInfo.ok = saveInfo.seed != 0 || saveInfo.coins != 0 || saveInfo.day > 1 || saveInfo.kills != 0;
 }

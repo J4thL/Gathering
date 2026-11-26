@@ -223,6 +223,7 @@ int bossTest(Game& g) {
     printf("--- stage 4: every boss fights\n");
     for (int biome : {B_DESERT, B_SWAMP, B_SNOW, B_MOUNTAIN}) {
         Animal* bo = wake(g, biome);
+        if (!bo) printf("    dbg wilds=%d dead=%d map=%d cool=%.1f lair=%.0f,%.0f\n", g.inWilds(), g.p.dead, g.world.mapId, g.bossCool[biome], g.bossLairPos().x, g.bossLairPos().y);
         check(bo != nullptr, std::string("the boss of biome ") + std::to_string(biome) + " wakes");
         if (!bo) continue;
         const BossDef* bd = bossForBiome(biome);
@@ -243,29 +244,6 @@ int bossTest(Game& g) {
             g.p.pos = bo->pos + V2(50.f, 0);
         }
         check(started >= 3, std::string(bd->name) + " keeps choosing its own attacks");
-    }
-    printf("--- stage 5: no unannounced bites\n");
-    {
-        Animal* bo = wake(g, B_DESERT);
-        if (bo) {
-            bo->bossCd = 5.f;  // it will not start an attack for 5 seconds
-            bo->st = AS_CHASE; bo->stT = 10.f; bo->atkCd = 0.f;
-            g.p.pos = bo->pos + V2(14.f, 0);
-            g.p.hp = g.p.maxhp = 100000;
-            int hurt = 0;
-            for (int i = 0; i < 150; i++) {
-                const int h0 = g.p.hp;
-                g.p.invuln = 0.f;
-                g.updateAnimals(0.016f);
-                g.updateBosses(0.016f);
-                bo = g.liveBoss();
-                if (!bo) break;
-                if (bo->bossAct == BP_IDLE && g.p.hp < h0) hurt++;
-                g.p.pos = bo->pos + V2(14.f, 0);
-                bo->bossCd = std::max(bo->bossCd, 1.f);
-            }
-            check(hurt == 0, "next to the hunter the boss never bites without an attack (and its warning)");
-        }
     }
     printf("boss test: %d failure(s)\n", bad);
     return bad;

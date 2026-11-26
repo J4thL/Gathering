@@ -146,7 +146,7 @@ void Game::updatePlayer(float dt) {
         updateHunterAnim(dt, false, false, false, false, -1, 0);
         if (P.deadT > 3.4f) {
             if (delve >= 0) leaveDelve();  // knocked out underground: carried back out to the entrance (the king keeps his health only if he lives)
-            else P.pos = world.spawn;
+            else P.pos = respawnPoint();  // beside the nearest lit camp, else at the map's entrance
             P.hp = P.maxhp;
             P.dead = false;
             P.invuln = 2.f;

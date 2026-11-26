@@ -28,6 +28,8 @@ inline bool keyReserved(SDL_Scancode sc) {
 
 struct Settings {
     int sfx = 10, amb = 10;  // volume steps 0..10
+    int shake = 10;          // screen shake strength 0..10 (10 = the normal amount)
+    bool showFps = false;    // the frame counter in the corner
     bool hiRes = true;       // hi-res sprites and text (EPX2 smoothing): read at start-up, so a change applies after a restart
     SDL_Scancode key[K_COUNT];
     Settings() { resetKeys(); }

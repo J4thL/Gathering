@@ -133,7 +133,23 @@ int delveTest(Game& g) {
     }
     {
         const int si = nearestNode(RN_SILVER);
-        check(si >= 0 && standAtNode(si), "there is a silver vein to try");
+        // stand where the swing reaches the vein: on a free spot beside it, well inside the reach (how far the nearest free floor lies depends on the mine's layout)
+        auto standInReach = [&](int idx) {
+            const ResNode& n = g.world.nodes[idx];
+            float bd = 1e9f;
+            V2 best(0, 0);
+            for (int oy = -24; oy <= 24; oy += 2)
+                for (int ox = -24; ox <= 24; ox += 2) {
+                    const V2 c(n.x + ox, n.y + oy);
+                    if (g.world.blocked(c.x, c.y, 9.f)) continue;
+                    const float d = dist(c, V2(n.x, n.y - 4));
+                    if (d < bd) bd = d, best = c;
+                }
+            g.p.pos = best;
+            HTarget t;
+            return bd < HARVEST_REACH_NODE - 2.f && g.findHarvest(t) && t.valid && t.node && t.idx == idx;
+        };
+        check(si >= 0 && standInReach(si), "there is a silver vein to try");
         g.p.inv.add(itemTool(TL_PICK2), 1);
         g.p.sk.s[SK_MINING].xp = 0;
         const int silver0 = g.p.mat(M_SILVER);
@@ -429,7 +445,10 @@ int delveTest(Game& g) {
             bars = bars || (g.bossIdx >= 0);
             hazard = hazard || !g.hazards.empty();
             bolt = bolt || !g.mprojs.empty();
-            if (i % 120 == 119 && !g.world.blocked(k->pos.x, k->pos.y + 160, 4.f)) { g.p.pos = k->pos + V2(0, 160); }  // (the hunter keeps their distance now and then)
+            if (i % 120 == 119) {  // (the hunter keeps their distance now and then, and steps in close every other time so the melee and the slam get their turn whatever the dice say)
+                const float dy = (i / 120) % 2 ? 30.f : 160.f;
+                if (!g.world.blocked(k->pos.x, k->pos.y + dy, 4.f)) g.p.pos = k->pos + V2(0, dy);
+            }
             if (i == 60 * 25) k->hp = k->maxhp * 6 / 10;   // into phase 2
             if (i == 60 * 45) k->hp = k->maxhp * 3 / 10;   // into phase 3
             int others = 0;

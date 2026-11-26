@@ -55,6 +55,8 @@ void Game::snapshotMap() {
     m.st = splitLines(s.str());
     m.disc.clear();
     for (auto& l : world.landmarks) m.disc += l.found ? '1' : '0';
+    m.camps.clear();
+    for (auto& c : world.camps) m.camps += c.lit ? '1' : '0';
     m.items = items;
     m.seen = seen;
 }
@@ -66,13 +68,14 @@ void Game::restoreMap() {
     harvestLoad(m.hv);
     structLoad(m.st);
     for (size_t i = 0; i < m.disc.size() && i < world.landmarks.size(); i++) world.landmarks[i].found = m.disc[i] == '1';
+    for (size_t i = 0; i < world.camps.size(); i++) world.camps[i].lit = i < m.camps.size() && m.camps[i] == '1';
     items = m.items;
     seen = m.seen.size() == (size_t)MM_W * MM_H ? m.seen : std::string((size_t)MM_W * MM_H, '0');
 }
 
-void Game::revealAround(V2 pos) {
+void Game::revealAround(V2 pos, int R) {
     if (seen.size() != (size_t)MM_W * MM_H) seen.assign((size_t)MM_W * MM_H, '0');
-    const int R = 9;  // minimap cells (about 27 tiles, a bit more than the screen)
+    // R: minimap cells (the default 9 is about 27 tiles, a bit more than the screen)
     const int cx = (int)(pos.x / TS / MM_DIV), cy = (int)(pos.y / TS / MM_DIV);
     for (int y = std::max(0, cy - R); y <= std::min(MM_H - 1, cy + R); y++)
         for (int x = std::max(0, cx - R); x <= std::min(MM_W - 1, cx + R); x++)

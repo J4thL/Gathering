@@ -23,11 +23,11 @@ struct AnimalClips {
 
 inline const AnimalClips& quadClipSet() {
     static const AnimalClips C = {
-        {6, 12, 10, 5, 4, 6, 0, 0, 0, 4, 4, 3},
+        {6, 6, 5, 5, 4, 6, 0, 0, 0, 4, 4, 3},
         {
             Clip::seq({0, 1, 2, 3, 4, 5}, {0.55f, 0.3f, 0.5f, 0.3f, 0.5f, 0.35f}, true),         // idle: breathing, a head sweep, an ear flick, a tail swish
-            Clip::run(0, 12, 0.05f, true),                                                      // walk: 12 frames (played at the pace of the animal's speed)
-            Clip::run(0, 10, 0.0375f, true),                                                  // run: 10 frames
+            Clip::run(0, 6, 0.1f, true),                                                        // walk (played at the pace of the animal's speed)
+            Clip::run(0, 5, 0.075f, true),                                                      // run
             Clip::seq({0, 1, 2, 3, 4}, {0.07f, 0.06f, 0.06f, 0.09f, 0.1f}, false),             // attack: rear back, lunge, tusk sweep, recover
             Clip::run(0, 4, 0.085f, false),                                                     // hurt: a red flinch
             Clip::seq({0, 1, 2, 3, 4, 5}, {0.1f, 0.1f, 0.12f, 0.14f, 0.16f, 0.2f}, false),    // death: stagger, fall, lie still

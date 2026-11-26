@@ -1033,6 +1033,7 @@ void testSkillsAndTrophies(SelfTest& t) {
                 for (int i = 0; i < WATER_TEX_W; i++) tiles = tiles && g.A.waterW[i].ok();
                 for (int i = 0; i < BANK_TEX_W / 16; i++) tiles = tiles && g.A.bankW[i].ok();
                 { const float dp[3][3] = {{0, 1, 2}, {1, 2, 3.4f}, {2, 3.4f, 3.4f}}; tiles = tiles && !g.A.water.wob.empty() && g.A.water.bake(1, 2, 3, dp, 0).w == 16 && g.A.water.bakeBank(1, 2, 255).w == 16; }  // the water art bakes
+                tiles = tiles && g.A.iceHole.ok() && g.A.blades.ok() && g.A.animal[A_SEAL][0][0].ok() && (ANIMAL[A_SEAL].flags & BH_DIVES) && ((ANIMAL[A_WOLF].preyMask >> A_REINDEER) & 1) && ((ANIMAL[A_WOLF].preyMask >> A_SNOWHARE) & 1);  // the seal, its breathing hole and the blade grass are built
                 for (int st = 0; st < LIP_COUNT; st++) for (int i = 0; i < 4; i++) tiles = tiles && g.A.lip[st][i].ok();
                 for (int t = 0; t < 3; t++) { for (int v = 0; v < 4; v++) tiles = tiles && g.A.dirtTone[t][v].ok(); for (int v = 0; v < 2; v++) tiles = tiles && g.A.dirtRock[t][v].ok(); }
                 check(tiles, "the grass, water, bank, raised-edge and dirt tile art is all built");

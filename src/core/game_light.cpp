@@ -6,9 +6,16 @@
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
 #include "core/shadow_casters.hpp"
+#include "world/light_vis.hpp"
 #include "npcs/town.hpp"
 
 namespace {
+// a fire's light is drawn in a few steps with an ordered dither between them (pixel-art style): LightSrc::edge = 1 asks for it
+constexpr float FIRE_EDGE = 1.f;
+constexpr float LIGHT_REACH = 1.f;  // listed radius x this = the real reach of every light (0.88 was the old flicker's average, so lights were 12% smaller than listed)
+constexpr int FIRE_BANDS = 4;  // steps from full light to none
+constexpr float FIRE_BREATH = 0.01f;  // how far the steps drift in and out (fraction of the radius); 0 = perfectly steady
+constexpr float FIRE_SWAY = 0.026f;   // how far a fire's shadows sway, in radians (about 1.5 degrees); 0 = steady
 inline float flick(float t, float seed) {  // a flame's brightness: slow breathing, quick flutter, and a rare pop
     return 0.88f + 0.08f * sinf(t * 9.f + seed) + 0.04f * sinf(t * 23.f + seed * 1.7f) + 0.03f * sinf(t * 41.f + seed * 0.3f);
 }
@@ -99,9 +106,12 @@ void Game::updateLight(float dt) {
     // ---- the fixed lights of this map (the player's own light is added when drawing)
     if (!outside) return;
     if (world.mapId == B_HOME) {
-        lampList.push_back({world.fire.x, world.fire.y - 12.f, 84.f, 1.f, 0, true, false});
+        lampList.push_back({world.fire.x, world.fire.y - 12.f, 84.f, 1.f, 0, true, false, false, FIRE_EDGE});
         for (int wx : {-19, 13}) lampList.push_back({world.hut.x + wx, world.hut.y - 20.f, 30.f, 0.9f, 0, true, true});
     }
+    if (world.mapId == B_SNOW)  // the ice huts light the snow round them (cold light, in dithered steps like a fire)
+        for (const Prop& pr : world.props)
+            if (pr.kind == P_ICEHUT) lampList.push_back({pr.x, pr.y - 10.f, 60.f, 0.8f, 1, true, false, false, FIRE_EDGE});
     winList.clear();
     if (world.mapId == B_HOME) {  // the town: every house has a window each side of its door, lit by routine
         const float night = 1.f - daylight(), tt = tod();
@@ -118,8 +128,10 @@ void Game::updateLight(float dt) {
             }
     }
     for (auto& lt : world.lanterns) lampList.push_back({lt.x, lt.y, 34.f + 22.f * clampf(lt.r, 0.f, 1.5f), 0.95f, 0, true, true});
+    for (auto& c : world.camps)  // a lit camp is a fire like any lantern
+        if (c.lit && !c.warm) lampList.push_back({c.x, c.y - 8.f, 34.f + 22.f * 1.3f, 0.95f, 0, true, true, false, FIRE_EDGE});
     for (auto& st : structs)
-        if (st.kind == PL_CAMPFIRE) lampList.push_back({st.pos().x, st.pos().y - 8.f, 62.f * (1.f - 0.25f * rainK()), 1.f - 0.3f * rainK(), 0, true, false});
+        if (st.kind == PL_CAMPFIRE) lampList.push_back({st.pos().x, st.pos().y - 8.f, 62.f * (1.f - 0.25f * rainK()), 1.f - 0.3f * rainK(), 0, true, false, false, FIRE_EDGE});
     if (inHomestead())
         for (auto& pc : hs.pieces) {
             const HPieceDef& D = HPDEF[pc.kind];
@@ -213,10 +225,14 @@ struct TexBlendGuard {
 };
 }  // namespace
 
-void Game::drawGroundShadows() {
+// pass 0: the shadows of the sun (or the moon). pass 1: the shadows of the lights the hunter makes (his torch, campfires, the village fire): every tree and rock
+// near a light casts a shadow straight away from it, in the same pixel-silhouette way, so the torch light is shaded by the trees it falls on.
+void Game::drawGroundShadows(int pass) {
+    const bool lightPass = pass == 1;
     const bool prevMask = shadowMaskOn;
-    shadowMaskOn = false;  // set again below once this frame's shadow layer exists
+    if (!lightPass) shadowMaskOn = false;  // set again below once this frame's shadow layer exists
     if (interior >= 0 || delve >= 0) return;
+    if (lightPass && (state == ST_TITLE || p.dead || !lightShadows)) return;
     const float t = tod();
     const float sunRaw = sinf(t * 6.2832f);
     const bool moonLit = sunRaw < 0.02f;  // night: the moon is half a day behind the sun, so it stands where the sun stood twelve hours ago
@@ -233,6 +249,12 @@ void Game::drawGroundShadows() {
         // moonlight: faint, and only once it is properly dark (the dusk shadows of the sun have just faded out)
         alpha = std::min(0.5f, 0.34f * smooth01(0.3f, 0.85f, night) * smooth01(0.02f, 0.2f, sun) * (1.f - 0.7f * stormK) * shadowBoost);
     }
+    float lightTint[3] = {0.10f, 0.07f, 0.16f};  // what a torch shadow multiplies the ground by: a deep, slightly violet dark
+    if (lightPass) {
+        // the darker it is, the more the hunter's own light shows (and the more its shadows); in the day it throws none
+        const float dark = clampf((p.nightT > 0 ? night * 0.3f : night) + stormK * 0.2f, 0.f, 1.f);
+        alpha = 0.85f * smooth01(0.18f, 0.6f, dark);
+    }
     if (alpha < 0.02f) return;
 
     // ---- the shadow colour: what a full shadow multiplies the ground by. Cool in the green lands, violet on sand, blue on snow, murky in the swamp
@@ -244,7 +266,7 @@ void Game::drawGroundShadows() {
         {0.17f, 0.19f, 0.36f},  // mountain
         {0.13f, 0.15f, 0.36f},  // homestead
     };
-    {
+    if (!lightPass) {
         float ws = 0.f, c[3] = {0.f, 0.f, 0.f};
         for (int b = 0; b < B_COUNT; b++) {
             const float w = std::max(0.f, bw[b]);
@@ -299,9 +321,10 @@ void Game::drawGroundShadows() {
     SDL_RenderClear(ren);
     // ground direction of the shadow (south = down the screen) and its sideways direction; the view is slanted, so the ground is squashed
     const float ang = 3.14159f - lightT * 6.2832f;
-    const float dx = cosf(ang), dy = sinf(ang < 0 ? -ang : ang);
-    const float px = dy, py = -dx;
-    const float K = clampf(0.42f / std::max(sun, 0.14f), 0.55f, 2.4f) * (1.f + 0.15f * golden) * 0.7f;  // shadow length per px of height
+    float dx = cosf(ang), dy = sinf(ang < 0 ? -ang : ang);  // (the light pass turns these for every tree: away from the light that casts it)
+    float px = dy, py = -dx;
+    float K = clampf(0.42f / std::max(sun, 0.14f), 0.55f, 2.4f) * (1.f + 0.15f * golden) * 0.7f;  // shadow length per px of height
+    float aScale = 1.f;  // (and fades each of them by its distance from the light)
     constexpr float SQ = 0.65f;
     const SDL_Color nearC{10, 8, 30, 255}, farC{10, 8, 30, 115};  // full strength: the layer is faded as a whole below
     static const int idx[6] = {0, 1, 2, 1, 3, 2};
@@ -344,8 +367,9 @@ void Game::drawGroundShadows() {
     // cols: cast column by column from the sprite's own bottom edge (rocks, buildings), see below.
     auto cast = [&](const Spr& s, float fx, float fy, bool flip, float aMul, float lenMul, bool pinned = false, float crx = 0.f,
                     float cry = 0.f, float cdx = 0.f, float cdy = 0.f, bool rectFoot = false, bool cols = false,
-                    int foot = shadowdef::FOOT_BASE) {
+                    int foot = shadowdef::FOOT_BASE, float lean = 0.f) {
         if (!s.ok()) return;
+        aMul *= aScale;
         const float L = K * lenMul;
         const float sc = s.sc;  // sprites that are drawn smaller than their picture (the big animal pictures)
         const float reach = (s.h * L + s.w) * sc + 8.f;
@@ -407,8 +431,8 @@ void Game::drawGroundShadows() {
         for (int i = 0; i < 4; i++) {
             const float u = flip ? -us[i] : us[i];
             const float gx = dx * vs[i] * L + ux * u, gy = vy * vs[i] * L + uy * u;
-            v[i].position = SDL_FPoint{fx + gx, fy + gy * SQ};
             const bool far = i < 2;
+            v[i].position = SDL_FPoint{fx + gx + (far ? lean : 0.f), fy + gy * SQ};  // a tree leaning in the wind: the shadow of its top moves with it (lean px at the top, none at the foot)
             v[i].color = far ? farC : nearC;
             if (aMul != 1.f) v[i].color.a = (Uint8)(v[i].color.a * aMul);
             const float tu = (i & 1) ? 1.f : 0.f;
@@ -537,23 +561,42 @@ void Game::drawGroundShadows() {
     auto wide = [&](const Spr& s, float fx, float fy, float aMul = 0.8f, float lenMul = 0.7f) { cast(s, fx, fy, false, aMul, lenMul, true); };
 
     // ---- the things that stand in the world: trees, rocks and buildings first
-    {
-        const float yLo = camY - 170.f, yHi = camY + LH + 40.f;  // shadows only ever fall down the screen, so nothing below the view can reach it
+    // (sun pass: all of them in view, once; light pass: the ones near one light, each cast straight away from it)
+    auto propShadows = [&](bool forLight, V2 lw, float lr, float lk, bool fire = false) {
+        const float yLo = forLight ? lw.y - lr * 1.1f : camY - 170.f, yHi = forLight ? lw.y + lr * 1.1f : camY + LH + 40.f;  // (the sun's shadows only ever fall down the screen, so nothing below the view can reach it)
         auto first = std::lower_bound(world.props.begin(), world.props.end(), yLo, [](const Prop& a, float y) { return a.y < y; });
         for (auto it = first; it != world.props.end() && it->y <= yHi; ++it) {
             const size_t i = (size_t)(it - world.props.begin());
             const Prop& pr = *it;
+            if (forLight) {
+                const float ex = pr.x - lw.x, ey = pr.y - lw.y, dd = sqrtf(ex * ex + ey * ey);
+                if (dd > lr * 1.1f || dd < 6.f) continue;
+                const float gy = ey / SQ, gl = std::max(1.f, sqrtf(ex * ex + gy * gy));  // the ground vector away from the light (undo the squash)
+                dx = ex / gl, dy = gy / gl;
+                if (fire) {  // firelight is low and unsteady: the shadows lean a little back and forth, and lengthen and shorten with the flames
+                    const float w = FIRE_SWAY * sinf(timeAcc * 1.6f + lw.x * 0.2f + pr.x * 0.05f);  // a gentle sway (~0.25 Hz)
+                    const float cw = cosf(w), sw = sinf(w), nx = dx * cw - dy * sw, ny = dx * sw + dy * cw;
+                    dx = nx, dy = ny;
+                }
+                px = dy, py = -dx;
+                K = (fire ? 1.4f * (1.f + 0.03f * sinf(timeAcc * 2.4f + lw.x)) * (1.f - 0.4f * dd / lr) : 0.95f * (1.f - 0.45f * dd / lr));
+                aScale = std::pow(std::max(0.f, 1.f - dd / (lr * 1.1f)), fire ? 0.35f : 0.5f) * lk * (fire ? 1.15f : 1.f);
+            }
             const float fx = pr.x - camX, fy = pr.y + 1.f - camY;
             if (fx < -200 || fx > LW + 200) continue;
+            auto frame = [&](float fps, int n) { return ((int)(timeAcc * fps + pr.ph * n / 6.2832f) % n + n) % n; };
             const int rs = propRsId[i];
             if (rs >= 0 && (propSt[i].gone || propSt[i].fade > 0)) continue;  // felled or broken: no shadow
             const shadowdef::PropShadow* d = shadowdef::propShadow(pr.kind);  // the table: shadow_casters.hpp
             if (!d) continue;
-            const shadowdef::PropCtx pc{A, pr, windT};  // the trees sway by the wind clock, and so do their shadows
+            Prop spikeNow;  // a growing ice spike casts the shadow of the size it shows
+            if (pr.kind == P_ICESPIKE) { spikeNow = pr; spikeNow.ph = (float)(spikeStage((int)i) + ICE_SPIKE_STAGES * (((int)pr.ph / ICE_SPIKE_STAGES) & 1)); }
+            const shadowdef::PropCtx pc{A, pr.kind == P_ICESPIKE ? spikeNow : pr, windT};  // the trees sway by the wind clock, and so do their shadows
             if (d->shape == shadowdef::SH_OAK) {
                 const int ov = oakVariantFor((int)(pr.x / TS), (int)(pr.y / TS));
                 const OakVar& V = OAK_VAR[ov];  // the big oaks stand on wide roots: the shadow joins them along the whole footprint
-                cast(A.oak[ov][pc.frame(OAK_FPS, OAK_FRAMES)], fx, fy, false, 1.f, 1.f, true, V.sw * 0.5f, V.sh * 0.5f, (float)V.sdx, (float)V.sdy, false, false, d->foot);
+                const Spr& oak = A.oak[ov][pc.frame(OAK_FPS, OAK_FRAMES)];
+                cast(oak, fx, fy, false, 1.f, 1.f, true, V.sw * 0.5f, V.sh * 0.5f, (float)V.sdx, (float)V.sdy, false, false, d->foot, windLean(oak));
                 continue;
             }
             const Spr& sp = d->spr(pc);
@@ -563,13 +606,90 @@ void Game::drawGroundShadows() {
                 case shadowdef::SH_WIDE: wide(sp, fx, py, d->aMul, d->lenMul); break;
                 case shadowdef::SH_COLS: cast(sp, fx, py, false, d->aMul, d->lenMul, true, 0.f, 0.f, 0.f, 0.f, false, true); break;
                 case shadowdef::SH_TRUNK:
-                    cast(sp, fx, py, d->flip && d->flip(pr), d->aMul, d->lenMul, false, std::max(d->minW, sp.w * d->fw), std::max(d->minH, sp.w * d->fh), 0.f, -1.f, false, false, d->foot);
+                    cast(sp, fx, py, d->flip && d->flip(pr), d->aMul, d->lenMul, false, std::max(d->minW, sp.w * d->fw), std::max(d->minH, sp.w * d->fh), 0.f, -1.f, false, false, d->foot, windLean(sp));
                     break;
                 default: break;
             }
         }
+    };
+    if (!lightPass) propShadows(false, V2(0, 0), 0.f, 1.f);
+    else {
+        struct PtLight { V2 w; float r, k; bool fire; };
+        std::vector<PtLight> pls;
+        pls.push_back({p.pos, 44.f * (p.has(CG_LANTERN) ? 1.6f : 1.f) * (p.nightT > 0 ? 1.35f : 1.f), 1.f, false});  // the hunter's own torch
+        for (const LightSrc& l : lampList)  // fires and lanterns (not windows)
+            if (l.occl && l.r >= 34.f && l.k > 0.3f) pls.push_back({V2(l.x, l.y + 10.f), l.r, l.k, l.edge > 0.f});
+        for (const PtLight& L : pls) {
+            if (L.w.x < camX - L.r || L.w.x > camX + LW + L.r || L.w.y < camY - L.r || L.w.y > camY + LH + L.r) continue;
+            propShadows(true, L.w, L.r, L.k, L.fire);
+        }
+    }
+    // ---- the snow plateaus: a raised block of ground casts a shadow from every edge that looks away from the sun. Its south wall (the face), and its east or
+    // west side (the side the sun is not on), are swept along the sun by the plateau's height, exactly like a rock's or a building's shadow, into the same layer.
+    if (!lightPass && world.mapId == B_SNOW) {
+        constexpr float PLAT_H = 46.f;  // how far the plateau reaches up (its 2-tile wall and the top behind it); it is a big thing, so its shadow is longer than a building of the same wall height
+        const float Lp = K * PLAT_H;
+        const float sx = dx * Lp, sy = dy * Lp * SQ;
+        const int x0 = std::max(1, (int)floorf((camX - 40.f) / TS)), x1 = std::min(MW - 2, (int)floorf((camX + LW + 40.f) / TS));
+        const int y0 = std::max(1, (int)floorf((camY - 4.f * TS - Lp) / TS)), y1 = std::min(MH - 2, (int)floorf((camY + LH + 40.f) / TS));
+        // a block of the plateau: its top, and the wall under it (the 2 tiles of cliff below a top tile)
+        auto blk = [&](int x, int y) {
+            if (world.plat[y][x] == 1) return true;
+            return world.tile[y][x] == T_CLIFF && (world.plat[y - 1][x] == 1 || (y >= 2 && world.plat[y - 2][x] == 1));
+        };
+        const float aN = 255.f, aF = 135.f;  // as strong as a tree's (the layer itself is faded as a whole)
+        static std::vector<SDL_Vertex> pv;
+        static std::vector<int> pidx;
+        pv.clear();
+        pidx.clear();
+        auto quad = [&](float ax, float ay, float bx, float by) {  // the foot from (ax, ay) to (bx, by), swept along the sun
+            const int b = (int)pv.size();
+            SDL_Vertex v[4];
+            const float qx[4] = {ax, bx, ax + sx, bx + sx}, qy[4] = {ay, by, ay + sy, by + sy};
+            for (int i = 0; i < 4; i++) {
+                v[i].position = SDL_FPoint{qx[i], qy[i]};
+                v[i].color = i < 2 ? SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)aN} : SDL_Color{farC.r, farC.g, farC.b, (Uint8)aF};
+                v[i].tex_coord = SDL_FPoint{0.f, 0.f};
+                pv.push_back(v[i]);
+            }
+            static const int q[6] = {0, 1, 2, 1, 3, 2};
+            for (int k = 0; k < 6; k++) pidx.push_back(b + q[k]);
+        };
+        auto flat = [&](float ax, float ay, float bx, float by) {  // a plain strip at full strength: the foot of the wall itself, under its soft edge
+            const int b = (int)pv.size();
+            const float qx[4] = {ax, bx, ax, bx}, qy[4] = {ay, ay, by, by};
+            for (int i = 0; i < 4; i++) {
+                SDL_Vertex v;
+                v.position = SDL_FPoint{qx[i], qy[i]};
+                v.color = SDL_Color{nearC.r, nearC.g, nearC.b, (Uint8)aN};
+                v.tex_coord = SDL_FPoint{0.f, 0.f};
+                pv.push_back(v);
+            }
+            static const int q[6] = {0, 1, 2, 1, 3, 2};
+            for (int k = 0; k < 6; k++) pidx.push_back(b + q[k]);
+        };
+        const bool eastSide = dx > 0.08f, westSide = dx < -0.08f;
+        for (int y = y0; y <= y1; y++)
+            for (int x = x0; x <= x1; x++) {
+                if (!blk(x, y)) continue;
+                const float l = x * (float)TS - camX, r = l + TS, t = y * (float)TS - camY, bt = t + TS;
+                if (!blk(x, y + 1) && world.plat[y + 1][x] != 2 && dy > 0.04f) {  // the wall's foot: swept from the tile's bottom line, so it meets the sweep of a wall's end (east / west side) exactly at the corner; the 3 px of the face
+                    flat(l, bt - 3.f, r, bt);  // that melt into the snow are shaded flat, so no light line is left between the wall and its shadow
+                    quad(l, bt, r, bt);
+                }
+                if (eastSide && !blk(x + 1, y)) quad(r, t, r, bt);
+                if (westSide && !blk(x - 1, y)) quad(l, t, l, bt);
+            }
+        if (!pv.empty()) {
+            SDL_BlendMode oldBm = SDL_BLENDMODE_NONE;
+            SDL_GetRenderDrawBlendMode(ren, &oldBm);
+            SDL_SetRenderDrawBlendMode(ren, castBm);
+            SDL_RenderGeometry(ren, nullptr, pv.data(), (int)pv.size(), pidx.data(), (int)pidx.size());
+            SDL_SetRenderDrawBlendMode(ren, oldBm);
+        }
     }
     // placed structures (chests...)
+    if (!lightPass)
     for (const Structure& st : structs) {
         const shadowdef::StructShadow* d = shadowdef::structShadow(st.kind);
         if (!d) continue;
@@ -577,7 +697,7 @@ void Game::drawGroundShadows() {
         standing(d->spr(shadowdef::StructCtx{A}), floorf(c.x) - camX, floorf(c.y) - camY, d->aMul, d->lenMul, d->foot);
     }
     // the homestead (walls, houses, barns, wells...)
-    if (inHomestead()) {
+    if (inHomestead() && !lightPass) {
         for (const HPiece& pc : hs.pieces) {
             if (!(pc.tx + pc.w() >= camX / TS - 2 && pc.tx <= (camX + LW) / TS + 2 && pc.ty + pc.h() >= camY / TS - 8 && pc.ty <= (camY + LH) / TS + 3)) continue;
             const shadowdef::HomeShadow* d = shadowdef::homeShadow(pc.kind);
@@ -602,6 +722,7 @@ void Game::drawGroundShadows() {
         SDL_RenderCopy(ren, shadowTex, nullptr, &half);
         SDL_SetTextureBlendMode(shadowTex, SDL_BLENDMODE_BLEND);
     };
+    if (!lightPass) {
     const bool readNow = !prevMask || ((shadowFrame++ & 1) == 0);
     if (readNow) {
         toSoft();  // the render target is now the half-size layer
@@ -618,7 +739,9 @@ void Game::drawGroundShadows() {
         shadowMaskOn = prevMask;  // keep the last mask (it is anchored in the world, not on the screen)
     }
     shadowMaskAlpha = alpha;
+    }
 
+    if (!lightPass) {
     // ---- creatures: the hunter, villagers, animals. Each casts its own current frame, with a contact oval under the feet.
     // airH: how high it is off the ground (a bird): then only its oval is drawn, it slides along the sun and fades with the height
     auto creature = [&](const Spr& s, float fx, float fy, bool flip, float airH = 0.f, float aFade = 1.f) {
@@ -686,6 +809,8 @@ void Game::drawGroundShadows() {
             creature(s, floorf(a.px) - camX, floorf(a.py) - camY, false);
         }
 
+    }
+
     // ---- the layer is finished. Make it white (it only has to say where the shadow lies), shrink it, and turn it into the multiplier
     {
         SDL_BlendMode oldBm = SDL_BLENDMODE_NONE;
@@ -699,19 +824,20 @@ void Game::drawGroundShadows() {
     SDL_SetRenderTarget(ren, shadowModTex);
     SDL_SetRenderDrawColor(ren, 255, 255, 255, 255);
     SDL_RenderClear(ren);  // white = lit: multiplying by white changes nothing
-    SDL_SetTextureColorMod(shadowSoftTex, (Uint8)(shadowTint[0] * 255.f), (Uint8)(shadowTint[1] * 255.f), (Uint8)(shadowTint[2] * 255.f));
+    const float* tintP = lightPass ? lightTint : shadowTint;
+    SDL_SetTextureColorMod(shadowSoftTex, (Uint8)(tintP[0] * 255.f), (Uint8)(tintP[1] * 255.f), (Uint8)(tintP[2] * 255.f));
     SDL_SetTextureAlphaMod(shadowSoftTex, (Uint8)(255.f * alpha));
     SDL_RenderCopy(ren, shadowSoftTex, nullptr, nullptr);  // over white: the shadow colour, as strong as the shadow is
     SDL_SetTextureColorMod(shadowSoftTex, 255, 255, 255);
     SDL_SetTextureAlphaMod(shadowSoftTex, 255);
     // ---- clouds: big soft patches that drift with the wind (they stand still on the land, the land does not follow the camera)
     constexpr bool CLOUD_SHADOWS = true;
-    if (CLOUD_SHADOWS && cloudTex && !moonLit && shadowBoost == 1.f) {
+    if (CLOUD_SHADOWS && !lightPass && cloudTex && !moonLit && shadowBoost == 1.f) {
         const float cover = clampf(bw[B_HOME] + bw[B_HOMESTEAD] + bw[B_SWAMP] + bw[B_MOUNTAIN] * 0.9f + bw[B_SNOW] * 0.7f + bw[B_DESERT] * 0.2f, 0.f, 1.f);
         const float cs = 0.17f * cover * (1.f - stormK) * smooth01(0.05f, 0.35f, sun);
         if (cs > 0.01f) {
             constexpr float TILE = 384.f;  // world px: one 128 x 128 picture drawn at 3x
-            const float ox = fmodf(timeAcc * 5.f - camX, TILE), oy = fmodf(timeAcc * 2.f - camY, TILE);
+            const float ox = fmodf(cloudOfs.x - camX, TILE), oy = fmodf(cloudOfs.y - camY, TILE);
             const float x0 = (ox > 0 ? ox - TILE : ox) * 0.5f, y0 = (oy > 0 ? oy - TILE : oy) * 0.5f;  // half size: this layer is half the screen
             SDL_SetTextureColorMod(cloudTex, (Uint8)(shadowTint[0] * 255.f), (Uint8)(shadowTint[1] * 255.f), (Uint8)(shadowTint[2] * 255.f));
             SDL_SetTextureAlphaMod(cloudTex, (Uint8)(255.f * cs));
@@ -729,7 +855,6 @@ void Game::drawGroundShadows() {
         }
     }
     SDL_SetRenderTarget(ren, prevTarget);
-    if (prevTarget == canvas) SDL_RenderSetScale(ren, (float)LS, (float)LS);  // (switching targets reset the scale)
     SDL_Rect whole{0, 0, LW, LH};
     SDL_RenderCopy(ren, shadowModTex, nullptr, &whole);  // multiplied over the ground (the texture's blend mode is MOD)
 }
@@ -783,7 +908,12 @@ void Game::drawLighting(float night) {
         if (!onScr(l)) continue;
         LightSrc c = l;
         if (c.night) c.k *= smooth01(0.15f, 0.55f, dark);  // windows and lamps come on as it gets dark
-        c.r *= flick(timeAcc, l.x * 0.7f + l.y * 0.3f) * (c.tone == 0 ? 1.f : 1.f);
+        if (l.edge > 0.f) c.r *= LIGHT_REACH;
+        else {  // lanterns, windows...: the reach only breathes a little and slowly ; the quick flutter is in the brightness
+            const float sd = l.x * 0.7f + l.y * 0.3f;
+            c.r *= LIGHT_REACH + 0.025f * sinf(timeAcc * 2.4f + sd);
+            c.k *= 0.96f + 0.025f * sinf(timeAcc * 9.f + sd) + 0.015f * sinf(timeAcc * 23.f + sd * 1.7f);
+        }
         ls.push_back(c);
     }
     if (outdoors && state != ST_TITLE) {
@@ -792,14 +922,36 @@ void Game::drawLighting(float night) {
         ls.push_back({p.pos.x, p.pos.y - 8.f, pr * (0.97f + 0.03f * sinf(timeAcc * 5.f)), 0.9f, 2, true, false});
     }
 
-    // ---- the darkness map: one cell is 4 x 4 px, smoothly scaled up
-    constexpr int CS = 4;
+    // ---- visibility polygons (world/light_vis.hpp): the fires, lanterns and the hunter's torch are stopped by trunks, rocks and walls, per ray, at their real outline
+    static std::deque<VisEntry> visList;  // (a deque: the entries must not move while the glows point at them)
+    static std::vector<VisSeg> visSegs;
+    visList.clear();
+    const bool useVis = visLights && outdoors && delve < 0;
+    auto propUp = [&](size_t i) {  // felled and broken things cast nothing
+        const int rs = propRsId[i];
+        return !(rs >= 0 && (propSt[i].gone || propSt[i].fade > 0));
+    };
+    auto visFor = [&](float x, float y, float R) -> const VisEntry* {
+        for (const VisEntry& v : visList)
+            if (fabsf(v.x - x) < 0.5f && fabsf(v.y - y) < 0.5f && v.R >= R - 0.01f) return &v;
+        visGather(world, propUp, x, y, R, visSegs);
+        visList.emplace_back();
+        visCast(visSegs, x, y, R, visList.back());
+        return &visList.back();
+    };
+    std::vector<const VisEntry*> lv(ls.size(), nullptr);
+    if (useVis)
+        for (size_t i = 0; i < ls.size(); i++)
+            if (ls[i].occl && ls[i].r > 30.f) lv[i] = visFor(ls[i].x, ls[i].y, ls[i].r + 6.f);
+
+    // ---- the darkness map: one cell is 2 x 2 px (so the edge of a shadow is crisp), smoothly scaled up
+    constexpr int CS = 2;
     constexpr int GW = LW / CS, GH = (LH + CS - 1) / CS;
     const float baseA = outdoors ? dark * 150.f : 0.f;
     if (baseA * (1.f - 0.9f * flash) > 2.f) {
         if (!darkTex) {
             const std::string old = SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) ? SDL_GetHint(SDL_HINT_RENDER_SCALE_QUALITY) : "0";  // a copy: SDL frees its own string when the hint changes
-            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "1");
+            SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, "0");  // nearest: a fire's dithered steps stay crisp pixels
             darkTex = SDL_CreateTexture(ren, SDL_PIXELFORMAT_ARGB8888, SDL_TEXTUREACCESS_STREAMING, GW, GH);
             SDL_SetHint(SDL_HINT_RENDER_SCALE_QUALITY, old.c_str());
             if (darkTex) SDL_SetTextureBlendMode(darkTex, SDL_BLENDMODE_BLEND);
@@ -812,14 +964,28 @@ void Game::drawLighting(float night) {
                 for (int cx = 0; cx < GW; cx++) {
                     const float wx = camX + cx * CS + CS / 2, wy = camY + cy * CS + CS / 2;
                     float lit = 0.f;
-                    for (const LightSrc& l : ls) {
+                    for (size_t li = 0; li < ls.size(); li++) {
+                        const LightSrc& l = ls[li];
                         if (l.south && wy < l.y - 4.f) continue;  // a window lights the ground in front of the house, not behind it
                         const float dx = wx - l.x, dy = (wy - l.y) * 1.2f;
                         const float d2 = dx * dx + dy * dy, r2 = l.r * l.r;
                         if (d2 >= r2) continue;
-                        if (l.occl && l.r > 30.f && world.lightBlocked(l.x, l.y, wx, wy)) continue;  // in the shadow of a building or a rock
+                        if (lv[li]) {
+                            if (hypotf(wx - l.x, wy - l.y) >= lv[li]->reach(wx, wy)) continue;  // behind the first trunk, rock or wall its ray meets
+                        } else if (l.occl && l.r > 30.f && world.lightBlocked(l.x, l.y, wx, wy)) continue;  // (in the shadow of a building or a rock, on the coarse grid)
                         const float t = 1.f - sqrtf(d2) / l.r;
-                        lit += t * t * (3.f - 2.f * t) * l.k;
+                        float prof = t * t * (3.f - 2.f * t);
+                        if (l.edge > 0.f) {  // a fire: FIRE_BANDS steps of light, the steps blended by a 4x4 Bayer dither fixed to the world (it does not swim as you walk)
+                            static const uint8_t BAYER[16] = {0, 8, 2, 10, 12, 4, 14, 6, 3, 11, 1, 9, 15, 7, 13, 5};
+                            const int gx = (int)floorf(wx / CS), gy = (int)floorf(wy / CS);
+                            const float thr = (BAYER[(gy & 3) * 4 + (gx & 3)] + 0.5f) / 16.f;
+                            const float tf = clampf(t + FIRE_BREATH * sinf(timeAcc * 3.1f + l.x * 0.31f), 0.f, 1.f);  // one slow breath (~0.5 Hz): the steps barely drift, the quick flicker lives in the glow
+                            const float sc = clampf(tf * 1.25f, 0.f, 1.f) * FIRE_BANDS;  // (the top step reaches a little way out from the fire)
+                            const int bnd = (int)sc;
+                            const float stepped = ((float)bnd + ((sc - bnd) > thr ? 1.f : 0.f)) / FIRE_BANDS;
+                            prof = prof + (std::min(1.f, stepped) * (1.f - 0.15f * (1.f - t)) - prof) * l.edge;
+                        }
+                        lit += prof * l.k;
                     }
                     lit = std::min(1.f, lit);
                     px[cy * GW + cx] = ((uint32_t)(a0 * (1.f - lit * 0.93f)) << 24) | rgb;
@@ -832,40 +998,87 @@ void Game::drawLighting(float night) {
 
     // ---- warm glows on top of the pools (additive)
     SDL_Texture* g = A.glowWarm.t;
+    Uint8 glowA = 255;  // the alpha the glow texture was last given (the triangle fans carry it in their vertex colours: not every renderer applies a texture's alpha to triangles)
+    auto setGlowA = [&](int a) {
+        glowA = (Uint8)clampf((float)a, 0.f, 255.f);
+        SDL_SetTextureAlphaMod(g, glowA);
+    };
+    // the warm glow of a light, `size` px wide and centred on (cx, cy): with visibility polygons it is a fan of triangles over the light's table (the
+    // glow's picture is mapped on to it), so it stops where a trunk or a wall stops the light instead of leaking into the shadow
+    auto litGlow = [&](float cx, float cy, float size) {
+        if (!useVis) {
+            SDL_Rect d{(int)cx - camX - (int)size / 2, (int)cy - camY - (int)size / 2, (int)size, (int)size};
+            SDL_RenderCopy(ren, g, nullptr, &d);
+            return;
+        }
+        const float half = size * 0.5f;
+        const VisEntry* v = visFor(cx, cy, half + 4.f);
+        static SDL_Vertex vt[VIS_N + 1];
+        static int idx[VIS_N * 3];
+        const SDL_Color white{255, 255, 255, glowA};
+        vt[0] = SDL_Vertex{SDL_FPoint{cx - camX, cy - camY}, white, SDL_FPoint{0.5f, 0.5f}};
+        for (int i = 0; i < VIS_N; i++) {
+            const float a = (i + 0.5f) * 6.2831853f / VIS_N, r = v->open(i) ? half : std::min(half, v->d[i]);
+            const float ox = cosf(a) * r, oy = sinf(a) * r;
+            vt[1 + i] = SDL_Vertex{SDL_FPoint{cx + ox - camX, cy + oy - camY}, white, SDL_FPoint{0.5f + ox / size, 0.5f + oy / size}};
+            idx[i * 3] = 0, idx[i * 3 + 1] = 1 + i, idx[i * 3 + 2] = 1 + (i + 1) % VIS_N;
+        }
+        SDL_SetTextureAlphaMod(g, 255);  // (the alpha is in the vertices)
+        SDL_RenderGeometry(ren, g, vt, VIS_N + 1, idx, VIS_N * 3);
+        SDL_SetTextureAlphaMod(g, glowA);
+    };
     const float strength = 0.28f + 0.72f * night2;
     {
         const float fl = 0.85f + 0.15f * sinf(timeAcc * 11.f) + 0.05f * sinf(timeAcc * 27.f);
-        SDL_SetTextureAlphaMod(g, (Uint8)(255 * clampf(strength * fl, 0, 1)));
+        setGlowA((int)((Uint8)(255 * clampf(strength * fl, 0, 1))));
         const int sz = (int)(150 * fl);
-        SDL_Rect d{(int)world.fire.x - camX - sz / 2, (int)world.fire.y - 12 - camY - sz / 2, sz, sz};
-        SDL_RenderCopy(ren, g, nullptr, &d);
+        litGlow(world.fire.x, world.fire.y - 12.f, (float)sz);
         if (night2 > 0.05f) {
             SDL_SetTextureAlphaMod(g, (Uint8)(190 * night2));
             for (int wx : {-19, 13}) {
                 SDL_Rect w{(int)world.hut.x + wx - camX - 22, (int)world.hut.y - 20 - camY - 22, 44, 44};
                 SDL_RenderCopy(ren, g, nullptr, &w);
             }
-            SDL_Rect pl{(int)p.pos.x - camX - 34, (int)p.pos.y - 8 - camY - 34, 68, 68};
-            SDL_SetTextureAlphaMod(g, (Uint8)(110 * night2));
-            if (state != ST_TITLE) SDL_RenderCopy(ren, g, nullptr, &pl);
+            setGlowA((int)((Uint8)(110 * night2)));
+            if (state != ST_TITLE) litGlow(p.pos.x, p.pos.y - 8.f, 68.f);
         }
-        for (auto& lt : world.lanterns) {
+        std::vector<Lantern> glowL = world.lanterns;  // the lanterns' warm glow, and the lit camps' fires
+        for (auto& c : world.camps)
+            if (c.lit && !c.warm) glowL.push_back({c.x, c.y - 8.f, 1.3f});
+        for (auto& lt : glowL) {
             if (lt.x < camX - 60 || lt.x > camX + LW + 60 || lt.y < camY - 60 || lt.y > camY + LH + 60) continue;
             float lf = 0.85f + 0.15f * sinf(timeAcc * 9.f + lt.x);
-            SDL_SetTextureAlphaMod(g, (Uint8)(clampf(lt.r * lf * (0.3f + 0.7f * night2), 0, 1) * 255));
+            setGlowA((int)((Uint8)(clampf(lt.r * lf * (0.3f + 0.7f * night2), 0, 1) * 255)));
             int sz = (int)(78 * lf);
-            SDL_Rect d{(int)lt.x - camX - sz / 2, (int)lt.y - camY - sz / 2, sz, sz};
-            SDL_RenderCopy(ren, g, nullptr, &d);
+            litGlow(lt.x, lt.y, (float)sz);
+        }
+        if (world.mapId == B_SNOW) {  // warm light lying on the snow: under the lamps, round the campfires, in front of the hut's door
+            auto pool = [&](float x, float y, int w, int h, u32 col, float a) {
+                if (x < camX - w || x > camX + LW + w || y < camY - h || y > camY + LH + h) return;
+                SDL_SetTextureColorMod(g, cR(col), cG(col), cB(col));
+                SDL_SetTextureAlphaMod(g, (Uint8)(255 * clampf(a, 0.f, 1.f)));
+                SDL_Rect d{(int)x - camX - w / 2, (int)y - camY - h / 2, w, h};
+                SDL_RenderCopy(ren, g, nullptr, &d);
+            };
+            for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 110.f, [](const Prop& e, float y) { return e.y < y; }); it != world.props.end() && it->y <= camY + LH + 50; ++it) {
+                const float fl = 0.88f + 0.12f * sinf(timeAcc * 9.f + it->x) + 0.04f * sinf(timeAcc * 23.f + it->x);
+                if (it->kind == P_SNOWLAMP) pool(it->x, it->y - 1.f, 66, 30, HEX(0xffc66a), 0.62f * night2 * fl);
+                else if (it->kind == P_SNOWCAMPFIRE) pool(it->x, it->y - 2.f, 118, 54, HEX(0xff9a3c), 0.72f * night2 * fl);
+                else if (it->kind == P_ICEHUT) pool(it->x, it->y + 9.f, 62, 26, HEX(0xffc66a), 0.5f * night2 * fl);
+                else if (it->kind == P_LOOKOUT) pool(it->x, it->y + 2.f, 130, 54, HEX(0xff9a3c), 0.55f * night2 * fl);  // the beacon's light falls round the foot of the tower
+                else if (it->kind == P_FROSTGATE) pool(it->x, it->y + 48.f, 130, 46, HEX(0x9fd8ff), 0.5f * night2 * (0.85f + 0.15f * sinf(timeAcc * 1.7f)));  // the glow from the open door spills down the stairs
+            }
+            SDL_SetTextureColorMod(g, 255, 255, 255);
+            SDL_SetTextureAlphaMod(g, 255);
         }
         for (auto& st : structs) {  // placed campfires light the night
             if (st.kind != PL_CAMPFIRE) continue;
             const V2 c = st.pos();
             if (c.x < camX - 70 || c.x > camX + LW + 70 || c.y < camY - 70 || c.y > camY + LH + 70) continue;
             float lf = 0.85f + 0.15f * sinf(timeAcc * 10.f + c.x) + 0.05f * sinf(timeAcc * 23.f);
-            SDL_SetTextureAlphaMod(g, (Uint8)(clampf((0.4f + 0.6f * night2) * lf, 0, 1) * 255));
+            setGlowA((int)((Uint8)(clampf((0.4f + 0.6f * night2) * lf, 0, 1) * 255)));
             int sz = (int)(120 * lf);
-            SDL_Rect d{(int)c.x - camX - sz / 2, (int)c.y - 8 - camY - sz / 2, sz, sz};
-            SDL_RenderCopy(ren, g, nullptr, &d);
+            litGlow(c.x, c.y - 8.f, (float)sz);
         }
         drawHsLights(night2);
         // lit windows: the glass glows and a halo spills out of it; the salon is warmest, the flower shop rosy
@@ -902,6 +1115,11 @@ void Game::drawLighting(float night) {
         sparks(world.fire.x, world.fire.y - 10.f, 1.f, 12, 38.f);
         for (auto& st : structs)
             if (st.kind == PL_CAMPFIRE) sparks(st.pos().x, st.pos().y - 6.f, (float)(st.tx * 31 + st.ty), 8, 30.f);
+        for (auto& c : world.camps)  // and the lit abandoned camps
+            if (c.lit && !c.warm) sparks(c.x, c.y - 10.f, c.x * 0.37f + c.y, 8, 30.f);
+        if (world.mapId == B_SNOW)  // and the snowfield's campsites
+            for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 20.f, [](const Prop& e, float y) { return e.y < y; }); it != world.props.end() && it->y <= camY + LH + 40; ++it)
+                if (it->kind == P_SNOWCAMPFIRE) sparks(it->x, it->y - 8.f, it->x * 0.37f + it->y, 8, 30.f);
     }
     if (!outdoors) return;
 
@@ -923,7 +1141,65 @@ void Game::drawLighting(float night) {
             case P_CRYSTAL: glow(pr.x, pr.y - 10, 44, HEX(0x7fe8ff), need * pulse * 0.9f, false); break;
             case P_STANDING: glow(pr.x, pr.y - 20, 40, HEX(0x6ea8ff), need * pulse * 0.75f, false); break;  // the runes
             case P_CAVE: glow(pr.x, pr.y - 6, 70, HEX(0xffa850), (0.3f + 0.7f * dark) * (0.85f + 0.15f * sinf(timeAcc * 7.f + pr.x)), true); break;  // a rim of light at the mouth
+            case P_ICESPIKE: if (dark > 0.25f && (int)pr.ph % ICE_SPIKE_STAGES >= 2 && !(propRsId[i] >= 0 && (propSt[i].gone || propSt[i].fade > 0))) glow(pr.x, pr.y - 6.f - 3.f * spikeStage((int)i), 22 + 8 * spikeStage((int)i), HEX(0xbfe8ff), dark * pulse * 0.32f, false); break;  // a faint cold glow round the bigger ones, at night
             case P_ICEHUT: if (dark > 0.3f) glow(pr.x, pr.y - 10, 60, HEX(0x9fd8ff), dark * 0.6f, false); break;
+            case P_LOOKOUT:  // the beacon on top: a warm flickering light you can see from far off
+                if (dark > 0.12f) {
+                    const float bf = 0.88f + 0.12f * sinf(timeAcc * 9.f + pr.x) + 0.05f * sinf(timeAcc * 23.f + pr.x);
+                    glow(pr.x, pr.y - 54, 84, HEX(0xff9a3c), dark * 0.7f * bf, false);
+                    glow(pr.x, pr.y - 54, 34, HEX(0xffd98a), dark * 0.95f * bf, false);
+                }
+                break;
+            case P_FROSTGATE:
+                if (dark > 0.2f) { glow(pr.x, pr.y - 4, 110, HEX(0x8fd4ff), dark * 1.0f * pulse, false); glow(pr.x, pr.y - 4, 48, HEX(0xd8f4ff), dark * 0.9f * pulse, false); }  // the fortress door and its crystals
+                if (dark > 0.2f) {
+                    // the crystals on the castle: each glows cyan on its own slow pulse. {x, y, size} in the 128 x 144 base art, drawn at 2x
+                    static const float CRY[][3] = {
+                        {64.1f, 9.3f, 21},
+                        {45.4f, 17.9f, 12},
+                        {82.6f, 17.9f, 12},
+                        {64.5f, 28.4f, 22},
+                        {28.3f, 35.5f, 33},
+                        {99.7f, 35.5f, 33},
+                        {38.0f, 39.5f, 13},
+                        {90.0f, 39.5f, 13},
+                        {63.6f, 46.8f, 16},
+                        {16.6f, 51.9f, 20},
+                        {111.3f, 51.9f, 20},
+                        {43.2f, 65.9f, 14},
+                        {84.8f, 65.9f, 14},
+                        {7.5f, 75.9f, 13},
+                        {120.5f, 75.9f, 13},
+                        {18.8f, 90.3f, 51},
+                        {109.2f, 90.3f, 51},
+                        {48.8f, 98.2f, 9},
+                        {79.2f, 98.2f, 9},
+                        {50.3f, 126.0f, 6},
+                        {77.7f, 126.0f, 6}};
+                    for (int i = 0; i < (int)(sizeof(CRY) / sizeof(CRY[0])); i++) {
+                        const float n = CRY[i][2], pu = 0.8f + 0.2f * sinf(timeAcc * 1.6f + i * 2.3f);
+                        const float cx = pr.x - 128.f + CRY[i][0] * 2.f + 1.f, cy = pr.y - 192.f + CRY[i][1] * 2.f + 1.f;
+                        glow(cx, cy, 20.f + 3.2f * sqrtf(n), HEX(0x3fd8ff), dark * 0.42f * pu, false);  // the halo
+                        glow(cx, cy, 8.f + 1.6f * sqrtf(n), HEX(0xbff6ff), dark * 0.5f * pu, false);    // the bright heart
+                    }
+                }
+                if (dark > 0.25f) {
+                    // the twelve windows, lit the same blue as the door: positions are in the 128 x 144 base art, drawn at 2x (left half; the right half mirrors it about x = 64), each flickers on its own
+                    static const float WIN[6][2] = {{45.5f, 32}, {28.5f, 55.5f}, {51.5f, 39}, {37.5f, 55.5f}, {51.5f, 47}, {48.5f, 113}};  // tower, wing, facade (upper), beside the wing, facade (lower), stair tower
+                    for (int i = 0; i < 12; i++) {
+                        const float sx = i < 6 ? WIN[i][0] : 128.f - WIN[i - 6][0], sy = WIN[i % 6][1];
+                        const float fl = 0.86f + 0.14f * sinf(timeAcc * 2.2f + i * 1.9f);  // (slow: cold light does not flutter)
+                        const float wsc = (i % 6 == 1) ? 1.85f : 1.f;  // the outermost windows (left and right) glow a little bigger
+                        const float wx = pr.x - 128.f + sx * 2.f + 1.f, wy = pr.y - 192.f + sy * 2.f + 1.f;
+                        glow(wx, wy, 44 * wsc, HEX(0x8fd4ff), dark * 0.4f * fl, false);   // a wide halo, the same blue as the door
+                        // the body and the core are three sprite pixels tall (one above and one below the centre; a sprite pixel is 2 screen pixels)
+                        for (int k = -1; k <= 1; k++) {
+                            glow(wx, wy + k * 2.f, 26 * wsc, HEX(0x8fd4ff), dark * 0.32f * fl, false);   // the bright body of the light
+                            glow(wx, wy + k * 2.f, 12 * wsc, HEX(0xd8f4ff), dark * 0.32f * fl, false);   // a near-white core
+                        }
+                    }
+                }
+                break;
             default: break;
         }
     }
@@ -939,10 +1215,10 @@ void Game::drawLighting(float night) {
             default: continue;
         }
         if (!harvestUp(true, (int)i)) continue;
-        glow(n.x, n.y - 6, 30, col, need * (0.7f + 0.3f * sinf(timeAcc * 3.f + n.x)), rs != RS_CRYSTAL);
+        glow(n.x, n.y - 6, 30, col, need * (0.82f + 0.18f * sinf(timeAcc * 1.5f + n.x)), rs != RS_CRYSTAL);
     }
     for (const GroundItem& gi : items)
-        if (gi.item >= 0) glow(gi.pos.x, gi.pos.y - 3, 20, HEX(0xfff0b0), (0.25f + 0.75f * dark) * (0.7f + 0.3f * sinf(timeAcc * 4.f + gi.pos.x)), false);
+        if (gi.item >= 0) glow(gi.pos.x, gi.pos.y - 3, 20, HEX(0xfff0b0), (0.25f + 0.75f * dark) * (0.82f + 0.18f * sinf(timeAcc * 1.5f + gi.pos.x)), false);
     SDL_SetTextureColorMod(gc, 255, 255, 255);
     SDL_SetTextureColorMod(A.glowWarm.t, 255, 255, 255);
     SDL_SetTextureAlphaMod(gc, 255);
@@ -1019,10 +1295,10 @@ void Game::drawSkyFx(float night2) {
         for (int i = 0; i < n; i++) {
             const uint32_t h = hash2(i, 31, 777);
             const float sp = 230.f + (h & 63);
-            const float x = fmodf((h >> 6 & 1023) * (LW + 80) / 1023.f + rainDrift + 4000.f, (float)(LW + 80)) - 20.f;  // carried sideways by the wind
+            const float xm = (float)(LW + 80), x = fmodf(fmodf((h >> 6 & 1023) * xm / 1023.f + rainDrift, xm) + xm, xm) - 20.f;  // carried sideways by the wind (either way)
             const float y = fmodf((h >> 16 & 1023) * LH / 1023.f + timeAcc * sp, (float)LH);
             fillRect((int)x, (int)y, 1, 3 + (int)(h >> 28 & 1), RGBA(195, 215, 250, (int)(175 * stormK)));
-            fillRect((int)x + 1, (int)y + 3, 1, 1, RGBA(185, 205, 245, (int)(60 * stormK)));  // the streak leans downwind
+            fillRect((int)x + (windDir.x >= 0 ? 1 : -1), (int)y + 3, 1, 1, RGBA(185, 205, 245, (int)(60 * stormK)));  // the streak leans downwind
         }
         const int splashes = (int)(70 * stormK);  // drops landing: a dot, then a small flat ring, somewhere new every fifth of a second
         for (int i = 0; i < splashes; i++) {

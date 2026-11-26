@@ -8,6 +8,7 @@
 #include <sstream>
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
+#include "devui/dev_ui.hpp"
 
 // ================================================================= platform bits
 bool Game::init(bool headless) {
@@ -71,8 +72,11 @@ bool Game::init(bool headless) {
     recoverSave(savePath());
     std::ifstream t(savePath());
     hasSave = t.good();
+    readSaveInfo();
+    menuSel = hasSave ? 1 : 0;
     loadSettings();
     newGame();
+    if (!headless) devui::init(*this);
     return true;
 }
 
@@ -81,6 +85,7 @@ void Game::shutdown() {
     saveSettings();  // (window size and fullscreen are part of them)
     audio.shutdown();
     if (miniTex) SDL_DestroyTexture(miniTex);
+    freeSnowDetail();
     if (canvas) SDL_DestroyTexture(canvas);
     if (ren) SDL_DestroyRenderer(ren);
     if (win) SDL_DestroyWindow(win);
@@ -208,6 +213,7 @@ void Game::newGame() {
     items.clear();
     projs.clear();
     parts.clear();
+    ripples.clear();
     ftexts.clear();
     decals.clear();
     msgs.clear();
@@ -276,6 +282,40 @@ Animal* Game::nearestCarcass(float maxD) {
 }
 
 // ================================================================= biomes
+// Walking up to a camp's fire lights it (a cold one) or finds the camp (a warm one, whose fire already burns): either way it pays a little
+// survival experience once (the flag is saved) and becomes a checkpoint (respawnPoint).
+void Game::updateCamps() {
+    if (p.dead || interior >= 0 || delve >= 0) return;
+    for (Camp& c : world.camps) {
+        if (c.lit || dist(p.pos, V2(c.x, c.y)) > 44) continue;
+        c.lit = true;
+        const int b = world.mapId;
+        msg(std::string(c.warm ? "CAMP FOUND: " : "CAMP LIT: ") + campName(b) + " - CHECKPOINT SET", BIOME[b].col);
+        ftext(V2(c.x, c.y - 34), c.warm ? "CAMP FOUND" : "CAMP LIT", C_GOLD, 2.2f);
+        puff(V2(c.x, c.y - 6), c.warm ? 5 : 10, HEX(0xffb347));
+        audio.play(S_PICKUP, 0.7f);
+        grantXp(SK_SURVIVAL, 10);
+    }
+}
+
+// Where a knocked-out hunter wakes: beside the lit camp of this map nearest to where he fell, on the first open spot round its fire, or at the map's
+// entrance when none is lit (and always at the entrance indoors and in a delve, which have no camps).
+V2 Game::respawnPoint() const {
+    if (interior >= 0 || delve >= 0) return world.spawn;
+    const Camp* best = nullptr;
+    float bd = 1e9f;
+    for (const Camp& c : world.camps) {
+        if (!c.lit) continue;
+        const float d = dist(p.pos, V2(c.x, c.y));
+        if (d < bd) { bd = d; best = &c; }
+    }
+    if (!best) return world.spawn;
+    static const float off[8][2] = {{0, 22}, {-24, 18}, {24, 18}, {0, -26}, {-26, 0}, {26, 0}, {18, 30}, {-18, 30}};
+    for (const auto& o : off)  // the seats and the supplies of a camp stand round the fire: take the first spot that is free
+        if (!world.blocked(best->x + o[0], best->y + o[1], 5.f)) return V2(best->x + o[0], best->y + o[1]);
+    return V2(best->x, best->y + 22.f);
+}
+
 int Game::landmarksFound() const {
     int n = 0;
     for (auto& l : world.landmarks) n += l.found ? 1 : 0;
@@ -342,6 +382,7 @@ void Game::updateBiome(float dt) {
     float k = std::min(1.f, dt * 1.3f);
     for (int b = 0; b < B_COUNT; b++) bw[b] += ((b == here ? 1.f : 0.f) - bw[b]) * k;
     if (interior < 0 && delve < 0) revealAround(p.pos);  // fog of war on the minimap
+    updateCamps();  // light the abandoned camps by walking up to their fires
     // discover landmarks by walking up to them
     for (auto& l : world.landmarks) {
         if (l.found || dist(p.pos, V2(l.x, l.y)) > 56) continue;
@@ -350,6 +391,33 @@ void Game::updateBiome(float dt) {
         ftext(V2(l.x, l.y - 30), l.name, BIOME[l.biome].col, 2.2f);
         audio.play(S_PICKUP, 0.6f);
         grantXp(SK_SURVIVAL, 20);  // each landmark pays once (found is saved)
+        if (l.biome == B_SNOW && std::string(l.name) == "WATCH CAIRN") {  // the lookout: from the top the whole snowfield shows on the map
+            revealAround(V2(l.x, l.y), 40);
+            msg("FROM THE LOOKOUT THE SNOWFIELDS SPREAD OUT BELOW YOU", BIOME[l.biome].col);
+        }
+    }
+}
+
+// Tuning of the screen-space weather particles per climate (px/s). A particle's velocity is
+//   vx = driftX + swayX * sin(swayFx * t) + windX * max(0, wind - windMin) * (bySize ? 0.4 + size : 1)
+//   vy = driftY + fallSz * size + swayY * sin(swayFy * t + swayPhase)
+// and the climates are blended by biome weight. (How they look is up to drawBiomeFx in game_hud.cpp.)
+struct FlakeFx {
+    float driftX, swayX, swayFx;
+    float windX, windMin;
+    bool bySize;
+    float driftY, fallSz;
+    float swayY, swayFy, swayPhase;
+};
+static FlakeFx flakeFx(int biome) {
+    constexpr float COS = 1.5707963f;  // a quarter turn: sin(x + COS) = cos(x)
+    switch (biome) {
+        //                   driftX swayX swayFx windX windMin bySize driftY fallSz swayY swayFy swayPhase
+        case B_SNOW:     return {9.f,  10.f, 1.7f, 110.f, 0.3f, false, 22.f,  30.f,  0.f,  0.f,  0.f};   // falls and drifts; a blizzard drives it sideways
+        case B_DESERT:   return {30.f, 0.f,  0.f,  150.f, 0.f,  true,  4.f,   0.f,   6.f,  2.3f, 0.f};   // sand rides the wind: a sandstorm is a gale
+        case B_SWAMP:    return {0.f,  8.f,  2.1f, 0.f,   0.f,  false, 0.f,   0.f,   7.f,  1.6f, COS};   // gnats loiter
+        case B_MOUNTAIN: return {20.f, 0.f,  0.f,  70.f,  0.f,  false, -3.f,  0.f,   5.f,  1.1f, 0.f};   // gusty wind dust
+        default:         return {};
     }
 }
 
@@ -383,7 +451,12 @@ void Game::updateWeather(float dt) {
         windGust = 0.5f + 0.5f * sinf(timeAcc * 0.35f) * (0.7f + 0.3f * sinf(timeAcc * 0.9f));
         wind = clampf(base * (0.6f + 0.8f * windGust) + 0.5f * stormK + 1.0f * galeK, 0.f, 2.f);
         windT += dt * (0.85f + 0.75f * wind);       // trees and grass sway faster in a gale (the clock never jumps: it is summed up)
-        rainDrift += dt * (20.f + 90.f * wind);     // the rain is carried further sideways the harder it blows
+        windAng = 0.35f + 1.6f * sinf(timeAcc / 173.f) + 0.9f * sinf(timeAcc / 61.f + 1.f);  // the direction wanders: slow swings with a quicker unevenness
+        if (windAngForce > -99.f) windAng = windAngForce;
+        if (windForce >= 0.f) wind = windForce;
+        windDir = V2(cosf(windAng), sinf(windAng));
+        cloudOfs += windDir * ((4.f + 6.f * wind) * dt);  // the clouds' shadows drift along it
+        rainDrift += dt * (20.f + 90.f * wind) * windDir.x;  // the rain is carried further sideways the harder it blows, and the way it blows
         wet = rainK() > 0.5f ? std::min(1.f, wet + dt / 20.f) : std::max(0.f, wet - dt / 90.f);
     }
     const int nActive = std::min((int)flakes.size(), activeFlakes());
@@ -395,8 +468,9 @@ void Game::updateWeather(float dt) {
             const float w = bw[b];
             if (w <= 0.f) continue;
             const FlakeFx F = flakeFx(b);
-            vx += w * (F.driftX + F.swayX * sinf(t * F.swayFx) + F.windX * std::max(0.f, wind - F.windMin) * (F.bySize ? 0.4f + f.sz : 1.f));
-            vy += w * (F.driftY + F.fallSz * f.sz + F.swayY * sinf(t * F.swayFy + F.swayPhase));
+            const float wf = F.windX * std::max(0.f, wind - F.windMin) * (F.bySize ? 0.4f + f.sz : 1.f);  // how hard the wind pushes this particle
+            vx += w * (F.driftX + F.swayX * sinf(t * F.swayFx) + wf * windDir.x);
+            vy += w * (F.driftY + F.fallSz * f.sz + F.swayY * sinf(t * F.swayFy + F.swayPhase) + wf * windDir.y * 0.5f);
         }
         f.x += vx * dt;
         f.y += vy * dt;
@@ -405,9 +479,83 @@ void Game::updateWeather(float dt) {
         if (f.y > LH + 3) f.y = -3, f.x = wrng.range(0, LW);
         if (f.y < -3) f.y = LH + 3, f.x = wrng.range(0, LW);
     }
+    if (world.mapId == B_SNOW && interior < 0 && delve < 0) updateSnowFx(dt);
+    else spin.clear(), smoke.clear();
+}
+
+// The snowfield's wind, beyond the falling flakes: spindrift streams off the tops of the ridges, and the pines now and then shake a puff of
+// snow from their branches. Both come more often as the wind rises and in a gust. These are separate from `parts` (the gameplay particles).
+void Game::updateSnowFx(float dt) {
+    for (size_t i = 0; i < spin.size();) {
+        Part& q = spin[i];
+        q.life -= dt;
+        q.x += q.vx * dt;
+        q.y += q.vy * dt;
+        q.z += q.vz * dt;
+        if (q.grav) {  // a puff falls, and the wind goes out of it
+            q.vz -= 190.f * dt;
+            q.vx *= 1.f - 1.6f * dt;
+        } else q.vz *= 1.f - 1.2f * dt;
+        if (q.z < 0) q.z = 0, q.vx = q.vy = q.vz = 0, q.life = std::min(q.life, 0.12f);
+        if (q.life <= 0) spin[i] = spin.back(), spin.pop_back();
+        else i++;
+    }
+    for (size_t i = 0; i < smoke.size();) {  // smoke: rises, thins out and spreads, and leans downwind
+        Part& q = smoke[i];
+        q.life -= dt;
+        q.x += (q.vx + sinf(q.life * 2.6f + q.y * 0.7f) * 5.f) * dt;
+        q.z += q.vz * dt;
+        q.vz *= 1.f - 0.45f * dt;
+        if (q.life <= 0) smoke[i] = smoke.back(), smoke.pop_back();
+        else i++;
+    }
+    if (spin.size() > 600) return;
+    const float gust = 0.4f + 0.9f * windGust, storm = 1.f + 3.f * galeK;
+    const int tx0 = std::max(0, camX / TS - 1), ty0 = std::max(0, camY / TS - 1), tx1 = std::min(MW - 1, (camX + LW) / TS + 1), ty1 = std::min(MH - 1, (camY + LH) / TS + 1);
+    // spindrift: off the snow cap of every ridge tile, carried downwind (east) and lifting a little
+    const float pDrift = dt * (0.35f + 1.00f * wind) * gust * storm;
+    for (int ty = ty0; ty <= ty1; ty++)
+        for (int tx = tx0; tx <= tx1; tx++) {
+            if (world.tile[ty][tx] != T_CLIFF || world.tileIs(tx, ty - 1, T_CLIFF) || snowRng.f() >= pDrift) continue;
+            for (int k = snowRng.irange(2, 4); k > 0; k--) {  // a little plume of specks, strung out downwind
+                spin.push_back({tx * (float)TS + snowRng.range(1, 15), ty * (float)TS + snowRng.range(1, 6), snowRng.range(0, 3), 26.f + 70.f * wind + snowRng.range(-10, 14), snowRng.range(-6, 6), snowRng.range(3, 14), 0.f, 0.f, HEX(0xffffff), snowRng.chance(0.35f) ? 2 : 1, false});
+                spin.back().life = spin.back().max = snowRng.range(1.2f, 2.4f);
+            }
+        }
+    // puffs from the pines: a few specks drop from the crown (the props are sorted by y, so only the rows near the camera are visited)
+    const float pPuff = dt * (0.04f + 0.12f * wind) * gust * storm;
+    for (auto it = std::lower_bound(world.props.begin(), world.props.end(), camY - 10.f, [](const Prop& e, float y) { return e.y < y; }); it != world.props.end() && it->y <= camY + LH + 44; ++it) {
+        if (it->x < camX - 12 || it->x > camX + LW + 12) continue;
+        if (it->kind == P_ICEHUT || it->kind == P_SNOWCAMPFIRE) {  // the hut's chimney smokes all the time, a campfire a little thinner
+            const bool hut = it->kind == P_ICEHUT;
+            if (smoke.size() < 400 && snowRng.f() < dt * (hut ? 6.f : 4.f)) {
+                smoke.push_back({it->x + (hut ? 14.f : 0.f) + snowRng.range(-1.f, 1.f), it->y, hut ? 38.f : 15.f, (hut ? 3.f : 2.f) + 22.f * wind + snowRng.range(-3.f, 3.f), 0.f, hut ? snowRng.range(9.f, 14.f) : snowRng.range(8.f, 13.f), 0.f, 0.f, HEX(0xffffff), hut ? 6 : 5, false});
+                smoke.back().life = smoke.back().max = hut ? snowRng.range(2.6f, 3.8f) : snowRng.range(1.5f, 2.3f);
+            }
+            continue;
+        }
+        if (it->kind != P_SNOWPINE || snowRng.f() >= pPuff) continue;
+        const int n = snowRng.irange(8, 13);
+        for (int k = 0; k < n; k++) {
+            spin.push_back({it->x + snowRng.range(-7, 7), it->y + snowRng.range(-2, 2), snowRng.range(20, 40), snowRng.range(-10, 10) + 10.f + 30.f * wind, snowRng.range(-5, 5), snowRng.range(-14, 10), 0.f, 0.f, HEX(0xffffff), snowRng.chance(0.35f) ? 2 : 1, true});
+            spin.back().life = spin.back().max = snowRng.range(0.9f, 1.6f);
+        }
+    }
+}
+
+void Game::splash(V2 pp) {
+    static const u32 DROP[3] = {HEX(0x5aa0d0), HEX(0x8cc4e8), HEX(0xe8f6ff)};  // (blues that stand out against pale ice)
+    for (int i = 0; i < 14; i++)
+        parts.push_back({pp.x + rng.range(-4, 4), pp.y + rng.range(-2, 2), rng.range(0, 2), rng.range(-28, 28), rng.range(-12, 12), rng.range(45, 100), 0.8f, 0.8f, DROP[i % 3], i % 4 == 0 ? 2 : 1, true});
+    for (int i = 0; i < 3; i++) ripples.push_back({pp.x, pp.y, -0.22f * i, 0.9f});  // three rings, one after the other
 }
 
 void Game::updateFx(float dt) {
+    for (size_t i = 0; i < ripples.size();) {
+        ripples[i].t += dt;
+        if (ripples[i].t >= ripples[i].max) ripples.erase(ripples.begin() + i);
+        else i++;
+    }
     for (size_t i = 0; i < parts.size();) {
         Part& q = parts[i];
         q.life -= dt;
@@ -472,8 +620,8 @@ void Game::setCam(float dt, bool snap) {
     cam.y = clampf(cam.y, 0, world.pixH() - LH);
     float sx = 0, sy = 0;
     if (shakeAmt > 0.2f) {
-        sx = rng.range(-1, 1) * shakeAmt * 0.6f;
-        sy = rng.range(-1, 1) * shakeAmt * 0.6f;
+        sx = rng.range(-1, 1) * shakeAmt * 0.6f * (cfg.shake / 10.f);  // (the shake slider in the settings)
+        sy = rng.range(-1, 1) * shakeAmt * 0.6f * (cfg.shake / 10.f);
     }
     camX = (int)roundf(cam.x + sx);
     camY = (int)roundf(cam.y + sy);
@@ -616,12 +764,13 @@ void Game::playFootstep() {
 
 void Game::update(float dt) {
     timeAcc += dt;
+    if (dt > 0.f) fpsAvg += (1.f / dt - fpsAvg) * 0.05f;
     if (state == ST_TITLE) audio.setAmbience(AMB_NONE, 0.f), audio.setRain(0.f);
     else updateAmbience();
     switch (state) {
         case ST_TITLE: {
             titleT += dt;
-            dayT += dt * 0.6f;
+            dayT += dt * 2.2f;  // the backdrop passes through dusk and night fairly quickly, so the lights and the glow show
             updateAnimals(dt);
             updateFx(dt);
             V2 c = world.village + V2(cosf(titleT * 0.12f) * 110, sinf(titleT * 0.12f) * 55 + 10);
@@ -639,8 +788,22 @@ void Game::update(float dt) {
                     newGameAsk = false;
                     beginNewGame();
                 }
-            } else if (in.enterPressed)
-                requestNewGame();
+            } else {
+                // the title menu by keyboard: up / down move the highlight (skipping CONTINUE when there is no save), Enter chooses
+                const int dir = in.downPressed ? 1 : in.upPressed ? 3 : 0;
+                if (dir) {
+                    do menuSel = (menuSel + dir) % 4; while (menuSel == 1 && !hasSave);
+                    audio.play(S_CLICK, 0.3f);
+                }
+                if (in.enterPressed) {
+                    switch (menuSel) {
+                        case 0: requestNewGame(); break;
+                        case 1: if (hasSave && load()) state = ST_PLAY; break;
+                        case 2: openSettings(); break;
+                        case 3: running = false; break;
+                    }
+                }
+            }
             break;
         }
         case ST_PLAY:

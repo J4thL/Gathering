@@ -96,7 +96,17 @@ static bool inFieldAt(const World& w, int tx, int ty) {
     for (const FlowerField& g : w.fields) if (hypotf((tx - g.cx) / g.rx, (ty - g.cy) / g.ry) < 0.85f) return true;
     return false;
 }
-static bool routineAnimal(const Animal& a) { return a.kind < 4 && a.biome == B_HOME; }
+// the home forest's four species and, in the snowfields, the arctic fox, the snow hare and the reindeer keep a daily routine
+static bool routineAnimal(const Animal& a) { return (a.kind < 4 && a.biome == B_HOME) || (a.biome == B_SNOW && (a.kind == A_ARCTICFOX || a.kind == A_SNOWHARE || a.kind == A_REINDEER)); }
+
+// decor of one kind (dens, holes) within rmax of c; the list is sorted by y, so only the rows inside the radius are looked at
+static void decorIn(const World& w, int kind, V2 c, float rmax, std::vector<V2>& out) {
+    out.clear();
+    auto it = std::lower_bound(w.decor.begin(), w.decor.end(), c.y - rmax, [](const Decor& d, float y) { return d.y < y; });
+    for (; it != w.decor.end() && it->y <= c.y + rmax; ++it)
+        if (it->kind == kind && dist(V2(it->x, it->y), c) <= rmax) out.push_back(V2(it->x, it->y));
+}
+
 
 int Game::hourOfDay() const {
     const float t = tod() * 6.2832f, s = sinf(t);
@@ -108,6 +118,16 @@ int Game::hourOfDay() const {
 // A bed: the best of 60 spots within ~260 px, scored by the ground the species sleeps on and by how much cover (trees, rocks) is round it;
 // the open glades and flower fields are no place to sleep.
 bool Game::assignBed(Animal& a) {
+    if (a.kind == A_ARCTICFOX) {  // a fox sleeps in a den: one of the two nearest (they are shared between neighbours)
+        std::vector<V2> dens;
+        decorIn(world, D_DEN, a.pos, 700.f, dens);
+        if (!dens.empty()) {
+            std::sort(dens.begin(), dens.end(), [&](const V2& x, const V2& y) { return dist(x, a.pos) < dist(y, a.pos); });
+            a.bed = dens[frng.irange(0, (int)std::min<size_t>(2, dens.size()) - 1)] + V2(0.f, 3.f);
+            a.hasBed = true;
+            return true;
+        }
+    }
     float bestScore = -1.f;
     V2 best = a.pos;
     for (int i = 0; i < 60; i++) {
@@ -120,13 +140,16 @@ bool Game::assignBed(Animal& a) {
             case A_RABBIT: lik = t == T_DARK ? 0.8f : t == T_MOSS ? 0.7f : t == T_NEEDLES ? 0.6f : t == T_ROOTS ? 0.5f : t == T_LEAF ? 0.4f : t == T_GRASS ? 0.1f : 0.f; break;
             case A_DEER: lik = t == T_LEAF ? 1.f : t == T_DARK ? 0.8f : t == T_MOSS ? 0.7f : t == T_NEEDLES ? 0.5f : t == T_GRASS ? 0.2f : 0.f; break;
             case A_BOAR: lik = t == T_ROOTS ? 1.f : t == T_MOSS ? 0.9f : t == T_DARK ? 0.8f : t == T_NEEDLES ? 0.6f : t == T_LEAF ? 0.5f : t == T_GRASS ? 0.1f : 0.f; break;
+            case A_ARCTICFOX: case A_SNOWHARE: case A_REINDEER:  // the snowfields: a bed in the snow, the more sheltered by trees and rocks the better
+                lik = t == T_SNOW ? 0.6f : t == T_SNOWP ? 0.5f : 0.f;
+                break;
             default: lik = t == T_NEEDLES ? 1.f : t == T_ROOTS ? 0.9f : t == T_DARK ? 0.7f : t == T_LEAF ? 0.4f : t == T_MOSS ? 0.3f : t == T_GRASS ? 0.05f : 0.f; break;  // wolf
         }
         if (lik <= 0.f || inGladeAt(world, tx, ty) || inFieldAt(world, tx, ty)) continue;
         int cover = 0;
         for (int dy = -2; dy <= 2; dy++)
             for (int dx = -2; dx <= 2; dx++) cover += world.sightBlock(tx + dx, ty + dy) && (dx || dy);
-        const float score = lik + std::min(cover, 6) * 0.12f;
+        const float score = lik + std::min(cover, 8) * (a.kind == A_REINDEER || a.kind == A_SNOWHARE ? 0.16f : 0.12f);
         if (score > bestScore) { bestScore = score; best = c; }
     }
     a.bed = best;
@@ -196,6 +219,7 @@ void Game::chooseAct(Animal& a) {
     }
     if (a.leaving) act = ACT_LEAVE;
     else if (a.hp < a.maxhp * 0.6f) act = ACT_SLEEP;  // hurt: back to the bed to heal
+    else if (a.biome == B_SNOW && wxKind == WX_BLIZZARD && rainK() > 0.3f) act = ACT_SLEEP;  // a blizzard sends them all to their beds and dens
     else
         switch (a.kind) {
             case A_RABBIT:  // sleeps in its burrow at night; grazes all day (with a nap), busiest at dawn and dusk
@@ -211,6 +235,21 @@ void Game::chooseAct(Animal& a) {
             case A_BOAR:  // roots about in the thickets at all hours; wallows at its bed in the heat of the day
                 if (hr == H_DAY) act = roll < 0.35f ? ACT_SLEEP : roll < 0.90f ? ACT_FORAGE : ACT_ROAM;
                 else act = roll < 0.85f ? ACT_FORAGE : ACT_ROAM;
+                break;
+            case A_ARCTICFOX:  // sleeps in its den through the day, hunts at the edges of the dark and by night
+                if (hr == H_DAY) act = roll < 0.65f ? ACT_SLEEP : roll < 0.90f ? ACT_ROAM : ACT_FORAGE;
+                else if (hr == H_NIGHT) act = roll < 0.55f ? ACT_FORAGE : roll < 0.85f ? ACT_PATROL : ACT_ROAM;
+                else act = roll < 0.75f ? ACT_FORAGE : ACT_ROAM;
+                break;
+            case A_SNOWHARE:  // lies in its form (a hollow under the trees) by day, grazes at dawn and dusk and about the night
+                if (hr == H_DAY) act = roll < 0.45f ? ACT_SLEEP : roll < 0.85f ? ACT_GRAZE : ACT_ROAM;
+                else if (hr == H_NIGHT) act = roll < 0.30f ? ACT_SLEEP : roll < 0.85f ? ACT_GRAZE : ACT_ROAM;
+                else act = roll < 0.85f ? ACT_GRAZE : ACT_ROAM;
+                break;
+            case A_REINDEER:  // grazes the days away (with a nap), and the herd beds down together in the shelter of the trees at night
+                if (hr == H_NIGHT) act = ACT_SLEEP;
+                else if (hr == H_DAY) act = roll < 0.65f ? ACT_GRAZE : roll < 0.80f ? ACT_SLEEP : ACT_ROAM;
+                else act = roll < 0.80f ? ACT_GRAZE : ACT_ROAM;
                 break;
             default:  // wolf: sleeps by its den by day, goes back to it at dawn, makes its rounds at dusk and by night
                 if (hr == H_DAY) act = roll < 0.80f ? ACT_SLEEP : ACT_ROAM;
@@ -279,12 +318,35 @@ void Game::spawnPack(int size, float minDist, bool offscreen) {
         for (int tries = 0; tries < 14; tries++) {
             const V2 q = animals[li].pos + V2(frng.range(-55.f, 55.f), frng.range(-45.f, 45.f));
             if (world.blocked(q.x, q.y, 9) || world.biomeAtPos(q.x, q.y) != B_HOME || world.inTown(q.x, q.y, 48.f)) continue;
-            Animal* m = spawnAnimal(A_WOLF, q, animals[li].variant, rollTier());
+            Animal* m = spawnAnimal(A_WOLF, q, animals[li].variant, rollTier(A_WOLF));
             m->pack = id;
             m->packSlot = i;
             m->flankSide = i % 2 ? 1.f : -1.f;
             break;
         }
+}
+
+// A herd of `size` animals of one kind: a leader and the others close by, tied together with the pack fields (the others keep to the leader's
+// place and rest, graze and bolt with it: see herdLeader in updateAnimals). The tiers are rolled for each one on its own.
+bool Game::spawnHerd(int kind, V2 pos, int form, int size) {
+    Animal* first = spawnAnimal(kind, pos, form, rollTier(kind));
+    if (!first) return false;
+    const size_t li = animals.size() - 1;  // (an index: spawning the others may move the vector)
+    const int id = nextPack++;
+    animals[li].pack = id;
+    animals[li].leader = true;
+    const int biome = animals[li].biome;
+    for (int i = 1; i < size; i++)
+        for (int tries = 0; tries < 14; tries++) {
+            const V2 q = pos + V2(frng.range(-50.f, 50.f), frng.range(-40.f, 40.f));
+            if (world.blocked(q.x, q.y, 9) || world.biomeAtPos(q.x, q.y) != biome) continue;
+            const int f = ANIMAL[kind].forms > 1 && frng.chance(0.5f) ? 1 : 0;
+            Animal* m = spawnAnimal(kind, q, f, rollTier(kind));
+            m->pack = id;
+            m->packSlot = i;
+            break;
+        }
+    return true;
 }
 
 // one wolf has seen the hunter: the rest of its pack (within ~500 px, awake or asleep) join the chase
@@ -343,13 +405,23 @@ float Game::sightFactor(const Animal& a, V2 tgt, bool hunterTarget) const {
     const int cover = world.coverBetween(a.pos, tgt);
     f *= cover == 0 ? 1.f : cover == 1 ? 0.6f : cover == 2 ? 0.35f : 0.f;
     if (!D.aggro) f *= 1.f - 0.2f * (1.f - daylight());
+    if (wxKind == WX_BLIZZARD) f *= 1.f - 0.5f * rainK();  // a blizzard blinds everything in it: animals see you half as well (and you them: sneaking up is easier)
     if (a.act == ACT_SLEEP && a.st == AS_REST) f *= D.aggro ? 0.7f : 0.6f;
     float hear = D.aggro ? 0.28f : 0.2f;
     if (hunterTarget) {
         if (p.sprinting) { f *= 1.3f; hear = D.aggro ? 0.7f : 0.5f; }
         else if (!p.walking) f *= 0.75f;
+        if (!p.sprinting) f *= 1.f - 0.5f * bushCoverAt(tgt);  // standing in a bush: it hides you from an animal's eyes (not from its ears)
     }
-    return std::max(f, hear * (a.st == AS_REST && a.act == ACT_SLEEP ? 0.7f : 1.f));
+    // scent: the wind carries it from the target to the animal. A hunter (or a predator) upwind is smelled well beyond what the animal sees,
+    // from behind or through cover; one downwind is not smelled at all. A calm day carries little, a gale a lot, and rain and snow wash it out.
+    float scent = 0.f;
+    if (interior < 0 && delve < 0) {
+        const V2 away = to * (-1.f / d);  // from the target to the animal
+        scent = clampf(wind / 0.8f, 0.f, 1.f) * std::max(0.f, away.x * windDir.x + away.y * windDir.y) * (1.f - 0.6f * rainK());
+        if (a.act == ACT_SLEEP && a.st == AS_REST) scent *= 0.6f;  // (a sleeper smells less)
+    }
+    return std::max(std::max(f, 0.55f * scent), hear * (a.st == AS_REST && a.act == ACT_SLEEP ? 0.7f : 1.f));
 }
 
 // ---- the AI debug overlay (F3): every animal's act and state, its route and bed, and, close to the hunter, its field of view and line of sight
@@ -423,7 +495,7 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
         a.variant = (kind == A_DEER && rng.chance(0.45f)) ? 1 : 0;
         a.pos = pos;
         a.target = pos;
-        applyTier(a, rollTier());
+        applyTier(a, rollTier(kind));
         a.face = rng.chance(0.5f) ? 1 : -1;
         a.bias = rng.chance(0.5f) ? 1.f : -1.f;
         a.idleT = rng.range(0, 3);
@@ -435,17 +507,39 @@ bool Game::trySpawn(int kind, float minDist, bool offscreen) {
     return false;
 }
 
+// How much the weather and the hour favour a look, so the strange colours turn up when their moment is right: ghosts at night, frost in a
+// blizzard, gold at dawn and dusk, embers at dusk and in a sandstorm. 1 means no effect; it scales the chance of the tier that carries the look.
+float Game::lookLuck(int look) const {
+    const float night = 1.f - daylight(), td = tod(), wx = rainK();
+    const bool goldenHour = td > 0.95f || td < 0.08f || (td > 0.42f && td < 0.56f), dusk = td > 0.42f && td < 0.56f;
+    switch (look) {
+        case LK_GHOST: return 0.5f + 2.5f * night + (wxKind == WX_STORM ? 0.5f * wx : 0.f);  // three times as likely at night, half as likely at noon
+        case LK_FROST: return 1.f + 0.5f * night + (wxKind == WX_BLIZZARD ? 2.f * wx : 0.f);  // up to 3.5 times as likely in a blizzard at night
+        case LK_GOLD: return goldenHour ? 2.5f : (night > 0.5f ? 0.6f : 1.f);
+        case LK_EMBER: return 1.f + (dusk ? 1.5f : 0.f) + (wxKind == WX_SANDSTORM ? 1.5f * wx : 0.f);
+        case LK_DARK: case LK_MELANISTIC: return 1.f + 0.5f * night;
+        case LK_ALBINO: case LK_PALE: return 0.9f + 0.4f * daylight();
+        default: return 1.f;
+    }
+}
+
 // ---- rarity tiers. Rolled on frng so the gameplay rng sequence is the same as before the wildlife update.
-int Game::rollTier() {
+int Game::rollTier(int kind) {
     float u = frng.f();
-    float c = TIER[TR_LEGENDARY].chance;
-    if (u < c && liveLegendaries() < LEGEND_MAX_ALIVE && legCool <= 0) {
+    const AnimalDef* D = kind >= 0 && kind < A_COUNT ? &ANIMAL[kind] : nullptr;
+    auto luck = [&](int tier) { return D ? lookLuck(D->looks[tier - 1]) : 1.f; };
+    const float cLeg = TIER[TR_LEGENDARY].chance * luck(TR_LEGENDARY);
+    const bool legOk = liveLegendaries() < LEGEND_MAX_ALIVE && legCool <= 0;
+    if (legOk && u < cLeg + legPity) {
         legCool = LEGEND_COOLDOWN;
+        legPity = 0.f;
         return TR_LEGENDARY;
     }
+    if (legOk) legPity = std::min(LEGEND_PITY_MAX, legPity + LEGEND_PITY_STEP);  // a roll that could have been a legendary and was not: bad-luck protection grows
     // a legendary roll that is not allowed (one already alive / cooling down) simply becomes a rare
-    if (u < (c += TIER[TR_RARE].chance)) return TR_RARE;
-    if (u < c + TIER[TR_UNCOMMON].chance) return TR_UNCOMMON;
+    const float cRare = cLeg + TIER[TR_RARE].chance * luck(TR_RARE);
+    if (u < cRare) return TR_RARE;
+    if (u < cRare + TIER[TR_UNCOMMON].chance * luck(TR_UNCOMMON)) return TR_UNCOMMON;
     return TR_COMMON;
 }
 void Game::applyTier(Animal& a, int tier) {
@@ -498,6 +592,14 @@ static float rainCapMul(int kind) {
 }
 
 // Streaming spawns for the four new biomes: keeps the live population small and local.
+// The breathing holes (D_ICEHOLE) of the frozen lakes. The decor list is sorted by y, so only the rows inside the radius are looked at.
+static void iceHolesIn(const World& w, V2 c, float rmax, std::vector<V2>& out) {
+    out.clear();
+    auto it = std::lower_bound(w.decor.begin(), w.decor.end(), c.y - rmax, [](const Decor& d, float y) { return d.y < y; });
+    for (; it != w.decor.end() && it->y <= c.y + rmax; ++it)
+        if (it->kind == D_ICEHOLE && dist(V2(it->x, it->y), c) <= rmax) out.push_back(V2(it->x, it->y));
+}
+
 void Game::streamSpawns(float dt) {
     for (int k = 0; k < A_COUNT; k++)
         if (spCool[k] > 0) spCool[k] -= dt;
@@ -535,6 +637,14 @@ void Game::streamSpawns(float dt) {
         for (int it = 0; it < 30; it++) {
             float ang = frng.range(0, 6.2832f), rad = frng.range(SPAWN_MIN, SPAWN_MAX);
             V2 pos = p.pos + V2(cosf(ang) * rad, sinf(ang) * rad * 0.8f);
+            if (S.kind == A_SEAL) {  // a seal lies a few steps from one of the breathing holes that lie in the spawn ring
+                std::vector<V2> holes;
+                iceHolesIn(world, p.pos, SPAWN_MAX, holes);
+                holes.erase(std::remove_if(holes.begin(), holes.end(), [&](const V2& h) { return dist(h, p.pos) < SPAWN_MIN; }), holes.end());
+                if (holes.empty()) break;
+                const V2 h = holes[frng.irange(0, (int)holes.size() - 1)];
+                pos = h + V2(cosf(ang), sinf(ang)) * frng.range(10.f, 22.f);
+            }
             if (world.biomeAtPos(pos.x, pos.y) != b) continue;
             if (world.blocked(pos.x, pos.y, 9)) continue;
             int tx = (int)(pos.x / TS), ty = (int)(pos.y / TS);
@@ -543,7 +653,8 @@ void Game::streamSpawns(float dt) {
             float sx = pos.x - cam.x, sy = pos.y - cam.y;
             if (sx > -50 && sx < LW + 50 && sy > -60 && sy < LH + 60) continue;
             int form = (ANIMAL[S.kind].forms > 1 && frng.chance(S.form1)) ? 1 : 0;
-            spawnAnimal(S.kind, pos, form, rollTier());
+            if (S.kind == A_REINDEER) spawnHerd(S.kind, pos, form, frng.irange(3, 4));  // reindeer come in herds of 3-4
+            else spawnAnimal(S.kind, pos, form, rollTier(S.kind));
             spCool[S.kind] = S.cooldown;
             return;
         }
@@ -605,7 +716,7 @@ void Game::updateAnimals(float dt) {
     auto fleePredator = [&](Animal& v, V2 from) {
         for (auto& o : animals) {
             if (o.dead || o.gone || o.kind != v.kind || o.biome != v.biome) continue;
-            if (&o != &v && (dist(o.pos, v.pos) > 75.f || (o.st != AS_WANDER && o.st != AS_FEED && o.st != AS_REST))) continue;
+            if (&o != &v && (dist(o.pos, v.pos) > (o.pack >= 0 && o.pack == v.pack ? 260.f : 75.f) || (o.st != AS_WANDER && o.st != AS_FEED && o.st != AS_REST))) continue;
             o.st = AS_FLEE;
             o.fleeAnimal = true;
             o.threat = from;
@@ -613,10 +724,26 @@ void Game::updateAnimals(float dt) {
             o.alertT = 0;
         }
     };
-    // a startled animal warns the same species close by: they bolt from the hunter too
+    // a herd member (not a wolf: wolves have their own pack ways) keeps to its leader's place, and rests or grazes when the leader does
+    auto herdLeader = [&](const Animal& m) -> Animal* {
+        if (m.pack < 0 || m.leader || ANIMAL[m.kind].preyMask || ANIMAL[m.kind].aggro || m.leaving) return nullptr;
+        Animal* L = packLeader(m.pack);
+        if (!L) {
+            promotePack(m.pack);
+            L = packLeader(m.pack);
+        }
+        return L && L != &m ? L : nullptr;
+    };
+    auto herdFollow = [&](Animal& m) {
+        if (Animal* L = herdLeader(m)) {
+            const float ang = m.packSlot * 2.1f + 0.7f;
+            m.target = (dist(m.pos, L->pos) > 130.f ? L->pos : L->target) + V2(cosf(ang) * 34.f, sinf(ang) * 24.f);
+        }
+    };
+    // a startled animal warns the same species close by: they bolt from the hunter too (a herd's members from much further: they stand together)
     auto alarmHerd = [&](Animal& v) {
         for (auto& o : animals) {
-            if (&o == &v || o.dead || o.gone || o.kind != v.kind || o.biome != v.biome || dist(o.pos, v.pos) > 70.f) continue;
+            if (&o == &v || o.dead || o.gone || o.kind != v.kind || o.biome != v.biome || dist(o.pos, v.pos) > (o.pack >= 0 && o.pack == v.pack ? 260.f : 70.f)) continue;
             if (o.st != AS_WANDER && o.st != AS_FEED && o.st != AS_REST) continue;
             if (ANIMAL[o.kind].aggro) continue;  // fighters do not scatter
             o.st = AS_FLEE;
@@ -740,10 +867,18 @@ void Game::updateAnimals(float dt) {
                 }
                 if (a.idleT > 0) {
                     a.idleT -= dt;
-                    if (a.idleT <= 0 && D.restChance > 0 && frng.chance(D.restChance + D.feedChance)) {
-                        bool rest = frng.chance(D.restChance / (D.restChance + D.feedChance));
-                        a.st = rest ? AS_REST : AS_FEED;
+                    // in a blizzard the prey huddle down: they rest far more, graze hardly at all, and stay down longer
+                    const bool huddle = !D.aggro && wxKind == WX_BLIZZARD && rainK() > 0.2f;
+                    Animal* HL = herdLeader(a);
+                    const float rc = HL ? 0.f : huddle ? std::min(0.95f, D.restChance + 0.55f * rainK()) : D.restChance, fc = huddle ? D.feedChance * (1.f - 0.8f * rainK()) : D.feedChance;
+                    if (a.idleT <= 0 && HL && (HL->st == AS_REST || HL->st == AS_FEED) && dist(a.pos, HL->pos) < 110.f) {  // the herd lies down and grazes together
+                        a.st = HL->st;
                         a.stT = frng.range(4.f, 9.f);
+                        a.idleT = 0;
+                    } else if (a.idleT <= 0 && rc > 0 && frng.chance(rc + fc)) {
+                        bool rest = frng.chance(rc / (rc + fc));
+                        a.st = rest ? AS_REST : AS_FEED;
+                        a.stT = frng.range(4.f, 9.f) * (huddle && rest ? 1.f + 1.5f * rainK() : 1.f);
                         a.idleT = 0;
                     }
                 } else {
@@ -757,9 +892,11 @@ void Game::updateAnimals(float dt) {
                     } else if (to.len() < 5 || a.stT < -7) {
                         a.idleT = rng.range(1.2f, 4.5f);
                         a.target = a.pos + V2(rng.range(-90, 90), rng.range(-70, 70));
+                        herdFollow(a);  // (a herd member's next stop is by its leader)
                         a.stT = 0;
-                    } else if (!stepAnimal(a, to.norm(), D.wander * T.speed, dt)) {
+                    } else if (!stepAnimal(a, to.norm(), D.wander * T.speed * (herdLeader(a) && dist(a.pos, herdLeader(a)->pos) > 160.f ? 1.5f : 1.f), dt)) {  // (and it hurries to catch up if it has fallen behind)
                         a.target = a.pos + V2(rng.range(-60, 60), rng.range(-50, 50));
+                        herdFollow(a);
                     }
                 }
                 break;
@@ -782,6 +919,27 @@ void Game::updateAnimals(float dt) {
                 V2 perp(-away.y, away.x);
                 float j = sinf(timeAcc * 2.3f + a.animT) * 0.35f;
                 V2 dir = (away + perp * j).norm();
+                if (D.flags & BH_DIVES) {  // a seal heads for the nearest breathing hole that is not on the threat's side, and slips down it
+                    std::vector<V2> holes;
+                    iceHolesIn(world, a.pos, 280.f, holes);
+                    float bestScore = 1e9f;
+                    V2 bestHole = a.pos;
+                    bool found = false;
+                    for (const V2& h : holes) {
+                        const V2 to = h - a.pos;
+                        const float score = to.len() + (to.len() > 1.f && away.x * to.x + away.y * to.y < 0.f ? 160.f : 0.f);  // a hole behind the threat is a last resort
+                        if (score < bestScore) bestScore = score, bestHole = h, found = true;
+                    }
+                    if (found) {
+                        const V2 to = bestHole - a.pos;
+                        if (to.len() < 5.f) {
+                            splash(bestHole);  // down the hole, in a splash
+                            a.gone = true;
+                            break;
+                        }
+                        dir = to.norm();
+                    }
+                }
                 stepAnimal(a, dir, D.run * T.speed * (a.hp < a.maxhp ? 1.08f : 1.f), dt);
                 if (a.stT <= 0 && (a.fleeAnimal ? !hunted : dd > notice * 1.4f)) {
                     a.st = AS_WANDER;

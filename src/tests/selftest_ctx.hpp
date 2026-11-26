@@ -74,6 +74,9 @@ void testWorldRules(SelfTest& t);  // gathering, structures, consumables, gear, 
 void testSkillsAndTrophies(SelfTest& t);  // skill bonuses, skill XP, trophies and skills
 void testTownAndFeedback(SelfTest& t);  // town NPCs, HUD feedback, wildlife and audio
 void testWeather(SelfTest& t);  // the weather schedule, the weather state machine and its effects
+void testBushes(SelfTest& t);    // bush reactions: rustle, snow shed, flushed hares, cover
+void testIceSpikes(SelfTest& t);  // ice spikes: placement, break, come back small and grow
+void testSnowLife(SelfTest& t);  // the seal, its breathing holes and the dive, blizzards and the snowfields' hunters
 
 // Puts a campfire / chest down the way a player does: the cursor over a free tile within reach, then a click (Game::placeStructureAtCursor).
 inline bool placeAtCursor(Game& g, int kind) {

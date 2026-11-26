@@ -51,6 +51,7 @@ inline QuadSpec fauSpec0(int kind, int form) {
             s.spots = true;
             return s;
         }
+        case A_SEAL: return mkQ(30, 20, 12, 19, 10.5f, 0, 0, HEX(0x8b929c), HEX(0xb2b9c2), HEX(0xe2e6ea), HEX(0x4a505a), HEX(0x4a505a), HEX(0x2a2c32), HEX(0x15171c), 3.3f, 0, 0, 0, 0, 0);  // a plump grey seal
         case A_LIZARD: return mkQ(30, 12, 13, 10, 4, 0, 0, HEX(0xb59a5a), HEX(0xd0b878), HEX(0xeee0b0), HEX(0x7a6232), HEX(0x7a6232), HEX(0xe56b7a), HEX(0x241a14), 2.2f, 0, 0, 0, 0, 0);
         // ---- swamp
         case A_FROG: return mkQ(14, 12, 6, 8, 5, 0, 0, HEX(0x4f8a3a), HEX(0x6fae4c), HEX(0xd8e8a8), HEX(0x2f5a26), HEX(0x2f5a26), HEX(0xe56b7a), HEX(0xf2c94c), 2.2f, 0, 0, 0, 0, 0);
@@ -360,8 +361,8 @@ inline Img drawGator(const QuadSpec& s, int frame, bool dead) {
 // The side art above only faces east / west. These two views (down the screen = towards the hunter, up = away) lie the body along
 // the screen's vertical: head first at the bottom (towards the viewer, with eyes) or at the top (away, back of the head).
 inline Img drawCrawlerNS(int art, const QuadSpec& s, int frame, bool dead, bool back) {
-    const bool snake = art == ART_SNAKE, frog = art == ART_FROG, gator = art == ART_GATOR;
-    const int len = frog ? 12 : (int)(s.W * (snake ? 0.8f : 0.9f));
+    const bool snake = art == ART_SNAKE, frog = art == ART_FROG, gator = art == ART_GATOR, seal = art == ART_SEAL;
+    const int len = (frog || seal) ? 12 : (int)(s.W * (snake ? 0.8f : 0.9f));
     const int bwid = std::max(4, (int)(s.bh * (snake ? 0.9f : 1.5f)));
     Img im(std::max(bwid + 14, 16), len + 8);
     const float cx = im.w / 2.f, top = 3.f, bot = (float)im.h - 3.f;
@@ -371,7 +372,28 @@ inline Img drawCrawlerNS(int art, const QuadSpec& s, int frame, bool dead, bool 
     const int segs = std::max(8, len);
     auto sx = [&](float t) { return cx + (snake ? sinf(t * 9.f + ph) * 2.4f : (frog ? 0.f : sinf(t * 7.f + ph) * 0.9f)); };
     auto yAt = [&](float t) { return back ? bot - t * (bot - top) : top + t * (bot - top); };  // t 1 = head end
-    if (frog) {
+    if (seal) {  // seen from the front or the back: a round plump body, flippers at its sides, the head (or the tail flippers) at the near end
+        const float yy = back ? bot - 9 : top + 5;
+        im.ellipse(cx, yy + 4.5f, 6.2f, 6.4f, s.body);
+        im.ellipse(cx, yy + 3.f, 4.2f, 2.4f, s.light);
+        if (!back) {
+            im.ellipse(cx, yy + 7.f, 3.8f, 3.0f, s.belly);
+            im.ellipse(cx, yy + 1.8f, 4.2f, 3.4f, s.body);                  // the head
+            im.ellipse(cx, yy + 3.2f, 2.4f, 1.6f, s.light);                  // the muzzle
+            im.set((int)cx, (int)(yy + 2.4f), s.snout);                      // the nose
+            im.set((int)(cx - 2.4f), (int)(yy + 0.2f), dead ? s.dark : s.eye);
+            im.set((int)(cx + 1.8f), (int)(yy + 0.2f), dead ? s.dark : s.eye);
+            im.set((int)(cx - 3.f), (int)(yy + 4.f), s.belly);               // whiskers
+            im.set((int)(cx + 2.f), (int)(yy + 4.f), s.belly);
+            im.ellipse(cx - 6.4f, yy + 7.5f, 1.5f, 2.4f, s.dark);            // front flippers
+            im.ellipse(cx + 6.4f, yy + 7.5f, 1.5f, 2.4f, s.dark);
+        } else {
+            im.ellipse(cx, yy - 0.2f, 3.4f, 2.4f, s.body);                   // the back of the head
+            im.ellipse(cx - 1.8f, yy + 10.5f, 2.4f, 1.2f, s.dark);           // the rear flippers
+            im.ellipse(cx + 1.8f, yy + 10.5f, 2.4f, 1.2f, s.dark);
+            for (int i = -2; i <= 2; i += 2) im.set((int)(cx + i), (int)(yy + 4 + (i & 2)), s.dark);  // spots
+        }
+    } else if (frog) {
         const float yy = back ? bot - 5 : top + 6;
         // hind legs folded at the sides, front legs under the chin
         im.ellipse(cx - 5.5f, yy + (back ? -1.f : 4.f), 2.6f, 3.4f, s.dark);
@@ -427,12 +449,57 @@ inline Img drawCrawlerNS(int art, const QuadSpec& s, int frame, bool dead, bool 
     return im;
 }
 
+// A seal, side view (facing right): a plump spindle of a body lying on the ice, a raised head with whiskers, small flippers. It shuffles by
+// bunching and stretching: the body rises and falls along its length in the walk frames.
+inline Img drawSeal(const QuadSpec& s, int frame, bool dead) {
+    Img im(s.W, s.H);
+    const int ground = s.H - 2;
+    const float cx = s.cx, cy = ground - s.bh / 2 + 0.3f, ph = frame * 1.5708f;
+    constexpr float PI = 3.14159265f;
+    // rear flippers, together at the tail end, flat on the ice
+    im.ellipse(cx - s.bw / 2 - 0.8f, ground - 1.2f, 2.8f, 1.1f, s.dark);
+    im.ellipse(cx - s.bw / 2 - 1.2f, ground - 0.2f, 2.6f, 0.9f, s.dark);
+    // the body: a chain of discs from the tail to the chest, fattest in the middle, rippling in the walk
+    const int N = 22;
+    for (int i = 0; i < N; i++) {
+        const float t = i / (float)(N - 1);
+        const float x = cx - s.bw / 2 + t * s.bw;
+        const float r = s.bh / 2 * (0.5f + 0.5f * sinf(PI * std::min(1.f, 0.1f + t * 0.85f)));
+        const float y = cy + (frame > 0 ? 0.9f * sinf(t * PI * 2.f - ph) : 0.f) - (s.bh / 2 - r) * 0.2f;
+        im.ellipse(x, y, r + 0.25f, r, s.body);
+    }
+    im.ellipse(cx + 0.5f, cy - s.bh * 0.26f, s.bw / 2 - 3.5f, 1.8f, s.light);   // the paler back
+    im.ellipse(cx - 0.5f, cy + s.bh * 0.30f, s.bw / 2 - 3.5f, 1.5f, s.belly);  // the belly
+    static const int SP[7][2] = {{-5, -2}, {-3, -4}, {0, -3}, {3, -4}, {5, -2}, {-1, -1}, {2, 0}};
+    for (const auto& q : SP) im.set((int)(cx + q[0]), (int)(cy + q[1]), s.dark);  // dark spots along the back
+    // front flipper, pushing along in the walk
+    static const int FL[4] = {0, 1, 0, -1};
+    im.ellipse(cx + s.bw / 2 - 5.f + FL[frame & 3], ground - 0.9f, 2.9f, 1.0f, s.dark);
+    // head, held up
+    const float hx = cx + s.bw / 2 + 0.6f, hy = cy - s.bh * 0.3f - 1.2f;
+    im.ellipse(hx, hy, s.hr, s.hr * 0.92f, s.body);
+    im.ellipse(hx + 0.6f, hy - 1.f, s.hr * 0.6f, 0.9f, s.light);
+    im.ellipse(hx + 2.5f, hy + 0.9f, 2.0f, 1.5f, s.light);                    // the muzzle
+    im.set((int)(hx + 4.2f), (int)(hy + 0.4f), s.snout);                       // the nose
+    im.set((int)(hx + 3.f), (int)(hy + 2.5f), s.belly);                        // whiskers
+    im.set((int)(hx + 4.f), (int)(hy + 2.9f), s.belly);
+    const int ex = (int)(hx + 1.2f), ey = (int)(hy - 0.8f);
+    im.set(ex, ey, s.eye);
+    if (dead) {
+        im.set(ex + 1, ey + 1, s.eye);
+        im.set(ex - 1, ey - 1, s.eye);
+    }
+    im.outline(OUT);
+    if (dead) im = im.flippedV();
+    return im;
+}
 inline Img paintAnimal(int kind, const QuadSpec& s, int frame, bool dead) {
     switch (ANIMAL[kind].art) {
         case ART_SNAKE: return drawSnake(s, frame, dead);
         case ART_FROG: return drawFrog(s, frame, dead);
         case ART_LIZARD: return drawLizard(s, frame, dead);
         case ART_GATOR: return drawGator(s, frame, dead);
+        case ART_SEAL: return drawSeal(s, frame, dead);
         default: return Img(1, 1);  // (the species with a full animation set are drawn by the rig: sprites_rig.hpp)
     }
 }

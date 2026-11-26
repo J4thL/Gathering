@@ -54,12 +54,14 @@ inline int World::repairReach() {
 
     // what the pass may remove: things that grow or lie on the ground, never buildings or landmarks
     auto clearable = [](int k) {
-        return isRockKind(k) || isTreeKind(k) || k == P_LOG || k == P_SANDROCK0 || k == P_SANDROCK1 || k == P_SNOWROCK || k == P_CRYSTAL ||
+        return isRockKind(k) || isTreeKind(k) || k == P_LOG || k == P_SANDROCK0 || k == P_SANDROCK1 || k == P_SNOWROCK || k == P_CRYSTAL || k == P_ICESPIKE ||
                k == P_CACTUS0 || k == P_CACTUS1 || k == P_GRAVE;
     };
+    bool onPlateau = false;  // set while the corridor is for the top of a plateau (see below)
     // opens one tile: removes what stands on it (only things that can be cleared) and turns water / cliff into ground
     auto carve = [&](int tx, int ty, uint8_t ground) {
         if (tx < 0 || ty < 0 || tx >= MW || ty >= MH) return;
+        if (onPlateau && plat[ty][tx] != 1) return;  // a corridor across a plateau's top never cuts into its rock face or the ground around it
         if (!portalAt(mapId, tx, ty) && (tx < 3 || ty < 3 || tx >= MW - 3 || ty >= MH - 3)) return;  // the edge wall stays shut
         bool explained = false;
         for (size_t i = 0; i < props.size();) {
@@ -113,6 +115,14 @@ inline int World::repairReach() {
                 if (!solidTile(x, y) && hypotf(x - mx, y - my) < bd) bd = hypotf(x - mx, y - my), best = V2(x * TS + 8.f, y * TS + 8.f);
         targets.push_back(best);
     }
+    // plateaus (snowfield): the foot of every ramp, and a lattice of points on the tops (every second tile), must be reachable too. Trees and rocks that split a plateau are
+    // cleared along the shortest way over the top; they are never counted in repairLeft (a plateau nobody can use costs nothing, so it is no reason to change seed)
+    std::vector<V2> rampFeet, topPoints;
+    for (int y = 3; y < MH - 3; y++)
+        for (int x = 3; x < MW - 3; x++) {
+            if (plat[y][x] == 2 && plat[y + 1][x] != 2) rampFeet.push_back(V2((x + 0.5f) * TS, (y + 1.5f) * TS));
+            if (plat[y][x] == 1 && x % 2 == 0 && y % 2 == 0) topPoints.push_back(V2((x + 0.5f) * TS, (y + 0.5f) * TS));
+        }
     if (blocked(arrive.x, arrive.y, 4.f)) carve((int)(arrive.x / TS), (int)(arrive.y / TS), groundOf);
 
     for (int round = 0; round < MAX_PASSES; round++) {
@@ -134,6 +144,35 @@ inline int World::repairReach() {
             if (tileSolid(ground)) ground = groundOf;
             carvePath((int)(t.x / TS), (int)(t.y / TS), bx, by, ground);
         }
+        for (const V2& t : rampFeet) {
+            if (reached(t.x, t.y, 2)) continue;
+            any = true;
+            long long best = -1, bestD2 = 1LL << 60;
+            for (int cy = 0; cy < gh; cy++)
+                for (int cx = 0; cx < gw; cx++) {
+                    if (dist[(size_t)cy * gw + cx] < 0) continue;
+                    const long long dx = cx * CELL + CELL / 2 - (long long)t.x, dy = cy * CELL + CELL / 2 - (long long)t.y;
+                    if (dx * dx + dy * dy < bestD2) bestD2 = dx * dx + dy * dy, best = (long long)cy * gw + cx;
+                }
+            if (best < 0) continue;
+            const int bx = (int)((best % gw) * CELL / TS), by = (int)((best / gw) * CELL / TS);
+            carvePath((int)(t.x / TS), (int)(t.y / TS), bx, by, tileSolid(tile[by][bx]) ? groundOf : tile[by][bx]);
+        }
+        onPlateau = true;
+        for (const V2& t : topPoints) {
+            if (reached(t.x, t.y, 1)) continue;
+            any = true;
+            long long best = -1, bestD2 = 1LL << 60;
+            for (int cy = 0; cy < gh; cy++)
+                for (int cx = 0; cx < gw; cx++) {
+                    if (dist[(size_t)cy * gw + cx] < 0 || plat[cy * CELL / TS][cx * CELL / TS] != 1) continue;
+                    const long long dx = cx * CELL + CELL / 2 - (long long)t.x, dy = cy * CELL + CELL / 2 - (long long)t.y;
+                    if (dx * dx + dy * dy < bestD2) bestD2 = dx * dx + dy * dy, best = (long long)cy * gw + cx;
+                }
+            if (best < 0) continue;
+            carvePath((int)(t.x / TS), (int)(t.y / TS), (int)((best % gw) * CELL / TS), (int)((best / gw) * CELL / TS), T_SNOW);
+        }
+        onPlateau = false;
         if (!any) break;
     }
     flood(arrive);

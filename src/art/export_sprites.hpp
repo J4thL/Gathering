@@ -178,8 +178,7 @@ inline int exportAll(const std::string& root) {
                 std::vector<std::vector<Img>> fr(AV_VIEWS);
                 for (int v = 0; v < AV_VIEWS; v++)
                     for (int i = 0; i < C.poses[st]; i++) {
-                        Img im = paintQuad(spec, R, TIER[0].scale, v, animPose(R, st, i));
-                        if (!R.flat) richenActor(im, OUT);
+                        Img im = paintQuad(spec, R, TIER[0].scale, v, R.bird ? birdPose(st, i) : (R.hopper ? hopPose(st, i) : quadPose(st, i)));
                         styleActor(im, OUT, R.flat ? 2 : 0);
                         fr[v].push_back(im);
                     }

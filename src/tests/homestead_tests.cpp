@@ -821,18 +821,13 @@ int homesteadTest(Game& g) {
                 const float before = g.hs.can;
                 g.hsToolUse();  // (not aimed at it: only checks the call is safe)
                 check(g.hs.can == before, "nothing is spent when nothing is watered");
-                // the shovel untills a plot, planted (a regrowing crop like tomato is always planted) or empty
+                // the shovel: a planted plot cannot be untilled, an empty one can
                 const size_t n0 = g.hs.pieces.size();
                 g.hsDig(px, py);
-                check(!g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0 - 1, "the shovel digs up a planted plot");
-                g.hsPlace(HP_PLOT, px, py, 0);
+                check(g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0, "the shovel will not untill a planted plot");
                 pl = g.hsAt(px, py, HL_GROUND);
-                g.hsPlant(*pl, CR_TOMATO);
-                pl = g.hsAt(px, py, HL_GROUND);
-                check(pl && pl->crop == CR_TOMATO, "(a tomato is planted)");
-                g.hsDig(px, py);
-                check(!g.hsAt(px, py, HL_GROUND), "a tomato plot can be untilled too");
-                g.hsPlace(HP_PLOT, px, py, 0);
+                pl->crop = -1;
+                pl->stage = 0;
                 g.hsDig(px, py);
                 check(!g.hsAt(px, py, HL_GROUND) && g.hs.pieces.size() == n0 - 1, "the shovel untills an empty plot");
                 // rain soaks bare soil (and not what is under a greenhouse - not tested here)

@@ -159,6 +159,13 @@ void Game::drawWorldMap() {
         const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(l.x) - textW(nm) / 2));
         text(lx, sy(l.y) + 3, nm, C_TEXT);
     }
+    for (auto& c : world.camps) {  // lit camps: the checkpoints
+        if (!c.lit) continue;
+        fillRect(sx(c.x) - 1, sy(c.y) - 1, 3, 3, HEX(0xffb347));
+        const std::string nm = campName(world.mapId);
+        const int lx = std::max(ox + 1, std::min(ox + mw - textW(nm) - 1, sx(c.x) - textW(nm) / 2));
+        text(lx, sy(c.y) + 3, nm, HEX(0xffb347));
+    }
     // the gate shortcut: every gate and whether it is open; click one to see what it asks for
     text(4, oy + 2, "GATES", C_GOLD);
     for (int gi = 0; gi < GATE_N; gi++) {
@@ -185,6 +192,11 @@ void Game::drawWorldMap() {
     const int total = (int)world.landmarks.size();
     const std::string cnt = "LANDMARKS " + S(landmarksFound()) + "/" + S(total);
     if (total > 0) text(ox, oy + mh + 8, cnt, B.col);
+    if (!world.camps.empty()) {  // and how many of the map's camps are lit
+        int lit = 0;
+        for (auto& c : world.camps) lit += c.lit ? 1 : 0;
+        text(ox + (total > 0 ? textW(cnt) + 12 : 0), oy + mh + 8, "CAMPS " + S(lit) + "/" + S((int)world.camps.size()), HEX(0xffb347));
+    }
     const Landmark* near = nullptr;
     float best = 1e9f;
     for (auto& l : world.landmarks) {

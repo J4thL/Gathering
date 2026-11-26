@@ -295,6 +295,41 @@ int worldCheck(Game& g) {
     long nodeTotals[RN_COUNT] = {0};
     printf("maps: %d, each %dx%d tiles (the original Wildwood area is %dx%d at tile (%d,%d) of the home map)\n", B_COUNT, MW, MH, CW, CH, COX, COY);
     for (int m = 0; m < B_COUNT; m++) bad += mapCheck(g, m, nodeTotals);
+    {  // the snowfield's Watch Cairn and Frozen Fortress stand where the seed puts them: on every seed each must be reachable (the fortress door too),
+       // off the ice, inside its zone, and apart from the hub and from each other
+        const uint32_t keepSeed = g.worldSeed;
+        int badSeeds = 0;
+        float nearest = 1e9f;
+        for (uint32_t k = 1; k <= 16; k++) {
+            g.worldSeed = k * 7919u + 13u;
+            enterMap(g, B_SNOW);
+            const World& w = g.world;
+            Reach rc(w, g.p.pos);
+            V2 cairn(-1, -1), fort(-1, -1);
+            for (auto& l : w.landmarks) {
+                if (!strcmp(l.name, "WATCH CAIRN")) cairn = V2(l.x, l.y - 2 * TS);
+                if (!strcmp(l.name, "FROZEN FORTRESS")) fort = V2(l.x, l.y - 10 * TS);
+            }
+            const int ctx = (int)(cairn.x / TS), cty = (int)(cairn.y / TS), ftx = (int)(fort.x / TS), fty = (int)(fort.y / TS);
+            bool ice = false;
+            for (int y = cty - 3; y <= cty + 3; y++)  // (frozen streams may still run past the cleared yards; the big lakes must not be under them)
+                for (int x = ctx - 3; x <= ctx + 3; x++) ice = ice || (x >= 0 && y >= 0 && x < MW && y < MH && w.tile[y][x] == T_ICE);
+            for (int y = fty - 8; y <= fty + 8; y++)
+                for (int x = ftx - 8; x <= ftx + 8; x++) ice = ice || (x >= 0 && y >= 0 && x < MW && y < MH && w.tile[y][x] == T_ICE);
+            const float dHub = std::min(hypotf((float)(ctx - MAPS[B_SNOW].hubTx), (float)(cty - MAPS[B_SNOW].hubTy)), hypotf((float)(ftx - MAPS[B_SNOW].hubTx), (float)(fty - MAPS[B_SNOW].hubTy)));
+            const float dCF = hypotf((float)(ctx - ftx), (float)(cty - fty));
+            nearest = std::min(nearest, std::min(dHub, dCF));
+            const bool ok = cairn.x > 0 && fort.x > 0 && rc.nearReach(cairn.x, cairn.y + 2 * TS, 2) && rc.nearReach(fort.x, fort.y + 10 * TS, 2) && rc.nearReach(w.gate.x, w.gate.y, 2) &&
+                            !ice && dHub >= 40.f && dCF >= 30.f && ctx >= 168 && ctx <= 212 && cty >= 36 && cty <= 80 && ftx >= 150 && ftx <= 208 && fty >= 96 && fty <= 126;
+            if (!ok) {
+                printf("  PROBLEM: seed %u: cairn (%d,%d) fortress (%d,%d): ice %d, from hub %.0f, apart %.0f, gate reachable %d\n", g.worldSeed, ctx, cty, ftx, fty, (int)ice, dHub, dCF, (int)rc.nearReach(w.gate.x, w.gate.y, 2));
+                badSeeds++;
+            }
+        }
+        printf("snow landmarks over 16 seeds: %d bad (closest pair %.0f tiles apart)\n", badSeeds, nearest);
+        bad += badSeeds;
+        g.worldSeed = keepSeed;
+    }
     {
         printf("all resource nodes over the five maps:");
         for (int k = 0; k < RN_COUNT; k++) printf(" %s=%ld", NODE_NAME[k], nodeTotals[k]);

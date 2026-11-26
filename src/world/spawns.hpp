@@ -55,11 +55,12 @@ static const std::vector<SpawnDef> SPAWNS[B_COUNT] = {
     {
         {A_ARCTICFOX, 4, 12, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
         {A_SNOWHARE, 6, 6, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
-        {A_REINDEER, 4, 15, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
+        {A_REINDEER, 6, 25, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
         {A_WOLF, 3, 20, 1.0f, TM(T_SNOW) | TM(T_SNOWP), 1.0f, false, 2},  // all snow wolves are the white form
         {A_MOOSE, 2, 40, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0.5f, false, 0},
         {A_LYNX, 2, 40, 0.6f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
         {A_POLARBEAR, 1, 240, 0.12f, TM(T_SNOW) | TM(T_SNOWP), 0, false, 0},
+        {A_SEAL, 3, 30, 0.7f, TM(T_ICE), 0, false, 0},  // by the breathing holes in the frozen lakes (see streamSpawns)
     },
     // ---- mountain
     {

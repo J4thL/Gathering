@@ -22,6 +22,7 @@ enum ResId {
     // plants (by hand)
     RS_PEAR, RS_SAGE, RS_REED, RS_BOGWORT, RS_FROSTBLOOM, RS_ALPINE, RS_HERB, RS_MUSHROOM, RS_BRANCH, RS_FLAX, RS_DRYWOOD, RS_NIGHTSHADE,
     RS_BERRY, RS_WILDFLOWER,  // the homestead
+    RS_ICESPIKE,              // the snowfield's ice spikes (pickaxe; they come back one size at a time)
     RS_VOIDSTONE, RS_GLOWCAP,  // the Endless Depths only
     // tiny rocks (bare hands work)
     RS_TINYROCK,
@@ -91,6 +92,7 @@ static const ResDef RES[RS_COUNT] = {
     {"NIGHTSHADE",    RCL_PLANT, -1,      0, 1, 1.00f, {{M_NIGHTSHADE, 1, 2, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},               200, 5, 2, 0x6a2a8a},
     {"BERRY BUSH",    RCL_PLANT, -1,      0, 2, 0.60f, {{M_BERRY, 2, 4, 1.f, 0}, {M_BERRY, 1, 2, 0.35f, 0}, {-1, 0, 0, 0, 0}},             220, 0, 0, 0x7a3ad8},
     {"WILD FLOWERS",  RCL_PLANT, -1,      0, 1, 0.60f, {{M_TULIP, 1, 2, 0.7f, 0}, {M_ROSE, 1, 1, 0.35f, 0}, {M_LAVENDER, 1, 1, 0.3f, 0}},    200, 0, 0, 0xff7a8a},
+    {"ICE SPIKES",    RCL_ROCK,  TT_PICK, 1, 3, 0.85f, {{M_ICESHARD, 1, 2, 1.f, 0}, {M_ICESHARD, 1, 1, 0.4f, 0}, {-1, 0, 0, 0, 0}},     420, 0, 0, 0xd6eeff},  // a bigger spike gives more (see harvestFinish)
     {"VOID STONE",    RCL_ORE,   TT_PICK, 4, 9, 1.25f, {{M_VOIDSHARD, 1, 2, 1.f, 0}, {M_RELIC, 1, 1, 0.08f, 0}, {-1, 0, 0, 0, 0}},     1200, 0, 0, 0x8a5ad8, 30},
     {"GLOWCAPS",      RCL_PLANT, -1,      0, 1, 0.60f, {{M_GLOWCAP, 1, 3, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},               600, 0, 0, 0x3ae8c0},
     {"TINY ROCK",     RCL_ROCK,  TT_PICK, 0, 2, 0.80f, {{M_STONE, 1, 1, 1.f, 0}, {-1, 0, 0, 0, 0}, {-1, 0, 0, 0, 0}},                  240, 0, 0, 0xa9acb8},
@@ -114,13 +116,12 @@ inline int propRes(int propKind) {
         case P_BARETREE: return RS_BARETREE;
         case P_LOG: return RS_LOG;
         case P_CACTUS0: case P_CACTUS1: return RS_CACTUS;
-        case P_ROCK0: return RS_TINYROCK;      // tiny rocks: bare hands
-        case P_ROCK1: return RS_ROCK;          // small rocks: pickaxe
-        case P_SANDROCK0: return RS_TINYROCK;
-        case P_SANDROCK1: return RS_SANDROCK;
-        case P_SNOWROCK: return RS_TINYROCK;
+        case P_ROCK0: case P_ROCK1: return RS_ROCK;
+        case P_SANDROCK0: case P_SANDROCK1: return RS_SANDROCK;
+        case P_SNOWROCK: return RS_SNOWROCK;
         case P_BOULDER: case P_SANDBOULDER: return RS_BOULDER;
         case P_CRYSTAL: return RS_CRYSTAL;
+        case P_ICESPIKE: return RS_ICESPIKE;
         default: return -1;
     }
 }
@@ -136,4 +137,5 @@ inline bool protectedTile(int tx, int ty, int map = B_HOME) {
 constexpr float HAND_SPEED = 0.5f;
 constexpr float HARVEST_REACH_NODE = 20.f, HARVEST_REACH_PROP = 27.f;
 constexpr float HARVEST_HEAL_AFTER = 25.f;  // a resource left half-chopped recovers after this many seconds untouched
+constexpr float SPIKE_GROW_SECS = 90.f;     // an ice spike that has come back grows one size every this many seconds, up to the size it had
 constexpr float REGROW_FADE = 4.f;          // seconds of fade-in before a resource is solid / harvestable again

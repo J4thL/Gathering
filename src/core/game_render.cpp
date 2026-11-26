@@ -2,6 +2,7 @@
 #include <cstdio>
 #include "core/game.hpp"
 #include "core/logic_util.hpp"
+#include "devui/dev_ui.hpp"
 
 // ================================================================= 2D primitives
 void Game::fillRect(int x, int y, int w, int h, u32 c) {
@@ -20,6 +21,31 @@ void Game::sprS(const Spr& s, int sx, int sy, bool flip, float alpha, double ang
     SDL_SetTextureAlphaMod(s.t, (Uint8)(clampf(alpha, 0, 1) * 255));
     SDL_RenderCopyEx(ren, s.t, nullptr, &d, angle, pivot ? &c : nullptr, flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
     SDL_SetTextureAlphaMod(s.t, 255);
+}
+
+float Game::windLean(const Spr& s) const {
+    // downwind (windDir.x: the lean shows sideways only), harder as the wind blows, and more in a gust; proportional to the height of the sprite
+    return windDir.x * clampf(wind, 0.f, 2.f) * (0.5f + windGust) * s.ay * s.sc * 0.045f;
+}
+
+void Game::sprWLean(const Spr& s, float wx, float wy, float leanPx, bool flip) {
+    if (!s.t) return;
+    if (fabsf(leanPx) < 0.5f) {
+        sprW(s, wx, wy, flip);
+        return;
+    }
+    const int dax = flip ? (int)lroundf((s.w - 1 - s.ax) * s.sc) : (int)lroundf(s.ax * s.sc), day = (int)lroundf(s.ay * s.sc);
+    const int X = (int)floorf(wx) - camX - dax, Y = (int)floorf(wy) - camY - day;
+    const int dw = std::max(1, (int)lroundf(s.w * s.sc));
+    constexpr int STRIP = 3;
+    for (int y0 = 0; y0 < s.h; y0 += STRIP) {
+        const int sh = std::min(STRIP, s.h - y0);
+        const float above = std::max(0.f, s.ay - (y0 + sh * 0.5f)) / std::max(1.f, (float)s.ay);  // 1 at the top of the sprite, 0 at its foot
+        SDL_Rect src{0, y0, s.w, sh};
+        const int ya = (int)lroundf(y0 * s.sc), yb = (int)lroundf((y0 + sh) * s.sc);
+        SDL_Rect dst{X + (int)lroundf(leanPx * above), Y + ya, dw, std::max(1, yb - ya)};
+        SDL_RenderCopyEx(ren, s.t, &src, &dst, 0, nullptr, flip ? SDL_FLIP_HORIZONTAL : SDL_FLIP_NONE);
+    }
 }
 
 void Game::sprWSquash(const Spr& s, float wx, float wy, float sx, float sy, double angle, float alpha) {
@@ -161,8 +187,22 @@ int Game::chip(int x, int y, const Spr& ic, int have, int need) {
 void Game::drawTitle() {
     fillRect(0, 0, LW, LH, RGBA(10, 8, 20, 70));
     fillRect(0, 0, LW, 70, RGBA(10, 8, 20, 60));
+    // a vignette: the top and bottom edges darken a little, so the logo and the hints stand out from the moving world behind
+    for (int i = 0; i < 10; i++) {
+        const int a = (10 - i) * 8;
+        fillRect(0, i * 3, LW, 3, RGBA(8, 6, 16, a));
+        fillRect(0, LH - (i + 1) * 3, LW, 3, RGBA(8, 6, 16, a));
+    }
+    // drifting motes of light rising through the scene
+    for (int i = 0; i < 26; i++) {
+        const float sp = 5.f + (i % 5) * 2.5f, rise = 9.f + (i % 7) * 2.2f;
+        const float x = fmodf(i * 47.f + titleT * sp, LW + 20.f) - 10.f + sinf(titleT * 0.9f + i) * 6.f;
+        const float y = LH + 6.f - fmodf(i * 31.f + titleT * rise, LH + 12.f);
+        const float tw = 0.5f + 0.5f * sinf(titleT * 2.1f + i * 1.7f);
+        fillRect((int)x, (int)y, i % 6 == 0 ? 2 : 1, i % 6 == 0 ? 2 : 1, RGBA(255, 226, 140, (int)(40 + 110 * tw)));
+    }
     int bob = (int)(sinf(titleT * 1.6f) * 2);
-    textC(LW / 2, 22 + bob, "WILDWOOD", HEX(0xf6d96a), 6);
+    textC(LW / 2, 22 + bob, "WILDWOOD", mixc(HEX(0xf6d96a), HEX(0xfff6c0), 0.5f + 0.5f * sinf(titleT * 1.3f)), 6);  // (the gold slowly breathes)
     textC(LW / 2, 56 + bob, "HUNTER", HEX(0xf3e9d2), 6);
     textC(LW / 2, 92, "A TOP-DOWN HUNTING ADVENTURE", C_TEXT);
     if (shapeWait > 0) {  // the world is being built (a moment: every new world is checked and repaired first)
@@ -185,16 +225,46 @@ void Game::drawTitle() {
         return;
     }
     int bx = LW / 2 - 55, by = 110;
-    if (button(bx, by, 110, 20, "NEW GAME", true, HEX(0x5d7a2e))) requestNewGame();
+    // the menu works with the keyboard (up / down / Enter) and the mouse; the mouse only takes the highlight when it moves
+    static float lastMx = -1.f, lastMy = -1.f;
+    const bool mouseMoved = in.mx != lastMx || in.my != lastMy;
+    lastMx = in.mx;
+    lastMy = in.my;
+    auto item = [&](int idx, int y, const char* label, bool enabled, u32 col) {
+        if (enabled && mouseMoved && inRect(bx, y, 110, 20)) menuSel = idx;
+        const bool hit = button(bx, y, 110, 20, label, enabled, col);
+        if (menuSel == idx && enabled) {
+            const int nudge = (int)(sinf(titleT * 5.f) * 1.5f);
+            text(bx - 9 - nudge, y + 7, ">", C_GOLD);
+            text(bx + 113 + nudge, y + 7, "<", C_GOLD);
+        }
+        return hit;
+    };
+    if (item(0, by, "NEW GAME", true, HEX(0x5d7a2e))) requestNewGame();
     by += 22;
-    if (button(bx, by, 110, 20, "CONTINUE", hasSave)) {
+    if (item(1, by, "CONTINUE", hasSave, UI_BTN)) {
         if (load()) state = ST_PLAY;
     }
     by += 22;
-    if (button(bx, by, 110, 20, "SETTINGS")) openSettings();
+    if (item(2, by, "SETTINGS", true, UI_BTN)) openSettings();
     by += 22;
-    if (button(bx, by, 110, 20, "QUIT", true, HEX(0x7a3a2a))) running = false;
+    if (item(3, by, "QUIT", true, HEX(0x7a3a2a))) running = false;
+    if (hasSave && saveInfo.ok) {  // what is on the save: so a player can tell their games apart before loading one
+        const int cx = bx + 122, cy = 104, cw = 128, ch = 66;
+        panel(cx, cy, cw, ch, HEX(0x4a3524));
+        fillRect(cx + 3, cy + 3, cw - 6, 11, UI_BG);
+        text(cx + 7, cy + 6, "SAVED GAME", C_GOLD);
+        const BiomeDef& bd = BIOME[saveInfo.biome];
+        fillRect(cx + 6, cy + 18, 3, 9, bd.col);
+        text(cx + 12, cy + 17, "DAY " + S(saveInfo.day) + "  " + SEASON_NAME[saveInfo.season], C_TEXT);
+        text(cx + 12, cy + 27, bd.name, bd.col);
+        text(cx + 7, cy + 40, "KILLS " + S(saveInfo.kills), C_TEXT);
+        text(cx + 7, cy + 51, "COINS " + S(saveInfo.coins), C_GOLD);
+        text(cx + 68, cy + 40, "MAPS " + S(saveInfo.maps), C_DIM);
+        text(cx + 68, cy + 51, "GATES " + S(saveInfo.gates), C_DIM);
+    }
     textC(LW / 2, LH - 22, "HUNT  GATHER  CRAFT  TRADE", C_GOLD, 1);
+    text(LW - 78, LH - 12, "F11 FULLSCREEN", C_DIM, 1, false);
     textC(LW / 2, LH - 12, "MOVE " + keyName(K_UP) + keyName(K_LEFT) + keyName(K_DOWN) + keyName(K_RIGHT) + "   MOUSE AIM   LMB THROW   " + keyName(K_USE) + " INTERACT", C_DIM, 1);
 }
 
@@ -271,6 +341,11 @@ void Game::render() {
     }
     if (state == ST_PLAY && !p.dead) drawReticle();
     else sprS(A.cursor, (int)in.mx, (int)in.my);
+    if (cfg.showFps) {  // the frame counter (Settings > Video)
+        const std::string fs = "FPS " + S((int)(fpsAvg + 0.5f));
+        fillRect(LW - textW(fs) - 8, 2, textW(fs) + 6, 10, RGBA(10, 6, 4, 160));
+        text(LW - textW(fs) - 5, 4, fs, fpsAvg < 30.f ? C_RED : C_GOLD, 1, false);
+    }
     if (travelFade > 0) fillRect(0, 0, LW, LH, RGBA(0, 0, 0, (int)(255.f * std::min(1.f, travelFade / 0.6f))));  // fade in after a trip
 }
 
@@ -296,6 +371,7 @@ void Game::present() {
     presScale = sc;
     SDL_Rect dst{(int)offX, (int)offY, dw, dh};
     SDL_RenderCopy(ren, canvas, nullptr, &dst);
+    devui::draw(*this);  // the F1 developer panel, over the window (nothing unless built with GATHERING_DEV_UI)
     SDL_RenderPresent(ren);
 }
 

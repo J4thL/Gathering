@@ -5,6 +5,7 @@
 #include <ostream>
 #include <sstream>
 #include <string>
+#include <unordered_map>
 #include <vector>
 #include "core/audio.hpp"
 #include "core/settings.hpp"
@@ -13,6 +14,7 @@
 #include "npcs/quests.hpp"
 #include "art/sprites.hpp"
 #include "world/world.hpp"
+#include "world/bush_react.hpp"
 #include "gathering/resources.hpp"
 #include "player/skills.hpp"
 #include "world/spawns.hpp"
@@ -35,6 +37,7 @@ struct Input {
     bool l = false, lPressed = false, lReleased = false;
     bool up = false, down = false, left = false, right = false, sprint = false, e = false;
     bool ePressed = false, escPressed = false, tabPressed = false, enterPressed = false, bandage = false;
+    bool upPressed = false, downPressed = false, leftPressed = false, rightPressed = false;  // arrow-key presses, for the menus
     int selectKey = -1, wheel = 0;
     bool mapToggle = false, helpToggle = false, invToggle = false;
     bool buildToggle = false, rotPressed = false, delPressed = false, rPressed = false, mountPressed = false, commandPressed = false, dodgePressed = false, melee = false;  // melee: right mouse button or the melee key is held  // B build menu, R rotate, X demolish, right mouse button
@@ -248,6 +251,9 @@ struct Part {
     int size;
     bool grav;
 };
+struct Ripple {  // a ring spreading over water; t < 0 is a delay before it begins
+    float x, y, t, max;
+};
 struct FText {
     V2 p;
     std::string s;
@@ -293,6 +299,7 @@ struct LightSrc {
     bool occl;  // tall things (buildings, rocks) cast shadows from it
     bool night;  // only lit at night (windows, lamps), otherwise always (fires)
     bool south = false;  // lights only the ground south of it (a window on a house front: nothing leaks through to the back)
+    float edge = 0.f;    // 0 = a soft pool; towards 1 = a pool with a clear rim you can read the radius from (fires), drawn by day too
 };
 
 // harvest state of one resource (see gathering.cpp): hits already landed, regrow timers, a little shake when struck
@@ -302,6 +309,8 @@ struct HState {
     float t = 0;        // gone: seconds until it starts to regrow; damaged: seconds since the last hit
     float fade = 0;     // regrowing: seconds of sprout left
     float shake = 0;
+    uint8_t stage = 255;  // an ice spike that has come back: the size it has grown to so far (255 = full size)
+    float gt = 0;         // ... and the seconds towards the next size
 };
 struct HTarget {
     bool valid = false;
@@ -393,6 +402,9 @@ struct Game {
     std::vector<GroundItem> items;
     std::vector<Proj> projs;
     std::vector<Part> parts;
+    std::vector<Part> spin;  // snowfield wind effects: spindrift off the ridges, puffs shaken from the pines (updateSnowFx)
+    std::vector<Part> smoke;  // snowfield warmth: smoke from the hut's chimney and the campfires (updateSnowFx); Part::size = the widest the puff grows
+    std::vector<Ripple> ripples;
     std::vector<FText> ftexts;
     std::vector<Decal> decals;
     std::deque<Msg> msgs;
@@ -402,10 +414,16 @@ struct Game {
     // the wind: ONE value that everything reads (updateWeather). It always blows towards +x (east). wind 0..2 is its strength, windGust 0..1 the
     // current surge, windT is the clock the trees and grass sway by (it runs faster in a gale), rainDrift how far the rain has been carried sideways.
     float wind = 0.2f, windGust = 0.5f, windT = 0, rainDrift = 0;
+    // the wind blows towards windDir (a unit vector; windAng is its angle). It turns slowly and unevenly over time: the rain, the snow, the dust and the
+    // clouds drift with it, a hunter's scent is carried along it (sightFactor) and the clock panel shows it. cloudOfs is how far the clouds have been carried.
+    float windAng = 0.38f;
+    float windForce = -1.f, windAngForce = -100.f;  // (tests and screenshots: a fixed wind strength / direction instead of the weather's; negative / -100: not used)
+    V2 windDir = V2(0.93f, 0.37f), cloudOfs = V2(0.f, 0.f);
     float wet = 0;  // 0..1 how soaked the ground is: builds up in a storm (20 s), dries over about 90 s afterwards (darker ground, a little slippery)
     Rng rng{20261024};
     Rng frng{424243};  // wildlife extras (tiers, forms of new species, rest/feed) - the original rng sequence is untouched
     float legCool = 120.f, spawnT = 0.f, noAmmoT = 0.f;
+    float legPity = 0.f;  // bad-luck protection for legendary spawns (fauna.hpp: LEGEND_PITY_STEP)
     int shopScroll = 0;  // first visible row of the General Store BUY list
     int invAmt = 1, invAmtSlot = -1, invDrag = -1, invDragX = 0, invDragY = 0;  // pack slider amount; slot being dragged (and where the press began)
     bool invAmtDrag = false, invDragMoved = false;
@@ -437,6 +455,8 @@ struct Game {
     } loadReport;
     float spCool[A_COUNT] = {0};
     int spawnStat[A_COUNT][4] = {{0}};  // spawns per species and tier (for the --wildlife test)
+    Rng brng{616161};     // what bushes shed and how long a flushed hare runs: its own stream, so brushing a bush never moves the hunting or wildlife sequences
+    Rng snowRng{515151};  // the snowfield's wind effects only, like wrng
     Rng wrng{777001};  // weather only, so biome effects never disturb the gameplay random sequence
     int lastStep = 0;  // the walk-cycle half-step the last footstep sound was played for
     float timeAcc = 0, dayT = 0, respawnT = 0, helpT = 0, bagWarn = 0;
@@ -447,6 +467,12 @@ struct Game {
     int shopTab = 0;
     bool showMap = true;
     bool hasSave = false;
+    // what the title screen shows about the saved game (read from the first lines of save.txt; see readSaveInfo in game_save.cpp)
+    struct SaveInfo { bool ok = false; int day = 1, season = 0, biome = 0, coins = 0, kills = 0, maps = 0, gates = 0; unsigned seed = 0; } saveInfo;
+    void readSaveInfo();
+    int menuSel = 0;      // the highlighted title-screen button (0 new game, 1 continue, 2 settings, 3 quit)
+    float fpsAvg = 60.f;  // smoothed frames per second, for the FPS counter
+
     uint32_t worldSeed = WORLD_SEED;  // the seed every map of this game is generated from: random per new game, kept in the save
     bool newGameAsk = false;          // the title screen is asking "replace your saved game?"
     int shapeWait = 0;                // frames left before the new world is built: the title shows "SHAPING THE WORLD" meanwhile
@@ -479,6 +505,7 @@ struct Game {
         bool visited = false;
         std::vector<std::string> hv, st;  // harvested resources and placed structures, as save lines
         std::string disc;                 // which landmarks were discovered ('1' / '0')
+        std::string camps;                // which abandoned camps are lit ('1' / '0')
         std::string seen;                 // fog of war: one '0' / '1' per minimap cell (MM_W x MM_H); empty = nothing explored yet
         std::vector<GroundItem> items;    // thrown weapons / arrows lying on the ground
     } mapMem[B_COUNT];
@@ -628,8 +655,22 @@ struct Game {
     void updateFx(float dt);
     void updateBiome(float dt);
     void updateWeather(float dt);
+    void updateSnowFx(float dt);
+    void drawSnowDrift();
+    // snowfield ground detail: wind-carved drifts and ripples from FastNoiseLite, sampled in world pixels so they run on across tile borders. Baked in
+    // 8 x 8-tile chunks the first time they are seen; only the picture is cached, so tiles that stop being snow simply stop drawing it.
+    SDL_Texture* snowDetailChunk(int cx, int cy);
+    void freeSnowDetail();
+    // a snow cliff / plateau-face tile: cobble boulders from a Voronoi field sampled in world pixels (continuous across tiles), snow-capped where nothing
+    // is above it, then finished by the 8-neighbour mask (art/tile_edges.hpp). Baked per tile the first time it is seen.
+    const Spr* snowFaceSpr(int tx, int ty, bool cap, int cfg);
+    std::unordered_map<uint64_t, Spr> snowFaceCache;
+    std::unordered_map<int, SDL_Texture*> snowDetTex;
+    uint32_t snowDetSeed = 0;
     void climateMods(float& drain, float& regen) const;
     int landmarksFound() const;
+    void updateCamps();        // walking up to an abandoned camp's cold fire lights it: the camp is found and becomes a checkpoint
+    V2 respawnPoint() const;   // where a knocked-out hunter wakes: beside the nearest lit camp of this map, else at the map's entrance
     void throwWeapon();
     bool canUse(int w) const;
     bool useSlot(int slot);  // inventory screen: equip a weapon / use a consumable / wear a bag
@@ -697,9 +738,12 @@ struct Game {
 
     void populate();
     Animal* spawnAnimal(int kind, V2 pos, int form, int tier);
+    bool spawnHerd(int kind, V2 pos, int form, int size);  // a herd: a leader and size - 1 others close by (the pack fields): they keep to the leader and bolt together
+    void splash(V2 p);                                      // a splash of droplets and widening rings on the water (a seal diving down its hole)
     void streamSpawns(float dt);
     int liveLegendaries() const;
-    int rollTier();
+    int rollTier(int kind = -1);                // a rarity tier for a new animal of this kind (-1: no kind: the plain odds)
+    float lookLuck(int look) const;             // how much the weather and the hour favour a look (1 = not at all): ghost at night, frost in a blizzard...
     void applyTier(Animal& a, int tier);
     Animal* nearestCarcass(float maxD);
     float tod() const;
@@ -741,6 +785,13 @@ struct Game {
     float grassPuffCd = 0.f;
     void updateGrass(float dt);
     float grassBend(size_t decorIndex) const;
+    // bushes (bush_react.hpp): what a walker brushing one sets off, and the cover one gives
+    static constexpr float BUSH_REFILL = 150.f;  // seconds before a snow shrub has banked up snow again (a blizzard does it in a quarter of that)
+    std::vector<float> bushShedT, bushCd;        // per decor piece: when it dropped its snow (-1 = still snowy); when it may rustle again
+    BushDef bushDef(const Decor& d) const;
+    float bushSnowK(size_t decorIndex) const;    // 1 = banked with snow, 0 = bare twigs; between: the snow coming back
+    float bushCoverAt(V2 pos) const;             // 0..1: how well the bushes round this spot hide someone standing in it
+    void bushBrushed(size_t decorIndex, V2 who, float speed, bool hunter);
     HAnimal* riddenMount();
     HAnimal* saddledMount();
     bool toggleMount();
@@ -856,7 +907,9 @@ struct Game {
     void updateLight(float dt);                  // storms, thunder, and the list of lamps (game_light.cpp)
     void drawLighting(float night);              // darkness with pools of light, dusk and dawn colour, glows
     int rockTheme() const { return world.mapId >= 0 && world.mapId <= B_MOUNTAIN ? world.mapId : 0; }  // rock colours of the map you are in (the homestead and interiors use the forest's)
-    void drawGroundShadows();                    // tree and rock shadows that swing with the sun
+    bool visLights = true;                       // (screenshots and tests: false = the old coarse light blocking and plain glows, to compare)
+    bool lightShadows = true;                    // (screenshots and tests: switch the torch and fire shadows off to compare)
+    void drawGroundShadows(int pass = 0);        // tree and rock shadows that swing with the sun (pass 0) / that fall away from the hunter's torch and fires (pass 1)
     void drawSkyFx(float night2);                // aurora, shimmer, wisps, rain, lightning
     float lampLight(V2 pos) const;               // 0..1: how much a fire, lamp or window lights this spot at night (monsters shy away)
     void drawDelveDark();                        // darkness and light pools
@@ -867,7 +920,7 @@ struct Game {
     bool travelTo(int map, int atx, int aty, bool autosave = true);  // switch the active map; the hunter keeps everything
     void loadMapWorld(int map);        // regenerate the active world as `map` (no game state changes)
     std::string seen;                  // fog of war of the active map (see MapMem::seen)
-    void revealAround(V2 pos);         // mark the minimap cells around the hunter as explored
+    void revealAround(V2 pos, int R = 9);         // mark the minimap cells around the hunter as explored
     void snapshotMap();                // park the active map's state in mapMem
     void stashOutside();               // before entering a building or a delve: park the outside (map, spot, animals) and clear everything live
     void restoreMap();                 // put mapMem's state for the active map back
@@ -880,6 +933,8 @@ struct Game {
     bool findHarvest(HTarget& out) const;
     int bestTool(int type, int* toolIdx = nullptr) const;  // highest tool tier of a type in the pack (0 = none)
     bool harvestUp(bool node, int idx) const;
+    // the size an ice spike shows now: the size it was made with, or less while it is growing back (Prop::ph % 5 is its full size)
+    int spikeStage(int i) const { const int full = (int)world.props[i].ph % ICE_SPIKE_STAGES; return propSt[i].stage == 255 ? full : std::min(full, (int)propSt[i].stage); }
     HState& hstate(bool node, int idx) { return node ? nodeSt[idx] : propSt[idx]; }
     const HState& hstate(bool node, int idx) const { return node ? nodeSt[idx] : propSt[idx]; }
     bool lineClear(V2 a, V2 b, int ignoreTx, int ignoreTy, int ignoreTx1 = INT_MIN, int ignoreTy1 = INT_MIN) const;  // ignores the tiles from (ignoreTx, ignoreTy) to (ignoreTx1, ignoreTy1)
@@ -936,11 +991,8 @@ struct Game {
     void skillSave(std::ostream& f) const;
     void perkLoadLine(std::istringstream& ss);   // the rest of a "perk <key> <step> <choice>" line
     void skillLoadLine(std::istringstream& ss);  // the rest of a "skill <key> <xp>" line (the word "skill" is already read)
-    void drawTree(int X, int Y, int W, int H, bool craft);  // the SKILLS and CRAFT tabs as radial trees (game_tree.cpp)
-    V2 treePan[2]; float treeZoom[2] = {1.f, 1.f}; int treeSel[2] = {-1, -1};  // per tree: the view and the picked node
-    void treePickRecipe(int r);  // picks a recipe's node in the crafting tree, centred (used by the tests and could be used by a 'show me this recipe' link)
-    V2 treeCraftBtn;             // where the CRAFT button of the picked recipe was drawn last frame (screen centre)
-    bool treeDown = false, treeMoved = false; float treeDX = 0, treeDY = 0, treeLX = 0, treeLY = 0;  // a mouse press on the tree: drag or click
+    void drawSkillsTab(int X, int Y, int W, int H);
+    int skillSel = -1;  // the skill whose perk choices are open in the SKILLS tab
     // bestiary (bestiary.cpp): per-species kill counts with coin rewards at BEST_STEP kills
     void bestiaryKill(int kind, int tier = 0);
     int trophyProgress(int t) const;   // the count a trophy measures (species found, legends hunted, total kills)
@@ -1031,7 +1083,8 @@ struct Game {
     State settingsBack = ST_PLAY, helpBack = ST_PLAY;
     int helpPage = 0;
     static constexpr int HELP_PAGES = 5;
-    bool cfgDrag[2] = {false, false};
+    bool cfgDrag[3] = {false, false, false};
+    int settingsTab = 0;  // 0 audio, 1 video, 2 controls
     std::string settingsPath();
     void saveSettings();
     void loadSettings();
@@ -1105,9 +1158,12 @@ struct Game {
     }
     void shadeEnd(const Spr& s) const { SDL_SetTextureColorMod(s.t, 255, 255, 255); }
     // sprW for ground cover (grass, pebbles) and for things that stand on the ground: a shadow that falls on it darkens it
-    void sprWG(const Spr& s, float wx, float wy, bool flip = false, float k = 1.f) {
+    // a sprite leaning downwind: strips of it are shifted sideways, none at its foot and leanPx at its top (whole pixels: no resampling, so it stays crisp)
+    void sprWLean(const Spr& s, float wx, float wy, float leanPx, bool flip = false);
+    float windLean(const Spr& s) const;  // how many pixels the top of a tree or tall plant leans downwind just now (0 in a calm, a lot in a gale)
+    void sprWG(const Spr& s, float wx, float wy, bool flip = false, float k = 1.f, float leanPx = 0.f) {
         const bool sh = shadeBegin(s, wx, wy, k);
-        sprW(s, wx, wy, flip);
+        sprWLean(s, wx, wy, leanPx, flip);
         if (sh) shadeEnd(s);
     }
     void icon(const Spr& s, int cx, int cy, int size = 16, float alpha = 1.f);

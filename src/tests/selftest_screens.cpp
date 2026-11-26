@@ -173,14 +173,15 @@ void testScreensAndSaves(SelfTest& t) {
         g.p.inv.add(itemMat(M_TUSK), 1);
         g.p.inv.add(itemMat(M_ANTLER), 1);
         g.p.inv.add(itemMat(M_FUR), 1);
-        auto clickRecipe = [&](int r) {  // pick the recipe's node in the crafting tree, then click the CRAFT button on its card
-            g.invTab = 1;
-            g.treePickRecipe(r);
-            g.in.mx = 5;
-            g.in.my = 5;
-            g.render();
-            g.in.mx = g.treeCraftBtn.x;
-            g.in.my = g.treeCraftBtn.y;
+        auto clickRecipe = [&](int r) {  // click the CRAFT button of recipe r: pick its category filter, then its row in that list
+            g.craftCat = RECIPES[r].cat;
+            g.craftScroll = 0;
+            g.craftOnly = false;
+            int row = 0;
+            for (int q = 0; q < r; q++)
+                if (RECIPES[q].cat == RECIPES[r].cat) row++;
+            g.in.mx = 24 + 8 + (352 - 16 - 5) - 54 + 25;
+            g.in.my = 12 + 24 + 14 + row * 22 + 4 + 6;
             g.in.uiClick = true;
             g.render();
             g.in.uiClick = false;

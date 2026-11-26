@@ -637,3 +637,5 @@ inline Img retintRock(const Img& src, int theme) {
 
 constexpr int ROCK_THEME_DESERT = 1;  // the desert draws its own rock pictures (desert_rocks.hpp) instead of the forest ones
 #include "art/desert_rocks.hpp"
+#include "art/ore_sprites.hpp"
+#include "art/snow_rock_sprites.hpp"

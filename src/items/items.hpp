@@ -112,7 +112,7 @@ inline float matWeight(int m) {
         /*COPPER*/ 2.5f, /*IRON*/ 3.0f, /*GOLD*/ 4.0f, /*AMBER*/ 0.3f, /*CRYSTAL*/ 0.5f,
         /*ROPE*/ 0.4f, /*COPPERBAR*/ 2.0f, /*IRONBAR*/ 2.5f, /*GOLDBAR*/ 3.5f,
         // trophies: small, exclusive pieces
-        0.2f, 0.3f, 0.4f, 0.3f,  0.1f, 0.1f, 0.2f, 0.2f, 0.1f, 0.2f, 0.4f,  0.2f, 0.1f, 0.4f, 0.2f, 0.3f, 0.3f,  0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.3f,  0.3f, 0.4f, 0.1f, 0.3f, 0.2f,
+        0.2f, 0.3f, 0.4f, 0.3f,  0.1f, 0.1f, 0.2f, 0.2f, 0.1f, 0.2f, 0.4f,  0.2f, 0.1f, 0.4f, 0.2f, 0.3f, 0.3f,  0.1f, 0.2f, 0.2f, 0.3f, 0.3f, 0.3f,  0.3f, 0.4f, 0.1f, 0.3f, 0.2f, 0.05f,
         /*FAT*/ 0.5f,
         /*PLANK*/ 1.5f, /*LEATHER*/ 1.0f, /*BONEFRAG*/ 0.2f, /*EXTRACT*/ 0.1f, /*GREASE*/ 0.3f,
         /*ROSE*/ 0.05f, /*TULIP*/ 0.05f, /*LAVENDER*/ 0.05f, /*SUNFLOWER*/ 0.1f, /*BOUQUET*/ 0.3f,
@@ -138,7 +138,7 @@ inline const std::array<ItemDef, ITEM_COUNT>& itemTable() {
         std::array<ItemDef, ITEM_COUNT> t{};
         for (int m = 0; m < M_COUNT; m++) t[itemMat(m)] = {MAT_NAME[m], IK_MATERIAL, STACK_MAT, MAT_PRICE[m], MAT_PRICE[m] >= 20 ? 2 : (MAT_PRICE[m] >= 12 ? 1 : 0), MAT_BLURB[m], m, 0};
         for (int w = 0; w < W_COUNT; w++)
-            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? STACK_GEAR : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
+            t[itemWpn(w)] = {WPN[w].name, isLauncher(w) ? IK_LAUNCHER : IK_THROWN, isLauncher(w) ? 1 : STACK_WPN, 0, 0, WPN[w].blurb, w, 0};
         for (int a = 0; a < AM_COUNT; a++) t[itemAmmo(a)] = {AMMO[a].name, IK_AMMO, STACK_AMMO, 1, 0, "USED UP WHEN IT HITS, A MISS CAN BE PICKED UP", a, 0};
         t[ITEM_CONS0 + C_BANDAGE] = {"BANDAGE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 45 HP", C_BANDAGE, 0};
         t[ITEM_CONS0 + C_SALVE] = {"HERBAL SALVE", IK_CONSUMABLE, STACK_CONS, 0, 0, "HEALS 30 HP - MADE FROM WILD HERBS", C_SALVE, 0};

@@ -182,6 +182,7 @@ void Game::harvestFinish(const HTarget& t) {
         n[k] = grng.irange(y.lo, y.hi);
     }
     bool bonus = false;
+    if (n[0] > 0 && t.res == RS_ICESPIKE && !t.node) n[0] += spikeStage(t.idx) / 2;  // a bigger spike is more ice: 0, 0, 1, 1 or 2 pieces more
     if (n[0] > 0 && R.cls == RCL_PLANT && grng.chance(skillBonus(SK_FORAGING))) {  // a keen forager finds an extra plant
         n[0]++;
         bonus = true;
@@ -274,6 +275,10 @@ void Game::updateHarvest(float dt) {
                     s.done = 0;
                     s.t = 0;
                     keep = false;
+                    if (!node && world.props[idx].kind == P_ICESPIKE && (int)world.props[idx].ph % ICE_SPIKE_STAGES > 0) {  // an ice spike comes back small and grows
+                        s.stage = 0;
+                        s.gt = 0;
+                    }
                 }
             }
         } else {  // damaged but not finished: it recovers if left alone
@@ -283,6 +288,16 @@ void Game::updateHarvest(float dt) {
                 s.t = 0;
                 keep = false;
             }
+        }
+        if (!node && s.stage != 255 && !s.gone) {  // a spike that has come back grows one size at a time, until it is the size it was
+            if (s.fade <= 0) {
+                s.gt += dt;
+                if (s.gt >= SPIKE_GROW_SECS) {
+                    s.gt = 0;
+                    if (++s.stage >= (int)world.props[idx].ph % ICE_SPIKE_STAGES) s.stage = 255;
+                }
+            }
+            if (s.stage != 255) keep = true;
         }
         if (keep) i++;
         else hActive.erase(hActive.begin() + i);

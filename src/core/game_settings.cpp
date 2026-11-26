@@ -14,6 +14,7 @@ void Game::saveSettings() {
     std::ofstream f(settingsPath(), std::ios::trunc);
     if (!f) return;
     f << "sfx " << cfg.sfx << "\namb " << cfg.amb << "\nmuted " << (audio.muted ? 1 : 0) << "\nhires2 " << (cfg.hiRes ? 1 : 0) << "\nwindow " << winW << ' ' << winH << "\nfullscreen " << (fullscreen ? 1 : 0) << "\n";
+    f << "shake " << cfg.shake << "\nshowfps " << (cfg.showFps ? 1 : 0) << "\n";
     for (int i = 0; i < K_COUNT; i++) f << "key " << i << ' ' << (int)cfg.key[i] << "\n";
 }
 
@@ -56,6 +57,8 @@ void Game::loadSettings() {
         else if (k == "amb" && ss >> a) cfg.amb = (int)std::max(0LL, std::min(10LL, a));
         else if (k == "muted" && ss >> a) audio.muted = a != 0;
         else if (k == "hires2" && ss >> a) cfg.hiRes = a != 0;
+        else if (k == "shake" && ss >> a) cfg.shake = (int)std::max(0LL, std::min(10LL, a));
+        else if (k == "showfps" && ss >> a) cfg.showFps = a != 0;
         else if (k == "key" && ss >> a >> b && a >= 0 && a < K_COUNT && !keyReserved((SDL_Scancode)b) && b > 0 && b < SDL_NUM_SCANCODES) cfg.key[a] = (SDL_Scancode)b;
     }
     // a hand-edited file must not bind one key to two actions
@@ -98,6 +101,10 @@ void Game::openSettings() {
 
 void Game::updateSettings(float dt) {
     updateFx(dt);
+    if (rebind < 0) {  // left / right turn the pages
+        if (in.rightPressed) settingsTab = (settingsTab + 1) % 3;
+        if (in.leftPressed) settingsTab = (settingsTab + 2) % 3;
+    }
     if (in.escPressed && rebind < 0) {
         state = settingsBack;
         saveSettings();
@@ -106,53 +113,91 @@ void Game::updateSettings(float dt) {
 
 void Game::drawSettings() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 170));
-    const int X = 40, Y = 8, W = 320, H = 216;
+    const int X = 40, Y = 8, W = 320, H = 208;
     panel(X, Y, W, H, HEX(0x4a3524));
     fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, "SETTINGS", C_GOLD);
-    // ---- audio
-    text(X + 10, Y + 24, "SOUND EFFECTS", C_TEXT);
-    int v = cfg.sfx + 1;
-    sliderBar(X + 110, Y + 27, 150, v, 11, cfgDrag[0]);
-    if (cfg.sfx != v - 1) {
-        cfg.sfx = v - 1;
-        audio.sfxVol = cfg.sfx / 10.f;
+    textC(X + W - 56, Y + 7, "< > SWITCH PAGE", C_DIM, 1, false);
+    // ---- the pages
+    static const char* TABS[3] = {"AUDIO", "VIDEO", "CONTROLS"};
+    for (int t = 0; t < 3; t++)
+        if (button(X + 10 + t * 76, Y + 22, 72, 14, TABS[t], true, settingsTab == t ? HEX(0x7a5a1e) : HEX(0x3f3220))) {
+            settingsTab = t;
+            rebind = -1;
+            cfgDrag[0] = cfgDrag[1] = cfgDrag[2] = false;
+        }
+    fillRect(X + 8, Y + 39, W - 16, 1, HEX(0x6a5030));
+    const int cy = Y + 48;
+    if (settingsTab == 0) {  // ---- audio
+        text(X + 10, cy, "SOUND EFFECTS", C_TEXT);
+        int v = cfg.sfx + 1;
+        sliderBar(X + 110, cy + 3, 150, v, 11, cfgDrag[0]);
+        if (cfg.sfx != v - 1) {
+            cfg.sfx = v - 1;
+            audio.sfxVol = cfg.sfx / 10.f;
+        }
+        text(X + 270, cy, S(cfg.sfx), C_GOLD);
+        text(X + 10, cy + 16, "AMBIENCE", C_TEXT);
+        v = cfg.amb + 1;
+        sliderBar(X + 110, cy + 19, 150, v, 11, cfgDrag[1]);
+        cfg.amb = v - 1;
+        text(X + 270, cy + 16, S(cfg.amb), C_GOLD);
+        if (button(X + 10, cy + 38, 110, 14, audio.muted ? "SOUND: OFF" : "SOUND: ON", true, audio.muted ? HEX(0x7a3a2a) : HEX(0x4a5a2e))) audio.muted = !audio.muted;
+        text(X + 10, cy + 60, "SOUND EFFECTS: HITS, FOOTSTEPS, THE FIRE'S CRACKLE.", C_DIM, 1, false);
+        text(X + 10, cy + 70, "AMBIENCE: WIND, RAIN, WATER AND ANIMALS.", C_DIM, 1, false);
+    } else if (settingsTab == 1) {  // ---- video
+        if (button(X + 10, cy, 134, 14, fullscreen ? "FULLSCREEN: ON" : "FULLSCREEN: OFF", true, fullscreen ? HEX(0x4a5a2e) : HEX(0x3f3220))) {
+            fullscreen = !fullscreen;
+            SDL_SetWindowFullscreen(win, fullscreen ? SDL_WINDOW_FULLSCREEN_DESKTOP : 0);
+            saveSettings();
+            audio.play(S_CLICK, 0.5f);
+        }
+        text(X + 152, cy + 4, "(F11 DOES THE SAME)", C_DIM, 1, false);
+        // hi-res: sprites and text are drawn with EPX2 smoothing at double resolution; the sprites are built at start-up, so it applies after a restart
+        if (button(X + 10, cy + 20, 134, 14, cfg.hiRes ? "HI-RES: ON" : "HI-RES: OFF", true, cfg.hiRes ? HEX(0x4a5a2e) : HEX(0x3f3220))) {
+            cfg.hiRes = !cfg.hiRes;
+            saveSettings();
+            audio.play(S_CLICK, 0.5f);
+        }
+        if (cfg.hiRes != (LS > 1)) text(X + 152, cy + 24, "RESTART THE GAME TO APPLY", C_ORANGE, 1, false);
+        else text(X + 152, cy + 24, "SMOOTHER SPRITES AND TEXT", C_DIM, 1, false);
+        if (button(X + 10, cy + 40, 134, 14, cfg.showFps ? "SHOW FPS: ON" : "SHOW FPS: OFF", true, cfg.showFps ? HEX(0x4a5a2e) : HEX(0x3f3220))) {
+            cfg.showFps = !cfg.showFps;
+            saveSettings();
+            audio.play(S_CLICK, 0.5f);
+        }
+        text(X + 152, cy + 44, "A FRAME COUNTER IN THE CORNER", C_DIM, 1, false);
+        text(X + 10, cy + 64, "SCREEN SHAKE", C_TEXT);
+        int v = cfg.shake + 1;
+        sliderBar(X + 110, cy + 67, 150, v, 11, cfgDrag[2]);
+        cfg.shake = v - 1;
+        text(X + 270, cy + 64, S(cfg.shake), C_GOLD);
+        text(X + 10, cy + 80, cfg.shake == 0 ? "NO SHAKE WHEN YOU ARE HIT OR A BOSS ROARS." : "HOW MUCH THE SCREEN SHAKES ON HITS AND BOSS BLOWS (0 = NONE).", C_DIM, 1, false);
+        text(X + 10, cy + 96, "WINDOW: " + S(winW) + " X " + S(winH) + " - THE SIZE IS REMEMBERED", C_DIM, 1, false);
+    } else {  // ---- controls
+        text(X + 10, cy - 2, "CLICK A KEY, THEN PRESS THE NEW ONE", C_GOLD);
+        const int cw = (W - 20) / 2, per = (K_COUNT + 1) / 2;
+        for (int i = 0; i < K_COUNT; i++) {
+            const int x = X + 10 + (i / per) * (cw + 4), y = cy + 8 + (i % per) * 13;
+            text(x, y + 3, KEYINFO[i].label, C_TEXT);
+            const std::string nm = rebind == i ? "PRESS A KEY" : keyName(i);
+            if (button(x + 72, y, cw - 74, 11, nm, true, rebind == i ? HEX(0x7a5a1e) : HEX(0x3f3220))) rebind = rebind == i ? -1 : i;
+        }
+        const int fy = cy + 8 + per * 13 + 2;
+        textC(X + W / 2, fy, "FIXED: 1-8 HOTBAR, ARROWS, TAB, ENTER, ESC, F11", C_DIM, 1, false);
+        if (button(X + 10, Y + H - 22, 90, 14, "DEFAULT KEYS", true, HEX(0x4a3a5e))) {
+            cfg.resetKeys();
+            rebind = -1;
+        }
     }
-    text(X + 270, Y + 24, S(cfg.sfx), C_GOLD);
-    text(X + 10, Y + 38, "AMBIENCE", C_TEXT);
-    v = cfg.amb + 1;
-    sliderBar(X + 110, Y + 41, 150, v, 11, cfgDrag[1]);
-    cfg.amb = v - 1;
-    text(X + 270, Y + 38, S(cfg.amb), C_GOLD);
-    if (button(X + W - 78, Y + 4, 70, 11, audio.muted ? "MUTED" : "SOUND ON", true, audio.muted ? HEX(0x7a3a2a) : HEX(0x4a5a2e))) audio.muted = !audio.muted;
-    // ---- keys
-    text(X + 10, Y + 54, "CONTROLS  (CLICK ONE, THEN PRESS A KEY)", C_GOLD);
-    const int cw = (W - 20) / 2, per = (K_COUNT + 1) / 2;
-    for (int i = 0; i < K_COUNT; i++) {
-        const int x = X + 10 + (i / per) * (cw + 4), y = Y + 66 + (i % per) * 15;
-        text(x, y + 3, KEYINFO[i].label, C_TEXT);
-        const std::string nm = rebind == i ? "PRESS A KEY" : keyName(i);
-        if (button(x + 72, y, cw - 74, 13, nm, true, rebind == i ? HEX(0x7a5a1e) : HEX(0x3f3220))) rebind = rebind == i ? -1 : i;
-    }
-    const int fy = Y + 66 + per * 15 + 4;
-    textC(X + W / 2, fy, "FIXED: 1-8 HOTBAR, ARROWS, TAB, ENTER, ESC, F11", C_DIM, 1, false);
-    if (button(X + 10, Y + H - 22, 90, 14, "DEFAULT KEYS", true, HEX(0x4a3a5e))) {
-        cfg.resetKeys();
-        rebind = -1;
-    }
-    // hi-res: sprites and text are drawn with EPX2 smoothing at double resolution; the sprites are built at start-up, so it applies after a restart
-    if (button(X + 108, Y + H - 22, 104, 14, cfg.hiRes ? "HI-RES: ON" : "HI-RES: OFF", true, cfg.hiRes ? HEX(0x4a5a2e) : HEX(0x3f3220))) {
-        cfg.hiRes = !cfg.hiRes;
-        saveSettings();
-        audio.play(S_CLICK, 0.5f);
-    }
-    if (cfg.hiRes != (LS > 1)) textC(X + W / 2, Y + H - 33, "RESTART THE GAME TO APPLY HI-RES", C_ORANGE, 1, false);
-    else textC(X + W / 2, Y + H - 33, "HI-RES: SMOOTHER SPRITES AND TEXT (NEEDS A RESTART)", C_DIM, 1, false);
     if (button(X + W - 70, Y + H - 22, 60, 14, "BACK", true, HEX(0x5d7a2e))) {
         state = settingsBack;
         saveSettings();
     }
-    if (!in.l) cfgDrag[0] = cfgDrag[1] = false;
+    if (!in.l) {
+        if (cfgDrag[0] || cfgDrag[1] || cfgDrag[2]) saveSettings();  // (a slider was let go)
+        cfgDrag[0] = cfgDrag[1] = cfgDrag[2] = false;
+    }
 }
 
 // ---------------------------------------------------------------- HELP pages

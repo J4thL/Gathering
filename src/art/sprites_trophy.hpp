@@ -1,4 +1,4 @@
-// sprites_trophy.hpp - inventory icons for the 28 trophy materials and animal fat, drawn in code like every other sprite.
+// sprites_trophy.hpp - inventory icons for the 29 trophy materials and animal fat, drawn in code like every other sprite.
 //
 // Each trophy is a small SHAPE (fang, tail, feather, paw ...) in the species' own colours, so the table below is the only thing to
 // edit to restyle or add one. Index = material - M_TROPHY0, which is also the species' index in the Kind enum (fauna.hpp).
@@ -41,6 +41,7 @@ static const TrophyArt TROPHY_ART[M_TROPHY_N] = {
     {TS_FEATHER, HEX(0xe8b838), HEX(0xfff0a0), HEX(0x8a5a20), 0},   // golden plume
     {TS_PELT, HEX(0xb08a60), HEX(0xd8b888), HEX(0x70502c), 0},      // marmot pelt
     {TS_FANG, HEX(0xefe4cc), HEX(0xffffff), HEX(0xc0a070), 2},      // cougar fang
+    {TS_BRISTLE, HEX(0xe8eaee), HEX(0xffffff), HEX(0x8a9098), 0},   // seal whisker
 };
 
 inline Img mkIconTrophy(int m) {
