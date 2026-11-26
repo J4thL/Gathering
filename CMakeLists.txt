@@ -13,6 +13,7 @@ set(WILDWOOD_CORE
     src/core/game_prints.cpp
     src/core/game_tracks.cpp
     src/core/game_boss.cpp
+    src/combat/melee.cpp
     src/core/game_save.cpp
     src/core/game_animals.cpp
     src/core/game_player.cpp
@@ -65,10 +66,12 @@ set(WILDWOOD_TESTS
     src/tests/selftest_screens.cpp
     src/tests/selftest_world.cpp
     src/tests/selftest_weather.cpp
+    src/tests/selftest_snow.cpp
     src/tests/selftest_skills.cpp
     src/tests/selftest_town.cpp
     src/tests/delve_tests.cpp
     src/tests/homestead_tests.cpp
+    src/tests/boss_tests.cpp
     src/tests/soak_tests.cpp
     src/tests/weapon_tests.cpp
     src/tests/world_check.cpp)
@@ -78,6 +81,22 @@ target_include_directories(wildwood PRIVATE src)  # includes are written module-
 
 if(WIN32)
   target_sources(wildwood PRIVATE src/core/win_console.cpp)
+endif()
+
+# The F1 developer panel (Dear ImGui, src/third_party/imgui): off by default, and a build without it contains none of that code.
+#   cmake -DWILDWOOD_DEV_UI=ON ..
+option(WILDWOOD_DEV_UI "Build the F1 developer panel (Dear ImGui)" OFF)
+if(WILDWOOD_DEV_UI)
+  target_sources(wildwood PRIVATE
+    src/devui/dev_ui.cpp
+    src/third_party/imgui/imgui.cpp
+    src/third_party/imgui/imgui_draw.cpp
+    src/third_party/imgui/imgui_tables.cpp
+    src/third_party/imgui/imgui_widgets.cpp
+    src/third_party/imgui/imgui_impl_sdl2.cpp
+    src/third_party/imgui/imgui_impl_sdlrenderer2.cpp)
+  target_include_directories(wildwood PRIVATE src/third_party/imgui)
+  target_compile_definitions(wildwood PRIVATE GATHERING_DEV_UI)
 endif()
 
 find_package(Threads REQUIRED)  # the 3D animal models are drawn on several threads at start-up
