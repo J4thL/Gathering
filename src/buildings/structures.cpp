@@ -317,7 +317,7 @@ void Game::drawChest() {
     fillRect(0, 0, LW, LH, RGBA(10, 6, 4, 150));
     const int X = 24, Y = 12, W = 352, H = 200;
     panel(X, Y, W, H, HEX(0x4a3524));
-    fillRect(X + 3, Y + 3, W - 6, 14, skinFill(UI_BG));
+    fillRect(X + 3, Y + 3, W - 6, 14, UI_BG);
     text(X + 8, Y + 7, hsBld ? (hsPiece(hsChestPiece) ? HPDEF[hsPiece(hsChestPiece)->kind].name : "STORAGE") : "STORAGE CHEST", C_GOLD);
     const int cap = p.bagCap();
     textC(X + W / 2 + 40, Y + 7, "CLICK: MOVE THE STACK    RIGHT CLICK: CHOOSE HOW MANY", C_DIM, 1, false);

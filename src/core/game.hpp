@@ -986,6 +986,7 @@ struct Game {
     const Spr& itemIcon(int id) const;
     std::string craftBlock(int r) const;  // "" when the recipe can be made now, otherwise why not (short, upper case)
     bool hasIngredients(const Recipe& R) const;
+    void drawCraftTab(int X, int Y, int W, int H);
     // skills (skills.cpp)
     int grantXp(int skill, int amount);          // adds XP, shows the toast, announces level-ups; returns levels gained
     void skillSave(std::ostream& f) const;

@@ -299,7 +299,7 @@ void Game::targetCanvas() {
 }
 
 void Game::render() {
-    targetCanvas();
+    SDL_SetRenderTarget(ren, canvas);
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);
@@ -377,7 +377,7 @@ void Game::present() {
 
 void Game::saveCanvas(const char* path) {
     SDL_SetRenderTarget(ren, canvas);
-    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, LW * LS, LH * LS, 32, SDL_PIXELFORMAT_ARGB8888);
+    SDL_Surface* s = SDL_CreateRGBSurfaceWithFormat(0, LW, LH, 32, SDL_PIXELFORMAT_ARGB8888);
     SDL_RenderReadPixels(ren, nullptr, SDL_PIXELFORMAT_ARGB8888, s->pixels, s->pitch);
     SDL_SaveBMP(s, path);
     SDL_FreeSurface(s);
