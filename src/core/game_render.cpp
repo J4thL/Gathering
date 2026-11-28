@@ -299,7 +299,7 @@ void Game::targetCanvas() {
 }
 
 void Game::render() {
-    SDL_SetRenderTarget(ren, canvas);
+    targetCanvas();  // (not a bare SDL_SetRenderTarget: that leaves the scale at 1 and hi-res draws into the top-left quarter)
     SDL_SetRenderDrawBlendMode(ren, SDL_BLENDMODE_NONE);
     SDL_SetRenderDrawColor(ren, 0, 0, 0, 255);
     SDL_RenderClear(ren);

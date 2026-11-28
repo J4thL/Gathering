@@ -855,6 +855,7 @@ void Game::drawGroundShadows(int pass) {
         }
     }
     SDL_SetRenderTarget(ren, prevTarget);
+    SDL_RenderSetScale(ren, (float)LS, (float)LS);  // switching targets reset the scale to 1; the canvas wants LS again
     SDL_Rect whole{0, 0, LW, LH};
     SDL_RenderCopy(ren, shadowModTex, nullptr, &whole);  // multiplied over the ground (the texture's blend mode is MOD)
 }
